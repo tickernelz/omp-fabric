@@ -58,9 +58,8 @@ describe("resolveSessionExportDir", () => {
 
   it("defaults to the OMP Fabric agent directory", () => {
     delete process.env[SESSION_EXPORT_ENV];
-    expect(resolveSessionExportDir(config(true))).toBe(
-      path.join(os.homedir(), ".omp", "agent", "fabric"),
-    );
+    const agentDir = process.env.PI_CODING_AGENT_DIR ?? path.join(os.homedir(), ".omp", "agent");
+    expect(resolveSessionExportDir(config(true))).toBe(path.join(agentDir, "fabric"));
   });
 
   it("prefers the env override over the configured directory", () => {
