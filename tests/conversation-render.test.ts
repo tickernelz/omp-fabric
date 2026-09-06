@@ -7,7 +7,7 @@ import {
 } from "@oh-my-pi/pi-coding-agent";
 import type { AssistantMessage } from "@oh-my-pi/pi-ai";
 import { Text, visibleWidth, type TUI } from "@oh-my-pi/pi-tui";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { createFabricPersistedExecutionDetails } from "../src/audit/index.js";
 import { FabricExecutionTraceRecorder } from "../src/audit/trace.js";
 import { createFabricExecTool } from "../src/fabric-exec-tool.js";
@@ -23,7 +23,14 @@ import type {
   NativeToolExecution,
 } from "../src/ui/conversation-native-reader.js";
 import type { FabricConversationTarget } from "../src/ui/conversation.js";
-import { initHighlighting } from "../src/ui/highlight.js";
+import { highlightCode, initHighlighting } from "../src/ui/highlight.js";
+
+// Shiki's first initialization needs real timers, and it caches into module
+// state, so warm it once before any test installs the fake clock below.
+beforeAll(async () => {
+  initThemeSync(undefined, false, "dark");
+  await initHighlighting("dark-plus", true);
+}, 30_000);
 
 // Spinner frames tick every 250ms; pin the clock so ANSI/wrap assertions are
 // deterministic across GC pauses.
@@ -150,27 +157,39 @@ describe("focused conversation native component rendering", () => {
   });
 
   it("renders fabric_exec through the native OMP tool surface with Shiki truecolor", async () => {
-    initThemeSync(undefined, false, "dark");
-    await initHighlighting("dark-plus", true);
-    const fabricTool = fabricToolFor();
-    const getToolDefinition: FabricGetToolDefinition = (name) =>
-      name === "fabric_exec" ? fabricTool : undefined;
-    const renderer = new FabricConversationTranscriptRenderer(tui, theme, { getToolDefinition });
-    const args = {
-      code: "const result = await omp.read({ path: \"src/example.ts\" });\nreturn result;",
-      display: { name: "Inspect example" },
-    };
-    const tool: NativeToolExecution = {
-      toolCallId: "call-1", toolName: "fabric_exec", args, status: "completed",
-      result: { content: [{ type: "text", text: "done" }], details: {} }, isError: false,
-    };
-    const lines = render(renderer, makeTranscript({ tools: [tool] }), 80);
-    const text = lines.join("\n");
-    expect(text).toContain("Inspect example");
-    expect(text).toContain("\x1b[38;2;"); // Shiki truecolor from the real callbacks
-    // Same rows as constructing the native component like interactive-mode does.
-    expect(plain(lines).join("\n")).toContain("done");
-  }, 15000);
+    // The assertion is about truecolor escapes, so advertise a truecolor
+    // terminal: OMP downgrades to 256-color when the environment does not.
+    vi.stubEnv("COLORTERM", "truecolor");
+    try {
+      initThemeSync(undefined, false, "dark");
+      await initHighlighting("dark-plus", true);
+      const fabricTool = fabricToolFor();
+      const getToolDefinition: FabricGetToolDefinition = (name) =>
+        name === "fabric_exec" ? fabricTool : undefined;
+      const renderer = new FabricConversationTranscriptRenderer(tui, theme, { getToolDefinition });
+      const args = {
+        code: "const result = await omp.read({ path: \"src/example.ts\" });\nreturn result;",
+        display: { name: "Inspect example" },
+      };
+      const tool: NativeToolExecution = {
+        toolCallId: "call-1", toolName: "fabric_exec", args, status: "completed",
+        result: { content: [{ type: "text", text: "done" }], details: {} }, isError: false,
+      };
+      // Constructing the tool re-resolves the preview theme, which restarts
+      // Shiki. Wait on the highlighter itself so a slow or failed grammar load
+      // reports as an unready highlighter rather than an unhighlighted frame.
+      await vi.waitFor(() => {
+        expect(highlightCode("const result = 42;\n", "typescript")).not.toBeNull();
+      }, { timeout: 60_000 });
+      const lines = render(renderer, makeTranscript({ tools: [tool] }), 80);
+      expect(lines.join("\n")).toContain("Inspect example");
+      expect(lines.join("\n")).toContain("\x1b[38;2;");
+      // Same rows as constructing the native component like interactive-mode does.
+      expect(plain(lines).join("\n")).toContain("done");
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  }, 90_000);
 
   it("passes full persisted execution details through to renderResult for partial and final updates", async () => {
     initThemeSync(undefined, false, "dark");

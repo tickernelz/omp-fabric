@@ -1,4 +1,5 @@
 import { execFile, spawn } from "node:child_process";
+import { accessSync, constants, statSync } from "node:fs";
 import path from "node:path";
 
 export interface ExecFileResult {
@@ -32,9 +33,41 @@ export const executeFile = (
     );
   });
 
-export const commandAvailable = async (command: string): Promise<boolean> => {
+// Resolve against the caller's own PATH. A shell probe cannot: `sh -lc` rebuilds
+// PATH from the login profile, which drops per-session managers (fnm, nvm, the
+// CI tool cache) and reports an installed runtime as missing.
+export const commandAvailable = async (command: string): Promise<boolean> =>
+  resolveCommandPath(command) !== undefined;
+
+const resolveCommandPath = (
+  command: string,
+  env: NodeJS.ProcessEnv = process.env,
+): string | undefined => {
+  if (command.includes("/") || command.includes("\\")) {
+    return isExecutableFile(command) ? command : undefined;
+  }
+  const extensions = process.platform === "win32"
+    ? (env.PATHEXT ?? ".COM;.EXE;.BAT;.CMD").split(";").filter(Boolean)
+    : [""];
+  for (const directory of (env.PATH ?? "").split(path.delimiter)) {
+    if (!directory) continue;
+    for (const extension of extensions) {
+      const candidate = path.join(directory, `${command}${extension}`);
+      if (isExecutableFile(candidate)) return candidate;
+    }
+  }
+  return undefined;
+};
+
+const isExecutableFile = (candidate: string): boolean => {
   try {
-    await executeFile("sh", ["-lc", `command -v ${shellQuote(command)}`], { timeoutMs: 2_000 });
+    if (!statSync(candidate).isFile()) return false;
+  } catch {
+    return false;
+  }
+  if (process.platform === "win32") return true;
+  try {
+    accessSync(candidate, constants.X_OK);
     return true;
   } catch {
     return false;
@@ -113,7 +146,8 @@ const resolveScriptRuntimeUncached = async (options: ScriptRuntimeOptions = {}):
   const override = runtimeOverride(env);
   if (override) return override;
   for (const candidate of requireNode ? ["node"] : requireBun ? ["bun"] : ["node", "bun"]) {
-    if (await commandAvailable(candidate)) return candidate;
+    const resolved = resolveCommandPath(candidate, env);
+    if (resolved) return resolved;
   }
   throw missingRuntimeError(execPath, requireNode, requireBun);
 };
@@ -134,10 +168,10 @@ export const resolveScriptRuntime = async (options?: ScriptRuntimeOptions): Prom
   return cachedDefaultRuntime;
 };
 
-// Synchronous variant for callers that already run under a real runtime (e.g.
-// the worker, which a transport always launches via the resolved runtime). No
-// PATH lookup; throws if the current process is the bundled binary with no
-// override set.
+// Synchronous variant for callers that run inside the host process (the
+// Node-process executor) or already under a real runtime (the worker). It
+// resolves the same way as the async form; the PATH scan is a handful of stat
+// calls and only runs when process.execPath is not itself node/bun.
 export const resolveScriptRuntimeSync = (options: ScriptRuntimeOptions = {}): string => {
   const execPath = options.execPath ?? process.execPath;
   const env = options.env ?? process.env;
@@ -149,6 +183,10 @@ export const resolveScriptRuntimeSync = (options: ScriptRuntimeOptions = {}): st
   }
   const override = runtimeOverride(env);
   if (override) return override;
+  for (const candidate of requireNode ? ["node"] : requireBun ? ["bun"] : ["node", "bun"]) {
+    const resolved = resolveCommandPath(candidate, env);
+    if (resolved) return resolved;
+  }
   throw missingRuntimeError(execPath, requireNode, requireBun);
 };
 

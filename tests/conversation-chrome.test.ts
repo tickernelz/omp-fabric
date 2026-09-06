@@ -8,7 +8,7 @@ import { describe, expect, it, vi } from "vitest";
 import { conversationFooter, readConversationAppearance } from "../src/ui/conversation-chrome.js";
 import { FabricConversationState, FabricConversationView, type FabricConversationTarget } from "../src/ui/conversation.js";
 import { FabricConversationTranscriptRenderer } from "../src/ui/conversation-render.js";
-import { initHighlighting } from "../src/ui/highlight.js";
+import { highlightCode, initHighlighting } from "../src/ui/highlight.js";
 import { nativeTranscript, userMessage, assistantMessage } from "./fixtures/native-conversation.js";
 
 const theme = {
@@ -48,19 +48,33 @@ describe("native conversation chrome", () => {
   });
 
   it("renders Shiki truecolor fences and native tool backgrounds", async () => {
-    await initHighlighting("dark-plus", true);
-    const bg = vi.fn((_color: string, text: string) => text);
-    const renderer = new FabricConversationTranscriptRenderer(tui, { ...theme, bg } as unknown as Theme);
-    const lines = renderer.render(nativeTranscript([
-      assistantMessage("```typescript\nconst result = 42;\n```"),
-      { ...assistantMessage("", 3), content: [{ type: "toolCall", id: "tool", name: "read", arguments: { path: "src/example.ts" } }] },
-      { role: "toolResult", toolCallId: "tool", toolName: "read", content: [{ type: "text", text: "const result = 42;" }], isError: false, timestamp: 4 },
-    ]), 80, { target, toolsExpanded: true, codeBlockIndent: "    " });
-    expect(lines.join("\n")).toContain("\x1b[38;2;");
-    expect(lines.some((line) => line.includes("\x1b[48;"))).toBe(true);
-    expect(lines.every((line) => visibleWidth(line) <= 80)).toBe(true);
-    expect(plain(lines).find((line) => line.includes("const result"))).toBe("const result = 42;");
-  }, 15000);
+    // The assertion is about truecolor escapes, so advertise a truecolor
+    // terminal: OMP downgrades to 256-color when the environment does not.
+    vi.stubEnv("COLORTERM", "truecolor");
+    try {
+      initThemeSync(undefined, false, "dark");
+      await initHighlighting("dark-plus", true);
+      const bg = vi.fn((_color: string, text: string) => text);
+      const renderer = new FabricConversationTranscriptRenderer(tui, { ...theme, bg } as unknown as Theme);
+      // Constructing the renderer re-resolves the preview theme, which restarts
+      // Shiki. Wait on the highlighter itself so a slow or failed grammar load
+      // reports as an unready highlighter rather than an unhighlighted frame.
+      await vi.waitFor(() => {
+        expect(highlightCode("const result = 42;\n", "typescript")).not.toBeNull();
+      }, { timeout: 60_000 });
+      const lines = renderer.render(nativeTranscript([
+        assistantMessage("```typescript\nconst result = 42;\n```"),
+        { ...assistantMessage("", 3), content: [{ type: "toolCall", id: "tool", name: "read", arguments: { path: "src/example.ts" } }] },
+        { role: "toolResult", toolCallId: "tool", toolName: "read", content: [{ type: "text", text: "const result = 42;" }], isError: false, timestamp: 4 },
+      ]), 80, { target, toolsExpanded: true, codeBlockIndent: "    " });
+      expect(lines.join("\n")).toContain("\x1b[38;2;");
+      expect(lines.some((line) => line.includes("\x1b[48;"))).toBe(true);
+      expect(lines.every((line) => visibleWidth(line) <= 80)).toBe(true);
+      expect(plain(lines).find((line) => line.includes("const result"))).toBe("const result = 42;");
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  }, 90_000);
 
   it("keeps editor rules full width and the child footer below the editor", () => {
     const state = new FabricConversationState();

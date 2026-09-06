@@ -50,12 +50,16 @@ describe("script runtime resolution", () => {
     expect(command).toContain("'/tmp/task.txt'");
   });
 
-  it("resolves node or bun from PATH when the bundled binary has no override", async () => {
+  it("resolves node or bun from the supplied PATH when the bundled binary has no override", async () => {
     const node = await commandAvailable("node");
     const bun = await commandAvailable("bun");
     if (!node && !bun) return; // neither runtime discoverable in this environment
-    const runtime = await resolveScriptRuntime({ execPath: "/usr/local/bin/omp", env: {} });
+    const runtime = await resolveScriptRuntime({
+      execPath: "/usr/local/bin/omp",
+      env: { PATH: process.env.PATH ?? "" },
+    });
     expect(["node", "bun"]).toContain(path.basename(runtime).replace(/\.exe$/, ""));
+    expect(path.isAbsolute(runtime)).toBe(true);
   });
 
   it("throws a clear error when the bundled binary has no runtime and no override", () => {
