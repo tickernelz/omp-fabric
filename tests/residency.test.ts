@@ -43,9 +43,9 @@ const MODEL_KEY_ENV = [
 ];
 const hostAgentDir = process.env.PI_CODING_AGENT_DIR ?? path.join(os.homedir(), ".omp", "agent");
 const hasHostModel =
+  !!process.env.FABRIC_RESIDENCY_E2E ||
   MODEL_KEY_ENV.some((key) => !!process.env[key]) ||
-  fs.existsSync(path.join(hostAgentDir, "models.yml")) ||
-  fs.existsSync(path.join(hostAgentDir, "agent.db"));
+  fs.existsSync(path.join(hostAgentDir, "models.yml"));
 const roots: string[] = [];
 
 const delay = (ms: number): Promise<void> =>
