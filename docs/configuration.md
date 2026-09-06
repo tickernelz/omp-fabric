@@ -295,6 +295,20 @@ In orchestration-only mode:
 
 `fullCodeMode` defaults to `true`. Set it to `false` in `.omp/fabric.json` for one project, or globally in `<active OMP agent dir>/fabric.json` for every project. `/fabric settings` toggles it as well.
 
+### Partial results
+
+A guest core-tool call returns the whole result, or it says that it did not. When the host cut a payload, the returned string ends with one extra line:
+
+```text
+[[omp-fabric:truncated]] {"reasons":["matchLimit"],"perFileMatchLimit":200}
+```
+
+The marker is the last line, it is emitted only for a partial result, and a complete result is byte-identical to the file or command output. Programs that parse a whole file therefore keep working, and a program that must detect a cut branches on the marker.
+
+`omp.read` pages internally, so the host's per-call line ceiling is not visible to a program; a marker appears only where paging cannot help, such as one line larger than the byte budget. `omp.grep` and `omp.find` carry host caps that Fabric cannot lift, so they signal. `omp.bash` recovers column-truncated output from its own artifact and marks only what it could not restore.
+
+A file the host cannot decode as text is an error, not content: `omp.read` throws with a message beginning `omp.read returned no text content:` and names the `:raw` selector that does work.
+
 ## Captured extension tools
 
 Fabric intercepts OMP's `ExtensionRunner.getAllRegisteredTools()` registry chokepoint when capture is enabled. This captures tools that other extensions register at startup or later through the OMP extension API. OMP built-in, SDK, and MCP tools are never added to Fabric's captured-extension catalog.
