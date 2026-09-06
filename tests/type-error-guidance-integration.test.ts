@@ -10,21 +10,21 @@ const hintFor = (code: string): string | undefined => {
 };
 
 describe("typeErrorRecoveryHint against real type-checker output", () => {
-  it("routes settle on pi.edit to pi.bash", () => {
+  it("routes settle on omp.edit to omp.bash", () => {
     expect(hintFor(
-      'return pi.edit({ path: "x", oldText: "a", newText: "b", settle: true });',
-    )).toContain("belongs to `pi.bash`");
+      'return omp.edit({ path: "x", oldText: "a", newText: "b", settle: true });',
+    )).toContain("belongs to `omp.bash`");
   });
 
   it("points nested strings at the fabric_exec envelope", () => {
     expect(hintFor(
-      'return pi.bash({ command: "echo hi", strings: { payload: "x" } });',
+      'return omp.bash({ command: "echo hi", payloads: { payload: "x" } });',
     )).toContain("outer `fabric_exec` arguments");
   });
 
-  it("routes context on pi.read to pi.grep", () => {
+  it("routes context on omp.read to omp.grep", () => {
     expect(hintFor(
-      'return pi.read({ path: "a", context: 3 });',
-    )).toContain("belongs to `pi.grep`");
+      'return omp.read({ path: "a", context: 3 });',
+    )).toContain("belongs to `omp.grep`");
   });
 });

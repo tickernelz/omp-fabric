@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const dist = join(root, "dist");
-const hostPackage = "@earendil-works/pi-coding-agent";
+const hostPackage = "@oh-my-pi/pi-coding-agent";
 const entries = ["ui/dashboard.js", "ui/model-picker.js", "ui/settings.js"].map((file) =>
   join(dist, file),
 );

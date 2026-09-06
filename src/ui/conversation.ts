@@ -1,5 +1,5 @@
-import type { KeybindingsManager, Theme } from "@earendil-works/pi-coding-agent";
-import type { Component, Focusable, KeyId, TUI, TuiMouseEvent, TuiMouseEventResult } from "@earendil-works/pi-tui";
+import type { KeybindingsManager, Theme } from "@oh-my-pi/pi-coding-agent";
+import type { Component, Focusable, KeyId, TUI, SgrMouseEvent } from "@oh-my-pi/pi-tui";
 import {
   CURSOR_MARKER,
   Editor,
@@ -11,12 +11,13 @@ import {
   truncateToWidth,
   visibleWidth,
   type EditorTheme,
-} from "@earendil-works/pi-tui";
+} from "@oh-my-pi/pi-tui";
 import { FabricConversationTranscriptRenderer, type FabricConversationTranscriptRendererOptions } from "./conversation-render.js";
 import { conversationFooter, type FabricConversationAppearance } from "./conversation-chrome.js";
 import type { AgentUsage } from "../agents/types.js";
 import { safeText } from "./format.js";
 import type { CodePreviewSettings } from "./code-preview.js";
+import { ompSymbolTheme } from "./symbol-theme.js";
 import type { NativeConversationTranscript } from "./conversation-native-reader.js";
 import { defaultConversationTarget } from "./conversation-targets.js";
 import { ConversationQueueStore } from "./conversation-queue-store.js";
@@ -196,6 +197,7 @@ const FOLLOW_UP_FALLBACK: KeyId[] = ["alt+enter", "ctrl+q"];
 const TOOLS_EXPAND_FALLBACK: KeyId[] = ["ctrl+o"];
 
 const conversationEditorTheme = (theme: Theme, thinking: () => string | undefined): EditorTheme => ({
+  symbols: ompSymbolTheme,
   borderColor: (value: string) => {
     const level = thinking();
     const color = level === "minimal" ? "thinkingMinimal" : level === "low" ? "thinkingLow"
@@ -209,6 +211,7 @@ const conversationEditorTheme = (theme: Theme, thinking: () => string | undefine
     description: (text: string) => theme.fg("muted", text),
     scrollInfo: (text: string) => theme.fg("muted", text),
     noMatch: (text: string) => theme.fg("muted", text),
+    symbols: ompSymbolTheme,
   },
 });
 
@@ -261,9 +264,7 @@ export class FabricConversationView implements Component, Focusable {
       ...options.rendererOptions,
       imageWidthCells: options.appearance?.imageWidthCells,
     });
-    this.editor = new Editor(tui, conversationEditorTheme(theme, () => this.currentTarget()?.thinking), {
-      paddingX: options.appearance?.editorPaddingX ?? 0,
-    });
+    this.editor = new Editor(conversationEditorTheme(theme, () => this.currentTarget()?.thinking));
     this.editor.focused = true;
     this.editor.onChange = (text) => {
       if (this.currentId && !this.state.queues.get(this.currentId)?.editingActive) this.state.view(this.currentId).draft = text;
@@ -281,9 +282,9 @@ export class FabricConversationView implements Component, Focusable {
         : nonMain[0]?.id;
     if (resolved) this.applySelection(resolved, false);
     if (!this.currentId) this.currentId = nonMain[0]?.id;
-    // Regular Pi leaves mouse input to terminal scrollback. This preview owns
+    // Regular OMP leaves mouse input to terminal scrollback. This preview owns
     // a separate viewport; capture its wheel input and restore on close.
-    if (tui.mode === "regular") {
+    if (true) {
       tui.terminal.write("\x1b[?1000h\x1b[?1006h");
       this.ownsMouseMode = true;
     }
@@ -310,14 +311,12 @@ export class FabricConversationView implements Component, Focusable {
 
   handleInput(data: string): void {
     if (this.disposed) return;
-    // Fullscreen Pi dispatches normalized events; regular mode forwards SGR.
+    // Fullscreen OMP dispatches normalized events; regular mode forwards SGR.
     const mouse = /^\x1b\[<(\d+);(\d+);(\d+)([Mm])$/.exec(data);
     if (mouse) {
       const button = Number(mouse[1]);
       if ((button & 64) !== 0 && mouse[4] === "M") {
-        this.handleMouse({ type: "wheel", button: "none", wheelDelta: (button & 1) === 0 ? -3 : 3,
-          x: Number(mouse[2]) - 1, y: Number(mouse[3]) - 1, screenX: Number(mouse[2]) - 1, screenY: Number(mouse[3]) - 1,
-          width: this.tui.terminal.columns, height: this.terminalRows(), shift: !!(button & 4), alt: !!(button & 8), ctrl: !!(button & 16) });
+        this.handleMouse({ button, col: Number(mouse[2]) - 1, row: Number(mouse[3]) - 1, release: false, wheel: (button & 1) === 0 ? -1 : 1, motion: false, leftClick: false });
       }
       return;
     }
@@ -330,20 +329,14 @@ export class FabricConversationView implements Component, Focusable {
     this.tui.requestRender();
   }
 
-  handleMouse(event: TuiMouseEvent): TuiMouseEventResult | undefined {
-    if (this.disposed) return undefined;
-    if (event.type === "wheel") {
-      if (this.mode === "picker") this.movePickerSelection((event.wheelDelta ?? 0) < 0 ? -1 : 1);
-      else this.scrollBy(event.wheelDelta ?? 0);
+  handleMouse(event: SgrMouseEvent): void {
+    if (this.disposed) return;
+    if (event.wheel !== null) {
+      if (this.mode === "picker") this.movePickerSelection(event.wheel);
+      else this.scrollBy(event.wheel * 3);
       this.tui.requestRender();
-      return { handled: true };
     }
-    if (this.mode === "conversation" && event.y >= this.editorTop && event.y < this.editorTop + this.editorHeight) {
-      return this.editor?.handleMouse({ ...event, y: event.y - this.editorTop, height: this.editorHeight });
-    }
-    return undefined;
   }
-
   render(width: number): string[] {
     if (this.disposed || width <= 0) return [];
     const rows = Math.max(1, this.terminalRows());
@@ -583,17 +576,20 @@ export class FabricConversationView implements Component, Focusable {
       this.navigateFirstChild();
       return;
     }
-    const viewportKeys = getKeybindings();
-    if (viewportKeys.matches(data, "tui.altScreen.previousPrompt")) { this.scrollPrompt(-1); return; }
-    if (viewportKeys.matches(data, "tui.altScreen.nextPrompt")) { this.scrollPrompt(1); return; }
-    if (viewportKeys.matches(data, "tui.altScreen.lineUp")) { this.scrollBy(-1); return; }
-    if (viewportKeys.matches(data, "tui.altScreen.lineDown")) { this.scrollBy(1); return; }
-    if (viewportKeys.matches(data, "tui.altScreen.pageUp")) { this.scrollBy(-Math.max(1, this.lastBodyBudget - 2)); return; }
-    if (viewportKeys.matches(data, "tui.altScreen.pageDown")) { this.scrollBy(Math.max(1, this.lastBodyBudget - 2)); return; }
-    if (viewportKeys.matches(data, "tui.altScreen.halfPageUp")) { this.scrollBy(-Math.max(1, Math.floor(this.lastBodyBudget / 2))); return; }
-    if (viewportKeys.matches(data, "tui.altScreen.halfPageDown")) { this.scrollBy(Math.max(1, Math.floor(this.lastBodyBudget / 2))); return; }
-    if (viewportKeys.matches(data, "tui.altScreen.top")) { this.scrollToTop(); return; }
-    if (viewportKeys.matches(data, "tui.altScreen.bottom")) { this.followLatest(); return; }
+    const injectedKeys = this.options.keybindings;
+    const globalKeys = getKeybindings();
+    const matchesViewport = (data: string, action: import("@oh-my-pi/pi-tui").Keybinding): boolean =>
+      (injectedKeys ? injectedKeys.matches(data, action as never) : false) || globalKeys.matches(data, action);
+    if (matchesViewport(data, "tui.editor.jumpBackward")) { this.scrollPrompt(-1); return; }
+    if (matchesViewport(data, "tui.editor.jumpForward")) { this.scrollPrompt(1); return; }
+    if (matchesViewport(data, "tui.editor.cursorUp")) { this.scrollBy(-1); return; }
+    if (matchesViewport(data, "tui.editor.cursorDown")) { this.scrollBy(1); return; }
+    if (matchesViewport(data, "tui.editor.pageUp")) { this.scrollBy(-Math.max(1, this.lastBodyBudget - 2)); return; }
+    if (matchesViewport(data, "tui.editor.pageDown")) { this.scrollBy(Math.max(1, this.lastBodyBudget - 2)); return; }
+    if (matchesViewport(data, "tui.editor.cursorWordLeft")) { this.scrollBy(-Math.max(1, Math.floor(this.lastBodyBudget / 2))); return; }
+    if (matchesViewport(data, "tui.editor.cursorWordRight")) { this.scrollBy(Math.max(1, Math.floor(this.lastBodyBudget / 2))); return; }
+    if (matchesViewport(data, "tui.editor.cursorLineStart")) { this.scrollToTop(); return; }
+    if (matchesViewport(data, "tui.editor.cursorLineEnd")) { this.followLatest(); return; }
     if (this.bindingMatches(data, "app.thinking.toggle", ["ctrl+t"])) {
       if (this.currentId) {
         const entry = this.state.view(this.currentId);
@@ -841,7 +837,7 @@ export class FabricConversationView implements Component, Focusable {
 
   private openPicker(): void {
     this.mode = "picker";
-    this.pickerInput = new Input({ prompt: "search targets: " });
+    this.pickerInput = new Input();
     this.pickerInput.focused = this.focusState;
     this.pickerInput.onSubmit = () => this.pickSelected();
     if (this.editor) this.editor.focused = false;
@@ -1026,7 +1022,7 @@ export class FabricConversationView implements Component, Focusable {
   private renderEditorLines(innerWidth: number): string[] {
     const editor = this.editor;
     if (!editor) return [];
-    return editor.render(innerWidth);
+    return [...editor.render(innerWidth)];
   }
 
   private currentQueue(): ConversationQueue | undefined {
@@ -1034,13 +1030,13 @@ export class FabricConversationView implements Component, Focusable {
     if (!target || target.kind === "main" || !this.editor || this.disposed) return undefined;
     return this.state.queues.attach({
       targetId: target.id, targetName: target.name,
-      piEvents: this.options.queueEvents ?? { emit() {} }, theme: this.theme,
+      ompEvents: this.options.queueEvents ?? { emit() {} }, theme: this.theme,
       send: (message, delivery) => this.options.send(target.id, message, delivery),
       editor: {
         getText: () => this.editor?.getText() ?? "",
         setText: (text) => this.editor?.setText(text),
         handleInput: (data) => this.editor?.handleInput(data),
-        render: (width) => this.editor?.render(width) ?? [],
+        render: (width) => [...(this.editor?.render(width) ?? [])],
         paddingX: this.options.appearance?.editorPaddingX ?? 0,
       },
       ...(this.options.keybindings ? { keybindings: this.options.keybindings } : {}),

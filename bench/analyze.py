@@ -71,7 +71,7 @@ def read_metrics(cell, is_fabric):
                     details = msg.get("details") or {}
                     trace = details.get("trace") or {}
                     for op in trace.get("operations", []):
-                        if op.get("ref") == "pi.read":
+                        if op.get("ref") == "omp.read":
                             reads += 1
                             a = op.get("args") or {}
                             if "offset" not in a and "limit" not in a:

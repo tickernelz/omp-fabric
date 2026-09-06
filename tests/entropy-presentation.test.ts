@@ -93,8 +93,8 @@ describe("entropy user-facing messages", () => {
   it("summarizes review suggestions in plain language", () => {
     const proposals: EntropyProposal[] = [
       declaration("mcp.render", "format", ["pdf", "html"]),
-      declaration("agents.run", "runner", ["pi", "claude"]),
-      { kind: "sequence-fuse", sequence: ["pi.grep", "pi.read"], occurrences: 3 },
+      declaration("agents.run", "runner", ["omp", "claude"]),
+      { kind: "sequence-fuse", sequence: ["omp.grep", "omp.read"], occurrences: 3 },
     ];
     expect(formatEntropyReviewNotice(proposals)).toBe(
       "entropy: 3 suggestions await review · 2 enum declarations · 1 sequence fusion · inspect with /fabric entropy",

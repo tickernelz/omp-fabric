@@ -2,9 +2,9 @@ import releaseSyncVariant from "@jitl/quickjs-singlefile-mjs-release-sync";
 import { newQuickJSWASMModuleFromVariant } from "quickjs-emscripten-core";
 import ts from "typescript";
 import { runAbortable, settleWithin } from "../async-settlement.js";
-import { piBashExitMetadata } from "../core/pi-bash-error.js";
+import { ompBashExitMetadata } from "../core/omp-bash-error.js";
 import { createGuestStackMap, remapGuestErrorText } from "./guest-stack-map.js";
-import { transpileFabricCodeWithSourceMap } from "./type-checker.js";
+import { OMP_GUEST_ENTRYPOINT, transpileFabricCodeWithSourceMap } from "./type-checker.js";
 
 export type FabricSandboxTerminationReason =
   | "completed"
@@ -23,7 +23,7 @@ export interface FabricSandboxOptions {
   timeoutMs: number;
   memoryLimitBytes: number;
   maxLogChars?: number;
-  strings?: Record<string, string>;
+  payloads?: Record<string, string>;
   tokenBudget?: number;
   signal?: AbortSignal;
   minimumTimeoutMsForHostCall?(
@@ -44,10 +44,10 @@ type QuickJsModule = Awaited<ReturnType<typeof newQuickJSWASMModuleFromVariant>>
 
 let quickJsModulePromise: Promise<QuickJsModule> | undefined;
 
-// Static π.<identifier> references (bracket access like π[k] is not provable).
+// Static payloads.<identifier> references (bracket access like payloads[k] is not provable).
 // Parse instead of scanning text so examples inside strings and comments do not
 // become false missing-payload failures.
-const referencedPiKeys = (code: string): string[] => {
+const referencedPayloadKeys = (code: string): string[] => {
   const source = ts.createSourceFile(
     "fabric-exec.ts",
     `async function __fabricProgram() {\n${code}\n}`,
@@ -60,7 +60,7 @@ const referencedPiKeys = (code: string): string[] => {
     if (
       ts.isPropertyAccessExpression(node) &&
       ts.isIdentifier(node.expression) &&
-      node.expression.text === "π" &&
+      node.expression.text === "payloads" &&
       !keys.includes(node.name.text)
     ) {
       keys.push(node.name.text);
@@ -71,18 +71,15 @@ const referencedPiKeys = (code: string): string[] => {
   return keys;
 };
 
-// Models routinely reference π.<key> without providing the payloads parameter,
-// and the runtime error only lands after a full execution round trip (#68).
 // Reject up front when a referenced key is statically provable missing, before
 // QuickJS is even loaded.
-const missingStringsKeys = (
+const missingPayloadKeys = (
   code: string,
-  strings: Record<string, string> | undefined,
+  payloads: Record<string, string> | undefined,
 ): string[] => {
-  const provided = strings ?? {};
-  return referencedPiKeys(code).filter((key) => !(key in provided));
+  const provided = payloads ?? {};
+  return referencedPayloadKeys(code).filter((key) => !(key in provided));
 };
-
 const quickJsModule = (): Promise<QuickJsModule> => {
   quickJsModulePromise ??= newQuickJSWASMModuleFromVariant(releaseSyncVariant);
   return quickJsModulePromise;
@@ -113,7 +110,7 @@ const __call = async (ref, args) => {
   __recordSuccessfulCall(ref, normalizedArgs);
   return value;
 };
-const __piToolNames = ["read","bash","powershell","edit","write","grep","find","ls"];
+const __ompToolNames = ["read","bash","edit","write","grep","find","ls"];
 const __toolsBase = {
   providers: () => __call("fabric.$providers", {}),
   catalog: (args = {}) => __call("fabric.$catalog", args),
@@ -129,16 +126,16 @@ const __toolsBase = {
 };
 // tools is discovery + generic calls only. The proxy keeps the seven discovery
 // methods and turns a core-tool name (read/bash/edit/...) into an actionable
-// error pointing at pi.<name>, so a model that writes tools.read(...) learns
+// error pointing at omp.<name>, so a model that writes tools.read(...) learns
 // the fix in one turn instead of looping on "tools.read is not a function".
 globalThis.tools = new Proxy(__toolsBase, {
   get(target, property) {
     if (property === "then" || typeof property === "symbol") return undefined;
     const name = String(property);
-    if (__piToolNames.indexOf(name) >= 0) {
+    if (__ompToolNames.indexOf(name) >= 0) {
       return () => {
         throw new Error(
-          "tools." + name + " is not available on the discovery API. tools is discovery + generic calls only (providers/catalog/list/search/describe/call/models). For the Pi core tool, call pi." + name + "(args), e.g. pi." + name + "({ ... })."
+          "tools." + name + " is not available on the discovery API. tools is discovery + generic calls only (providers/catalog/list/search/describe/call/models). For the OMP core tool, call omp." + name + "(args), e.g. omp." + name + "({ ... })."
         );
       };
     }
@@ -147,20 +144,15 @@ globalThis.tools = new Proxy(__toolsBase, {
   set() { return true; },
   deleteProperty() { return true; },
 });
-const __piStringFields = { bash: "command", powershell: "command", read: "path", ls: "path", grep: "pattern", find: "pattern" };
+const __ompStringFields = { bash: "command", read: "path", ls: "path", grep: "pattern", find: "pattern" };
 // Per-tool key aliases. The runtime normalizes them to the canonical form
 // before the host validates args; unit-converting aliases are handled separately
-// in __normalizePiArgs. This lets a model that writes { query, regex, ... }
+// in __normalizeOmpArgs. This lets a model that writes { query, regex, ... }
 // or { file } instead of { pattern } / { path } still succeeds on the first
-// call. Keep these in sync with the PiToolsApi overloads in guest-types.ts so
+// call. Keep these in sync with the OmpToolsApi overloads in guest-types.ts so
 // the type-checker accepts the same spellings it coercion-handles at runtime.
-const __piArgAliases = {
+const __ompArgAliases = {
   bash: {
-    cmd: "command", shell: "command", cmdline: "command", script: "command",
-    commandLine: "command",
-    workdir: "cwd", directory: "cwd", workingDirectory: "cwd",
-  },
-  powershell: {
     cmd: "command", shell: "command", cmdline: "command", script: "command",
     commandLine: "command",
     workdir: "cwd", directory: "cwd", workingDirectory: "cwd",
@@ -216,7 +208,7 @@ const __piArgAliases = {
 // tools (read/bash/ls) stay absent: their two-arg form is a bare string plus
 // an options object, repaired by the merge instead of a wrong-arity (2554)
 // type error; only a non-object second arg still fails 2554.
-const __piPositionalFields = {
+const __ompPositionalFields = {
   grep: ["pattern", "path", "limit"],
   find: ["pattern", "path", "limit"],
   write: ["path", "content"],
@@ -225,34 +217,31 @@ const __piPositionalFields = {
 // Models often pass numbers as strings ("20"); coerce the known numeric
 // option fields so the host schema sees a number. Non-numeric strings pass
 // through untouched and fail host validation exactly as before. Kept in sync
-// with the numeric optionals in the PiToolsApi overloads in guest-types.ts.
-const __piNumericFields = {
+// with the numeric optionals in the OmpToolsApi overloads in guest-types.ts.
+const __ompNumericFields = {
   read: ["offset", "limit"],
+  bash: ["timeout"],
   grep: ["limit", "context"],
   find: ["limit"],
   ls: ["limit"],
-  bash: ["timeout"],
-  powershell: ["timeout"],
 };
-const __piOptionalFields = {
+const __ompOptionalFields = {
   read: ["offset", "limit"],
   grep: ["path", "glob", "ignoreCase", "literal", "context", "limit"],
   find: ["path", "limit"],
   ls: ["path", "limit"],
-  bash: ["timeout"],
-  powershell: ["timeout"],
 };
 // (primary, options) two-arg merge for the string-primary tools:
-// pi.read("index.ts", { limit: 120 }) becomes { path: "index.ts", limit: 120 }.
+// omp.read("index.ts", { limit: 120 }) becomes { path: "index.ts", limit: 120 }.
 // A plain-object second arg is never a valid positional value for these tools
 // (grep/find take (pattern, path, limit) strings/numbers), so merging is
 // unambiguous; the positional string wins the primary field on conflict. The
 // merged object flows through the same alias, unit, and numeric normalization
-// in __normalizePiArgs as any other options object.
+// in __normalizeOmpArgs as any other options object.
 const __positionalToArgs = (name, rest) => {
   const first = rest[0];
   const second = rest[1];
-  const primaryField = __piStringFields[name];
+  const primaryField = __ompStringFields[name];
   if (
     rest.length === 2 &&
     typeof first === "string" &&
@@ -263,7 +252,7 @@ const __positionalToArgs = (name, rest) => {
     merged[primaryField] = first;
     return merged;
   }
-  const order = __piPositionalFields[name];
+  const order = __ompPositionalFields[name];
   if (!order) return rest.length > 0 ? first : {};
   const out = {};
   for (let i = 0; i < rest.length && i < order.length; i++) {
@@ -272,13 +261,13 @@ const __positionalToArgs = (name, rest) => {
   }
   return out;
 };
-const __normalizePiArgs = (name, args) => {
-  const field = __piStringFields[name];
+const __normalizeOmpArgs = (name, args) => {
+  const field = __ompStringFields[name];
   if (typeof args === "string" && field) return { [field]: args };
   if (args === null || typeof args !== "object" || Array.isArray(args)) return args;
-  const aliases = __piArgAliases[name];
+  const aliases = __ompArgAliases[name];
   let out = args;
-  if ((name === "bash" || name === "powershell") && "timeoutMs" in out) {
+  if (name === "bash" && "timeoutMs" in out) {
     out = Object.assign({}, args);
     if (!("timeout" in out)) {
       const timeoutMs = out.timeoutMs;
@@ -290,7 +279,7 @@ const __normalizePiArgs = (name, args) => {
   }
   // settle is a guest-only directive (settles nonzero exits instead of
   // rejecting); strip it so it never reaches the host/bash schema.
-  if ((name === "bash" || name === "powershell") && "settle" in out) {
+  if (name === "bash" && "settle" in out) {
     if (out === args) out = Object.assign({}, args);
     delete out.settle;
   }
@@ -304,7 +293,7 @@ const __normalizePiArgs = (name, args) => {
       }
     }
   }
-  const numerics = __piNumericFields[name];
+  const numerics = __ompNumericFields[name];
   if (numerics) {
     for (const key of numerics) {
       const value = out[key];
@@ -314,7 +303,7 @@ const __normalizePiArgs = (name, args) => {
       }
     }
   }
-  const optionalFields = __piOptionalFields[name];
+  const optionalFields = __ompOptionalFields[name];
   if (optionalFields) {
     for (const key of optionalFields) {
       if (out[key] !== null && out[key] !== undefined) continue;
@@ -325,7 +314,7 @@ const __normalizePiArgs = (name, args) => {
   }
   if (name === "edit" && Array.isArray(out.edits)) {
     let changed = false;
-    const editAliases = __piArgAliases.edit;
+    const editAliases = __ompArgAliases.edit;
     const edits = out.edits.map((entry) => {
       if (entry === null || typeof entry !== "object" || Array.isArray(entry)) return entry;
       let edit = entry;
@@ -364,8 +353,8 @@ const __normalizePiArgs = (name, args) => {
 // that throws an actionable TypeError for string-method access and iteration,
 // naming the tool and the .output fix. Ordinary reads (ok/output/details/
 // exitCode/error), destructuring, 'in' checks, and JSON marshaling pass through.
-const __piEnvelopeTools = { bash: true, powershell: true, edit: true, write: true };
-const __piEnvelopeStringTraps = new Set([
+const __ompEnvelopeTools = { bash: true, edit: true, write: true };
+const __ompEnvelopeStringTraps = new Set([
   "anchor", "at", "big", "blink", "bold", "charAt", "charCodeAt", "codePointAt",
   "concat", "endsWith", "fixed", "fontcolor", "fontsize", "includes", "indexOf",
   "italics", "lastIndexOf", "length", "link", "localeCompare", "match", "matchAll",
@@ -374,20 +363,20 @@ const __piEnvelopeStringTraps = new Set([
   "sup", "toLocaleLowerCase", "toLocaleUpperCase", "toLowerCase", "toUpperCase",
   "trim", "trimEnd", "trimStart",
 ]);
-const __piEnvelopeGuard = (name, value) => {
+const __ompEnvelopeGuard = (name, value) => {
   if (value === null || typeof value !== "object" || typeof value.ok !== "boolean") return value;
   return new Proxy(value, {
     get(target, property, receiver) {
       if (property === Symbol.iterator || property === Symbol.asyncIterator) {
         throw new TypeError(
-          "pi." + name + "(...) resolves an envelope { ok, output, details }, which is not iterable. " +
-          "Iterate the text instead: (await pi." + name + "(...)).output.split('\\\\n')"
+          "omp." + name + "(...) resolves an envelope { ok, output, details }, which is not iterable. " +
+          "Iterate the text instead: (await omp." + name + "(...)).output.split('\\\\n')"
         );
       }
-      if (typeof property === "string" && __piEnvelopeStringTraps.has(property)) {
+      if (typeof property === "string" && __ompEnvelopeStringTraps.has(property)) {
         throw new TypeError(
-          "pi." + name + "(...) resolves an envelope { ok, output, details }, not a string, so ." + property +
-          " is unavailable on it. Read the text first: const out = (await pi." + name + "(...)).output; then out." + property +
+          "omp." + name + "(...) resolves an envelope { ok, output, details }, not a string, so ." + property +
+          " is unavailable on it. Read the text first: const out = (await omp." + name + "(...)).output; then out." + property +
           "(...). Shell commands reject on a nonzero exit — pass settle: true to receive an ok:false envelope instead."
         );
       }
@@ -397,12 +386,21 @@ const __piEnvelopeGuard = (name, value) => {
 };
 // The pi proxy accepts: a bare string (primary field), an options object, a
 // (primary, options) two-arg merge for the string-primary tools, or a
-// positional spread mapped by __piPositionalFields. 0/1 args preserve the
+// positional spread mapped by __ompPositionalFields. 0/1 args preserve the
 // legacy (args = {}) default so existing programs are unchanged.
-globalThis.pi = new Proxy({}, {
+globalThis.omp = new Proxy({}, {
   get(_target, property) {
     if (property === "then") return undefined;
     const name = String(property);
+    // fabric_exec payload values are readable directly on the omp surface
+    // (documented for skills as strings.<key>), while core tool names stay
+    // callables. Only shadow a payload key that actually exists.
+    const payloadValues = (typeof globalThis["payloads"] === "object" && globalThis["payloads"] !== null)
+      ? globalThis["payloads"]
+      : {};
+    if (__ompToolNames.indexOf(name) < 0 && Object.prototype.hasOwnProperty.call(payloadValues, name)) {
+      return payloadValues[name];
+    }
     return (...rest) => {
       let args;
       if (rest.length <= 1) {
@@ -413,9 +411,9 @@ globalThis.pi = new Proxy({}, {
       }
       // Shell tools reject on an ordinary nonzero exit; settle:true returns
       // {ok:false, exitCode, ...} instead (opt-in). Other failures still reject.
-      const settle = (name === "bash" || name === "powershell") &&
+      const settle = name === "bash" &&
         typeof args === "object" && args !== null && args.settle === true;
-      const call = __call("pi." + name, __normalizePiArgs(name, args));
+      const call = __call("omp." + name, __normalizeOmpArgs(name, args));
       const promise = settle ? call.catch((error) => {
         // node-process bridge errors originate in a different VM realm.
         const message = typeof error?.message === "string" ? error.message : String(error);
@@ -430,30 +428,30 @@ globalThis.pi = new Proxy({}, {
           error: message,
         };
       }) : call;
-      return __piEnvelopeTools[name] === true
-        ? promise.then((value) => __piEnvelopeGuard(name, value))
+      return __ompEnvelopeTools[name] === true
+        ? promise.then((value) => __ompEnvelopeGuard(name, value))
         : promise;
     };
   },
 });
-const __piStrings = (typeof globalThis["π"] === "object" && globalThis["π"] !== null) ? globalThis["π"] : {};
-globalThis["π"] = new Proxy(__piStrings, {
+const __payloads = (typeof globalThis["payloads"] === "object" && globalThis["payloads"] !== null) ? globalThis["payloads"] : {};
+globalThis["payloads"] = new Proxy(__payloads, {
   get(target, property) {
     if (typeof property === "symbol") return undefined;
     const name = String(property);
     if (name === "then" || name === "toJSON" || name === "constructor") return undefined;
     if (Object.prototype.hasOwnProperty.call(target, name)) return target[name];
-    if (__piToolNames.indexOf(name) >= 0) {
+    if (__ompToolNames.indexOf(name) >= 0) {
       throw new Error(
-        "π." + name + " is the strings accessor, not a tool. For the Pi core tool, call pi." + name + "(args)."
+        "payloads." + name + " is the payloads accessor, not a tool. For the OMP core tool, call omp." + name + "(args)."
       );
     }
     const provided = Object.keys(target);
     throw new Error(
-      "π." + name + " is not defined. π only exposes keys from the fabric_exec payloads parameter" +
+      "payloads." + name + " is not defined. payloads only exposes keys from the fabric_exec payloads parameter" +
       (provided.length ? " (provided: " + provided.join(", ") + ")" : " (none provided)") +
-      ". Pass payloads: { " + name + ": '...' } to use π." + name + "." +
-      " For large or quote-heavy content, keep it in top-level payloads and reference π." + name + " instead of escaping it inside code."
+      ". Pass payloads: { " + name + ": '...' } to use payloads." + name + "." +
+      " For large or quote-heavy content, keep it in top-level payloads and reference payloads." + name + " instead of escaping it inside code."
     );
   },
   ownKeys(target) { return Reflect.ownKeys(target); },
@@ -862,10 +860,10 @@ globalThis.log = workflow.log;
 globalThis.budget = workflow.budget;
 globalThis.rlm = Object.freeze({
   query: (args) => {
-    if (args && args.runner && args.runner !== "pi") {
-      throw new Error("rlm.query requires the Pi runner because recursive Fabric is unavailable in Claude Code");
+    if (args && args.runner && args.runner !== "omp") {
+      throw new Error("rlm.query requires the OMP runner because recursive Fabric is unavailable in Claude Code");
     }
-    return __budgetedRun({ ...args, runner: "pi", recursive: true });
+    return __budgetedRun({ ...args, runner: "omp", recursive: true });
   },
 });
 globalThis.council = Object.freeze({
@@ -987,20 +985,20 @@ export class QuickJsRuntime {
         error: "Execution cancelled",
       };
     }
-    const missingKeys = missingStringsKeys(code, options.strings);
+    const missingKeys = missingPayloadKeys(code, options.payloads);
     if (missingKeys.length > 0) {
-      const provided = Object.keys(options.strings ?? {});
+      const provided = Object.keys(options.payloads ?? {});
       return {
         value: undefined,
         logs: [],
         terminationReason: "runtime_error",
         error:
-          "Pre-execution check: " + missingKeys.map((key) => "π." + key).join(", ")
+          "Pre-execution check: " + missingKeys.map((key) => "payloads." + key).join(", ")
           + (missingKeys.length === 1 ? " is referenced in code but its key is missing from the payloads parameter"
             : " are referenced in code but their keys are missing from the payloads parameter")
           + (provided.length ? " (provided: " + provided.join(", ") + ")" : " (none provided)")
-          + ". Add payloads: { " + missingKeys.join(": '...', ") + ": '...' } to the fabric_exec arguments, then reference the value as π.<key>."
-          + " For large or quote-heavy content, keep it in top-level payloads and reference π.<key> instead of escaping it inside code.",
+          + ". Add payloads: { " + missingKeys.join(": '...', ") + ": '...' } to the fabric_exec arguments, then reference the value as payloads.<key>."
+          + " For large or quote-heavy content, keep it in top-level payloads and reference payloads.<key> instead of escaping it inside code.",
       };
     }
     if (
@@ -1138,8 +1136,8 @@ export class QuickJsRuntime {
               const errorHandle = context.newError(
                 error instanceof Error ? error.message : String(error),
               );
-              const exit = reference === "pi.bash" || reference === "pi.powershell"
-                ? piBashExitMetadata(error)
+              const exit = reference === "omp.bash"
+                ? ompBashExitMetadata(error)
                 : undefined;
               if (exit) {
                 const metadata = jsonHandle(context, jsonObject, jsonParse, exit);
@@ -1166,7 +1164,7 @@ export class QuickJsRuntime {
         const remaining = maxLogChars - logChars;
         if (line.length > remaining) {
           if (remaining > 0) logs.push(line.slice(0, remaining));
-          logs.push("[Pi Fabric log output truncated]");
+          logs.push("[OMP Fabric log output truncated]");
           logsTruncated = true;
           return;
         }
@@ -1176,14 +1174,14 @@ export class QuickJsRuntime {
       context.setProp(context.global, "print", printFunction);
       printFunction.dispose();
 
-      const strings = jsonHandle(context, jsonObject, jsonParse, options.strings ?? {});
-      context.setProp(context.global, "π", strings);
-      strings.dispose();
+      const payloads = jsonHandle(context, jsonObject, jsonParse, options.payloads ?? {});
+      context.setProp(context.global, "payloads", payloads);
+      payloads.dispose();
       const tokenBudget = context.newNumber(options.tokenBudget ?? Number.POSITIVE_INFINITY);
       context.setProp(context.global, "__fabricTokenBudget", tokenBudget);
       tokenBudget.dispose();
 
-      const setupResult = context.evalCode(GUEST_SETUP, "pi-fabric-setup.js");
+      const setupResult = context.evalCode(GUEST_SETUP, "omp-fabric-setup.js");
       if (setupResult.error) {
         const deadlineExceeded = interruptedByDeadline || Date.now() > executionDeadlineAt;
         if (deadlineExceeded) timedOut = true;
@@ -1214,8 +1212,8 @@ export class QuickJsRuntime {
         : { code: options.transpiledCode, sourceMap: options.transpiledSourceMap };
       const guestStackMap = createGuestStackMap(guestBundle.sourceMap);
       const guestLineCount = guestBundle.code.split("\n").length;
-      const wrappedCode = `${guestBundle.code}\nPromise.race([__piFabricMain(), globalThis.__fabricExecutionGate])`;
-      const evaluation = context.evalCode(wrappedCode, "pi-fabric-guest.js");
+      const wrappedCode = `${guestBundle.code}\nPromise.race([${OMP_GUEST_ENTRYPOINT}(), globalThis.__fabricExecutionGate])`;
+      const evaluation = context.evalCode(wrappedCode, "omp-fabric-guest.js");
       runtime.executePendingJobs();
       if (evaluation.error) {
         const deadlineExceeded = interruptedByDeadline || Date.now() > executionDeadlineAt;

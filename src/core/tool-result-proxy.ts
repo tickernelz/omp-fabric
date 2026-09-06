@@ -2,7 +2,7 @@ import { runAbortable } from "../async-settlement.js";
 import type {
   AgentToolResult,
   ExtensionRunner,
-} from "@earendil-works/pi-coding-agent";
+} from "@oh-my-pi/pi-coding-agent";
 import {
   FABRIC_TOOL_RESULT_PROXY_KIND,
   readFabricToolResultProxyDetailsV1,
@@ -24,7 +24,7 @@ export interface FabricNestedToolResultProxy {
   proxy(request: FabricToolResultProxyRequest): Promise<unknown>;
 }
 
-const nativeLifecycleProviders = new Set(["pi", "extensions"]);
+const nativeLifecycleProviders = new Set(["omp", "extensions"]);
 
 const textFromContent = (content: ToolContent): string =>
   content

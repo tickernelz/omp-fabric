@@ -1,4 +1,4 @@
-import type { Theme } from "@earendil-works/pi-coding-agent";
+import type { Theme, ToolRenderResultOptions } from "@oh-my-pi/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { FabricState } from "../src/fabric-state.js";
 import { createFabricPersistedExecutionDetails } from "../src/audit/index.js";
@@ -76,7 +76,9 @@ const renderCall = (
   args: Record<string, unknown>,
   expanded = false,
   theme: Theme = plainTheme,
-) => tool.renderCall!(args as never, theme, renderContext(args, { expanded }) as never).render(120).join("\n");
+) => tool.renderCall!(args as never, { expanded, isPartial: false }, theme).render(120).join("\n");
+
+type RenderContextualOptions = ToolRenderResultOptions & { renderContext?: Record<string, unknown> };
 
 const renderResult = (
   tool: ReturnType<typeof toolFor>,
@@ -86,9 +88,9 @@ const renderResult = (
   options: { expanded?: boolean; partial?: boolean; theme?: Theme; context?: Record<string, unknown>; width?: number } = {},
 ) => tool.renderResult!(
   { content: output ? [{ type: "text", text: output }] : [], details } as never,
-  { expanded: options.expanded ?? false, isPartial: options.partial ?? false },
+  { expanded: options.expanded ?? false, isPartial: options.partial ?? false, ...(options.context ? { renderContext: options.context } : {}) } as RenderContextualOptions,
   options.theme ?? plainTheme,
-  renderContext(args, { expanded: options.expanded ?? false, isPartial: options.partial ?? false, ...options.context }) as never,
+  args as never,
 ).render(options.width ?? 120).join("\n");
 
 const nestedRows = (rendered: string): string[] => rendered.split("\n").slice(1);
@@ -133,8 +135,8 @@ describe("registered fabric_exec compact transcript rendering", () => {
     const details = {
       success: true,
       audits: [
-        { ref: "pi.read", provider: "pi", tool: "read", args: { path: "src/config.ts" }, success: true, result: "export const value = true;" },
-        { ref: "pi.bash", provider: "pi", tool: "bash", args: { command: "pnpm test" }, success: true },
+        { ref: "omp.read", provider: "omp", tool: "read", args: { path: "src/config.ts" }, success: true, result: "export const value = true;" },
+        { ref: "omp.bash", provider: "omp", tool: "bash", args: { command: "pnpm test" }, success: true },
       ],
       phases: [],
     };
@@ -217,8 +219,8 @@ describe("registered fabric_exec compact transcript rendering", () => {
       success: false,
       error: "Fabric execution failed",
       audits: [
-        { ref: "pi.read", provider: "pi", tool: "read", args: { path: "src/config.ts" }, success: true, result: "export const value = true;" },
-        { ref: "pi.bash", provider: "pi", tool: "bash", args: { command: "pnpm test" }, success: false, error: "tests failed" },
+        { ref: "omp.read", provider: "omp", tool: "read", args: { path: "src/config.ts" }, success: true, result: "export const value = true;" },
+        { ref: "omp.bash", provider: "omp", tool: "bash", args: { command: "pnpm test" }, success: false, error: "tests failed" },
       ],
       phases: [],
     };
@@ -263,7 +265,7 @@ describe("registered fabric_exec compact transcript rendering", () => {
   });
 
   it("summarizes one nested call while keeping its successful outer return quiet in compact mode", () => {
-    const args = { code: "await extensions.remote({ strings: 'single-headline' });" };
+    const args = { code: "await extensions.remote({ payloads: 'single-headline' });" };
     const details = {
       success: true,
       audits: [
@@ -271,7 +273,7 @@ describe("registered fabric_exec compact transcript rendering", () => {
           ref: "extensions.remote",
           provider: "extensions",
           tool: "remote",
-          args: { strings: "single-headline" },
+          args: { payloads: "single-headline" },
           success: true,
         },
       ],
@@ -284,7 +286,7 @@ describe("registered fabric_exec compact transcript rendering", () => {
           ref: "extensions.remote",
           provider: "extensions",
           tool: "remote",
-          args: { strings: "failed-headline" },
+          args: { payloads: "failed-headline" },
           success: false,
           error: "nested failure",
         },
@@ -326,8 +328,8 @@ describe("registered fabric_exec compact transcript rendering", () => {
       success: true,
       audits: [
         {
-          ref: "pi.bash",
-          provider: "pi",
+          ref: "omp.bash",
+          provider: "omp",
           tool: "bash",
           args: { command: "echo alpha\necho beta" },
           result: { output: "bash result" },
@@ -337,7 +339,7 @@ describe("registered fabric_exec compact transcript rendering", () => {
           ref: "extensions.remote",
           provider: "extensions",
           tool: "remote",
-          args: { strings: "existing-string-headline" },
+          args: { payloads: "existing-string-headline" },
           success: true,
         },
       ],
@@ -362,13 +364,13 @@ describe("registered fabric_exec compact transcript rendering", () => {
   });
 
   it("re-renders a resumed card identically to the live one from persisted audits", () => {
-    const args = { code: "await pi.bash({ command: 'echo alpha' });\nawait pi.edit({ path: 'f.ts', edits: [{ oldText: 'a', newText: 'b' }] });" };
+    const args = { code: "await omp.bash({ command: 'echo alpha' });\nawait omp.edit({ path: 'f.ts', edits: [{ oldText: 'a', newText: 'b' }] });" };
     const audits = [
-      { ref: "pi.bash", provider: "pi", tool: "bash", args: { command: "echo alpha" }, success: true, result: { output: "alpha" } },
-      { ref: "pi.edit", provider: "pi", tool: "edit", args: { path: "f.ts", edits: [{ oldText: "a", newText: "b" }] }, success: true, result: { details: { diff: "-a\n+b" } } },
+      { ref: "omp.bash", provider: "omp", tool: "bash", args: { command: "echo alpha" }, success: true, result: { output: "alpha" } },
+      { ref: "omp.edit", provider: "omp", tool: "edit", args: { path: "f.ts", edits: [{ oldText: "a", newText: "b" }] }, success: true, result: { details: { diff: "-a\n+b" } } },
     ];
     const trace = {
-      kind: "pi-fabric.execution",
+      kind: "omp-fabric.execution",
       version: 1,
       outcome: "succeeded",
       phases: [],
@@ -405,18 +407,18 @@ describe("registered fabric_exec compact transcript rendering", () => {
     const details = {
       success: true,
       trace: {
-        kind: "pi-fabric.execution",
+        kind: "omp-fabric.execution",
         version: 1,
         outcome: "succeeded",
         phases: [],
         operations: [
-          { type: "call", sequence: 0, ref: "pi.bash", provider: "pi", action: "bash", args: { command: "echo alpha" }, outcome: "succeeded" },
-          { type: "call", sequence: 1, ref: "pi.edit", provider: "pi", action: "edit", args: { path: "f.ts" }, outcome: "succeeded" },
+          { type: "call", sequence: 0, ref: "omp.bash", provider: "omp", action: "bash", args: { command: "echo alpha" }, outcome: "succeeded" },
+          { type: "call", sequence: 1, ref: "omp.edit", provider: "omp", action: "edit", args: { path: "f.ts" }, outcome: "succeeded" },
         ],
         counts: { droppedValues: 0, truncatedValues: 0, redactedValues: 0, droppedOperations: 0 },
       },
     };
-    const args = { code: "await pi.bash({ command: 'echo alpha' });" };
+    const args = { code: "await omp.bash({ command: 'echo alpha' });" };
     const expanded = renderResult(toolFor(stateFor("full")), args, details, "", { expanded: true });
 
     expect(expanded).toContain("output not retained across reload");
@@ -428,8 +430,8 @@ describe("registered fabric_exec compact transcript rendering", () => {
     const args = { code: "await Promise.all([]);" };
     const details = {
       audits: [
-        { ref: "pi.read", provider: "pi", tool: "read", args: { path: "src/example.ts" }, success: true },
-        { ref: "extensions.remote", provider: "extensions", tool: "remote", args: { strings: "live-string-headline" } },
+        { ref: "omp.read", provider: "omp", tool: "read", args: { path: "src/example.ts" }, success: true },
+        { ref: "extensions.remote", provider: "extensions", tool: "remote", args: { payloads: "live-string-headline" } },
       ],
       phases: [],
     };
@@ -454,68 +456,52 @@ describe("registered fabric_exec compact transcript rendering", () => {
 
   it("retains specialized write previews while compact hides outer source", () => {
     const args = {
-      code: 'await pi.write({ path: "README.md", content: π.content });',
-      strings: { content: "# Visible write preview", secret: "never-show-this" },
+      code: 'await omp.write({ path: "README.md", content: omp.content });',
+      payloads: { content: "# Visible write preview", secret: "never-show-this" },
       display: { name: "Update README" },
     };
     const tool = toolFor(stateFor("compact"));
-    const preview = tool.renderCall!(
-      args as never,
-      plainTheme,
-      renderContext(args, { executionStarted: false, isPartial: true }) as never,
-    ).render(120).join("\n");
+    const preview = tool.renderCall!(args as never, { expanded: false, isPartial: true }, plainTheme).render(120).join("\n");
 
     expect(preview).toContain("Update README");
     expect(preview).toContain("README.md");
     expect(preview).toContain("Visible write preview");
-    expect(preview).not.toContain("await pi.write");
+    expect(preview).not.toContain("await omp.write");
   });
 
   it("omits the call-side write preview on resumed cards so collapsed renders show it once", () => {
     const args = {
-      code: 'await pi.write({ path: "README.md", content: π.content });',
-      strings: { content: "# Visible write preview" },
+      code: 'await omp.write({ path: "README.md", content: omp.content });',
+      payloads: { content: "# Visible write preview" },
       display: { name: "Update README" },
     };
-    // Pi only marks live calls as executionStarted; resumed cards stay at its
+    // OMP only marks live calls as executionStarted; resumed cards stay at its
     // false default but are always complete (isPartial false).
-    const resumedCompact = toolFor(stateFor("compact")).renderCall!(
-      args as never,
-      plainTheme,
-      renderContext(args, { executionStarted: false, isPartial: false }) as never,
-    ).render(120).join("\n");
-    const resumedFull = toolFor(stateFor("full")).renderCall!(
-      args as never,
-      plainTheme,
-      renderContext(args, { executionStarted: false, isPartial: false }) as never,
-    ).render(120).join("\n");
-    const streaming = toolFor(stateFor("compact")).renderCall!(
-      args as never,
-      plainTheme,
-      renderContext(args, { executionStarted: false, isPartial: true }) as never,
-    ).render(120).join("\n");
+    const resumedCompact = toolFor(stateFor("compact")).renderCall!(args as never, { expanded: false, isPartial: false }, plainTheme).render(120).join("\n");
+    const resumedFull = toolFor(stateFor("full")).renderCall!(args as never, { expanded: false, isPartial: false }, plainTheme).render(120).join("\n");
+    const streaming = toolFor(stateFor("compact")).renderCall!(args as never, { expanded: false, isPartial: true }, plainTheme).render(120).join("\n");
 
     expect(resumedCompact).toContain("Update README");
     expect(resumedCompact).not.toContain("Visible write preview");
-    expect(resumedFull).toContain("await pi.write");
+    expect(resumedFull).toContain("await omp.write");
     expect(resumedFull).not.toContain("Visible write preview");
     expect(streaming).toContain("Visible write preview");
   });
 
   it("streams and retains edit diffs in collapsed multicall results", () => {
-    const args = { code: "await pi.read({ path: 'before.ts' });\nawait pi.edit({ path: 'target.ts', old: 'before', new: 'after' });" };
+    const args = { code: "await omp.read({ path: 'before.ts' });\nawait omp.edit({ path: 'target.ts', old: 'before', new: 'after' });" };
     const partialDetails = {
       audits: [
         {
-          ref: "pi.read",
-          provider: "pi",
+          ref: "omp.read",
+          provider: "omp",
           tool: "read",
           args: { path: "before.ts" },
           success: true,
         },
         {
-          ref: "pi.edit",
-          provider: "pi",
+          ref: "omp.edit",
+          provider: "omp",
           tool: "edit",
           args: {
             path: "target.ts",
@@ -552,48 +538,48 @@ describe("registered fabric_exec compact transcript rendering", () => {
       success: true,
       audits: [
         {
-          ref: "pi.read",
-          provider: "pi",
+          ref: "omp.read",
+          provider: "omp",
           tool: "read",
           args: { path: "src/example.ts" },
           result: "export const preview = true;",
           success: true,
         },
         {
-          ref: "pi.grep",
-          provider: "pi",
+          ref: "omp.grep",
+          provider: "omp",
           tool: "grep",
           args: { pattern: "needle", path: "src", literal: true },
           result: "src/example.ts:3: needle\nsrc/example.ts-4- context",
           success: true,
         },
         {
-          ref: "pi.find",
-          provider: "pi",
+          ref: "omp.find",
+          provider: "omp",
           tool: "find",
           args: { pattern: "*.ts", path: "src" },
           result: "src/example.ts",
           success: true,
         },
         {
-          ref: "pi.ls",
-          provider: "pi",
+          ref: "omp.ls",
+          provider: "omp",
           tool: "ls",
           args: { path: "src" },
           result: "example.ts",
           success: true,
         },
         {
-          ref: "pi.edit",
-          provider: "pi",
+          ref: "omp.edit",
+          provider: "omp",
           tool: "edit",
           args: { path: "src/example.ts", edits: [{ oldText: "before", newText: "after" }] },
           result: { details: { diff: "-before\n+after" } },
           success: true,
         },
         {
-          ref: "pi.write",
-          provider: "pi",
+          ref: "omp.write",
+          provider: "omp",
           tool: "write",
           args: { path: "src/new.ts", content: "export const preview = true;" },
           preview: { details: { codePreviewBeforeWrite: { kind: "content", content: "" } }, writeBeforeCaptured: true },
@@ -603,7 +589,7 @@ describe("registered fabric_exec compact transcript rendering", () => {
           ref: "extensions.remote",
           provider: "extensions",
           tool: "remote",
-          args: { strings: `hidden-call-${index}` },
+          args: { payloads: `hidden-call-${index}` },
           success: true,
         })),
       ],
@@ -671,7 +657,7 @@ describe("registered fabric_exec compact transcript rendering", () => {
           ref: "extensions.remote",
           provider: "extensions",
           tool: "remote",
-          args: { strings: "failed-child" },
+          args: { payloads: "failed-child" },
           success: false,
           error: "remote child failed",
         },
@@ -753,21 +739,19 @@ describe("registered fabric_exec compact transcript rendering", () => {
       details: { success: true, audits: [], phases: [] },
     };
 
-    const full = tool.renderCall!(args as never, plainTheme, context as never).render(120).join("\n");
+    const full = tool.renderCall!(args as never, { expanded: false, isPartial: false, renderContext: context } as RenderContextualOptions, plainTheme).render(120).join("\n");
     const fullResult = tool.renderResult!(
       result as never,
-      { expanded: false, isPartial: false },
+      { expanded: false, isPartial: false, renderContext: resultContext } as RenderContextualOptions,
       plainTheme,
-      resultContext as never,
     ).render(120).join("\n");
     (state.config.ui as { toolDisplay: "full" | "compact" }).toolDisplay = "compact";
     display.refresh();
-    const compact = tool.renderCall!(args as never, plainTheme, context as never).render(120).join("\n");
+    const compact = tool.renderCall!(args as never, { expanded: false, isPartial: false, renderContext: context } as RenderContextualOptions, plainTheme).render(120).join("\n");
     const compactResult = tool.renderResult!(
       result as never,
-      { expanded: false, isPartial: false },
+      { expanded: false, isPartial: false, renderContext: resultContext } as RenderContextualOptions,
       plainTheme,
-      resultContext as never,
     ).render(120).join("\n");
 
     // refresh() drains asynchronously and invalidates once per card: both
@@ -786,12 +770,11 @@ describe("registered fabric_exec compact transcript rendering", () => {
     (state.config.ui as { toolDisplay: "full" | "compact" }).toolDisplay = "full";
     display.refresh();
     await flushDrainTurns(2);
-    const fullAgain = tool.renderCall!(args as never, plainTheme, context as never).render(120).join("\n");
+    const fullAgain = tool.renderCall!(args as never, { expanded: false, isPartial: false, renderContext: context } as RenderContextualOptions, plainTheme).render(120).join("\n");
     const fullResultAgain = tool.renderResult!(
       result as never,
-      { expanded: false, isPartial: false },
+      { expanded: false, isPartial: false, renderContext: resultContext } as RenderContextualOptions,
       plainTheme,
-      resultContext as never,
     ).render(120).join("\n");
 
     expect(resultContext.invalidate).toHaveBeenCalledTimes(2);

@@ -15,7 +15,7 @@ const HOUR = 60 * 60 * 1_000;
 const DAY = 24 * HOUR;
 
 const temporaryDirectory = (): string => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-retention-test-"));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-retention-test-"));
   roots.push(root);
   return root;
 };

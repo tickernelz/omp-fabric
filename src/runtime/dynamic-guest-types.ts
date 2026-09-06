@@ -260,7 +260,7 @@ const renderMcpDeclaration = (
   return (
     "// Generated from the live MCP descriptor cache for this execution. Known\n" +
     "// servers and tools carry their schemas so argument-shape mistakes fail\n" +
-    "// type-check before the sandbox runs, like pi.* calls do; anything absent\n" +
+    "// type-check before the sandbox runs, like omp.* calls do; anything absent\n" +
     "// (cold cache, ambiguous sanitized names) compiles as it would with the\n" +
     "// loose declarations and is validated by the registry at dispatch.\n" +
     note +

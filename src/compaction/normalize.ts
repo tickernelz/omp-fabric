@@ -1,4 +1,4 @@
-import type { SessionEntry, SessionMessageEntry } from "@earendil-works/pi-coding-agent";
+import type { SessionEntry, SessionMessageEntry } from "@oh-my-pi/pi-coding-agent";
 import type { FabricExecutionOutcomeV1, FabricTraceJsonValue } from "../audit/trace.js";
 import { readFabricProjectionTrace, type FabricProjectionSource } from "./trace-events.js";
 import {
@@ -186,7 +186,7 @@ const isTypedCustomContent = (content: unknown): boolean => {
   });
 };
 
-export const isPiCustomMessageEntry = (
+export const isOmpCustomMessageEntry = (
   entry: SessionEntry,
 ): entry is Extract<SessionEntry, { type: "custom_message" }> => {
   try {
@@ -339,7 +339,7 @@ export const normalizeEntries = (entries: SessionEntry[]): CompactionEvent[] => 
     }
     if (entry.type === "custom_message") {
       try {
-        if (!isPiCustomMessageEntry(entry)) continue;
+        if (!isOmpCustomMessageEntry(entry)) continue;
         const details = customDetails(entry.details);
         push({
           kind: "customMessage",
@@ -489,7 +489,7 @@ export const normalizeEntries = (entries: SessionEntry[]): CompactionEvent[] => 
     }
 
     // Message-role custom / branchSummary / compactionSummary and any other
-    // roles are not top-level Pi custom_message entries and are skipped here.
+    // roles are not top-level OMP custom_message entries and are skipped here.
   }
 
   return events;

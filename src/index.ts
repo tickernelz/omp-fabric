@@ -1,8 +1,9 @@
-import type { Usage } from "@earendil-works/pi-ai";
+import type { Usage } from "@oh-my-pi/pi-ai";
 import type {
   ExtensionAPI,
   ExtensionContext,
-} from "@earendil-works/pi-coding-agent";
+  Skill,
+} from "@oh-my-pi/pi-coding-agent";
 import { defaultCodePreviewSettings } from "./ui/code-preview.js";
 import {
   type FabricToolShellDecorator,
@@ -56,7 +57,7 @@ import {
   expandSkillDirMarkersInSkillBlock,
 } from "./core/skill-dir.js";
 import { coreOverridePromptGuidance } from "./core/core-override-guidance.js";
-import { PI_CORE_TOOL_NAMES } from "./core/pi-tools.js";
+import { OMP_CORE_TOOL_NAMES } from "./core/omp-tools.js";
 import {
   fabricExecutionKernelGuidance,
   defaultFabricExecutionGuidance,
@@ -84,7 +85,7 @@ import { createFabricExecTool } from "./fabric-exec-tool.js";
 import { FabricState } from "./fabric-state.js";
 import { classifyToolResult } from "./repairs/classify.js";
 import { getActiveRepairCompiler } from "./repairs/active.js";
-import { piHostCompatibilityWarning } from "./host-compatibility.js";
+import { ompHostCompatibilityWarning } from "./host-compatibility.js";
 import {
   FABRIC_COMPONENT_REGISTER_EVENT,
   FABRIC_PROVIDER_REGISTER_EVENT,
@@ -105,7 +106,7 @@ import { fileURLToPath } from "node:url";
 // Absolute path to the Fabric skills bundled with this extension. Resolved
 // relative to the extension entry so it works both in development (src/) and
 // in an installed package (dist/). Contributed via resources_discover so child
-// Pi processes that load Fabric with -e (agents and actors) discover the
+// OMP processes that load Fabric with -e (agents and actors) discover the
 // same fabric-exec / fabric-advisor / fabric-council skill references as the
 // main agent, which gets them through the package manifest.
 const FABRIC_EXTENSION_ENTRY_PATH = path.resolve(fileURLToPath(import.meta.url));
@@ -155,9 +156,9 @@ const registrationFrom = (value: unknown): FabricProviderRegistration | undefine
   return registration as FabricProviderRegistration;
 };
 
-const SKILL_REFERENCE_CUSTOM_TYPE = "pi-fabric-skill-reference";
+const SKILL_REFERENCE_CUSTOM_TYPE = "omp-fabric-skill-reference";
 
-export default async function piFabric(pi: ExtensionAPI): Promise<void> {
+export default async function ompFabric(omp: ExtensionAPI): Promise<void> {
   const codePreviewSettings = defaultCodePreviewSettings();
   const decorateShell: FabricToolShellDecorator = withCodePreviewShell;
   let compatibilityWarningShown = false;
@@ -167,17 +168,16 @@ export default async function piFabric(pi: ExtensionAPI): Promise<void> {
   );
   const capturedTools = new CapturedToolCatalog();
   const proxyContract = new ProxyContractLedger();
-  const state = new FabricState(pi, capturedTools, { paths: FABRIC_RUNTIME_PATHS });
+  const state = new FabricState(omp, capturedTools, { paths: FABRIC_RUNTIME_PATHS });
   const directToolApproval = new FabricDirectToolApproval(
-    pi,
+    omp,
     () => state.config,
     state.sessionApprovals,
   );
   const pendingHandoffs = new Map<string, PendingFabricHandoff>();
-  const toolOwnership = new FabricToolOwnership(pi);
+  const toolOwnership = new FabricToolOwnership(omp);
   const fabricUi = new FabricUiController(state, codePreviewSettings, {
     getToolDefinition: (name) => name === "fabric_exec" ? fabricTool : capturedTools.get(name)?.definition,
-    get markdownTransformers() { return capturedTools.runner?.getMarkdownTransformers(); },
     getMessageRenderer: (type) => capturedTools.runner?.getMessageRenderer(type),
   });
   const toolDisplay = new FabricToolDisplayController();
@@ -185,35 +185,37 @@ export default async function piFabric(pi: ExtensionAPI): Promise<void> {
   const capturePolicy = () => effectiveToolCaptureConfig(state.config);
   const fabricOwnsModelTools = (): boolean =>
     state.config.fullCodeMode || state.config.schema.mode === "enforce";
-  // Captured tools that must stay out of the model's active set in full code
-  // mode: every captured extension tool minus the capture.keepVisible names.
   const hiddenCapturedToolNames = (): Set<string> => {
-    const visible = new Set(capturePolicy().keepVisible);
+    const policy = capturePolicy();
+    const keep = new Set([...policy.keepVisible, ...policy.includeTools]);
     return new Set(
-      capturedTools.list().map((entry) => entry.name).filter((name) => !visible.has(name)),
+      capturedTools.list()
+        .map((entry) => entry.name)
+        .filter((name) => policy.hideFromModel && !keep.has(name) && !policy.excludeTools.includes(name)),
     );
   };
-  // Pi auto-activates tools that newly appear in the registry on every tool
-  // refresh; re-assert ownership afterwards so captured tools stay hidden from
-  // the model even when a late-loading extension triggers a refresh. Refresh
-  // callbacks arrive before session initialization too, so reassertion waits
-  // for state to be ready rather than reading an uninitialized config.
+  const ownershipPolicy = () => {
+    const policy = capturePolicy();
+    return {
+      fullCodeMode: state.config.fullCodeMode,
+      schemaMode: state.config.schema.mode,
+      includeTools: new Set(policy.includeTools),
+      excludeTools: new Set(policy.excludeTools),
+    };
+  };
   const { reassert: reassertToolOwnership, schedule: scheduleOwnershipReassert } =
     createToolOwnershipReassertion({
       ready: () => state.cwd !== undefined,
-      active: () => {
-        const policy = capturePolicy();
-        return policy.enabled && policy.hideFromModel && fabricOwnsModelTools();
-      },
+      active: () => state.cwd !== undefined,
       hiddenNames: hiddenCapturedToolNames,
-      apply: (hidden) => toolOwnership.apply(true, hidden),
+      apply: (hidden) => toolOwnership.apply(ownershipPolicy(), hidden),
     });
 
-  const unsubscribeComponentRegistration = pi.events.on(
+  const unsubscribeComponentRegistration = omp.events.on(
     FABRIC_COMPONENT_REGISTER_EVENT,
     (value: unknown) => {
       const registration = componentRegistrationFrom(value);
-      if (!registration) throw new Error("Invalid Pi Fabric component registration");
+      if (!registration) throw new Error("Invalid OMP Fabric component registration");
       state.registerExternalComponent(
         registration.component,
         registration.overwrite === undefined ? {} : { overwrite: registration.overwrite },
@@ -221,11 +223,11 @@ export default async function piFabric(pi: ExtensionAPI): Promise<void> {
     },
   );
 
-  const unsubscribeProviderRegistration = pi.events.on(
+  const unsubscribeProviderRegistration = omp.events.on(
     FABRIC_PROVIDER_REGISTER_EVENT,
     (value: unknown) => {
       const registration = registrationFrom(value);
-      if (!registration) throw new Error("Invalid Pi Fabric provider registration");
+      if (!registration) throw new Error("Invalid OMP Fabric provider registration");
       state.registerExternal(
         registration.provider,
         registration.overwrite === undefined ? {} : { overwrite: registration.overwrite },
@@ -233,7 +235,7 @@ export default async function piFabric(pi: ExtensionAPI): Promise<void> {
     },
   );
 
-  pi.on("resources_discover", async () => {
+  omp.on("resources_discover", async () => {
     if (existsSync(FABRIC_SKILLS_DIR)) return { skillPaths: [FABRIC_SKILLS_DIR] };
     return {};
   });
@@ -253,7 +255,7 @@ export default async function piFabric(pi: ExtensionAPI): Promise<void> {
     );
   };
   const fabricToolLifecycle = new FabricToolLifecycle(
-    () => ownsFabricToolSource(pi.getAllTools(), FABRIC_EXTENSION_ENTRY_PATH),
+    () => ownsFabricToolSource(omp.getAllTools(), FABRIC_EXTENSION_ENTRY_PATH),
     () => state.initialized ? state.execution.authorizer : undefined,
     () => state.initialized ? directToolApproval : undefined,
   );
@@ -271,19 +273,12 @@ export default async function piFabric(pi: ExtensionAPI): Promise<void> {
       scheduleOwnershipReassert();
     },
   });
-  pi.registerTool(fabricTool);
-
+  omp.registerTool(fabricTool);
   const applyFabricMode = (): void => {
-    // Re-applying the persistent policy ends any suspension window; do it
-    // before setPolicy so a config-disabled policy recomputes derived
-    // surfaces against the (now stable) empty catalog.
     capturedTools.markResumed();
     toolCapture.setPolicy(capturePolicy());
-    pi.registerTool(fabricTool);
-    toolOwnership.apply(
-      fabricOwnsModelTools(),
-      fabricOwnsModelTools() ? hiddenCapturedToolNames() : undefined,
-    );
+    omp.registerTool(fabricTool);
+    toolOwnership.apply(ownershipPolicy(), hiddenCapturedToolNames());
     capturedTools.refresh();
   };
   const suspendToolCapture = (): void => {
@@ -298,9 +293,9 @@ export default async function piFabric(pi: ExtensionAPI): Promise<void> {
   // such as arrow keys) halts every persistent actor — aborting in-flight runs
   // and cancelling queued work — and arms a stop-the-world gate that freezes
   // host-event and mesh dispatch so the interrupted actors are not re-armed by
-  // the interrupt's own turn_end / agent_settled events. The gate lifts when the
+  // the interrupt's own turn_end / agent_end events. The gate lifts when the
   // user resumes by sending a new message (the "input" host event). Escape is
-  // observed but not consumed, so Pi's native cancel-streaming still fires;
+  // observed but not consumed, so OMP's native cancel-streaming still fires;
   // single ESC therefore stops the current turn and the advisor/supervisor
   // actors at once. Disabled when mesh/actors are off or ui.haltOnEscape is
   // false.
@@ -329,7 +324,7 @@ export default async function piFabric(pi: ExtensionAPI): Promise<void> {
   // rather than on every session switch.
   let prewalkAutoArmNoticeShown = false;
   const autoArmPrewalk = async (context: ExtensionContext): Promise<void> => {
-    const skipReason = await autoArmFabricPrewalk(state, context, pi);
+    const skipReason = await autoArmFabricPrewalk(state, context, omp);
     if (!skipReason || prewalkAutoArmNoticeShown || !context.hasUI) return;
     prewalkAutoArmNoticeShown = true;
     context.ui.notify(skipReason, "warning");
@@ -448,7 +443,7 @@ export default async function piFabric(pi: ExtensionAPI): Promise<void> {
         await compileEntropyNow(request.context, request.epoch);
       } catch (error) {
         console.warn(
-          `[pi-fabric] entropy compile failed: ${
+          `[omp-fabric] entropy compile failed: ${
             error instanceof Error ? error.message : String(error)
           }`,
         );
@@ -480,7 +475,7 @@ export default async function piFabric(pi: ExtensionAPI): Promise<void> {
     while (entropyCompileInFlight) await entropyCompileInFlight;
   };
 
-  pi.on("session_start", async (_event, context) => {
+  omp.on("session_start", async (_event, context) => {
     entropyLifecycleEpoch += 1;
     entropyEvidenceThisTurn = false;
     entropyCompilePending = undefined;
@@ -495,9 +490,9 @@ export default async function piFabric(pi: ExtensionAPI): Promise<void> {
     refreshProxyLedger(context);
     if (!compatibilityWarningShown) {
       compatibilityWarningShown = true;
-      const warning = piHostCompatibilityWarning();
+      const warning = ompHostCompatibilityWarning();
       if (warning) {
-        console.warn(`[pi-fabric] ${warning}`);
+        console.warn(`[omp-fabric] ${warning}`);
         if (context.hasUI) context.ui.notify(warning, "warning");
       }
     }
@@ -509,39 +504,35 @@ export default async function piFabric(pi: ExtensionAPI): Promise<void> {
 
   // Branch changes move the leaf: emitted echoes and spent reminder budget
   // must track it exactly. Rewind removes abandoned-branch residue.
-  pi.on("session_tree", async (_event, context) => {
+  omp.on("session_tree", async (_event, context) => {
     proxyContract.reset();
     refreshProxyLedger(context);
-    // Pi emits session_tree before it clears and rebuilds the transcript:
+    // OMP emits session_tree before it clears and rebuilds the transcript:
     // drop card invalidators from abandoned branches so a later display-mode
     // switch only refreshes cards registered by the rebuilt active branch.
     toolDisplay.clear();
     return undefined;
   });
 
-  pi.on("input", async (event, context) => {
+  omp.on("input", async (event, context) => {
     if (!state.initialized) return;
     state.prewalk.observeTask(
       context.sessionManager.getSessionId(),
       event.text,
     );
-    await state.publishHostLifecycle("pi.input", event);
+    await state.publishHostLifecycle("omp.input", event);
   });
 
-  pi.on("agent_start", async (event) => {
-    if (state.initialized) await state.publishHostLifecycle("pi.agent_start", event);
+  omp.on("agent_start", async (event) => {
+    if (state.initialized) await state.publishHostLifecycle("omp.agent_start", event);
   });
 
-  pi.on("agent_end", async (event) => {
-    if (state.initialized) await state.publishHostLifecycle("pi.agent_end", event);
-  });
-
-  pi.on("turn_end", async (event, context) => {
+  omp.on("turn_end", async (event, context) => {
     // Speculation never crosses a turn boundary; registry.endInvocation already
     // dropped entries for completed fabric_exec runs, this catches turns where
     // the program never executed (type errors, aborts).
     if (state.initialized) state.resetSpeculation();
-    if (state.initialized) await state.publishHostLifecycle("pi.turn_end", event);
+    if (state.initialized) await state.publishHostLifecycle("omp.turn_end", event);
     // A turn with new action evidence only enqueues the background compiler;
     // the hook returns without scanning session files or waiting on a lock.
     if (entropyEvidenceThisTurn) {
@@ -550,13 +541,14 @@ export default async function piFabric(pi: ExtensionAPI): Promise<void> {
     }
   });
 
-  pi.on("agent_settled", async (event, context) => {
+  omp.on("agent_end", async (event, context) => {
+    if (event.willContinue === true) return;
     if (!state.initialized) {
       await compactAtConfiguredThreshold(context, state.config);
       return;
     }
     const sessionId = context.sessionManager.getSessionId();
-    const settledInPlace = await settleInPlacePrewalk(state.prewalk, pi, context, {
+    const settledInPlace = await settleInPlacePrewalk(state.prewalk, omp, context, {
       compactOnReturn: state.config.prewalk.compactOnReturn,
       compact: state.compact,
     });
@@ -577,33 +569,33 @@ export default async function piFabric(pi: ExtensionAPI): Promise<void> {
     }
     // Keep the completed widget mounted until a newer Fabric run replaces it.
     // Removing rows at settle would pull the editor and latest chat content upward.
-    // Pi's compact API is callback-based. Await the controller's Promise here
-    // so ExtensionRunner does not finish this handler (and Pi does not publish
-    // its public agent_settled event) before compaction settles.
+    // OMP's compact API is callback-based. Await the controller's Promise here
+    // so ExtensionRunner does not finish this handler (and OMP does not publish
+    // its public agent_end event) before compaction settles.
     await state.compact.maybeCommit(context);
     await compactAtConfiguredThreshold(context, state.config);
-    await state.publishHostLifecycle("pi.agent_settled", event);
+    await state.publishHostLifecycle("omp.agent_end", event);
   });
 
   // Speculative PTC: follow fabric_exec argument streaming and pre-launch
   // literal-argument read calls so their latency hides behind generation.
-  pi.on("message_start", () => {
+  omp.on("message_start", () => {
     state.speculationTap?.reset();
   });
 
-  pi.on("message_update", (event, context) => {
+  omp.on("message_update", (event, context) => {
     if (!state.initialized) return;
     state.speculationTap?.handleMessageUpdate(event, context);
   });
 
-  pi.on("tool_call", (event, context) =>
+  omp.on("tool_call", (event, context) =>
     fabricToolLifecycle.toolCall(event, context));
 
-  // Pi 0.80.6 intentionally ignores `isError` returned by custom-tool
+  // The OMP host intentionally ignores `isError` returned by custom-tool
   // execute(). Repair the finalized outer result through official middleware.
-  pi.on("tool_result", (event) => fabricToolLifecycle.toolResult(event));
+  omp.on("tool_result", (event) => fabricToolLifecycle.toolResult(event));
 
-  pi.on("tool_result", (event, context) => {
+  omp.on("tool_result", (event, context) => {
     if (event.toolName !== "read" || event.isError) return undefined;
     let changed = false;
     const content = event.content.map((part) => {
@@ -620,27 +612,22 @@ export default async function piFabric(pi: ExtensionAPI): Promise<void> {
     return changed ? { content } : undefined;
   });
 
-  pi.on("message_end", (event) => {
-    if (event.message.role !== "toolResult") return undefined;
+  omp.on("message_end", (event) => {
+    if (event.message.role !== "toolResult") return;
     const message = event.message as AgentToolResultMessage & { usage?: Usage };
     const usage = directToolApproval.takeUsage(message.toolCallId);
-    if (!usage) return undefined;
-    return {
-      message: {
-        ...message,
-        usage: mergeFabricApprovalUsage(message.usage, usage),
-      },
-    };
+    if (!usage) return;
+    message.usage = mergeFabricApprovalUsage(message.usage, usage);
   });
 
   // message_end runs after all tool-result middleware and tool_execution_end but
-  // before Pi persists the native toolResult or starts another model turn. That
+  // before OMP persists the native toolResult or starts another model turn. That
   // is the complete outer fabric_exec boundary: fork the exact message, wait for
   // the child, then replace what Main sees while terminate prevents inference.
-  pi.on("message_end", async (event, context) => {
-    if (event.message.role !== "toolResult") return undefined;
+  omp.on("message_end", async (event, context) => {
+    if (event.message.role !== "toolResult") return;
     const pending = pendingHandoffs.get(event.message.toolCallId);
-    if (!pending || event.message.toolName !== "fabric_exec") return undefined;
+    if (!pending || event.message.toolName !== "fabric_exec") return;
     pendingHandoffs.delete(event.message.toolCallId);
 
     const outerToolResult = event.message as AgentToolResultMessage;
@@ -649,43 +636,10 @@ export default async function piFabric(pi: ExtensionAPI): Promise<void> {
       outerToolResult,
       context,
     );
-    const formatted = formatFabricValue(
-      handoff,
-      pending.resultFormat,
-      state.config.executor.maxOutputChars,
-    );
-    const output = truncateMiddle(
-      formatted.text || "(no output)",
-      state.config.executor.maxOutputChars,
-    );
-    // Directive lands after truncation so it survives maxOutputChars, and
-    // gates on "still armed" so one-shot trajectory handoffs stay silent.
-    const text = withTrajectoryRearmDirective(
-      output,
-      pending,
-      handoff,
-      state.prewalk,
-      context.sessionManager.getSessionId(),
-    );
-    const boundarySucceeded = handoff.completed === true || handoff.continued === true;
-    const details =
-      typeof event.message.details === "object" &&
-      event.message.details !== null &&
-      !Array.isArray(event.message.details) &&
-      "success" in event.message.details
-        ? { ...event.message.details, success: boundarySucceeded }
-        : event.message.details;
-    return {
-      message: {
-        ...event.message,
-        content: [{ type: "text", text }],
-        details,
-        isError: !boundarySucceeded,
-      },
-    };
+    Object.assign(outerToolResult, handoff);
   });
 
-  pi.on("tool_execution_end", async (event, context) => {
+  omp.on("tool_execution_end", async (event, context) => {
     if (!state.initialized) return;
     if (event.toolName === "fabric_exec") entropyEvidenceThisTurn = true;
     state.noteMainActivity(context);
@@ -703,38 +657,30 @@ export default async function piFabric(pi: ExtensionAPI): Promise<void> {
         getActiveRepairCompiler()?.observe(classified);
       }
       state.dispatchHostEvent("tool_error", event, context);
-      await state.publishHostLifecycle("pi.tool_error", event);
+      await state.publishHostLifecycle("omp.tool_error", event);
     }
   });
 
-  pi.on("session_compact", async (event, context) => {
+  omp.on("session_compact", async (event, context) => {
     if (!state.initialized) return;
-    await state.publishHostLifecycle("pi.session_compact", event);
+    await state.publishHostLifecycle("omp.session_compact", event);
   });
 
   // Deterministic, LLM-free compaction is registered unconditionally and is
-  // active by default. The documented "pi" escape hatch returns early so
-  // pi-core's own summarization proceeds normally.
-  registerCompactionHook(pi, {
+  // active by default. The documented "omp" escape hatch returns early so
+  // OMP's own summarization proceeds normally.
+  registerCompactionHook(omp, {
     getEngine: () =>
       state.cwd
-        ? state.config.compaction.engine
-        : DEFAULT_FABRIC_CONFIG.compaction.engine,
+        ? state.config.compaction.engine === "omp" ? "omp" : "fabric"
+        : DEFAULT_FABRIC_CONFIG.compaction.engine === "omp" ? "omp" : "fabric",
     getTargetContextRatio: () =>
       state.cwd
         ? state.config.compaction.targetContextRatio
         : DEFAULT_FABRIC_CONFIG.compaction.targetContextRatio,
-    getThresholdContextRatio: (modelKey) =>
-      state.cwd
-        ? state.config.compaction.thresholds[modelKey]
-        : DEFAULT_FABRIC_CONFIG.compaction.thresholds[modelKey],
-    getThresholdTokens: (modelKey) =>
-      state.cwd
-        ? state.config.compaction.tokenThresholds[modelKey]
-        : DEFAULT_FABRIC_CONFIG.compaction.tokenThresholds[modelKey],
   });
 
-  pi.on("context", (event, context) => {
+  omp.on("context", (event, context) => {
     const sessionId = context.sessionManager.getSessionId();
     const continuation = filterPrewalkContinuationMessages(
       event.messages,
@@ -764,26 +710,26 @@ export default async function piFabric(pi: ExtensionAPI): Promise<void> {
     return changed ? { messages } : undefined;
   });
 
-  pi.on("before_agent_start", async (event, context) => {
+  omp.on("before_agent_start", async (event, context) => {
     const fullCodeMode = state.cwd
       ? state.config.fullCodeMode
       : DEFAULT_FABRIC_CONFIG.fullCodeMode;
     const schemaMode = state.cwd
       ? state.config.schema.mode
       : DEFAULT_FABRIC_CONFIG.schema.mode;
+    reassertToolOwnership();
     const effectiveFullCodeMode = fullCodeMode || schemaMode === "enforce";
-    if (!pi.getActiveTools().includes("fabric_exec")) return;
-    const skills = event.systemPromptOptions.skills ?? [];
+    if (!omp.getActiveTools().includes("fabric_exec")) return;
+    const skills = (event as typeof event & {
+      systemPromptOptions?: { skills?: Skill[] };
+    }).systemPromptOptions?.skills ?? [];
     const captureSnapshot = state.cwd ? capturePolicy() : undefined;
-    // Pi omits its entire skill catalog when the active tool set lacks a tool
-    // named read. Restore that catalog in full code mode with only the loader
-    // instruction adapted to Fabric's nested pi.read path.
     const systemPrompt = effectiveFullCodeMode
-      ? restoreSkillsForFullCodePrompt(event.systemPrompt, skills)
-      : event.systemPrompt;
-    // Pi expands the invoked skill into the user message, but wrappers may
+      ? restoreSkillsForFullCodePrompt(event.systemPrompt.join("\n"), skills)
+      : event.systemPrompt.join("\n");
+    // OMP expands the invoked skill into the user message, but wrappers may
     // delegate by name. Resolve only explicit invocation lines so full code
-    // mode preserves Pi's progressive skill loading without exposing read.
+    // mode preserves OMP's progressive skill loading without exposing read.
     // Turn-derived: delivered via the message channel (below), never the
     // system prompt, so the cached system prefix stays byte-stable.
     const skillReferenceGuidance = effectiveFullCodeMode
@@ -794,7 +740,7 @@ export default async function piFabric(pi: ExtensionAPI): Promise<void> {
       : undefined;
     const resolvedGuidance = resolveFabricModelGuidance(state.modelGuidance(), {
       ...(currentModel ? { model: currentModel } : {}),
-      target: process.env.PI_FABRIC_PARENT_RUN ? "participant" : "main",
+      target: process.env.OMP_FABRIC_PARENT_RUN ? "participant" : "main",
       defaults: [{
         slot: FABRIC_EXECUTION_GUIDANCE_SLOT,
         content: defaultFabricExecutionGuidance(effectiveFullCodeMode),
@@ -804,7 +750,7 @@ export default async function piFabric(pi: ExtensionAPI): Promise<void> {
       ? coreOverridePromptGuidance(capturedTools).trim()
       : undefined;
     const extensionRoster = effectiveFullCodeMode
-      ? extensionToolRosterGuidance(capturedTools.list(), new Set(PI_CORE_TOOL_NAMES))
+      ? extensionToolRosterGuidance(capturedTools.list(), new Set(OMP_CORE_TOOL_NAMES))
       : undefined;
     // Only turn-stable sections go into the system prompt. Anything derived
     // from the current prompt (skill references) rides
@@ -822,10 +768,10 @@ export default async function piFabric(pi: ExtensionAPI): Promise<void> {
     // system prompt byte-identical across turns is what lets provider prefix
     // caches (e.g. DeepSeek) stay warm.
     if (!skillReferenceGuidance) return {
-      systemPrompt: `${systemPrompt}\n\n${guidance}`,
+      systemPrompt: [`${systemPrompt}\n\n${guidance}`],
     };
     return {
-      systemPrompt: `${systemPrompt}\n\n${guidance}`,
+      systemPrompt: [`${systemPrompt}\n\n${guidance}`],
       message: {
         customType: SKILL_REFERENCE_CUSTOM_TYPE,
         content: skillReferenceGuidance,
@@ -838,8 +784,8 @@ export default async function piFabric(pi: ExtensionAPI): Promise<void> {
   // Ambient skill prose that names hidden captured tools is not user intent,
   // so the furnace strips it. This sidecar retargets the call site without
   // spending hint budget, echoing tokens, or burning ash.
-  pi.on("before_agent_start", (event) => {
-    if (!pi.getActiveTools().includes("fabric_exec")) return;
+  omp.on("before_agent_start", (event) => {
+    if (!omp.getActiveTools().includes("fabric_exec")) return;
     const captureSnapshot = state.cwd ? capturePolicy() : undefined;
     if (
       !captureSnapshot?.enabled ||
@@ -852,7 +798,7 @@ export default async function piFabric(pi: ExtensionAPI): Promise<void> {
     if (names.length === 0) return;
     const mentioned = proxyContractMentionsInSkills(
       event.prompt,
-      event.systemPrompt,
+      event.systemPrompt.join("\n"),
       names,
     );
     const fresh = proxyContract.take(mentioned);
@@ -867,12 +813,12 @@ export default async function piFabric(pi: ExtensionAPI): Promise<void> {
     };
   });
 
-  registerFabricActorHostEventObservers(pi, (eventName, event, context) => {
+  registerFabricActorHostEventObservers(omp, (eventName, event, context) => {
     if (!state.initialized) return;
     state.dispatchHostEvent(eventName, event, context);
   });
 
-  pi.on("session_shutdown", async (_event, context) => {
+  omp.on("session_shutdown", async (_event, context) => {
     // Queue the richest final window and let async I/O/cooperative scoring
     // finish before teardown; the TUI event loop remains responsive.
     if (entropyEvidenceThisTurn) {
@@ -903,11 +849,11 @@ export default async function piFabric(pi: ExtensionAPI): Promise<void> {
   // set (e.g. a permission system filtering its allowlist at before_agent_start,
   // or a refresh that ran before Fabric's policy was active), captured tools
   // must not leak into the model's next turn.
-  pi.on("before_agent_start", () => {
+  omp.on("before_agent_start", () => {
     reassertToolOwnership();
   });
 
-  registerFabricCommand(pi, {
+  registerFabricCommand(omp, {
     state,
     fabricUi,
     capturedTools,

@@ -1,7 +1,7 @@
 // A shared, provider-agnostic heuristic for the one-line "headline" argument
 // of a nested Fabric call — the value shown beside a tool's name in the chat
 // preview (e.g. `recall <query>`) and appended to its ref in the dashboard
-// (e.g. `extensions.vcc_recall · <query>`). Pi core tools and the first-class
+// (e.g. `extensions.vcc_recall · <query>`). OMP core tools and the first-class
 // Fabric providers (agents/mesh/mcp management) keep their bespoke, tuned
 // previews; this picks up everything else — captured extension tools and
 // arbitrary MCP tools — so they no longer render as a bare tool name.

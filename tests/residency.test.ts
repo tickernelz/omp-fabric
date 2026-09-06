@@ -48,8 +48,8 @@ const worktreeBranches = (repository: string): string[] =>
 const initRepository = (directory: string): void => {
   fs.mkdirSync(directory, { recursive: true });
   git(directory, "init", "-q");
-  git(directory, "config", "user.email", "pi-fabric-tests@example.invalid");
-  git(directory, "config", "user.name", "Pi Fabric tests");
+  git(directory, "config", "user.email", "omp-fabric-tests@example.invalid");
+  git(directory, "config", "user.name", "OMP Fabric tests");
   fs.writeFileSync(path.join(directory, "README.md"), "test repository\n");
   git(directory, "add", ".");
   git(directory, "commit", "-qm", "initial");
@@ -93,7 +93,7 @@ interface RootHarness {
 }
 
 const rootHarness = async (name: string): Promise<RootHarness> => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), `pi-fabric-${name}-`));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), `omp-fabric-${name}-`));
   roots.push(root);
   const meshRoot = path.join(root, "mesh");
   const meshConfig = { ...DEFAULT_FABRIC_CONFIG.mesh, actorPollMs: 20 };
@@ -122,7 +122,7 @@ const rootHarness = async (name: string): Promise<RootHarness> => {
     name: "main",
     status: "idle",
     residency: "session",
-    runner: "pi",
+    runner: "omp",
     transport: "host",
     capabilities: ["steer", "followUp", "fabric"],
     cwd: repo,
@@ -158,10 +158,10 @@ const rootHarness = async (name: string): Promise<RootHarness> => {
       retention: DEFAULT_FABRIC_CONFIG.retention,
       workerPath: fakeWorker,
       fabricExtensionPath: path.resolve("dist/index.js"),
-      piBinary: "pi",
+      ompBinary: "omp",
       claudeBinary: "claude",
       vedaBinary: "veda",
-      piModels: {
+      models: {
         available: [
           { provider: "provider", id: "visible", name: "Visible" },
           { provider: "deepseek", id: "deepseek-chat", name: "DeepSeek Chat" },
@@ -598,10 +598,10 @@ describe.skipIf(!hasResidentHost || process.platform === "win32")("durable parti
         name: "visibility witness",
         instructions: "Run only while the bound model remains visible.",
         residency: "durable",
-        runner: "pi",
+        runner: "omp",
         model: "provider/visible",
       });
-      state.config.piModels = {
+      state.config.models = {
         available: [],
         aliases: {},
         defaultModel: "provider/visible",
@@ -616,7 +616,7 @@ describe.skipIf(!hasResidentHost || process.platform === "win32")("durable parti
           { message: "Do not launch the hidden binding" },
           client.hostId,
         ),
-      ).rejects.toThrow(/not available to this Pi session/);
+      ).rejects.toThrow(/not available to this OMP session/);
       await client.removeActor(actor.id);
     } finally {
       await control.close();
@@ -731,8 +731,8 @@ describe.skipIf(!hasResidentHost || process.platform === "win32")("durable parti
     initRepository(source);
     initRepository(unrelated);
     const id = randomId().padEnd(32, "0").slice(0, 32);
-    const branch = `pi-fabric/tampered-${id.slice(0, 8)}`;
-    const worktree = path.join(source, ".pi", "fabric", "worktrees", id);
+    const branch = `omp-fabric/tampered-${id.slice(0, 8)}`;
+    const worktree = path.join(source, ".omp", "fabric", "worktrees", id);
     fs.mkdirSync(path.dirname(worktree), { recursive: true });
     git(source, "worktree", "add", "-q", "-b", branch, worktree, "HEAD");
     const runDirectory = path.join(state.config.residencyRoot, "runs", id);
@@ -742,7 +742,7 @@ describe.skipIf(!hasResidentHost || process.platform === "win32")("durable parti
       name: "tampered worktree",
       task: "test",
       status: "completed",
-      runner: "pi",
+      runner: "omp",
       transport: "process",
       cwd: worktree,
       startedAt: 1,
@@ -763,7 +763,7 @@ describe.skipIf(!hasResidentHost || process.platform === "win32")("durable parti
         id,
         name: "tampered worktree",
         status: "completed",
-        runner: "pi",
+        runner: "omp",
         transport: "process",
         cwd: worktree,
         residency: "durable",

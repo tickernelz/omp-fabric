@@ -1,26 +1,28 @@
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import os from "node:os";
 import path from "node:path";
+import { randomUUID } from "node:crypto";
+import { BashTool } from "@oh-my-pi/pi-coding-agent/tools/bash";
+import { EditTool } from "@oh-my-pi/pi-coding-agent/edit";
+import { ReadTool } from "@oh-my-pi/pi-coding-agent/tools/read";
+import { Settings, type ToolSession } from "@oh-my-pi/pi-coding-agent";
 import {
-  createBashToolDefinition,
-  createEditToolDefinition,
   createFindToolDefinition,
   createGrepToolDefinition,
   createLsToolDefinition,
-  createReadToolDefinition,
-  type AgentToolResult,
-  type ExtensionContext,
-  type ExtensionRunner,
   type ToolDefinition,
-} from "@earendil-works/pi-coding-agent";
+} from "@oh-my-pi/pi-coding-agent/extensibility/legacy-pi-coding-agent-shim";
+import type { AgentToolResult } from "@oh-my-pi/pi-agent-core";
+import type { ExtensionContext, ExtensionRunner } from "@oh-my-pi/pi-coding-agent";
 import { tryExecuteGitWorktreeAdd } from "../agents/bash-worktree-add.js";
 import { runAbortable, throwIfAborted } from "../async-settlement.js";
 import { CapturedToolCatalog } from "../capture/catalog.js";
 import {
-  isPiShellToolName,
-  PI_CORE_TOOL_NAMES,
-  type PiCoreToolName,
-} from "../core/pi-tools.js";
-import { classifyPiBashError, piBashResultError } from "../core/pi-bash-error.js";
+  isOmpShellToolName,
+  OMP_CORE_TOOL_NAMES,
+  type OmpCoreToolName,
+} from "../core/omp-tools.js";
+import { classifyOmpBashError, ompBashExitError, ompBashResultError, stripOmpBashTiming } from "../core/omp-bash-error.js";
 import { expandSkillDirMarkersForRead } from "../core/skill-dir.js";
 import type {
   FabricActionDescriptor,
@@ -32,15 +34,7 @@ import type {
 } from "../protocol.js";
 import { countContentLines } from "../ui/preview-lines.js";
 import { CapturedToolsProvider } from "./captured-tools-provider.js";
-import {
-  BashCwdDefinitions,
-  PI_BASH_CWD_KEY,
-  PowerShellCwdDefinitions,
-  powerShellToolDefinitionFactory,
-  resolveShellCwdArgument,
-  type ShellDefinitionFactory,
-  withShellCwdSchema,
-} from "./pi-bash-cwd.js";
+import { BashCwdDefinitions, OMP_BASH_CWD_KEY, resolveShellCwdArgument, withShellCwdSchema } from "./omp-bash-cwd.js";
 import { writeContentForPreview } from "./write-diff-limits.js";
 import { createPreviewWriteToolDefinition } from "./write-preview.js";
 
@@ -48,77 +42,137 @@ import { readChildToolAllowlist } from "../core/child-tool-allowlist.js";
 
 const MAX_RENDERER_ARGUMENT_CHARS = 200_000;
 const MAX_REPLACE_ALL_FILE_CHARS = 2_000_000;
-
-interface PiToolsProviderHostCapabilities {
-  powerShellToolDefinitionFactory: ShellDefinitionFactory | undefined;
-}
-
-const DEFAULT_HOST_CAPABILITIES: PiToolsProviderHostCapabilities = {
-  powerShellToolDefinitionFactory,
+const createNativeSession = (cwd: string, artifactPaths?: Map<string, string>): ToolSession => {
+  const artifactRoot = artifactPaths
+    ? mkdtempSync(path.join(os.tmpdir(), "omp-fabric-bash-"))
+    : undefined;
+  return {
+    cwd,
+    hasUI: false,
+    hasEditTool: false,
+    getSessionFile: () => null,
+    getSessionSpawns: () => null,
+    settings: Settings.isolated({ readLineNumbers: false }),
+    ...(artifactRoot && artifactPaths
+      ? {
+          allocateOutputArtifact: async (toolType: string) => {
+            const id = randomUUID();
+            const artifactPath = path.join(artifactRoot, `${toolType}-${id}.log`);
+            writeFileSync(artifactPath, "", { mode: 0o600 });
+            artifactPaths.set(id, artifactPath);
+            return { id, path: artifactPath };
+          },
+        }
+      : {}),
+  };
 };
 
-const expandReplaceAllEdit = (
-  cwd: string,
+type NativeTool = {
+  name: string;
+  label: string;
+  description: string;
+  parameters: unknown;
+  execute: (...args: unknown[]) => Promise<AgentToolResult>;
+};
+
+const nativeDefinition = (tool: NativeTool): ToolDefinition<any, any> => {
+  const execute: ToolDefinition<any, any>["execute"] = (toolCallId, params, signal, onUpdate, context) =>
+    tool.execute(toolCallId, params, signal, onUpdate, context);
+  return {
+    name: tool.name,
+    label: tool.label,
+    description: tool.description,
+    parameters: tool.parameters as ToolDefinition<any, any>["parameters"],
+    execute,
+  };
+};
+
+const createNativeBashToolDefinition = (cwd: string, artifactPaths: Map<string, string>): ToolDefinition<any, any> =>
+  nativeDefinition(new BashTool(createNativeSession(cwd, artifactPaths)) as unknown as NativeTool);
+
+const createNativeReadToolDefinition = (cwd: string): ToolDefinition<any, any> =>
+  nativeDefinition(new ReadTool(createNativeSession(cwd)) as unknown as NativeTool);
+
+const createNativeReplaceEditToolDefinition = (cwd: string): ToolDefinition<any, any> =>
+  nativeDefinition(new EditTool(createNativeSession(cwd), "replace") as unknown as NativeTool);
+
+const normalizeEditArguments = (
   args: Record<string, unknown>,
-  allForEveryEdit: boolean,
+  replaceAll: boolean,
+  cwd: string,
 ): Record<string, unknown> => {
   const filePath = args.path;
-  if (typeof filePath !== "string") {
-    throw new Error("pi.edit all:true requires a path");
-  }
-  const edits = Array.isArray(args.edits)
+  if (typeof filePath !== "string") throw new Error("omp.edit requires a path");
+  if (typeof args.old_string === "string" && typeof args.new_string === "string") return args;
+  const rawEdits = Array.isArray(args.edits)
     ? args.edits
-    : [{ oldText: args.oldText, newText: args.newText }];
-  if (edits.length === 0) throw new Error("pi.edit all:true requires at least one edit");
-  const normalized = edits.map((edit, index) => {
+    : [{ oldText: args.oldText, newText: args.newText, all: replaceAll }];
+  if (rawEdits.length === 0) throw new Error("omp.edit requires at least one edit");
+  const edits = rawEdits.map((edit, index) => {
     if (typeof edit !== "object" || edit === null || Array.isArray(edit)) {
-      throw new Error(`pi.edit all:true edits[${index}] must be an object`);
+      throw new Error(`omp.edit edits[${index}] must be an object`);
     }
     const record = edit as Record<string, unknown>;
-    const { oldText, newText } = record;
-    if (typeof oldText !== "string" || typeof newText !== "string") {
-      throw new Error(`pi.edit all:true edits[${index}] requires oldText and newText strings`);
+    const oldString = record.old_string ?? record.oldText ?? record.old;
+    const newString = record.new_string ?? record.newText ?? record.new ?? record.replacement;
+    if (typeof oldString !== "string" || typeof newString !== "string") {
+      throw new Error(`omp.edit edits[${index}] requires old and new text strings`);
     }
-    if (oldText.length === 0) {
-      throw new Error(`pi.edit all:true edits[${index}] oldText cannot be empty`);
-    }
-    return { oldText, newText, all: allForEveryEdit || record.all === true };
+    return {
+      old_string: oldString,
+      new_string: newString,
+      ...(replaceAll || record.all === true || record.replace_all === true ? { replace_all: true } : {}),
+    };
   });
-  const resolvedPath = path.resolve(
-    cwd,
-    filePath.startsWith("@") ? filePath.slice(1) : filePath,
-  );
+  const resolvedPath = path.resolve(cwd, filePath.startsWith("@") ? filePath.slice(1) : filePath);
   const current = readFileSync(resolvedPath, "utf8");
   if (current.length > MAX_REPLACE_ALL_FILE_CHARS) {
-    throw new Error(
-      `pi.edit all:true refuses files over ${MAX_REPLACE_ALL_FILE_CHARS} characters; use scoped unique edits`,
-    );
+    throw new Error(`omp.edit refuses files over ${MAX_REPLACE_ALL_FILE_CHARS} characters`);
   }
   let next = current;
-  for (const [index, edit] of normalized.entries()) {
-    const occurrences = next.split(edit.oldText).length - 1;
-    if (occurrences === 0) {
-      throw new Error(`pi.edit all:true edits[${index}] oldText was not found`);
+  for (const [index, edit] of edits.entries()) {
+    const occurrences = next.split(edit.old_string).length - 1;
+    if (occurrences === 0) throw new Error(`omp.edit edits[${index}] oldText was not found`);
+    if (!edit.replace_all && occurrences !== 1) {
+      throw new Error(`omp.edit edits[${index}] found ${occurrences} occurrences; add all:true or use a unique anchor`);
     }
-    if (!edit.all && occurrences !== 1) {
-      throw new Error(
-        `pi.edit edits[${index}] found ${occurrences} occurrences; add all:true or use a unique anchor`,
-      );
-    }
-    next = edit.all
-      ? next.replaceAll(edit.oldText, edit.newText)
-      : next.replace(edit.oldText, edit.newText);
+    next = edit.replace_all ? next.replaceAll(edit.old_string, edit.new_string) : next.replace(edit.old_string, edit.new_string);
   }
-  return { path: filePath, edits: [{ oldText: current, newText: next }] };
+  return { path: filePath, edits };
 };
 
-const readTools = new Set<PiCoreToolName>(["read", "grep", "find", "ls"]);
-const writeTools = new Set<PiCoreToolName>(["edit", "write"]);
 
-// The content array every pi core tool returns: text and/or image blocks.
+const EDIT_COMPATIBILITY_SCHEMA = {
+  type: "object",
+  properties: {
+    path: { type: "string" },
+    oldText: { type: "string" },
+    newText: { type: "string" },
+    old_string: { type: "string" },
+    new_string: { type: "string" },
+    replacement: { type: "string" },
+    old: { type: "string" },
+    new: { type: "string" },
+    all: { type: "boolean" },
+    replace_all: { type: "boolean" },
+    edits: { type: "array", items: { type: "object" } },
+  },
+  required: ["path"],
+  anyOf: [
+    { required: ["oldText", "newText"] },
+    { required: ["old_string", "new_string"] },
+    { required: ["edits"] },
+  ],
+  additionalProperties: false,
+};
+
+const readTools = new Set<OmpCoreToolName>(["read", "grep", "find", "ls"]);
+const writeTools = new Set<OmpCoreToolName>(["edit", "write"]);
+
+// The content array every OMP core tool returns: text and/or image blocks.
 type ToolContent = AgentToolResult<unknown>["content"];
 
-const riskForTool = (name: PiCoreToolName): FabricRisk => {
+const riskForTool = (name: OmpCoreToolName): FabricRisk => {
   if (readTools.has(name)) return "read";
   if (writeTools.has(name)) return "write";
   return "execute";
@@ -151,73 +205,99 @@ const imageBlocks = (content: unknown): FabricMediaBlock[] => {
   return blocks;
 };
 
+const resultHasTruncation = (details: unknown): boolean => {
+  if (details === null || typeof details !== "object" || Array.isArray(details)) return false;
+  const meta = Reflect.get(details, "meta");
+  const candidates = [Reflect.get(details, "truncation"), meta && typeof meta === "object" ? Reflect.get(meta, "truncation") : undefined];
+  return candidates.some((truncation) =>
+    truncation !== null && typeof truncation === "object" && !Array.isArray(truncation)
+      && typeof Reflect.get(truncation, "truncatedBy") === "string",
+  );
+};
+
+const resultExitCode = (details: unknown): number | undefined => {
+  if (details === null || typeof details !== "object" || Array.isArray(details)) return undefined;
+  const exitCode = Reflect.get(details, "exitCode");
+  return Number.isSafeInteger(exitCode) && exitCode > 0 ? exitCode : undefined;
+};
 const normalizeResult = (
-  name: PiCoreToolName,
+  name: OmpCoreToolName,
   result: { content: ToolContent; details?: unknown; isError?: boolean },
+  artifactPaths?: ReadonlyMap<string, string>,
+  appendReadNewline = true,
 ): unknown => {
-  const text = textContent(result.content);
-  if (result.isError) throw new Error(text || `${name} failed`);
-  if (name === "read" || name === "grep" || name === "find" || name === "ls") {
-    return text;
+  const text = isOmpShellToolName(name)
+    ? stripOmpBashTiming(textContent(result.content))
+    : textContent(result.content);
+  if (result.isError && !resultHasTruncation(result.details)) throw new Error(text || `${name} failed`);
+  if (name === "read") {
+    return appendReadNewline && text.length > 0 && !text.endsWith("\n") ? `${text}\n` : text;
   }
+  if (name === "grep" || name === "find" || name === "ls") return text;
   let details = result.details;
-  if (isPiShellToolName(name) && details && typeof details === "object" && !Array.isArray(details)) {
+  if (isOmpShellToolName(name) && details && typeof details === "object" && !Array.isArray(details)) {
     const detailRecord = details as Record<string, unknown>;
-    const truncation = detailRecord.truncation;
+    const meta = detailRecord.meta;
+    const metaRecord = meta && typeof meta === "object" && !Array.isArray(meta)
+      ? meta as Record<string, unknown>
+      : undefined;
+    const truncation = detailRecord.truncation ?? metaRecord?.truncation;
     if (truncation && typeof truncation === "object" && !Array.isArray(truncation)) {
-      const { content, ...truncationMetadata } = truncation as Record<string, unknown>;
-      if (typeof content === "string" && text.includes(content)) {
-        details = { ...detailRecord, truncation: truncationMetadata };
-      }
+      const truncationRecord = truncation as Record<string, unknown>;
+      const artifactId = truncationRecord.artifactId;
+      const fullOutputPath = typeof artifactId === "string" ? artifactPaths?.get(artifactId) : undefined;
+      details = {
+        ...detailRecord,
+        truncation: { ...truncationRecord, truncated: true },
+        ...(fullOutputPath ? { fullOutputPath } : {}),
+      };
     }
   }
   if (name === "write" && details && typeof details === "object" && !Array.isArray(details)) {
     const { codePreviewBeforeWrite: _before, ...publicDetails } = details as Record<string, unknown>;
     details = Object.keys(publicDetails).length > 0 ? publicDetails : undefined;
   }
-  return {
-    ok: true,
-    output: text,
-    details: details ?? null,
-  };
+  return { ok: true, output: text, details: details ?? null };
 };
 
-// Shape of a pi core tool's execute() result. AgentToolResult<unknown> is
-// { content, details, terminate? }; pi core tools throw on error rather than
+// Shape of an OMP core tool's execute() result. AgentToolResult<unknown> is
+// { content, details, terminate? }; OMP core tools throw on error rather than
 // returning isError, so isError is tracked separately in #invokeWithEvents.
-interface PiToolResult {
+interface OmpToolResult {
   content: ToolContent;
   details: unknown;
+  isError?: boolean;
   terminate?: boolean;
 }
 
-export class PiToolsProvider implements FabricProvider {
-  readonly name = "pi";
+export class OmpToolsProvider implements FabricProvider {
+  static async create(
+    cwd: string,
+    catalog?: CapturedToolCatalog,
+    capturedTools?: CapturedToolsProvider,
+  ): Promise<OmpToolsProvider> {
+    return new OmpToolsProvider(cwd, catalog, capturedTools);
+  }
+  readonly name = "omp";
+  readonly description = "OMP's built-in coding tools";
   readonly #allowedTools = readChildToolAllowlist();
-  readonly description = "Pi's built-in coding tools";
-  readonly #tools: Partial<Record<PiCoreToolName, ToolDefinition<any, any, any>>>;
+  readonly #tools: Partial<Record<OmpCoreToolName, ToolDefinition<any, any>>>;
   readonly #catalog: CapturedToolCatalog | undefined;
   readonly #capturedTools: CapturedToolsProvider | undefined;
   readonly #cwd: string;
+  readonly #artifactPaths = new Map<string, string>();
   readonly #bashDefinitions = new BashCwdDefinitions();
-  readonly #powershellDefinitions: PowerShellCwdDefinitions | undefined;
 
   constructor(
     cwd: string,
     catalog?: CapturedToolCatalog,
     capturedTools?: CapturedToolsProvider,
-    hostCapabilities: PiToolsProviderHostCapabilities = DEFAULT_HOST_CAPABILITIES,
   ) {
     this.#cwd = cwd;
-    const powerShellFactory = hostCapabilities.powerShellToolDefinitionFactory;
-    this.#powershellDefinitions = powerShellFactory
-      ? new PowerShellCwdDefinitions(powerShellFactory)
-      : undefined;
     this.#tools = {
-      read: createReadToolDefinition(cwd),
-      bash: createBashToolDefinition(cwd),
-      ...(powerShellFactory ? { powershell: powerShellFactory(cwd) } : {}),
-      edit: createEditToolDefinition(cwd),
+      read: createNativeReadToolDefinition(cwd),
+      bash: createNativeBashToolDefinition(cwd, this.#artifactPaths),
+      edit: createNativeReplaceEditToolDefinition(cwd),
       write: createPreviewWriteToolDefinition(cwd),
       grep: createGrepToolDefinition(cwd),
       find: createFindToolDefinition(cwd),
@@ -233,7 +313,7 @@ export class PiToolsProvider implements FabricProvider {
   ): Promise<FabricActionDescriptor[]> {
     const query = request.query?.toLowerCase();
     const descriptors = await Promise.all(
-      PI_CORE_TOOL_NAMES.map((name) => this.describe(name, _context)),
+      OMP_CORE_TOOL_NAMES.map((name) => this.describe(name, _context)),
     );
     return descriptors
       .filter((descriptor): descriptor is FabricActionDescriptor => descriptor !== undefined)
@@ -246,7 +326,7 @@ export class PiToolsProvider implements FabricProvider {
     actionName: string,
     _context: FabricInvocationContext,
   ): Promise<FabricActionDescriptor | undefined> {
-    const name = actionName as PiCoreToolName;
+    const name = actionName as OmpCoreToolName;
     if (this.#allowedTools && !this.#allowedTools.has(name)) return undefined;
     const tool = this.#tools[name];
     if (!tool) return undefined;
@@ -260,66 +340,50 @@ export class PiToolsProvider implements FabricProvider {
     if (this.#catalog?.get(actionName)) {
       return this.#capturedTools!.prepareArguments(actionName, args);
     }
-    const tool = this.#tools[actionName as PiCoreToolName];
+    const tool = this.#tools[actionName as OmpCoreToolName];
     if (!tool) return args;
-    const input = actionName === "edit" && Object.hasOwn(args, "all")
-      ? Object.fromEntries(Object.entries(args).filter(([key]) => key !== "all"))
-      : args;
-    const prepare = tool.prepareArguments;
-    const prepared = prepare ? prepare(input) : input;
+    const prepared = args;
     if (typeof prepared !== "object" || prepared === null || Array.isArray(prepared)) {
-      throw new Error(`Pi tool ${actionName} prepared non-object arguments`);
+      throw new Error(`OMP tool ${actionName} prepared non-object arguments`);
     }
     const record = prepared as Record<string, unknown>;
-    if (isPiShellToolName(actionName)) {
-      // pi 0.85 preparation strips schema-external keys. Preserve Fabric's
-      // advertised cwd before preparation, then validate and resolve it here.
-      const shellArgs = Object.hasOwn(args, PI_BASH_CWD_KEY)
-        ? { ...record, [PI_BASH_CWD_KEY]: args[PI_BASH_CWD_KEY] }
+    if (isOmpShellToolName(actionName)) {
+      const shellArgs = Object.hasOwn(args, OMP_BASH_CWD_KEY)
+        ? { ...record, [OMP_BASH_CWD_KEY]: args[OMP_BASH_CWD_KEY] }
         : record;
       return resolveShellCwdArgument(actionName, this.#cwd, shellArgs);
     }
-    const hasPerEditAll = actionName === "edit"
-      && Array.isArray(record.edits)
-      && record.edits.some(
-        (edit) => typeof edit === "object" && edit !== null
-          && !Array.isArray(edit) && (edit as Record<string, unknown>).all === true,
-      );
-    return actionName === "edit" && (args.all === true || hasPerEditAll)
-      ? expandReplaceAllEdit(this.#cwd, record, args.all === true)
-      : record;
+    return actionName === "edit" ? normalizeEditArguments(record, args.all === true, this.#cwd) : record;
   }
 
   #assertAllowed(name: string): void {
     if (this.#allowedTools && !this.#allowedTools.has(name)) {
-      throw new Error(`Pi tool ${name} is not permitted by this child's tool allowlist`);
+      throw new Error(`OMP tool ${name} is not permitted by this child's tool allowlist`);
     }
   }
 
-  // Keep a cwd-bound definition for pi <=0.84, while pi 0.85+ receives the
+  // Keep a cwd-bound definition for hosts without argument preparation, while newer hosts receive the
   // same directory through ExtensionContext.cwd. `cwd` also stays in the
   // arguments so lifecycle events, approval, and previews see it.
   #definitionFor(
-    name: PiCoreToolName,
+    name: OmpCoreToolName,
     args: Record<string, unknown>,
-  ): ToolDefinition<any, any, any> {
+  ): ToolDefinition<any, any> {
     const tool = this.#tools[name];
-    if (!tool) throw new Error(`Unknown Pi tool: ${name}`);
-    if (!isPiShellToolName(name)) return tool;
-    const cwd = args[PI_BASH_CWD_KEY];
+    if (!tool) throw new Error(`Unknown OMP tool: ${name}`);
+    if (!isOmpShellToolName(name)) return tool;
+    const cwd = args[OMP_BASH_CWD_KEY];
     if (typeof cwd !== "string") return tool;
-    return name === "bash"
-      ? this.#bashDefinitions.get(cwd)
-      : this.#powershellDefinitions?.get(cwd) ?? tool;
+    return this.#bashDefinitions.get(cwd);
   }
 
   #executionContextFor(
-    name: PiCoreToolName,
+    name: OmpCoreToolName,
     args: Record<string, unknown>,
     context: ExtensionContext,
   ): ExtensionContext {
-    const cwd = args[PI_BASH_CWD_KEY];
-    return isPiShellToolName(name) && typeof cwd === "string"
+    const cwd = args[OMP_BASH_CWD_KEY];
+    return isOmpShellToolName(name) && typeof cwd === "string"
       ? { ...context, cwd }
       : context;
   }
@@ -329,9 +393,9 @@ export class PiToolsProvider implements FabricProvider {
     args: Record<string, unknown>,
     context: FabricInvocationContext,
   ): Promise<unknown> {
-    const name = actionName as PiCoreToolName;
+    const name = actionName as OmpCoreToolName;
     this.#assertAllowed(name);
-    if (!this.#tools[name]) throw new Error(`Unknown Pi tool: ${actionName}`);
+    if (!this.#tools[name]) throw new Error(`Unknown OMP tool: ${actionName}`);
     if (name === "bash") {
       const intercepted = await tryExecuteGitWorktreeAdd(args, this.#cwd);
       if (intercepted) {
@@ -346,8 +410,7 @@ export class PiToolsProvider implements FabricProvider {
       const result = await this.#capturedTools!.invoke(name, args, context);
       this.#attachReadMedia(name, result, context);
       this.#attachReadNote(name, result, context);
-      this.#attachPreview(name, result, args, context);
-      return this.#normalizeResult(name, result, args);
+      return this.#normalizeResult(name, result, args, false);
     }
     const tool = this.#definitionFor(name, args);
     const runner = this.#catalog?.runner;
@@ -365,8 +428,12 @@ export class PiToolsProvider implements FabricProvider {
         ),
       ).catch((error) => {
         throwIfAborted(context.signal);
-        throw isPiShellToolName(name) ? classifyPiBashError(error) : error;
+        throw isOmpShellToolName(name) ? classifyOmpBashError(error) : error;
       });
+      if (name === "bash" && result.isError && !resultHasTruncation(result.details)) {
+        const exitCode = resultExitCode(result.details);
+        if (exitCode !== undefined) throw ompBashExitError(exitCode, textContent(result.content));
+      }
       this.#attachReadMedia(name, result, context);
       this.#attachReadNote(name, result, context);
       this.#attachPreview(name, result, args, context);
@@ -375,7 +442,7 @@ export class PiToolsProvider implements FabricProvider {
     return this.#invokeWithEvents(name, tool, args, context, runner);
   }
 
-  // Replay the agent-core tool-execution lifecycle for a nested pi.* call, so
+  // Replay the agent-core tool-execution lifecycle for a nested omp.* call, so
   // extensions that hook tool_call / tool_result / tool_execution_* see pi
   // core tools invoked through fabric_exec in full-code mode — exactly as
   // they would for a top-level call in the normal (non-codemode) flow, and
@@ -384,8 +451,8 @@ export class PiToolsProvider implements FabricProvider {
   // extensions like pi-vision-handoff can replace image blocks with text
   // descriptions before the result returns to the sandbox.
   async #invokeWithEvents(
-    name: PiCoreToolName,
-    tool: ToolDefinition<any, any, any>,
+    name: OmpCoreToolName,
+    tool: ToolDefinition<any, any>,
     args: Record<string, unknown>,
     context: FabricInvocationContext,
     runner: ExtensionRunner,
@@ -397,7 +464,7 @@ export class PiToolsProvider implements FabricProvider {
       toolName: name,
       args,
     }));
-    let result: PiToolResult;
+    let result: OmpToolResult;
     let isError = false;
     let thrown: unknown;
     let executionStarted = false;
@@ -411,7 +478,7 @@ export class PiToolsProvider implements FabricProvider {
       }));
       context.updateArguments?.(args);
       if (preflight?.block) {
-        throw new Error(preflight.reason || `Pi tool ${name} was blocked`);
+        throw new Error(preflight.reason || `OMP tool ${name} was blocked`);
       }
       executionStarted = true;
       result = (await runAbortable(context.signal, () => tool.execute(
@@ -433,9 +500,10 @@ export class PiToolsProvider implements FabricProvider {
             .catch(() => undefined);
         },
         this.#executionContextFor(name, args, context.extensionContext),
-      ))) as PiToolResult;
+      ))) as OmpToolResult;
+      isError = result.isError === true;
     } catch (error) {
-      thrown = isPiShellToolName(name) && executionStarted ? classifyPiBashError(error) : error;
+      thrown = isOmpShellToolName(name) && executionStarted ? classifyOmpBashError(error) : error;
       isError = true;
       result = {
         content: [
@@ -467,12 +535,13 @@ export class PiToolsProvider implements FabricProvider {
         ...result,
         content: patch.content ?? result.content,
         ...(patch.details !== undefined ? { details: patch.details } : {}),
+        ...(patch.isError !== undefined ? { isError: patch.isError } : {}),
       };
       isError = patch.isError ?? isError;
     }
 
     // Capture the read's clean text note AFTER the patch — the handoff strips
-    // pi's non-vision note and swaps the image for a description, so the first
+    // OMP's non-vision note and swaps the image for a description, so the first
     // surviving text block is the short read note (not the verbose description).
     this.#attachReadNote(name, result, context);
 
@@ -485,31 +554,36 @@ export class PiToolsProvider implements FabricProvider {
     }));
 
     if (isError) {
-      if (isPiShellToolName(name)) {
-        throw piBashResultError(thrown, textContent(result.content));
+      if (isOmpShellToolName(name)) {
+        if (thrown === undefined && !resultHasTruncation(result.details)) {
+          const exitCode = resultExitCode(result.details);
+          if (exitCode !== undefined) throw ompBashExitError(exitCode, textContent(result.content));
+        }
+        throw ompBashResultError(thrown, textContent(result.content));
       }
       const text = textContent(result.content).trim();
-      throw new Error(text || (thrown instanceof Error ? thrown.message : `Pi tool ${name} failed`));
+      throw new Error(text || (thrown instanceof Error ? thrown.message : `OMP tool ${name} failed`));
     }
     this.#attachPreview(name, result, args, context);
-    return this.#normalizeResult(name, result, args);
+    return this.#normalizeResult(name, result, args, patch?.content === undefined);
   }
 
   // Schema-enforce and early-startup calls may have no ExtensionRunner, so the
   // top-level tool_result marker middleware cannot run. Expand again at the
   // provider boundary; replacement is idempotent when middleware already ran.
   #normalizeResult(
-    name: PiCoreToolName,
+    name: OmpCoreToolName,
     result: { content: ToolContent; details?: unknown; isError?: boolean },
     args: Record<string, unknown>,
+    appendReadNewline = true,
   ): unknown {
-    const normalized = normalizeResult(name, result);
+    const normalized = normalizeResult(name, result, this.#artifactPaths, appendReadNewline);
     if (name !== "read" || typeof normalized !== "string") return normalized;
     return expandSkillDirMarkersForRead(normalized, args, this.#cwd);
   }
 
   #attachPartialPreview(
-    name: PiCoreToolName,
+    name: OmpCoreToolName,
     partialResult: { content: ToolContent; details?: unknown; isError?: boolean },
     args: Record<string, unknown>,
     context: FabricInvocationContext,
@@ -517,7 +591,7 @@ export class PiToolsProvider implements FabricProvider {
     const progress = textContent(partialResult.content).trim();
     const boundedProgress = Array.from(progress).slice(-4_000).join("");
     const bashCommand =
-      isPiShellToolName(name) &&
+      isOmpShellToolName(name) &&
       typeof args.command === "string" &&
       args.command.length <= MAX_RENDERER_ARGUMENT_CHARS
         ? args.command
@@ -530,7 +604,7 @@ export class PiToolsProvider implements FabricProvider {
   }
 
   #attachPreview(
-    name: PiCoreToolName,
+    name: OmpCoreToolName,
     result: { content: ToolContent; details?: unknown; isError?: boolean },
     args: Record<string, unknown>,
     context: FabricInvocationContext,
@@ -542,7 +616,7 @@ export class PiToolsProvider implements FabricProvider {
         ? (details as Record<string, unknown>)
         : undefined;
     const bashCommand =
-      isPiShellToolName(name) &&
+      isOmpShellToolName(name) &&
       typeof args.command === "string" &&
       args.command.length <= MAX_RENDERER_ARGUMENT_CHARS
         ? args.command
@@ -575,10 +649,10 @@ export class PiToolsProvider implements FabricProvider {
     });
   }
 
-  // `pi.read` of an image file returns `{ type: "image" }` content blocks.
+  // `omp.read` of an image file returns `{ type: "image" }` content blocks.
   // normalizeResult strips them — the sandbox holds text only and the model
   // return is a string — but the single-call render wants them re-attached so
-  // pi core's ToolExecutionComponent renders the kitty image preview, the same
+  // OMP core's ToolExecutionComponent renders the kitty image preview, the same
   // path a native `read` takes. Hand them out-of-band via context.attachMedia,
   // which the ActionRegistry stashes on the call audit; this bypasses the
   // result char bound that would otherwise truncate the base64 payload.
@@ -590,7 +664,7 @@ export class PiToolsProvider implements FabricProvider {
   // hook supplies the description to the model — exactly how a native `read`
   // keeps its image for kitty and swaps it only on the LLM-bound clone.
   #attachReadMedia(
-    name: PiCoreToolName,
+    name: OmpCoreToolName,
     result: { content?: unknown },
     context: FabricInvocationContext,
   ): void {
@@ -601,13 +675,13 @@ export class PiToolsProvider implements FabricProvider {
 
   // The read tool's own text note (e.g. "Read image file [image/png]"), captured
   // AFTER any tool_result patch — pi-vision-handoff swaps image→description and
-  // strips pi's "[Current model does not support images…]" note there, so the
+  // strips OMP's "[Current model does not support images…]" note there, so the
   // first surviving text block is the clean note. Used as the single-call body
   // and content text so the preview shows the kitty image + the clean note
   // instead of the handoff's verbose description; the model still receives the
   // description via the handoff's `context` hook swapping the image block.
   #attachReadNote(
-    name: PiCoreToolName,
+    name: OmpCoreToolName,
     result: { content?: unknown },
     context: FabricInvocationContext,
   ): void {
@@ -628,16 +702,25 @@ export class PiToolsProvider implements FabricProvider {
   }
 
   #descriptor(
-    name: PiCoreToolName,
-    tool: ToolDefinition<any, any, any>,
+    name: OmpCoreToolName,
+    tool: ToolDefinition<any, any>,
   ): FabricActionDescriptor {
-    const inputSchema = isPiShellToolName(name)
-      ? withShellCwdSchema(tool.parameters)
-      : tool.parameters;
+    const sourceSchema = tool.parameters;
+    const document = name === "edit"
+      ? EDIT_COMPATIBILITY_SCHEMA
+      : typeof sourceSchema === "function" && "toJsonSchema" in sourceSchema
+        && typeof sourceSchema.toJsonSchema === "function"
+        ? sourceSchema.toJsonSchema()
+        : sourceSchema;
+    const augmented = isOmpShellToolName(name) ? withShellCwdSchema(document) : document;
+    const inputSchema = typeof augmented === "function" && "toJsonSchema" in augmented
+      && typeof augmented.toJsonSchema === "function"
+      ? augmented.toJsonSchema()
+      : augmented;
     return {
       name,
       description: tool.description,
-      inputSchema: inputSchema as unknown as Record<string, unknown>,
+      inputSchema: inputSchema as Record<string, unknown>,
       risk: riskForTool(name),
       namespace: "builtin",
     };

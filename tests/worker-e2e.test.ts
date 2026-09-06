@@ -8,16 +8,11 @@ import { AgentManager } from "../src/agents/manager.js";
 import { DEFAULT_FABRIC_CONFIG } from "../src/config.js";
 import { initBudgetLedger, readBudgetLedgerDetailed } from "../src/agents/budget-ledger.js";
 
-// End-to-end coverage for the REAL worker (dist/worker.js) driven through
-// AgentManager + #monitor, with a stub `pi` binary (tests/fixtures/fake-pi.mjs)
-// whose behavior is selected by FAKE_PI_BEHAVIOR. This is the only place the
-// real worker.ts spawn/exit path is exercised; the other suites use a fake
-// worker that writes status directly. Skips when the package is not built.
 const workerPath = path.resolve("dist/worker.js");
-const piBinary = path.resolve("tests/fixtures/fake-pi.mjs");
+const ompBinary = path.resolve("tests/fixtures/fake-omp.mjs");
 const hasWorker = fs.existsSync(workerPath);
 
-describe.skipIf(!hasWorker)("AgentManager real worker e2e", () => {
+describe.skipIf(!hasWorker)("AgentManager real worker e2e", async () => {
   const roots: string[] = [];
   const managers: AgentManager[] = [];
 
@@ -27,30 +22,23 @@ describe.skipIf(!hasWorker)("AgentManager real worker e2e", () => {
   });
 
   const run = async (task = "do it", timeoutMs = 2_000): Promise<AgentRunResult> => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-e2e-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-e2e-"));
     roots.push(root);
     const config = { ...DEFAULT_FABRIC_CONFIG.agents, timeoutMs, maxConcurrent: 1 };
     const manager = new AgentManager(process.cwd(), config, {
       workerPath,
-      piBinary,
+      ompBinary,
       runRoot: root,
     });
     managers.push(manager);
     return manager.run({ task, transport: "process" });
   };
 
-  // Regression for the LocalTerm shim contract: when the manager resolves the
-  // child pi binary to the shim (~/.localterm/shims/pi), the shim injects the
-  // wired secret env vars into pi's own process.env, and the worker must pass
-  // that environment through to the child it spawns ({ ...process.env }). This
-  // test seeds synthetic sentinel vars in the owner process (the same channel
-  // the shim uses — env presence, never values) and asserts the child sees
-  // them, through the real dist/worker.js spawn path.
-  it("inherits the owner environment (shim-injected secrets) in the child Pi process", async () => {
-    const present = "FAKE_PI_SENTINEL_SHIM_KEY";
-    const absent = "FAKE_PI_SENTINEL_MISSING_KEY";
-    process.env.FAKE_PI_BEHAVIOR = "shim-env-inheritance";
-    process.env.FAKE_PI_SENTINEL_VARS = `${present},${absent}`;
+  it("inherits the owner environment (shim-injected secrets) in the child OMP process", async () => {
+    const present = "FAKE_OMP_SENTINEL_SHIM_KEY";
+    const absent = "FAKE_OMP_SENTINEL_MISSING_KEY";
+    process.env.FAKE_OMP_BEHAVIOR = "shim-env-inheritance";
+    process.env.FAKE_OMP_SENTINEL_VARS = `${present},${absent}`;
     process.env[present] = "sentinel";
     delete process.env[absent];
     try {
@@ -58,25 +46,25 @@ describe.skipIf(!hasWorker)("AgentManager real worker e2e", () => {
       expect(result.status).toBe("completed");
       expect(result.text).toBe(`${present}=present ${absent}=absent`);
     } finally {
-      delete process.env.FAKE_PI_SENTINEL_VARS;
+      delete process.env.FAKE_OMP_SENTINEL_VARS;
       delete process.env[present];
     }
   });
 
-  it.skipIf(process.platform === "win32")("executes the configured Pi shim so it can inject a child-only sentinel", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-shim-"));
+  it.skipIf(process.platform === "win32")("executes the configured OMP shim so it can inject a child-only sentinel", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-shim-"));
     roots.push(root);
-    const key = "FAKE_PI_CHILD_ONLY_SHIM_SENTINEL";
-    const shim = path.join(root, "pi-shim.mjs");
+    const key = "FAKE_OMP_CHILD_ONLY_SHIM_SENTINEL";
+    const shim = path.join(root, "omp-shim.mjs");
     fs.writeFileSync(shim, [
       "#!/usr/bin/env node",
-      'process.env.FAKE_PI_BEHAVIOR = "shim-env-inheritance";',
-      `process.env.FAKE_PI_SENTINEL_VARS = ${JSON.stringify(key)};`,
+      'process.env.FAKE_OMP_BEHAVIOR = "shim-env-inheritance";',
+      `process.env.FAKE_OMP_SENTINEL_VARS = ${JSON.stringify(key)};`,
       `process.env[${JSON.stringify(key)}] = "synthetic-test-value";`,
-      `await import(${JSON.stringify(pathToFileURL(piBinary).href)});`,
+      `await import(${JSON.stringify(pathToFileURL(ompBinary).href)});`,
     ].join("\n"), { mode: 0o755 });
     const before = process.env[key];
-    const manager = new AgentManager(process.cwd(), DEFAULT_FABRIC_CONFIG.agents, { workerPath, piBinary: shim, runRoot: root });
+    const manager = new AgentManager(process.cwd(), DEFAULT_FABRIC_CONFIG.agents, { workerPath, ompBinary: shim, runRoot: root });
     managers.push(manager);
     const result = await manager.run({ task: "probe shim execution", transport: "process" });
     expect(result.status).toBe("completed");
@@ -85,12 +73,12 @@ describe.skipIf(!hasWorker)("AgentManager real worker e2e", () => {
   });
 
   it("propagates the root Fabric session identity through the worker", async () => {
-    process.env.FAKE_PI_BEHAVIOR = "fabric-session-env";
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-e2e-"));
+    process.env.FAKE_OMP_BEHAVIOR = "fabric-session-env";
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-e2e-"));
     roots.push(root);
     const manager = new AgentManager(process.cwd(), DEFAULT_FABRIC_CONFIG.agents, {
       workerPath,
-      piBinary,
+      ompBinary,
       runRoot: root,
       fabricSessionId: "root-session",
     });
@@ -151,7 +139,7 @@ describe.skipIf(!hasWorker)("AgentManager real worker e2e", () => {
       behavior: "exit-error",
       check: (r) => {
         expect(r.status).toBe("failed");
-        expect(r.error ?? "").toMatch(/Pi exited with code 1/);
+        expect(r.error ?? "").toMatch(/OMP exited with code 1/);
       },
     },
     {
@@ -170,7 +158,7 @@ describe.skipIf(!hasWorker)("AgentManager real worker e2e", () => {
     },
     {
       behavior: "kill-worker",
-      // Room for attribution: on a slow CI box the spawned worker + fake-pi
+      // Room for attribution: on a slow CI box the spawned worker + fake-omp
       // chain plus the retry consult can brush a 2s wall, letting the generic
       // run deadline beat the transport-death verdict. 8s keeps "failed" vs
       // "timed_out" deterministic while still bounded.
@@ -186,7 +174,7 @@ describe.skipIf(!hasWorker)("AgentManager real worker e2e", () => {
   ];
 
   it.each(cases)("maps child behavior $behavior to the correct run outcome", async ({ behavior, timeoutMs, check }) => {
-    process.env.FAKE_PI_BEHAVIOR = behavior;
+    process.env.FAKE_OMP_BEHAVIOR = behavior;
     const result = await run("do it", timeoutMs);
     try {
       check(result);
@@ -198,7 +186,7 @@ describe.skipIf(!hasWorker)("AgentManager real worker e2e", () => {
   }, 30_000);
 
   it("preserves a bounded prefix when an agent event exceeds the line limit", async () => {
-    process.env.FAKE_PI_BEHAVIOR = "oversized-event";
+    process.env.FAKE_OMP_BEHAVIOR = "oversized-event";
     const result = await run("do it", 10_000);
 
     expect(result.status).toBe("failed");
@@ -215,25 +203,25 @@ describe.skipIf(!hasWorker)("AgentManager real worker e2e", () => {
     }
   }, 30_000);
 
-  describe("agent session usage export", () => {
+  describe("agent session usage export", async () => {
     const exportRoots: string[] = [];
     let savedExportEnv: string | undefined;
 
     afterEach(() => {
-      if (savedExportEnv === undefined) delete process.env.PI_FABRIC_AGENT_DIR;
-      else process.env.PI_FABRIC_AGENT_DIR = savedExportEnv;
+      if (savedExportEnv === undefined) delete process.env.OMP_FABRIC_AGENT_DIR;
+      else process.env.OMP_FABRIC_AGENT_DIR = savedExportEnv;
       for (const root of exportRoots.splice(0)) {
         fs.rmSync(root, { recursive: true, force: true });
       }
     });
 
     const runExported = (sessionExport: boolean): Promise<AgentRunResult> => {
-      savedExportEnv = savedExportEnv ?? process.env.PI_FABRIC_AGENT_DIR;
-      const exportRoot = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-export-e2e-"));
+      savedExportEnv = savedExportEnv ?? process.env.OMP_FABRIC_AGENT_DIR;
+      const exportRoot = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-export-e2e-"));
       exportRoots.push(exportRoot);
-      process.env.PI_FABRIC_AGENT_DIR = exportRoot;
-      process.env.FAKE_PI_BEHAVIOR = "usage-flow";
-      const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-e2e-"));
+      process.env.OMP_FABRIC_AGENT_DIR = exportRoot;
+      process.env.FAKE_OMP_BEHAVIOR = "usage-flow";
+      const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-e2e-"));
       roots.push(root);
       const config = {
         ...DEFAULT_FABRIC_CONFIG.agents,
@@ -243,7 +231,7 @@ describe.skipIf(!hasWorker)("AgentManager real worker e2e", () => {
       };
       const manager = new AgentManager(process.cwd(), config, {
         workerPath,
-        piBinary,
+        ompBinary,
         runRoot: root,
       });
       managers.push(manager);
@@ -253,7 +241,7 @@ describe.skipIf(!hasWorker)("AgentManager real worker e2e", () => {
       })) as Promise<AgentRunResult>;
     };
 
-    it("writes a pi-format usage session with fabricagent attribution", async () => {
+    it("writes an OMP-format usage session with fabricagent attribution", async () => {
       const result = (await runExported(true)) as AgentRunResult & { exportRoot: string };
       expect(result.status).toBe("completed");
       expect(result.usage?.cost).toBeCloseTo(0.03);
@@ -317,12 +305,12 @@ describe.skipIf(!hasWorker)("AgentManager real worker e2e", () => {
     timeoutMs = 4_000,
   ): Promise<AgentRunResult> => {
     process.env.FAKE_VEDA_BEHAVIOR = behavior;
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-e2e-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-e2e-"));
     roots.push(root);
     const config = { ...DEFAULT_FABRIC_CONFIG.agents, timeoutMs, maxConcurrent: 1 };
     const manager = new AgentManager(process.cwd(), config, {
       workerPath,
-      piBinary,
+      ompBinary,
       vedaBinary: path.resolve("tests/fixtures/fake-veda.mjs"),
       runRoot: root,
     });
@@ -383,12 +371,12 @@ describe.skipIf(!hasWorker)("AgentManager real worker e2e", () => {
   }, 30_000);
 
   it("rejects recursive Fabric for the Veda runner", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-e2e-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-e2e-"));
     roots.push(root);
     const manager = new AgentManager(
       process.cwd(),
       { ...DEFAULT_FABRIC_CONFIG.agents, timeoutMs: 2_000, maxConcurrent: 1 },
-      { workerPath, piBinary, runRoot: root },
+      { workerPath, ompBinary, runRoot: root },
     );
     managers.push(manager);
     await expect(
@@ -398,12 +386,12 @@ describe.skipIf(!hasWorker)("AgentManager real worker e2e", () => {
 
   it("rejects steering and follow-ups for Veda children at call time", async () => {
     process.env.FAKE_VEDA_BEHAVIOR = "hang";
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-e2e-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-e2e-"));
     roots.push(root);
     const manager = new AgentManager(
       process.cwd(),
       { ...DEFAULT_FABRIC_CONFIG.agents, timeoutMs: 10_000, maxConcurrent: 1 },
-      { workerPath, piBinary, vedaBinary: path.resolve("tests/fixtures/fake-veda.mjs"), runRoot: root },
+      { workerPath, ompBinary, vedaBinary: path.resolve("tests/fixtures/fake-veda.mjs"), runRoot: root },
     );
     managers.push(manager);
     const handle = await manager.spawn({ task: "do it", transport: "process", runner: "veda" });
@@ -413,16 +401,16 @@ describe.skipIf(!hasWorker)("AgentManager real worker e2e", () => {
   });
 
   it("rejects persona for non-Veda runners", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-e2e-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-e2e-"));
     roots.push(root);
     const manager = new AgentManager(process.cwd(), { ...DEFAULT_FABRIC_CONFIG.agents, timeoutMs: 2_000, maxConcurrent: 1 }, {
       workerPath,
-      piBinary,
+      ompBinary,
       runRoot: root,
     });
     managers.push(manager);
     await expect(
-      manager.run({ task: "do it", transport: "process", runner: "pi", persona: "frontend" }),
+      manager.run({ task: "do it", transport: "process", runner: "omp", persona: "frontend" }),
     ).rejects.toThrow(/persona option is only supported by the Veda runner/);
   });
 
@@ -430,13 +418,13 @@ describe.skipIf(!hasWorker)("AgentManager real worker e2e", () => {
     { behavior: "compact-success", outcome: "completed", error: undefined },
     { behavior: "compact-failure", outcome: "failed", error: "child summary failed" },
   ])("queues mid-turn compaction and records $behavior after child settlement", async ({ behavior, outcome, error }) => {
-    process.env.FAKE_PI_BEHAVIOR = behavior;
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-e2e-"));
+    process.env.FAKE_OMP_BEHAVIOR = behavior;
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-e2e-"));
     roots.push(root);
     const config = { ...DEFAULT_FABRIC_CONFIG.agents, timeoutMs: 4_000, maxConcurrent: 1 };
     const manager = new AgentManager(process.cwd(), config, {
       workerPath,
-      piBinary,
+      ompBinary,
       runRoot: root,
     });
     managers.push(manager);
@@ -458,7 +446,7 @@ describe.skipIf(!hasWorker)("AgentManager real worker e2e", () => {
       .trim()
       .split("\n")
       .map((line) => JSON.parse(line) as Record<string, unknown>);
-    const settledIndex = events.findIndex((event) => event.type === "agent_settled");
+    const settledIndex = events.findIndex((event) => event.type === "agent_end");
     const compactIndex = events.findIndex((event) => event.type === "fake_compact_received");
     expect(settledIndex).toBeGreaterThanOrEqual(0);
     expect(compactIndex).toBeGreaterThan(settledIndex);
@@ -470,13 +458,13 @@ describe.skipIf(!hasWorker)("AgentManager real worker e2e", () => {
   });
 
   it("aborts a hanging run as stopped, not exited-without-a-result", async () => {
-    process.env.FAKE_PI_BEHAVIOR = "hang";
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-e2e-"));
+    process.env.FAKE_OMP_BEHAVIOR = "hang";
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-e2e-"));
     roots.push(root);
     const config = { ...DEFAULT_FABRIC_CONFIG.agents, timeoutMs: 30_000, maxConcurrent: 1 };
     const manager = new AgentManager(process.cwd(), config, {
       workerPath,
-      piBinary,
+      ompBinary,
       runRoot: root,
     });
     managers.push(manager);
@@ -489,32 +477,32 @@ describe.skipIf(!hasWorker)("AgentManager real worker e2e", () => {
   });
 
   it("reports a terminal failure (not exited-without-a-result) when the worker crashes mid-stream", async () => {
-    process.env.FAKE_PI_BEHAVIOR = "success";
-    process.env.PI_FABRIC_INJECT_CRASH = "stream";
+    process.env.FAKE_OMP_BEHAVIOR = "success";
+    process.env.OMP_FABRIC_INJECT_CRASH = "stream";
     try {
       const result = await run();
       expect(result.status).toBe("failed");
       expect(result.error ?? "").toMatch(/simulated stream crash/);
     } finally {
-      delete process.env.PI_FABRIC_INJECT_CRASH;
+      delete process.env.OMP_FABRIC_INJECT_CRASH;
     }
   });
 
   it("reports a terminal failure when the worker crashes while finalizing", async () => {
-    process.env.FAKE_PI_BEHAVIOR = "success";
-    process.env.PI_FABRIC_INJECT_CRASH = "close";
+    process.env.FAKE_OMP_BEHAVIOR = "success";
+    process.env.OMP_FABRIC_INJECT_CRASH = "close";
     try {
       const result = await run();
       expect(result.status).toBe("failed");
       expect(result.error ?? "").toMatch(/simulated close crash/);
     } finally {
-      delete process.env.PI_FABRIC_INJECT_CRASH;
+      delete process.env.OMP_FABRIC_INJECT_CRASH;
     }
   });
 
   it("emits attributed tokens.usage events live and lands them in the budget ledger", async () => {
-    process.env.FAKE_PI_BEHAVIOR = "usage-flow";
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-e2e-"));
+    process.env.FAKE_OMP_BEHAVIOR = "usage-flow";
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-e2e-"));
     roots.push(root);
     const config = { ...DEFAULT_FABRIC_CONFIG.agents, timeoutMs: 5_000, maxConcurrent: 1 };
     const ledger = initBudgetLedger(1);
@@ -522,7 +510,7 @@ describe.skipIf(!hasWorker)("AgentManager real worker e2e", () => {
     const lifecycleEvents: Array<{ event: string; data?: unknown }> = [];
     const manager = new AgentManager(process.cwd(), config, {
       workerPath,
-      piBinary,
+      ompBinary,
       runRoot: root,
       onLifecycle: (event) => {
         lifecycleEvents.push({ event: event.event, data: event.data });
@@ -539,7 +527,7 @@ describe.skipIf(!hasWorker)("AgentManager real worker e2e", () => {
       cumulativeTokens: number; runner: string; depth: number; input: number; output: number;
     };
     expect(first.cumulativeTokens).toBe(165);
-    expect(first.runner).toBe("pi");
+    expect(first.runner).toBe("omp");
     expect(first.depth).toBe(1);
     expect(first.input).toBe(100);
     expect(first.output).toBe(50);
@@ -549,7 +537,7 @@ describe.skipIf(!hasWorker)("AgentManager real worker e2e", () => {
     expect(second.input).toBe(200);
 
     const detail = readBudgetLedgerDetailed(ledger.file);
-    expect(detail.byRunner.pi).toEqual({ cost: expect.closeTo(0.03), tokens: 495 });
+    expect(detail.byRunner.omp).toEqual({ cost: expect.closeTo(0.03), tokens: 495 });
     expect(detail.entries.length).toBeGreaterThanOrEqual(2);
     expect(detail.entries.reduce((sum, entry) => sum + entry.tokens, 0)).toBe(495);
   });

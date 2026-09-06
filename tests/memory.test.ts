@@ -13,7 +13,7 @@ import {
   writeSessionFile,
   type FixtureEntry,
 } from "./fixtures/memory.js";
-import { normalizeSession, extractFullText, expandSessionEntry } from "../src/memory/normalize.js";
+import { normalizeSession, extractFullText, expandSessionEntry, readSessionHeader } from "../src/memory/normalize.js";
 import { encodeCwdDir, resolveScope, enumerateAllSessions } from "../src/memory/discovery.js";
 import { bm25Score, loadShard, loadShards, recentEntries } from "../src/memory/index.js";
 import { searchShards } from "../src/memory/search.js";
@@ -25,7 +25,7 @@ import { RECALL_MAX_RESPONSE_CHARS } from "../src/memory/context.js";
 const tempDirs: string[] = [];
 
 const makeTempDir = (prefix: string): string => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), `pi-fabric-memory-${prefix}-`));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), `omp-fabric-memory-${prefix}-`));
   tempDirs.push(dir);
   return dir;
 };
@@ -84,6 +84,23 @@ describe("memory normalize", () => {
   beforeEach(() => {
     agentDir = makeTempDir("agent");
     indexDir = makeTempDir("index");
+  });
+
+  it("reads the session header past OMP's line-0 title slot", () => {
+    const cwd = "/home/user/project";
+    const file = writeSessionFile(
+      path.join(agentDir, "sessions", encodeCwdDir(cwd)),
+      "1_session-hdr.jsonl",
+      [
+        sessionHeader("01a07640-aaaa-bbbb-cccc-ddddeeeeffff", cwd),
+        msg("e1", null, ts(0), userMessage("hello")),
+      ],
+    );
+    expect(fs.readFileSync(file, "utf8").split("\n")[0]).toContain('"type":"title"');
+    expect(readSessionHeader(file)).toEqual({
+      sessionId: "01a07640-aaaa-bbbb-cccc-ddddeeeeffff",
+      cwd,
+    });
   });
 
   it("extracts typed entries from a session JSONL", () => {
@@ -198,7 +215,7 @@ describe("memory discovery", () => {
     return file;
   };
 
-  it("encodeCwdDir matches pi's encoding shape", () => {
+  it("encodeCwdDir matches OMP's encoding shape", () => {
     const cwd = path.resolve(path.sep, "home", "user", "project");
     const encoded = cwd.replace(/^[/\\]/, "").replace(/[/\\:]/g, "-");
     expect(encodeCwdDir(cwd)).toBe(`--${encoded}--`);

@@ -1,11 +1,11 @@
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI } from "@oh-my-pi/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
-import piFabric from "../src/index.js";
+import ompFabric from "../src/index.js";
 import { FABRIC_PROVIDER_REGISTER_EVENT } from "../src/protocol.js";
 
 type ExtensionHandler = (...args: never[]) => unknown;
 
-describe("Pi Fabric extension shutdown", () => {
+describe("OMP Fabric extension shutdown", () => {
   it("unsubscribes shared provider listeners across reloads", async () => {
     const providerListeners = new Set<(value: unknown) => void>();
     const events = {
@@ -32,7 +32,7 @@ describe("Pi Fabric extension shutdown", () => {
         setActiveTools: vi.fn(),
       } as unknown as ExtensionAPI;
 
-      await piFabric(pi);
+      await ompFabric(pi);
       expect(providerListeners.size).toBe(1);
 
       const shutdownHandlers = handlers.get("session_shutdown") ?? [];

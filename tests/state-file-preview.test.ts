@@ -8,7 +8,7 @@ import type { FabricUiStateEntry } from "../src/ui/types.js";
 const roots: string[] = [];
 
 const root = (): string => {
-  const value = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-state-file-"));
+  const value = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-state-file-"));
   roots.push(value);
   return value;
 };

@@ -1,10 +1,10 @@
-import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 
-export const FABRIC_PROVIDER_REGISTER_EVENT = "pi-fabric:provider:register:v1";
-export const FABRIC_PROVIDER_DISCOVER_EVENT = "pi-fabric:provider:discover:v1";
-export const FABRIC_COMPONENT_REGISTER_EVENT = "pi-fabric:component:register:v1";
-export const FABRIC_COMPONENT_DISCOVER_EVENT = "pi-fabric:component:discover:v1";
-export const FABRIC_PREWALK_REQUEST_EVENT = "pi-fabric:prewalk:request:v1";
+export const FABRIC_PROVIDER_REGISTER_EVENT = "omp-fabric:provider:register:v1";
+export const FABRIC_PROVIDER_DISCOVER_EVENT = "omp-fabric:provider:discover:v1";
+export const FABRIC_COMPONENT_REGISTER_EVENT = "omp-fabric:component:register:v1";
+export const FABRIC_COMPONENT_DISCOVER_EVENT = "omp-fabric:component:discover:v1";
+export const FABRIC_PREWALK_REQUEST_EVENT = "omp-fabric:prewalk:request:v1";
 
 export type FabricPrewalkRequestResultV1 =
   | { ok: true }
@@ -35,8 +35,8 @@ export const readFabricPrewalkRequestV1 = (
   return value as FabricPrewalkRequestV1;
 };
 
-export const FABRIC_PEER_CARDS_EVENT = "pi-fabric:peers:cards:v1";
-export const FABRIC_PEER_AWAIT_SETTLE_EVENT = "pi-fabric:peer:await-settle:v1";
+export const FABRIC_PEER_CARDS_EVENT = "omp-fabric:peers:cards:v1";
+export const FABRIC_PEER_AWAIT_SETTLE_EVENT = "omp-fabric:peer:await-settle:v1";
 
 /** One root peer session on the project mesh, for pickers and status lines. */
 export interface FabricPeerCardV1 {
@@ -132,12 +132,12 @@ export const readFabricPeerAwaitSettleRequestV1 = (
 export const FABRIC_NESTED_TOOL_CALL_ID_PREFIX = "fabric_";
 
 /** Discriminant for the transient details envelope on a proxied provider result. */
-export const FABRIC_TOOL_RESULT_PROXY_KIND = "pi-fabric.tool-result-proxy.v1";
+export const FABRIC_TOOL_RESULT_PROXY_KIND = "omp-fabric.tool-result-proxy.v1";
 
 /**
- * Host-only middleware details for non-Pi Fabric providers. `result` is the
+ * Host-only middleware details for non-OMP Fabric providers. `result` is the
  * exact value before maxNestedResultChars is enforced and is not persisted as
- * a separate Pi tool-result message.
+ * a separate OMP tool-result message.
  */
 export interface FabricToolResultProxyDetailsV1 {
   kind: typeof FABRIC_TOOL_RESULT_PROXY_KIND;
@@ -255,7 +255,7 @@ export interface FabricCapabilityResolution {
 }
 
 export interface FabricCapabilityCatalog {
-  kind: "pi-fabric.capability-catalog";
+  kind: "omp-fabric.capability-catalog";
   version: 1;
   root: {
     key: "capability:fabric";
@@ -317,12 +317,12 @@ export interface FabricInvocationContext {
   activity?(update: FabricInvocationActivityUpdate): void;
   /** Host-supplied inside fabric_exec so agents.handoff schedules the outer-call boundary. */
   deferHandoff?(args: Record<string, unknown>): Record<string, unknown>;
-  // Out-of-band image content blocks a provider (currently only pi.read of an
+  // Out-of-band image content blocks a provider (currently only omp.read of an
   // image file) wants attached to the call audit, so the single-call render can
   // re-attach them to the fabric_exec result content for pi core's kitty image
   // preview. Bypasses the result char bound that would truncate the base64.
   // `note` is the read tool's own text output (e.g. "Read image file [image/png]"),
-  // captured after any tool_result patch so a handoff that strips pi's
+  // captured after any tool_result patch so a handoff that strips OMP's
   // non-vision note has run; used as the single-call body + content text so the
   // preview shows the clean note instead of the swapped description.
   attachMedia?(blocks: FabricMediaBlock[], note?: string): void;

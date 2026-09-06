@@ -24,7 +24,7 @@ const live = (): EntropySurfaceSnapshot => ({
   version: 1,
   actions: [
     { ref: "mcp.report.render", inputSchema: renderSchema },
-    { ref: "pi.bash", inputSchema: bashSchema },
+    { ref: "omp.bash", inputSchema: bashSchema },
   ],
 });
 
@@ -43,7 +43,7 @@ const artifact = (): CompiledSurfaceFile => ({
       baseSchemaDigest: schemaDigest(renderSchema),
     },
   ],
-  quarantined: [{ ref: "pi.bash", baseSchemaDigest: schemaDigest(bashSchema) }],
+  quarantined: [{ ref: "omp.bash", baseSchemaDigest: schemaDigest(bashSchema) }],
   applied: [],
   gate: { passed: true, beforeScore: 0.3, afterScore: 0.2, reasons: [] },
   evidenceDigest: "test",
@@ -66,10 +66,10 @@ describe("runEntropyTrial", () => {
           op("mcp.report.render", { format: "pdf" }),
           op("mcp.report.render", { format: "docx" }),
           op("mcp.report.render", { format: "weird" }, "failed", "effect"),
-          op("pi.bash", { command: "ls" }, "failed", "effect"),
-          op("pi.bash", { command: "bun test" }),
-          op("pi.bash", { command: 42 }, "failed", "validate"),
-          op("pi.read", { path: "a.ts" }),
+          op("omp.bash", { command: "ls" }, "failed", "effect"),
+          op("omp.bash", { command: "bun test" }),
+          op("omp.bash", { command: 42 }, "failed", "validate"),
+          op("omp.read", { path: "a.ts" }),
           op("fabric.workflow", {}),
         ]),
       ],
@@ -90,8 +90,8 @@ describe("runEntropyTrial", () => {
     expect(report.divergences).toEqual([
       { ref: "mcp.report.render", trialClass: "tightening-cost", count: 1 },
       { ref: "mcp.report.render", trialClass: "typed-failure-win", count: 1 },
-      { ref: "pi.bash", trialClass: "quarantine-cost", count: 1 },
-      { ref: "pi.bash", trialClass: "quarantine-win", count: 1 },
+      { ref: "omp.bash", trialClass: "quarantine-cost", count: 1 },
+      { ref: "omp.bash", trialClass: "quarantine-win", count: 1 },
     ]);
   });
 
@@ -110,13 +110,13 @@ describe("runEntropyTrial", () => {
           baseSchemaDigest: schemaDigest({ type: "object" }),
         },
       ],
-      quarantined: [{ ref: "pi.bash", baseSchemaDigest: schemaDigest({ type: "object" }) }],
+      quarantined: [{ ref: "omp.bash", baseSchemaDigest: schemaDigest({ type: "object" }) }],
     };
     const report = runEntropyTrial({
       traces: [
         trace([
           op("mcp.report.render", { format: "docx" }),
-          op("pi.bash", { command: "bun test" }),
+          op("omp.bash", { command: "bun test" }),
         ]),
       ],
       live: live(),
@@ -151,7 +151,7 @@ describe("runEntropyTrial", () => {
       traces: [
         trace([
           op("mcp.report.render", { format: "docx" }),
-          op("pi.bash", { command: "ls" }, "failed", "effect"),
+          op("omp.bash", { command: "ls" }, "failed", "effect"),
         ]),
       ],
       live: live(),

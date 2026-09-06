@@ -1,22 +1,22 @@
-import type { KeybindingsManager, Theme, ThemeColor } from "@earendil-works/pi-coding-agent";
-import {
+import type { KeybindingsManager, Theme, ThemeColor } from "@oh-my-pi/pi-coding-agent";
+import { Ellipsis,
   Key,
   getKeybindings,
   matchesKey,
   truncateToWidth,
   type KeyId,
-} from "@earendil-works/pi-tui";
+} from "@oh-my-pi/pi-tui";
 
 /**
  * Target-scoped conversation queue for the focused conversation view.
  *
- * When pi-queue-steer is installed and loaded, a versioned pi.events
+ * When pi-queue-steer is installed and loaded, a versioned omp.events
  * request/capability handshake hands this adapter a bridge over the
  * extension's actual queue-state machinery (DeliveryQueue / QueueEditSession)
  * AND its actual shared execution-outline renderer (QueueTimelineWidget plus
  * the real inline-editor line extractor) — no imitation, no hard dependency:
  * the extension is discovered only through the shared bus. With no compatible
- * listener, the adapter falls back to Pi's native queue display labels and
+ * listener, the adapter falls back to OMP's native queue display labels and
  * colors ("Steering:" / "Follow-up:", dim) and never claims extension parity.
  *
  * Delivery ownership rules:
@@ -141,7 +141,7 @@ export interface ConversationQueueBridgeV1 {
       renderInlineEditor?: (width: number) => string[];
     },
     theme: Theme,
-  ): { render(width: number): string[]; invalidate(): void };
+  ): { render(width: number): readonly string[]; invalidate(): void };
   extractInlineEditorLines?(lines: readonly string[], paddingX?: number): string[];
 }
 
@@ -159,8 +159,8 @@ export interface ConversationSnapshotEntry {
 }
 
 export interface ConversationQueueOptions {
-  /** Shared pi.events bus (emit only; the handshake is synchronous claim/respond). */
-  piEvents: { emit(channel: string, data: unknown): void };
+  /** Shared omp.events bus (emit only; the handshake is synchronous claim/respond). */
+  ompEvents: { emit(channel: string, data: unknown): void };
   targetId: string;
   targetName?: string;
   /**
@@ -217,7 +217,7 @@ export interface ConversationQueue {
   /** Decorated rows in timeline order (dispatched rows first, then queued). */
   rows(): ConversationQueueRow[];
   /** Queue list lines rendered above the editor; empty when nothing is held. */
-  render(width: number): string[];
+  render(width: number): readonly string[];
   /**
    * Row-editing input handling. Consumes keys only while an editing session
    * is active or when the dequeue binding starts one; everything else passes
@@ -275,7 +275,7 @@ const INDENT_ROW_KEY: KeyId = "alt+right";
 const OUTDENT_ROW_KEY: KeyId = "alt+left";
 const TOGGLE_LANE_KEY = "alt+t";
 
-/** Native Pi pending-messages labels (interactive-mode ground truth). */
+/** Native OMP pending-messages labels (interactive-mode ground truth). */
 const NATIVE_LANE_LABEL: Record<ConversationQueueLane, string> = {
   steer: "Steering",
   followUp: "Follow-up",
@@ -482,10 +482,10 @@ const controlInputRe = /^[/!]/;
 /**
  * Create one target-scoped conversation queue. Attempts the pi-queue-steer
  * interop handshake first (mode "extension"); with no claiming listener the
- * adapter serves Pi's native queue labels and colors (mode "native").
+ * adapter serves OMP's native queue labels and colors (mode "native").
  */
 export function createConversationQueue(options: ConversationQueueOptions): ConversationQueue {
-  const { piEvents, targetId, theme } = options;
+  const { ompEvents, targetId, theme } = options;
   const notify = (text: string, kind: "info" | "error" = "info") => {
     options.onNotify?.(text, kind);
   };
@@ -531,7 +531,7 @@ export function createConversationQueue(options: ConversationQueueOptions): Conv
         result = response;
       },
     };
-    piEvents.emit(QUEUE_STEER_CONVERSATION_QUEUE_REQUEST_EVENT, request);
+    ompEvents.emit(QUEUE_STEER_CONVERSATION_QUEUE_REQUEST_EVENT, request);
     return { claimed, result };
   };
 
@@ -826,11 +826,11 @@ export function createConversationQueue(options: ConversationQueueOptions): Conv
           },
           theme,
         );
-        const lines = widget.render(width);
+        const lines = [...widget.render(width)];
         if (dispatched.length > 0) lines.push(theme.fg("dim", truncateToWidth("Sent rows await child delivery; they cannot be edited locally.", width, "")));
         return lines;
       }
-      // Native Pi pending-messages display (ground-truth labels/colors) or
+      // Native OMP pending-messages display (ground-truth labels/colors) or
       // an older bridge without the renderer members.
       const lines: string[] = [""];
       const innerWidth = Math.max(0, width - 2);
@@ -847,11 +847,11 @@ export function createConversationQueue(options: ConversationQueueOptions): Conv
           ? "dim"
           : bridge ? bridge.laneColor(row.lane) as ThemeColor : "dim";
         lines.push(
-          ` ${theme.fg(color, truncateToWidth(`${marker}${label}: ${row.text.replace(/\n/g, " ")}${note}`, innerWidth, "…"))} `,
+          ` ${theme.fg(color, truncateToWidth(`${marker}${label}: ${row.text.replace(/\n/g, " ")}${note}`, innerWidth, Ellipsis.Unicode))} `,
         );
       }
       const hint = queue.length > 0 ? `↳ ${dequeueHint} to edit queued messages` : "↳ Waiting for child delivery";
-      lines.push(` ${theme.fg("dim", truncateToWidth(hint, innerWidth, "…"))} `);
+      lines.push(` ${theme.fg("dim", truncateToWidth(hint, innerWidth, Ellipsis.Unicode))} `);
       return lines;
     },
 

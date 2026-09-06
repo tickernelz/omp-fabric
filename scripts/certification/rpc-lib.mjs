@@ -49,29 +49,27 @@ const positiveInteger = (value) => {
 
 export const benchmarkGate = (env = process.env) => {
   const reasons = [];
-  if (env.PI_FABRIC_REAL_RESUME !== "1") reasons.push("PI_FABRIC_REAL_RESUME must equal 1");
-  if (!env.PI_FABRIC_BENCH_MODEL) reasons.push("PI_FABRIC_BENCH_MODEL is required");
-  if (!env.PI_FABRIC_BENCH_PROVIDER) reasons.push("PI_FABRIC_BENCH_PROVIDER is required");
-  const keyVariable = env.PI_FABRIC_BENCH_KEY_ENV;
-  if (!keyVariable) reasons.push("PI_FABRIC_BENCH_KEY_ENV is required");
+  if (env.OMP_FABRIC_REAL_RESUME !== "1") reasons.push("OMP_FABRIC_REAL_RESUME must equal 1");
+  if (!env.OMP_FABRIC_BENCH_MODEL) reasons.push("OMP_FABRIC_BENCH_MODEL is required");
+  if (!env.OMP_FABRIC_BENCH_PROVIDER) reasons.push("OMP_FABRIC_BENCH_PROVIDER is required");
+  const keyVariable = env.OMP_FABRIC_BENCH_KEY_ENV;
+  if (!keyVariable) reasons.push("OMP_FABRIC_BENCH_KEY_ENV is required");
   else if (!env[keyVariable]) reasons.push(`credential variable ${keyVariable} is not set`);
-  if (!env.PI_VCC_EXTENSION) reasons.push("PI_VCC_EXTENSION is required for the sentinel arm");
-  const repeats = positiveInteger(env.PI_FABRIC_BENCH_REPEATS);
-  if (repeats === null) reasons.push("PI_FABRIC_BENCH_REPEATS must be a positive integer");
-  const maxUsd = positiveNumber(env.PI_FABRIC_BENCH_MAX_USD);
-  if (maxUsd === null) reasons.push("PI_FABRIC_BENCH_MAX_USD must be a positive number");
+  const repeats = positiveInteger(env.OMP_FABRIC_BENCH_REPEATS);
+  if (repeats === null) reasons.push("OMP_FABRIC_BENCH_REPEATS must be a positive integer");
+  const maxUsd = positiveNumber(env.OMP_FABRIC_BENCH_MAX_USD);
+  if (maxUsd === null) reasons.push("OMP_FABRIC_BENCH_MAX_USD must be a positive number");
   return {
     enabled: reasons.length === 0,
     reasons,
     config: {
-      model: env.PI_FABRIC_BENCH_MODEL ?? null,
-      provider: env.PI_FABRIC_BENCH_PROVIDER ?? null,
+      model: env.OMP_FABRIC_BENCH_MODEL ?? null,
+      provider: env.OMP_FABRIC_BENCH_PROVIDER ?? null,
       keyVariable: keyVariable ?? null,
       repeats: repeats ?? 0,
       maxUsd: maxUsd ?? 0,
-      seed: env.PI_FABRIC_BENCH_SEED ?? "pi-fabric-resume-v1",
-      piCommand: env.PI_FABRIC_PI_COMMAND ?? "pi",
-      piVccExtension: env.PI_VCC_EXTENSION ?? null,
+      seed: env.OMP_FABRIC_BENCH_SEED ?? "omp-fabric-resume-v1",
+      ompCommand: env.OMP_FABRIC_OMP_COMMAND ?? "omp",
     },
   };
 };
@@ -85,7 +83,7 @@ const hashSeed = (text) => {
   return state || 1;
 };
 
-export const pairedOrders = (repeats, seed, variants = ["baseline", "fabric", "pi-vcc"]) => {
+export const pairedOrders = (repeats, seed, variants = ["baseline", "fabric"]) => {
   let state = hashSeed(seed);
   const random = () => {
     state ^= state << 13;

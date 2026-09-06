@@ -1,7 +1,7 @@
 import type {
   ExtensionContext,
   MessageUpdateEvent,
-} from "@earendil-works/pi-coding-agent";
+} from "@oh-my-pi/pi-coding-agent";
 import { PartialCodeFieldExtractor } from "./partial-json.js";
 import type { LiteralCallScanner } from "./scanner.js";
 import type { FabricSpeculationCandidate } from "./types.js";

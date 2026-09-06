@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { renameAtomic } from "./core/atomic-write.js";
 import { normalizeModelAliases } from "./core/model-resolution.js";
-import { PI_CORE_TOOL_NAME_SET } from "./core/pi-tools.js";
+import { OMP_CORE_TOOL_NAME_SET } from "./core/omp-tools.js";
 import {
   CURRENT_FABRIC_CONFIG_VERSION,
   migrateFabricConfigDocument,
@@ -25,14 +25,14 @@ export type FabricAgentTransport =
   | "screen"
   | "localterm"
   | "herdr";
-export type FabricAgentRunner = "pi" | "claude" | "veda";
+export type FabricAgentRunner = "omp" | "claude" | "veda";
 export type FabricUiWidgetMode = "auto" | "always" | "hidden";
 type FabricToolDisplayMode = "full" | "compact";
 export type FabricResultFormat = "auto" | "yaml" | "json" | "text";
 export type FabricPrewalkMode = "in-place" | "trajectory";
 export type FabricExecutorRuntime = "quickjs" | "node-process" | "bun-process";
 export type FabricConfigScope = "global" | "project";
-type FabricCompactionEngine = "pi" | "fabric";
+type FabricCompactionEngine = "omp" | "fabric";
 type FabricActorScope = "project" | "session";
 
 interface FabricExecutorConfig {
@@ -113,7 +113,7 @@ interface FabricPrewalkConfig {
   // model after an in-place continuation settles.
   compactOnReturn: boolean;
   // Filesystem fallback trigger: when an armed boundary ran a successful
-  // pi.bash or pi.powershell without an audited mutation, claim on stat-manifest drift so
+  // omp.bash without an audited mutation, claim on stat-manifest drift so
   // shell heredocs / sed -i / formatter writes also hand off.
   detectShellWrites: boolean;
   // Reasoning effort for the trajectory executor; unset inherits agents.thinking.
@@ -138,9 +138,9 @@ export interface FabricAgentConfig {
   notifyOnComplete: boolean;
   budgetUsd: number;
   maxTokensPerChild: number;
-  /** Write usage-only pi-format session files per agent run for external trackers. */
+  /** Write usage-only OMP-format session files per agent run for external trackers. */
   sessionExport: boolean;
-  /** Export store root override; PI_FABRIC_AGENT_DIR wins. Empty = ~/.pi-fabric/agent. */
+  /** Export store root override; OMP_FABRIC_AGENT_DIR wins over the active agent directory's fabric store. */
   sessionExportDir: string;
 }
 
@@ -148,6 +148,8 @@ export interface FabricToolCaptureConfig {
   enabled: boolean;
   hideFromModel: boolean;
   keepVisible: string[];
+  includeTools: string[];
+  excludeTools: string[];
   defaultRisk: FabricRisk;
   risks: Record<string, FabricRisk>;
 }
@@ -318,7 +320,7 @@ export const maxExecutorMemoryLimitBytes = (runtime: FabricExecutorRuntime): num
     : MAX_EXECUTOR_MEMORY_LIMIT_BYTES;
 
 export const DEFAULT_FABRIC_CONFIG: FabricConfig = {
-  fullCodeMode: true,
+  fullCodeMode: false,
   executor: {
     runtime: "quickjs",
     timeoutMs: 120_000,
@@ -355,7 +357,7 @@ export const DEFAULT_FABRIC_CONFIG: FabricConfig = {
   },
   agents: {
     enabled: true,
-    runner: "pi",
+    runner: "omp",
     transport: "process",
     claude: { binary: "claude" },
     veda: { binary: "veda", backend: "agy", persona: "navigator-chat" },
@@ -378,6 +380,8 @@ export const DEFAULT_FABRIC_CONFIG: FabricConfig = {
     enabled: true,
     hideFromModel: true,
     keepVisible: ["fabric_exec"],
+    includeTools: [],
+    excludeTools: [],
     defaultRisk: "execute",
     risks: {
       read: "read",
@@ -541,7 +545,7 @@ const stringValue = (value: unknown): string | undefined =>
   typeof value === "string" && value.trim() ? value : undefined;
 
 const runnerValue = (value: unknown, fallback: FabricAgentRunner): FabricAgentRunner =>
-  value === "pi" || value === "claude" || value === "veda" ? value : fallback;
+  value === "omp" || value === "claude" || value === "veda" ? value : fallback;
 
 const prewalkModeValue = (
   value: unknown,
@@ -596,7 +600,7 @@ const compactionEngineValue = (
   value: unknown,
   fallback: FabricCompactionEngine,
 ): FabricCompactionEngine =>
-  value === "pi" || value === "fabric" ? value : fallback;
+  value === "omp" || value === "fabric" ? value : fallback;
 
 const actorScopeValue = (value: unknown, fallback: FabricActorScope): FabricActorScope =>
   value === "project" || value === "session" ? value : fallback;
@@ -635,6 +639,7 @@ export const normalizeFabricConfig = (input: Record<string, unknown>): FabricCon
   const claude = objectValue(agents.claude);
   const veda = objectValue(agents.veda);
   const capture = objectValue(input.capture);
+  const toolPolicy = objectValue(input.toolPolicy);
   const ui = objectValue(input.ui);
   const compaction = objectValue(input.compaction);
   const retention = objectValue(input.retention);
@@ -717,6 +722,16 @@ export const normalizeFabricConfig = (input: Record<string, unknown>): FabricCon
         (name): name is string => typeof name === "string" && Boolean(name.trim()),
       )
     : DEFAULT_FABRIC_CONFIG.capture.keepVisible;
+  const configuredIncluded = Array.isArray(capture.includeTools)
+    ? capture.includeTools.filter(
+        (name): name is string => typeof name === "string" && Boolean(name.trim()),
+      )
+    : DEFAULT_FABRIC_CONFIG.capture.includeTools;
+  const configuredExcluded = Array.isArray(capture.excludeTools)
+    ? capture.excludeTools.filter(
+        (name): name is string => typeof name === "string" && Boolean(name.trim()),
+      )
+    : DEFAULT_FABRIC_CONFIG.capture.excludeTools;
   const configuredRisks = {
     ...DEFAULT_FABRIC_CONFIG.capture.risks,
     ...objectValue(capture.risks),
@@ -925,6 +940,8 @@ export const normalizeFabricConfig = (input: Record<string, unknown>): FabricCon
         DEFAULT_FABRIC_CONFIG.capture.hideFromModel,
       ),
       keepVisible: [...new Set(configuredVisible)],
+      includeTools: [...new Set(configuredIncluded)],
+      excludeTools: [...new Set(configuredExcluded)],
       defaultRisk: riskValue(capture.defaultRisk, DEFAULT_FABRIC_CONFIG.capture.defaultRisk),
       risks,
     },
@@ -1211,7 +1228,7 @@ export const effectiveToolCaptureConfig = (
       ? {
           ...config.capture,
           keepVisible: config.capture.keepVisible.filter(
-            (name) => !PI_CORE_TOOL_NAME_SET.has(name),
+            (name) => !OMP_CORE_TOOL_NAME_SET.has(name) || name === "fabric_exec",
           ),
           risks: { ...config.capture.risks },
         }
@@ -1308,14 +1325,14 @@ const resolveFabricConfig = (
   const plans = [
     planConfigFile(path.join(options.agentDir, "fabric.json")),
     ...(includeProject
-      ? [planConfigFile(path.join(options.cwd, ".pi", "fabric.json"))]
+      ? [planConfigFile(path.join(options.cwd, ".omp", "fabric.json"))]
       : []),
   ].filter((plan): plan is FabricConfigFilePlan => plan !== undefined);
   for (const plan of plans) {
     if (plan.changed) writeJsonAtomic(plan.path, plan.document, plan.source);
     merged = mergeObjects(merged, plan.document);
   }
-  const inheritedFullCodeMode = process.env.PI_FABRIC_FULL_CODE_MODE;
+  const inheritedFullCodeMode = process.env.OMP_FABRIC_FULL_CODE_MODE;
   if (
     applyEnvironmentOverrides &&
     (inheritedFullCodeMode === "true" || inheritedFullCodeMode === "false")
@@ -1346,9 +1363,9 @@ export const loadFabricConfig = (options: {
 }): FabricConfig => {
   const config = resolveFabricConfig(options, options.projectTrusted, true);
   if (config.compaction.engine === "fabric") {
-    process.env.PI_FABRIC_COMPACTION_ENGINE = "fabric";
+    process.env.OMP_FABRIC_COMPACTION_ENGINE = "fabric";
   } else {
-    delete process.env.PI_FABRIC_COMPACTION_ENGINE;
+    delete process.env.OMP_FABRIC_COMPACTION_ENGINE;
   }
   return config;
 };
@@ -1367,7 +1384,7 @@ export const saveFabricConfig = (
     throw new Error("Cannot save project Fabric configuration for an untrusted project");
   }
   const targetPath = scope === "project"
-    ? path.join(options.cwd, ".pi", "fabric.json")
+    ? path.join(options.cwd, ".omp", "fabric.json")
     : path.join(options.agentDir, "fabric.json");
   if (Object.hasOwn(partial, "configVersion") || Object.hasOwn(partial, "subagents")) {
     throw new Error("Fabric configuration updates must use the current schema");

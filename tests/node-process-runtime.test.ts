@@ -95,7 +95,7 @@ return { texts, walk };
 
   it("extends the active deadline for a long host call", async () => {
     const result = await new NodeProcessRuntime().execute(
-      'await tools.call({ ref: "pi.bash", args: { timeout: 1 } }); return "ok";',
+      'await tools.call({ ref: "omp.bash", args: { timeout: 1 } }); return "ok";',
       async () => {
         await new Promise((resolve) => setTimeout(resolve, 1_250));
         return { output: "ok" };
@@ -121,9 +121,9 @@ return { texts, walk };
       "nul:" + String.fromCharCode(0) + " end",
     ].join("\n");
     const result = await new NodeProcessRuntime().execute(
-      "return π.content;",
+      "return payloads.content;",
       async () => undefined,
-      { ...options, strings: { content } },
+      { ...options, payloads: { content } },
     );
 
     expect(result.error).toBeUndefined();
@@ -265,9 +265,9 @@ return { models, process: typeof process };
       "nul:" + String.fromCharCode(0) + " end",
     ].join("\n");
     const result = await new BunProcessRuntime().execute(
-      "return π.content;",
+      "return payloads.content;",
       async () => undefined,
-      { ...options, strings: { content } },
+      { ...options, payloads: { content } },
     );
 
     expect(result.error).toBeUndefined();

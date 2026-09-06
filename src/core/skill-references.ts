@@ -50,6 +50,6 @@ export const buildSkillReferenceGuidance = (
     `The active skill ${JSON.stringify(active.name)} is already expanded; do not reread ${JSON.stringify(active.filePath)}.`,
     "Resolve the skill invocations below before task exploration:",
     mappings,
-    "Load each mapped SKILL.md through pi.read inside fabric_exec and follow it. Skill loading is a dependency, not task exploration. Continue the active workflow after tool results and later user replies until it completes.",
+    "Load each mapped SKILL.md through omp.read inside fabric_exec and follow it. Skill loading is a dependency, not task exploration. Continue the active workflow after tool results and later user replies until it completes.",
   ].join("\n");
 };

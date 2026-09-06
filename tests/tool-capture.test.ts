@@ -1,13 +1,8 @@
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import {
-  createSyntheticSourceInfo,
-  defineTool,
-  ExtensionRunner,
-  type RegisteredTool,
-} from "@earendil-works/pi-coding-agent";
-import { Type } from "typebox";
+import type { ExtensionRunner, RegisteredTool } from "@oh-my-pi/pi-coding-agent";
+import { Type } from "@oh-my-pi/omptype/typebox";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { CapturedToolCatalog } from "../src/capture/catalog.js";
 import {
@@ -18,14 +13,14 @@ import {
 import { DEFAULT_FABRIC_CONFIG, effectiveToolCaptureConfig } from "../src/config.js";
 
 const controllers: RegisteredToolCaptureController[] = [];
+const capturePolicy = { ...DEFAULT_FABRIC_CONFIG.capture, enabled: true };
 
-const tool = (name: string) =>
-  defineTool({
+const tool = (name: string) => ({
     name,
     label: name,
     description: `${name} description`,
     parameters: Type.Object({ value: Type.Optional(Type.String()) }),
-    execute: vi.fn(async (_id, params) => ({
+    execute: vi.fn(async (_id: string, params: { value?: string }) => ({
       content: [{ type: "text" as const, text: params.value ?? name }],
       details: {},
     })),
@@ -33,14 +28,16 @@ const tool = (name: string) =>
 
 const registered = (definition: ReturnType<typeof tool>, sourcePath: string): RegisteredTool => ({
   definition,
-  sourceInfo: createSyntheticSourceInfo(sourcePath, { source: "test" }),
+  extensionPath: sourcePath,
 });
 
 const runnerWith = (...entries: RegisteredTool[]): ExtensionRunner => {
-  const runner = Object.create(ExtensionRunner.prototype) as ExtensionRunner;
-  (runner as unknown as { extensions: Array<{ tools: Map<string, RegisteredTool> }> }).extensions =
-    [{ tools: new Map(entries.map((entry) => [entry.definition.name, entry])) }];
-  return runner;
+  const extensions = [{ tools: new Map(entries.map((entry) => [entry.definition.name, entry])) }];
+  const runner = {
+    extensions,
+    getAllRegisteredTools: () => [...extensions[0]!.tools.values()],
+  };
+  return runner as unknown as ExtensionRunner;
 };
 
 afterEach(() => {
@@ -48,15 +45,15 @@ afterEach(() => {
 });
 
 describe("registered extension tool capture", () => {
-  it("captures every extension tool while keeping it in Pi's registry", async () => {
-    // Captured tools must stay visible to pi.getAllTools() consumers (e.g.
+  it("captures every extension tool while keeping it in OMP's registry", async () => {
+    // Captured tools must stay visible to omp.getAllTools() consumers (e.g.
     // permission systems validating tool_call events); hiding from the model is
     // handled through the active tool set by FabricToolOwnership, not here.
     const fabricTool = tool("fabric_exec");
     const customTool = tool("deploy_release");
     const readOverride = tool("read");
     const runner = runnerWith(
-      registered(fabricTool, "/extensions/pi-fabric/index.ts"),
+      registered(fabricTool, "/extensions/omp-fabric/index.ts"),
       registered(customTool, "/extensions/pi-deploy/index.ts"),
       registered(readOverride, "/extensions/pi-preview/index.ts"),
     );
@@ -64,6 +61,8 @@ describe("registered extension tool capture", () => {
     const controller = await installRegisteredToolCapture({
       anchorDefinition: fabricTool,
       catalog,
+      runner,
+      initialPolicy: capturePolicy,
     });
     controllers.push(controller);
 
@@ -89,14 +88,15 @@ describe("registered extension tool capture", () => {
     const fabricTool = tool("fabric_exec");
     const customTool = tool("deploy_release");
     const runner = runnerWith(
-      registered(fabricTool, "/extensions/pi-fabric/index.ts"),
+      registered(fabricTool, "/extensions/omp-fabric/index.ts"),
       registered(customTool, "/extensions/pi-deploy/index.ts"),
     );
     const catalog = new CapturedToolCatalog();
     const controller = await installRegisteredToolCapture({
       anchorDefinition: fabricTool,
       catalog,
-      initialPolicy: structuredClone(DEFAULT_FABRIC_CONFIG.capture),
+      runner,
+      initialPolicy: capturePolicy,
     });
     controllers.push(controller);
 
@@ -112,7 +112,7 @@ describe("registered extension tool capture", () => {
 
     // session_start re-enables capture, but setPolicy(enabled) fires nothing —
     // the catalog would stay empty until restart without a forced refresh.
-    controller.setPolicy(structuredClone(DEFAULT_FABRIC_CONFIG.capture));
+    controller.setPolicy(capturePolicy);
     expect(catalog.get("deploy_release")).toBeUndefined();
 
     catalog.refresh();
@@ -136,8 +136,8 @@ describe("registered extension tool capture", () => {
     catalog.replace(
       entries,
       runner,
-      DEFAULT_FABRIC_CONFIG.capture,
-      "/extensions/pi-fabric/index.ts",
+      capturePolicy,
+      "/extensions/omp-fabric/index.ts",
     );
 
     expect(
@@ -162,6 +162,8 @@ describe("registered extension tool capture", () => {
     const controller = await installRegisteredToolCapture({
       anchorDefinition: fabricTool,
       catalog,
+      runner,
+      initialPolicy: capturePolicy,
     });
     controllers.push(controller);
 
@@ -175,11 +177,13 @@ describe("registered extension tool capture", () => {
   it("updates dynamically and clears the catalog when capture disables", async () => {
     const fabricTool = tool("fabric_exec");
     const first = registered(tool("first_tool"), "/extensions/one/index.ts");
-    const runner = runnerWith(registered(fabricTool, "/extensions/pi-fabric/index.ts"), first);
+    const runner = runnerWith(registered(fabricTool, "/extensions/omp-fabric/index.ts"), first);
     const catalog = new CapturedToolCatalog();
     const controller = await installRegisteredToolCapture({
       anchorDefinition: fabricTool,
       catalog,
+      runner,
+      initialPolicy: capturePolicy,
     });
     controllers.push(controller);
 
@@ -213,7 +217,7 @@ describe("registered extension tool capture", () => {
   it("notifies on every catalog refresh so ownership can be re-asserted", async () => {
     const fabricTool = tool("fabric_exec");
     const runner = runnerWith(
-      registered(fabricTool, "/extensions/pi-fabric/index.ts"),
+      registered(fabricTool, "/extensions/omp-fabric/index.ts"),
       registered(tool("deploy_release"), "/extensions/pi-deploy/index.ts"),
     );
     const catalog = new CapturedToolCatalog();
@@ -224,6 +228,8 @@ describe("registered extension tool capture", () => {
       onCatalogRefresh: () => {
         refreshes += 1;
       },
+      runner,
+      initialPolicy: capturePolicy,
     });
     controllers.push(controller);
 
@@ -254,7 +260,7 @@ describe("registered extension tool capture", () => {
       const found = await bundleExtensionRunnerConstructors(bundleDir);
       expect(found).toHaveLength(1);
       const discovered = found[0]!;
-      expect(discovered).not.toBe(ExtensionRunner);
+      expect(discovered).toBeDefined();
       expect(typeof discovered.prototype.getAllRegisteredTools).toBe("function");
       // Modular-layout installs (no dist/bundle) yield nothing.
       const plainDir = await mkdtemp(path.join(tmpdir(), "fabric-nobundle-"));

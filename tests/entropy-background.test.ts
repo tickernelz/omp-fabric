@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const scanControl = vi.hoisted(() => ({
@@ -51,7 +51,7 @@ vi.mock("../src/fabric-runtime-state.js", () => ({
   },
 }));
 
-import piFabric from "../src/index.js";
+import ompFabric from "../src/index.js";
 
 type ExtensionHandler = (event: unknown, context: ExtensionContext) => unknown;
 
@@ -66,7 +66,7 @@ afterEach(() => {
 const createHarness = () => {
   const handlers = new Map<string, ExtensionHandler[]>();
   let command: ((args: string, context: ExtensionContext) => Promise<void>) | undefined;
-  const pi = {
+  const omp = {
     events: { emit: vi.fn(), on: vi.fn(() => () => {}) },
     getActiveTools: vi.fn(() => []),
     getAllTools: vi.fn(() => []),
@@ -81,7 +81,7 @@ const createHarness = () => {
     registerTool: vi.fn(),
     setActiveTools: vi.fn(),
   } as unknown as ExtensionAPI;
-  return { pi, handlers, command: () => command! };
+  return { omp, handlers, command: () => command! };
 };
 
 const emit = async (
@@ -95,11 +95,11 @@ const emit = async (
 
 describe("entropy background scheduler", () => {
   it("returns turn hooks immediately, coalesces pending turns, and flushes on shutdown", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-entropy-background-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-entropy-background-"));
     tempRoots.push(root);
-    vi.stubEnv("PI_CODING_AGENT_DIR", path.join(root, "agent"));
+    vi.stubEnv("OMP_FABRIC_AGENT_DIR", path.join(root, "agent"));
     const harness = createHarness();
-    await piFabric(harness.pi);
+    await ompFabric(harness.omp);
     const context = {
       mode: "code",
       cwd: root,

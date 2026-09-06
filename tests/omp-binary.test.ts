@@ -1,48 +1,48 @@
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { resolvePiBinary } from "../src/agents/pi-binary.js";
+import { resolveOmpBinary } from "../src/agents/omp-binary.js";
 
-describe("resolvePiBinary", () => {
+describe("resolveOmpBinary", () => {
   it("prefers an explicit configured binary", () => {
-    expect(resolvePiBinary("/custom/pi", {
-      env: { PI_FABRIC_PI_BINARY: "/env/pi", LOCALTERM: "1" },
+    expect(resolveOmpBinary("/custom/omp", {
+      env: { OMP_FABRIC_OMP_BINARY: "/env/omp", LOCALTERM: "1" },
       homeDirectory: "/home/test",
       isExecutable: () => true,
-    })).toBe("/custom/pi");
+    })).toBe("/custom/omp");
   });
 
-  it("prefers PI_FABRIC_PI_BINARY over LocalTerm discovery", () => {
-    expect(resolvePiBinary(undefined, {
-      env: { PI_FABRIC_PI_BINARY: "/env/pi", LOCALTERM: "1" },
+  it("prefers OMP_FABRIC_OMP_BINARY over LocalTerm discovery", () => {
+    expect(resolveOmpBinary(undefined, {
+      env: { OMP_FABRIC_OMP_BINARY: "/env/omp", LOCALTERM: "1" },
       homeDirectory: "/home/test",
       isExecutable: () => true,
-    })).toBe("/env/pi");
+    })).toBe("/env/omp");
   });
 
   it("uses the LocalTerm shim by absolute path inside LocalTerm", () => {
     const isExecutable = vi.fn(() => true);
-    const binary = resolvePiBinary(undefined, {
+    const binary = resolveOmpBinary(undefined, {
       env: { LOCALTERM: "1" },
       homeDirectory: "/home/test",
       isExecutable,
     });
 
-    const expected = path.join("/home/test", ".localterm", "shims", "pi");
+    const expected = path.join("/home/test", ".localterm", "shims", "omp");
     expect(binary).toBe(expected);
     expect(isExecutable).toHaveBeenCalledWith(expected);
   });
 
   it("falls back to PATH lookup when the LocalTerm shim is unavailable", () => {
-    expect(resolvePiBinary(undefined, {
+    expect(resolveOmpBinary(undefined, {
       env: { LOCALTERM: "1" },
       homeDirectory: "/home/test",
       isExecutable: () => false,
-    })).toBe("pi");
+    })).toBe("omp");
   });
 
   it("uses PATH lookup outside LocalTerm", () => {
     const isExecutable = vi.fn(() => true);
-    expect(resolvePiBinary(undefined, { env: {}, isExecutable })).toBe("pi");
+    expect(resolveOmpBinary(undefined, { env: {}, isExecutable })).toBe("omp");
     expect(isExecutable).not.toHaveBeenCalled();
   });
 });

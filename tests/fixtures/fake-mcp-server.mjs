@@ -14,15 +14,15 @@ input.on("line", (line) => {
     respond(request.id, {
       protocolVersion: request.params.protocolVersion,
       capabilities: { tools: {} },
-      serverInfo: { name: "pi-fabric-test", version: "1.0.0" },
+      serverInfo: { name: "omp-fabric-test", version: "1.0.0" },
     });
     return;
   }
   if (request.method === "tools/list") {
-    if (process.env.PI_FABRIC_MCP_COUNT_FILE) {
+    if (process.env.OMP_FABRIC_MCP_COUNT_FILE) {
       fs.appendFileSync(
-        process.env.PI_FABRIC_MCP_COUNT_FILE,
-        `${process.env.PI_FABRIC_MCP_COUNT_LABEL ?? "server"}\n`,
+        process.env.OMP_FABRIC_MCP_COUNT_FILE,
+        `${process.env.OMP_FABRIC_MCP_COUNT_LABEL ?? "server"}\n`,
       );
     }
     respond(request.id, {

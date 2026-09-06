@@ -519,7 +519,7 @@ const descriptors: FabricActionDescriptor[] = [
         ref: {
           type: "string",
           minLength: 1,
-          description: "Exact persisted Fabric action ref, such as pi.grep. This is structural selection, not lexical expansion.",
+          description: "Exact persisted Fabric action ref, such as omp.grep. This is structural selection, not lexical expansion.",
         },
         provider: {
           type: "string",
@@ -804,7 +804,7 @@ const recallFailure = (error: { code: string; message: string; [key: string]: un
 export class MemoryProvider implements FabricProvider {
   readonly name = "memory";
   readonly description =
-    "Cross-session memory: a search engine over every Pi session timeline on this machine";
+    "Cross-session memory: a search engine over every OMP session timeline on this machine";
 
   private recallContinuation: RecallContinuationCache | undefined;
   private readonly expansionSnapshots = new Map<string, ExpansionSnapshot>();

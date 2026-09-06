@@ -1,4 +1,4 @@
-import type { AssistantMessage } from "@earendil-works/pi-ai";
+import type { AssistantMessage } from "@oh-my-pi/pi-ai";
 import type { NativeAgentMessage, NativeConversationTranscript } from "../../src/ui/conversation-native-reader.js";
 
 export const userMessage = (text: string, timestamp = 1): NativeAgentMessage => ({

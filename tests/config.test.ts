@@ -15,10 +15,10 @@ import {
 } from "../src/config.js";
 
 const temporaryDirectories: string[] = [];
-const originalCompactionEngineEnv = process.env.PI_FABRIC_COMPACTION_ENGINE;
+const originalCompactionEngineEnv = process.env.OMP_FABRIC_COMPACTION_ENGINE;
 
 const temporaryDirectory = (): string => {
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-config-"));
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-config-"));
   temporaryDirectories.push(directory);
   return directory;
 };
@@ -28,9 +28,9 @@ afterEach(() => {
     fs.rmSync(directory, { recursive: true, force: true });
   }
   if (originalCompactionEngineEnv === undefined) {
-    delete process.env.PI_FABRIC_COMPACTION_ENGINE;
+    delete process.env.OMP_FABRIC_COMPACTION_ENGINE;
   } else {
-    process.env.PI_FABRIC_COMPACTION_ENGINE = originalCompactionEngineEnv;
+    process.env.OMP_FABRIC_COMPACTION_ENGINE = originalCompactionEngineEnv;
   }
 });
 
@@ -71,7 +71,7 @@ describe("Fabric configuration", () => {
     ]);
   });
 
-  it("keeps model-visible execution output at Pi read parity by default", () => {
+  it("keeps model-visible execution output at OMP read parity by default", () => {
     expect(DEFAULT_FABRIC_CONFIG.executor.maxOutputChars).toBe(50_000);
   });
 
@@ -255,7 +255,7 @@ describe("Fabric configuration", () => {
   });
 
   it("normalizes the default runner and independent Claude settings", () => {
-    expect(DEFAULT_FABRIC_CONFIG.agents.runner).toBe("pi");
+    expect(DEFAULT_FABRIC_CONFIG.agents.runner).toBe("omp");
     expect(DEFAULT_FABRIC_CONFIG.agents.claude).toEqual({ binary: "claude" });
     const configured = normalizeFabricConfig({
       agents: {
@@ -271,7 +271,7 @@ describe("Fabric configuration", () => {
     const invalid = normalizeFabricConfig({
       agents: { runner: "other", claude: { binary: " ", model: " " } },
     });
-    expect(invalid.agents.runner).toBe("pi");
+    expect(invalid.agents.runner).toBe("omp");
     expect(invalid.agents.claude).toEqual({ binary: "claude" });
   });
 
@@ -305,7 +305,7 @@ describe("Fabric configuration", () => {
     const blankBackend = normalizeFabricConfig({ agents: { veda: { backend: " " } } });
     expect(blankBackend.agents.veda.backend).toBe("agy");
     const invalidRunner = normalizeFabricConfig({ agents: { runner: "other" } });
-    expect(invalidRunner.agents.runner).toBe("pi");
+    expect(invalidRunner.agents.runner).toBe("omp");
   });
 
   it("defaults the agent thinking level to medium and validates the value", () => {
@@ -391,7 +391,7 @@ describe("Fabric configuration", () => {
     const root = temporaryDirectory();
     const cwd = path.join(root, "project");
     const agentDir = path.join(root, "agent");
-    fs.mkdirSync(path.join(cwd, ".pi"), { recursive: true });
+    fs.mkdirSync(path.join(cwd, ".omp"), { recursive: true });
     fs.mkdirSync(agentDir, { recursive: true });
     const location = { cwd, agentDir, projectTrusted: true };
 
@@ -403,7 +403,7 @@ describe("Fabric configuration", () => {
     expect(JSON.parse(fs.readFileSync(path.join(agentDir, "fabric.json"), "utf8"))).toMatchObject({
       ui: { toolDisplay: "compact" },
     });
-    expect(JSON.parse(fs.readFileSync(path.join(cwd, ".pi", "fabric.json"), "utf8"))).toMatchObject({
+    expect(JSON.parse(fs.readFileSync(path.join(cwd, ".omp", "fabric.json"), "utf8"))).toMatchObject({
       ui: { toolDisplay: "full" },
     });
   });
@@ -510,7 +510,7 @@ describe("Fabric configuration", () => {
     expect(DEFAULT_FABRIC_CONFIG.capture).toMatchObject({ enabled: true, hideFromModel: true });
   });
 
-  it("never leaves Pi core tools model-visible in full code mode", () => {
+  it("never leaves OMP core tools model-visible in full code mode", () => {
     expect(DEFAULT_FABRIC_CONFIG.capture.keepVisible).toEqual(["fabric_exec"]);
     const capture = effectiveToolCaptureConfig({
       fullCodeMode: true,
@@ -526,14 +526,14 @@ describe("Fabric configuration", () => {
     const root = temporaryDirectory();
     const cwd = path.join(root, "project");
     const agentDir = path.join(root, "agent");
-    fs.mkdirSync(path.join(cwd, ".pi"), { recursive: true });
+    fs.mkdirSync(path.join(cwd, ".omp"), { recursive: true });
     fs.mkdirSync(agentDir, { recursive: true });
     fs.writeFileSync(
       path.join(agentDir, "fabric.json"),
       JSON.stringify({ approvals: { network: "allow" }, agents: { maxConcurrent: 2 } }),
     );
     fs.writeFileSync(
-      path.join(cwd, ".pi", "fabric.json"),
+      path.join(cwd, ".omp", "fabric.json"),
       JSON.stringify({ agents: { transport: "localterm" } }),
     );
     const location = { cwd, agentDir, projectTrusted: true };
@@ -557,15 +557,15 @@ describe("Fabric configuration", () => {
       path.join(agentDir, "fabric.json"),
       JSON.stringify({ fullCodeMode: true }),
     );
-    const inherited = process.env.PI_FABRIC_FULL_CODE_MODE;
-    process.env.PI_FABRIC_FULL_CODE_MODE = "false";
+    const inherited = process.env.OMP_FABRIC_FULL_CODE_MODE;
+    process.env.OMP_FABRIC_FULL_CODE_MODE = "false";
     try {
       const location = { cwd, agentDir, projectTrusted: false };
       expect(loadFabricConfigForScope(location, "global").fullCodeMode).toBe(true);
       expect(loadFabricConfig(location).fullCodeMode).toBe(false);
     } finally {
-      if (inherited === undefined) delete process.env.PI_FABRIC_FULL_CODE_MODE;
-      else process.env.PI_FABRIC_FULL_CODE_MODE = inherited;
+      if (inherited === undefined) delete process.env.OMP_FABRIC_FULL_CODE_MODE;
+      else process.env.OMP_FABRIC_FULL_CODE_MODE = inherited;
     }
   });
 
@@ -573,31 +573,31 @@ describe("Fabric configuration", () => {
     const root = temporaryDirectory();
     const cwd = path.join(root, "project");
     const agentDir = path.join(root, "agent");
-    const projectConfig = path.join(cwd, ".pi", "fabric.json");
+    const projectConfig = path.join(cwd, ".omp", "fabric.json");
     fs.mkdirSync(path.dirname(projectConfig), { recursive: true });
     fs.mkdirSync(agentDir, { recursive: true });
     fs.writeFileSync(projectConfig, JSON.stringify({ compaction: { engine: "fabric" } }));
 
     loadFabricConfig({ cwd, agentDir, projectTrusted: true });
-    expect(process.env.PI_FABRIC_COMPACTION_ENGINE).toBe("fabric");
+    expect(process.env.OMP_FABRIC_COMPACTION_ENGINE).toBe("fabric");
 
-    fs.writeFileSync(projectConfig, JSON.stringify({ compaction: { engine: "pi" } }));
+    fs.writeFileSync(projectConfig, JSON.stringify({ compaction: { engine: "omp" } }));
     loadFabricConfig({ cwd, agentDir, projectTrusted: true });
-    expect(process.env.PI_FABRIC_COMPACTION_ENGINE).toBeUndefined();
+    expect(process.env.OMP_FABRIC_COMPACTION_ENGINE).toBeUndefined();
   });
 
   it("loads trusted commands only from trusted Fabric configuration", () => {
     const root = temporaryDirectory();
     const cwd = path.join(root, "project");
     const agentDir = path.join(root, "agent");
-    fs.mkdirSync(path.join(cwd, ".pi"), { recursive: true });
+    fs.mkdirSync(path.join(cwd, ".omp"), { recursive: true });
     fs.mkdirSync(agentDir, { recursive: true });
     fs.writeFileSync(
       path.join(agentDir, "fabric.json"),
       JSON.stringify({ schema: { trustedCommands: { global: { command: "node", args: ["--version"] } } } }),
     );
     fs.writeFileSync(
-      path.join(cwd, ".pi", "fabric.json"),
+      path.join(cwd, ".omp", "fabric.json"),
       JSON.stringify({ schema: { trustedCommands: { project: { command: "git", args: ["status"] } } } }),
     );
     const untrusted = loadFabricConfig({ cwd, agentDir, projectTrusted: false });
@@ -610,10 +610,10 @@ describe("Fabric configuration", () => {
     const root = temporaryDirectory();
     const cwd = path.join(root, "project");
     const agentDir = path.join(root, "agent");
-    fs.mkdirSync(path.join(cwd, ".pi"), { recursive: true });
+    fs.mkdirSync(path.join(cwd, ".omp"), { recursive: true });
     fs.mkdirSync(agentDir, { recursive: true });
     fs.writeFileSync(
-      path.join(cwd, ".pi", "fabric.json"),
+      path.join(cwd, ".omp", "fabric.json"),
       JSON.stringify({ approvals: { execute: "deny" } }),
     );
     const config = loadFabricConfig({ cwd, agentDir, projectTrusted: false });
@@ -624,10 +624,10 @@ describe("Fabric configuration", () => {
     const root = temporaryDirectory();
     const cwd = path.join(root, "project");
     const agentDir = path.join(root, "agent");
-    fs.mkdirSync(path.join(cwd, ".pi"), { recursive: true });
+    fs.mkdirSync(path.join(cwd, ".omp"), { recursive: true });
     fs.mkdirSync(agentDir, { recursive: true });
     fs.writeFileSync(
-      path.join(cwd, ".pi", "fabric.json"),
+      path.join(cwd, ".omp", "fabric.json"),
       JSON.stringify({ agents: { transport: "localterm" } }),
     );
 
@@ -637,8 +637,8 @@ describe("Fabric configuration", () => {
     );
 
     expect(result.scope).toBe("project");
-    expect(result.path).toBe(path.join(cwd, ".pi", "fabric.json"));
-    const saved = JSON.parse(fs.readFileSync(path.join(cwd, ".pi", "fabric.json"), "utf8"));
+    expect(result.path).toBe(path.join(cwd, ".omp", "fabric.json"));
+    const saved = JSON.parse(fs.readFileSync(path.join(cwd, ".omp", "fabric.json"), "utf8"));
     expect(saved).toEqual({
       configVersion: 4,
       agents: { transport: "localterm", maxConcurrent: 8 },
@@ -654,9 +654,9 @@ describe("Fabric configuration", () => {
     const root = temporaryDirectory();
     const cwd = path.join(root, "project");
     const agentDir = path.join(root, "agent");
-    fs.mkdirSync(path.join(cwd, ".pi"), { recursive: true });
+    fs.mkdirSync(path.join(cwd, ".omp"), { recursive: true });
     fs.mkdirSync(agentDir, { recursive: true });
-    const projectPath = path.join(cwd, ".pi", "fabric.json");
+    const projectPath = path.join(cwd, ".omp", "fabric.json");
     fs.writeFileSync(projectPath, JSON.stringify({ fullCodeMode: false }));
 
     const result = saveFabricConfig(
@@ -676,7 +676,7 @@ describe("Fabric configuration", () => {
     const root = temporaryDirectory();
     const cwd = path.join(root, "project");
     const agentDir = path.join(root, "agent");
-    fs.mkdirSync(path.join(cwd, ".pi"), { recursive: true });
+    fs.mkdirSync(path.join(cwd, ".omp"), { recursive: true });
     fs.mkdirSync(agentDir, { recursive: true });
     const globalPath = path.join(agentDir, "fabric.json");
     const future = { configVersion: 5, futureSection: { enabled: true } };
@@ -710,7 +710,7 @@ describe("Fabric configuration", () => {
 
     expect(result.scope).toBe("global");
     expect(result.path).toBe(path.join(agentDir, "fabric.json"));
-    expect(fs.existsSync(path.join(cwd, ".pi", "fabric.json"))).toBe(false);
+    expect(fs.existsSync(path.join(cwd, ".omp", "fabric.json"))).toBe(false);
     const saved = JSON.parse(fs.readFileSync(path.join(agentDir, "fabric.json"), "utf8"));
     expect(saved).toEqual({ configVersion: 4, executor: { timeoutMs: 30_000 } });
   });
@@ -726,14 +726,14 @@ describe("Fabric configuration", () => {
         { fullCodeMode: false },
       )
     ).toThrow("Cannot save project Fabric configuration for an untrusted project");
-    expect(fs.existsSync(path.join(cwd, ".pi", "fabric.json"))).toBe(false);
+    expect(fs.existsSync(path.join(cwd, ".omp", "fabric.json"))).toBe(false);
   });
 
   it("persists and clears the dedicated prewalk model", () => {
     const root = temporaryDirectory();
     const cwd = path.join(root, "project");
     const agentDir = path.join(root, "agent");
-    fs.mkdirSync(path.join(cwd, ".pi"), { recursive: true });
+    fs.mkdirSync(path.join(cwd, ".omp"), { recursive: true });
     fs.mkdirSync(agentDir, { recursive: true });
     const location = { cwd, agentDir, projectTrusted: true };
 
@@ -757,10 +757,10 @@ describe("Fabric configuration", () => {
     const root = temporaryDirectory();
     const cwd = path.join(root, "project");
     const agentDir = path.join(root, "agent");
-    fs.mkdirSync(path.join(cwd, ".pi"), { recursive: true });
+    fs.mkdirSync(path.join(cwd, ".omp"), { recursive: true });
     fs.mkdirSync(agentDir, { recursive: true });
     fs.writeFileSync(
-      path.join(cwd, ".pi", "fabric.json"),
+      path.join(cwd, ".omp", "fabric.json"),
       JSON.stringify({
         agents: { transport: "tmux", defaultTools: ["read", "bash"] },
         capture: { defaultRisk: "read", keepVisible: ["fabric_exec"] },
@@ -775,7 +775,7 @@ describe("Fabric configuration", () => {
       },
     );
 
-    const saved = JSON.parse(fs.readFileSync(path.join(cwd, ".pi", "fabric.json"), "utf8"));
+    const saved = JSON.parse(fs.readFileSync(path.join(cwd, ".omp", "fabric.json"), "utf8"));
     // Arrays are replaced, not concatenated; sibling object keys are preserved.
     expect(saved.agents).toEqual({ transport: "tmux", defaultTools: ["read", "edit", "grep"] });
     expect(saved.capture).toEqual({

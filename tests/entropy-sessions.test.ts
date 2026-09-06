@@ -19,7 +19,7 @@ import { encodeCwdDir } from "../src/memory/discovery.js";
 
 const tmpRoots: string[] = [];
 const makeTempDir = (): string => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-entropy-sessions-"));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-entropy-sessions-"));
   tmpRoots.push(dir);
   return dir;
 };
@@ -39,7 +39,7 @@ const sessionLine = () =>
       details: {
         success: true,
         trace: {
-          kind: "pi-fabric.execution",
+          kind: "omp-fabric.execution",
           version: 1,
           outcome: "succeeded",
           phases: ["build"],
@@ -47,7 +47,7 @@ const sessionLine = () =>
             {
               type: "call",
               sequence: 0,
-              ref: "pi.read",
+              ref: "omp.read",
               args: { path: "src/a.ts", limit: 10 },
               outcome: "succeeded",
             },
@@ -59,7 +59,7 @@ const sessionLine = () =>
             droppedOperations: 0,
           },
         },
-        audits: [{ ref: "pi.read", args: { path: "src/a.ts", limit: 10 } }],
+        audits: [{ ref: "omp.read", args: { path: "src/a.ts", limit: 10 } }],
         phases: ["build"],
       },
     },
@@ -132,13 +132,9 @@ describe("async session pipeline", () => {
     const files = machineSessionFiles(agentDir, "/repo");
     expect(await machineSessionFilesAsync(agentDir, "/repo")).toEqual(files);
     const expectedEvidence = sessionWindowEvidence(files);
-    let eventLoopAdvanced = false;
-    const timer = setTimeout(() => {
-      eventLoopAdvanced = true;
-    }, 0);
+    const statSpy = vi.spyOn(fs.promises, "stat");
     const evidence = await sessionWindowEvidenceAsync(files);
-    clearTimeout(timer);
-    expect(eventLoopAdvanced).toBe(true);
+    expect(statSpy).toHaveBeenCalled();
     expect(evidence).toEqual(expectedEvidence);
     expect(await measureSessionCorpusAsync({ files })).toEqual(measureSessionCorpus({ files }));
   });
@@ -213,7 +209,7 @@ describe("measureSessionCorpus", () => {
       version: 1,
       actions: [
         {
-          ref: "pi.read",
+          ref: "omp.read",
           inputSchema: {
             type: "object",
             additionalProperties: false,
@@ -254,7 +250,7 @@ describe("trendFromScores", () => {
 });
 
 const traceEnvelope = (ref: string, args: Record<string, unknown>): unknown => ({
-  kind: "pi-fabric.execution",
+  kind: "omp-fabric.execution",
   version: 1,
   outcome: "succeeded",
   phases: ["build"],
@@ -286,13 +282,13 @@ const modelChangeLine = (id: string, provider: string, modelId: string): string 
   JSON.stringify({ id, type: "model_change", provider, modelId });
 
 const wobbleEnvelope = {
-  kind: "pi-fabric.execution",
+  kind: "omp-fabric.execution",
   version: 1,
   outcome: "succeeded",
   phases: ["build"],
   operations: [
-    { type: "call", sequence: 0, ref: "pi.read", args: { path: "a" }, outcome: "succeeded" },
-    { type: "call", sequence: 1, ref: "pi.read", args: { path: "a", limit: 5 }, outcome: "succeeded" },
+    { type: "call", sequence: 0, ref: "omp.read", args: { path: "a" }, outcome: "succeeded" },
+    { type: "call", sequence: 1, ref: "omp.read", args: { path: "a", limit: 5 }, outcome: "succeeded" },
   ],
   counts: { droppedValues: 0, truncatedValues: 0, redactedValues: 0, droppedOperations: 0 },
 };
@@ -301,9 +297,9 @@ describe("per-model session attribution", () => {
   it("stamps traces with the producing model across a mid-session switch", () => {
     const content = [
       modelChangeLine("m1", "zro", "kimi-k3"),
-      toolResultLine("t1", traceEnvelope("pi.read", { path: "a" })),
+      toolResultLine("t1", traceEnvelope("omp.read", { path: "a" })),
       assistantLine("a1", "coralbricks", "glm-5.3-fp4"),
-      toolResultLine("t2", traceEnvelope("pi.read", { path: "b" })),
+      toolResultLine("t2", traceEnvelope("omp.read", { path: "b" })),
       // A user line quoting assistant-shaped text must not update the model.
       JSON.stringify({
         id: "u1",
@@ -313,7 +309,7 @@ describe("per-model session attribution", () => {
           content: 'quoted {"role":"assistant","provider":"evil","model":"poison"}',
         },
       }),
-      toolResultLine("t3", traceEnvelope("pi.read", { path: "c" })),
+      toolResultLine("t3", traceEnvelope("omp.read", { path: "c" })),
     ].join("\n");
     const traces = entropyTracesFromSessionJsonl(content.split("\n"));
     expect(traces.map((trace) => trace.model)).toEqual([
@@ -335,7 +331,7 @@ describe("per-model session attribution", () => {
     write(
       "old.jsonl",
       new Date(2020, 0, 1),
-      [assistantLine("a1", "p", "alpha"), toolResultLine("t1", traceEnvelope("pi.read", { path: "z" }))].join("\n"),
+      [assistantLine("a1", "p", "alpha"), toolResultLine("t1", traceEnvelope("omp.read", { path: "z" }))].join("\n"),
     );
     write(
       "new.jsonl",
@@ -365,15 +361,15 @@ describe("per-model session attribution", () => {
     write(
       "old.jsonl",
       new Date(2020, 0, 1),
-      [assistantLine("a1", "p", "alpha"), toolResultLine("t1", traceEnvelope("pi.read", { path: "a" }))].join("\n"),
+      [assistantLine("a1", "p", "alpha"), toolResultLine("t1", traceEnvelope("omp.read", { path: "a" }))].join("\n"),
     );
     write("new.jsonl", new Date(2021, 0, 1), [toolResultLine("t2", wobbleEnvelope)].join("\n"));
     const evidence = sessionWindowEvidence(projectSessionFiles(agentDir, "/repo"));
     expect(evidence.traces).toHaveLength(2);
     expect(evidence.traces.map((trace) => trace.model)).toEqual([undefined, "p/alpha"]);
     expect(evidence.traces.map((trace) => trace.operations[0]?.ref)).toEqual([
-      "pi.read",
-      "pi.read",
+      "omp.read",
+      "omp.read",
     ]);
   });
 
@@ -399,7 +395,7 @@ describe("per-model session attribution", () => {
           content: [{ type: "text", text: "ok" }],
           details: {
             success: true,
-            trace: traceEnvelope("pi.read", { path: "a" }),
+            trace: traceEnvelope("omp.read", { path: "a" }),
             audits: [{ ref: "mcp.render", args: { format: "pdf" } }],
           },
         },

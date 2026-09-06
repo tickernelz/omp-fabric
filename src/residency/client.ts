@@ -23,7 +23,7 @@ import {
   type ResidentDeliveryRecord,
   type ResidentHostConfig,
   type ResidentHostOwner,
-  type ResidentPiModelState,
+  type ResidentOmpModelState,
 } from "./protocol.js";
 
 // One-time cost per resident root: cold-starting the bundled pi binary plus
@@ -90,7 +90,7 @@ export interface ResidencyClientOptions {
   mesh: MeshStore;
   participants: FabricParticipantSource;
   mainAgent: FabricMainAgentTarget;
-  piModelState?: () => ResidentPiModelState;
+  ompModelState?: () => ResidentOmpModelState;
   hostPath?: string;
 }
 
@@ -123,7 +123,7 @@ export class ResidencyClient {
 
   start(): void {
     if (this.#deliveryTimer || this.#closed || !this.options.mainAgent.local) return;
-    this.syncPiModels();
+    this.syncOmpModels();
     this.#deliveryTimer = setInterval(
       () => void this.#drainDeliveries().catch(() => undefined),
       Math.max(20, this.options.config.mesh.actorPollMs),
@@ -139,8 +139,8 @@ export class ResidencyClient {
     while (this.#drainingDeliveries) await delay(10);
   }
 
-  syncPiModels(): void {
-    this.#refreshPiModels();
+  syncOmpModels(): void {
+    this.#refreshOmpModels();
     if (fs.existsSync(this.options.config.residencyRoot)) {
       atomicWrite(this.#configPath, this.options.config);
     }
@@ -152,7 +152,7 @@ export class ResidencyClient {
     if (serialized === this.#modelGuidanceJson) return;
     this.#modelGuidanceJson = serialized;
     this.options.config.modelGuidance = snapshot;
-    this.#refreshPiModels();
+    this.#refreshOmpModels();
     if (fs.existsSync(this.options.config.residencyRoot)) {
       atomicWrite(this.#configPath, this.options.config);
     }
@@ -160,7 +160,7 @@ export class ResidencyClient {
 
   async ensureHost(): Promise<ResidentHostOwner> {
     if (this.#closed) throw new Error("Fabric residency client is closed");
-    this.#refreshPiModels();
+    this.#refreshOmpModels();
     atomicWrite(this.#configPath, this.options.config);
     const existing = this.#liveOwner();
     if (existing) return existing;
@@ -196,9 +196,9 @@ export class ResidencyClient {
     throw new Error(`Timed out starting Fabric resident host ${this.hostId}. ${diagnostics}`);
   }
 
-  #refreshPiModels(): void {
-    const state = this.options.piModelState?.();
-    if (state) this.options.config.piModels = structuredClone(state);
+  #refreshOmpModels(): void {
+    const state = this.options.ompModelState?.();
+    if (state) this.options.config.models = structuredClone(state);
   }
 
   async ensureActor(id: string): Promise<void> {
@@ -444,7 +444,7 @@ export class ResidencyClient {
     }
     if (
       metadata.handle.branch &&
-      (!metadata.handle.branch.startsWith("pi-fabric/") ||
+      (!metadata.handle.branch.startsWith("omp-fabric/") ||
         !metadata.handle.branch.endsWith(`-${id.slice(0, 8)}`))
     ) {
       return undefined;

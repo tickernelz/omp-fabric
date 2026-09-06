@@ -29,7 +29,7 @@ describe("formatFailureProgress", () => {
       {
         type: "call",
         sequence: 0,
-        ref: "pi.read",
+        ref: "omp.read",
         args: { path: "src/input.ts", offset: 10, limit: 20 },
         outcome: "succeeded",
         result: "sensitive source text",
@@ -37,7 +37,7 @@ describe("formatFailureProgress", () => {
       {
         type: "call",
         sequence: 1,
-        ref: "pi.edit",
+        ref: "omp.edit",
         args: { path: "src/output.ts" },
         outcome: "succeeded",
         result: { ok: true },
@@ -45,14 +45,14 @@ describe("formatFailureProgress", () => {
       {
         type: "call",
         sequence: 2,
-        ref: "pi.bash",
+        ref: "omp.bash",
         args: { command: "npm test -- --runInBand" },
         outcome: "failed",
         error: "tests failed",
       },
     ]));
 
-    expect(formatted).toContain("pi.read(src/input.ts); pi.edit(src/output.ts)");
+    expect(formatted).toContain("omp.read(src/input.ts); omp.edit(src/output.ts)");
     expect(formatted).toContain("inspect before repeating mutations");
     expect(formatted).not.toContain("sensitive source text");
     expect(formatted).not.toContain("npm test");
@@ -63,7 +63,7 @@ describe("formatFailureProgress", () => {
     expect(formatFailureProgress(trace("failed", [{
       type: "call",
       sequence: 0,
-      ref: "pi.bash",
+      ref: "omp.bash",
       args: {},
       outcome: "failed",
     }]))).toBeUndefined();
@@ -75,7 +75,7 @@ describe("formatFailureProgress", () => {
       (_, sequence) => ({
         type: "call",
         sequence,
-        ref: "pi.edit",
+        ref: "omp.edit",
         args: { path: `src/${"nested/".repeat(30)}file-${sequence}.ts` },
         outcome: "succeeded",
       }),

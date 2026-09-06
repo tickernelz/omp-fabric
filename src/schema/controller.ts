@@ -61,10 +61,10 @@ const atomicJsonWrite = (filePath: string, value: unknown): void => {
 };
 
 const allowedEnforceRefs = new Set([
-  "pi.read",
-  "pi.grep",
-  "pi.find",
-  "pi.ls",
+  "omp.read",
+  "omp.grep",
+  "omp.find",
+  "omp.ls",
   "memory.recall",
   "memory.expand",
   "memory.sessions",

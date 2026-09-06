@@ -29,7 +29,7 @@ fs.writeFileSync(
     name: args.get("name"),
     task,
     status: "completed",
-    runner: args.get("runner") ?? "pi",
+    runner: args.get("runner") ?? "omp",
     transport: args.get("transport"),
     cwd: args.get("cwd"),
     startedAt: now,

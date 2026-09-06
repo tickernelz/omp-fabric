@@ -287,7 +287,7 @@ export const conversationTargets = (
     name: main.name,
     kind: "main",
     status: main.status,
-    runner: "pi",
+    runner: "omp",
     ...(main.model ? { model: main.model } : {}),
     ...(main.thinking ? { thinking: main.thinking } : {}),
     ...(main.cwd ? { cwd: main.cwd } : {}),

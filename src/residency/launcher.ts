@@ -6,12 +6,8 @@ import { fileURLToPath } from "node:url";
 import crossSpawn from "cross-spawn";
 import { observeResidentOwner } from "./launcher-owner.js";
 
-// Same pattern as worker.ts: on Windows, `pi` resolves to a node_modules/.bin
-// .cmd shim that a raw spawn cannot execute, and a .js pi entry must run under
-// a real runtime. The launcher itself is always started through a resolved
-// generic runtime, so process.execPath is node or bun here.
 const NODE_SCRIPT_EXTENSIONS = new Set([".js", ".cjs", ".mjs", ".ts", ".cts", ".mts"]);
-const spawnPi = (
+const spawnOmp = (
   command: string,
   args: readonly string[],
   options: Parameters<typeof crossSpawn>[2],
@@ -27,16 +23,16 @@ const parseConfigPath = (argv: readonly string[]): string => {
   return path.resolve(value);
 };
 
-const readConfig = (configPath: string): { cwd: string; piBinary: string } => {
+const readConfig = (configPath: string): { cwd: string; ompBinary: string } => {
   const value: unknown = JSON.parse(fs.readFileSync(configPath, "utf8"));
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     throw new Error("Invalid Fabric resident host config");
   }
-  const config = value as { cwd?: unknown; piBinary?: unknown };
-  if (typeof config.cwd !== "string" || typeof config.piBinary !== "string") {
+  const config = value as { cwd?: unknown; ompBinary?: unknown };
+  if (typeof config.cwd !== "string" || typeof config.ompBinary !== "string") {
     throw new Error("Fabric resident host config is incomplete");
   }
-  return { cwd: config.cwd, piBinary: config.piBinary };
+  return { cwd: config.cwd, ompBinary: config.ompBinary };
 };
 
 const liveOwnerPid = (ownerPath: string): number | undefined => {
@@ -82,23 +78,21 @@ try {
     }
   };
   trace("launcher-started", { pid: process.pid, configPath, platform: process.platform });
-  const entry = fileURLToPath(new URL("./pi-entry.js", import.meta.url));
-  // Pi loads extension peers through its virtual module runtime; raw Node cannot.
-  const child = spawnPi(config.piBinary, [
+  const entry = fileURLToPath(new URL("./omp-entry.js", import.meta.url));
+  // OMP loads extension peers through its virtual module runtime; raw Node cannot.
+  const child = spawnOmp(config.ompBinary, [
     "--mode", "rpc",
     "--no-session",
     "--no-tools",
     "--no-extensions",
     "--no-skills",
-    "--no-prompt-templates",
-    "--no-context-files",
     "--extension", entry,
   ], {
     cwd: config.cwd,
     detached: false,
     // RPC ends on stdin EOF. Keep it open only while this child owns residency.
     stdio: ["pipe", "pipe", "pipe"],
-    env: { ...process.env, PI_FABRIC_RESIDENT_CONFIG: configPath },
+    env: { ...process.env, OMP_FABRIC_RESIDENT_CONFIG: configPath },
   });
   let seenOwner = false;
   let claimedOwner = false;
@@ -137,7 +131,7 @@ try {
   child.on("exit", (code, signal) => {
     clearInterval(ownerPoll);
     trace("child-exit", { code, signal, seenOwner });
-    if (!seenOwner) writeFailure(configPath, stderr.trim() || `Pi resident host exited (${signal ?? code ?? "unknown"})`);
+    if (!seenOwner) writeFailure(configPath, stderr.trim() || `OMP resident host exited (${signal ?? code ?? "unknown"})`);
     process.exitCode = code ?? 1;
   });
   for (const signal of ["SIGINT", "SIGTERM"] as const) {

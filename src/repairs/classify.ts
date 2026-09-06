@@ -10,7 +10,7 @@ const ENOENT = /ENOENT|no such file|Path not found/i;
 const ARITY = /Expected ([0-9]+)(?:-[0-9]+)? arguments, but got ([0-9]+)/;
 const CANNOT_FIND = /Cannot find name '([^']+)'/;
 const DISPLAY_OBJECT = /display: must be object/i;
-const STRINGS_OBJECT = /strings: must be object/i;
+const PAYLOADS_OBJECT = /payloads: must be object/i;
 const CODE_REQUIRED = /code: must have required properties/i;
 
 const SHELL_OR_PROSE_NAMES = new Set([
@@ -19,7 +19,6 @@ const SHELL_OR_PROSE_NAMES = new Set([
   "a",
   "and",
   "bash",
-  "powershell",
   "data",
   "do",
   "document",
@@ -167,8 +166,8 @@ export const classifyToolResult = (input: {
     if (DISPLAY_OBJECT.test(text)) {
       return { stage: "invocation_outer_schema", fingerprint: "outer:display:object" };
     }
-    if (STRINGS_OBJECT.test(text)) {
-      return { stage: "invocation_outer_schema", fingerprint: "outer:strings:object" };
+    if (PAYLOADS_OBJECT.test(text)) {
+      return { stage: "invocation_outer_schema", fingerprint: "outer:payloads:object" };
     }
     if (CODE_REQUIRED.test(text)) {
       return { stage: "didactic", fingerprint: "outer:code:required" };
@@ -187,7 +186,7 @@ export const classifyToolResult = (input: {
   const unknown = UNKNOWN_ACTION.exec(text);
   if (unknown?.[1]) return classifyUnknownAction(unknown[1]);
   if (EXACT_TEXT.test(text)) return { stage: "effect", fingerprint: `effect:edit_miss:${tool}` };
-  if (["bash", "pi.bash", "powershell", "pi.powershell"].includes(tool)) {
+  if (["bash", "omp.bash"].includes(tool)) {
     return { stage: "effect", fingerprint: "effect:bash" };
   }
   if (["read", "write", "edit", "grep", "find", "ls"].includes(tool)) {

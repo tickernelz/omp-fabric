@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 import { writeJsonAtomic } from "../core/atomic-write.js";
 import {
   normalizeModelAliases,
-  resolveAvailablePiModel,
+  resolveAvailableOmpModel,
   type FabricModelCandidate,
 } from "../core/model-resolution.js";
 import { loadModelUsage } from "../core/model-usage.js";
@@ -104,7 +104,7 @@ const validateResidentHostConfig = (value: unknown, configPath: string): Residen
     config.retention === null ||
     typeof config.workerPath !== "string" ||
     typeof config.fabricExtensionPath !== "string" ||
-    typeof config.piBinary !== "string" ||
+    typeof config.ompBinary !== "string" ||
     typeof config.claudeBinary !== "string" ||
     typeof config.vedaBinary !== "string"
   ) {
@@ -182,8 +182,8 @@ class ResidentHost {
       readJson<Partial<ResidentHostConfig>>(guidanceConfigPath) ?? config;
     const currentModelGuidance = () =>
       parseFabricOwnedModelGuidance(currentConfig().modelGuidance ?? config.modelGuidance);
-    const resolveResidentPiModel = (selector?: string): string => {
-      const state = currentConfig().piModels ?? config.piModels;
+    const resolveResidentOmpModel = (selector?: string): string => {
+      const state = currentConfig().models ?? config.models;
       const available: FabricModelCandidate[] = Array.isArray(state?.available)
         ? state.available.flatMap((candidate) =>
             typeof candidate?.provider === "string" && typeof candidate.id === "string"
@@ -196,7 +196,7 @@ class ResidentHost {
           )
         : [];
       const query = selector?.trim() || state?.defaultModel?.trim() || "";
-      const resolved = resolveAvailablePiModel(query, {
+      const resolved = resolveAvailableOmpModel(query, {
         aliases: normalizeModelAliases(state?.aliases),
         available,
         lastUsed: loadModelUsage(),
@@ -206,7 +206,7 @@ class ResidentHost {
     this.agents = new AgentManager(config.cwd, config.agents, {
       workerPath: config.workerPath,
       fabricExtensionPath: config.fabricExtensionPath,
-      piBinary: config.piBinary,
+      ompBinary: config.ompBinary,
       claudeBinary: config.claudeBinary,
       vedaBinary: config.vedaBinary,
       runRoot: path.join(config.residencyRoot, "runs"),
@@ -218,7 +218,7 @@ class ResidentHost {
       hostId: this.hostId,
       identityId: this.identity.id,
       retention: config.retention,
-      preparePiModel: async (model) => resolveResidentPiModel(model),
+      prepareOmpModel: async (model) => resolveResidentOmpModel(model),
       resolveParticipantGuidance: ({ model }) => {
         if (!model) return undefined;
         return resolveFabricModelGuidance(currentModelGuidance(), {
@@ -278,7 +278,7 @@ class ResidentHost {
         rootId: config.rootId,
         meshCursorPath: path.join(config.residencyRoot, "actor-mesh-cursor.json"),
         retention: config.retention,
-        resolvePiModel: resolveResidentPiModel,
+        resolveOmpModel: resolveResidentOmpModel,
       },
     ], actorRoots, config.mesh.actorScope);
     this.lifecycle = new LifecycleBroker(

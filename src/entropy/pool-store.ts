@@ -1,5 +1,5 @@
 // Persistence for the machine-wide observation pool: <agent
-// dir>/fabric/entropy/observation-pool.json, locked across Pi processes
+// dir>/fabric/entropy/observation-pool.json, locked across OMP processes
 // sharing the agent directory. A damaged pool surfaces as an error and
 // blocks merges from overwriting it, the same discipline as the compiled
 // surface. The pool is pure derived evidence (session audits are the

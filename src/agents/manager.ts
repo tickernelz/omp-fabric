@@ -20,7 +20,7 @@ import {
   type ClaudeModelInfo,
 } from "./claude-cli.js";
 import { mapVedaTools, normalizeVedaModel } from "./veda-cli.js";
-import { resolvePiBinary } from "./pi-binary.js";
+import { resolveOmpBinary } from "./omp-binary.js";
 import { tokenUsagePayloadFromValue } from "../lifecycle/types.js";
 import type { FabricTokenUsagePayload } from "../lifecycle/types.js";
 import { Semaphore } from "./semaphore.js";
@@ -200,7 +200,7 @@ const TRANSPORT_EXITED_WITHOUT_RESULT_PREFIX = "Agent transport exited without a
 const transportExitedWithoutResult = (error: string | undefined): boolean =>
   typeof error === "string" && error.startsWith(TRANSPORT_EXITED_WITHOUT_RESULT_PREFIX);
 
-const retryablePiStartupError = (error: string | undefined): boolean =>
+const retryableOmpStartupError = (error: string | undefined): boolean =>
   typeof error === "string" &&
   /\b(?:no|missing)\s+(?:api key|credentials?)\b|\b(?:api key|credentials?)\s+(?:was\s+)?not found\b/i.test(
     error,
@@ -224,7 +224,7 @@ const readRecord = (filePath: string): AgentRunRecord | undefined => {
           ? "claude"
           : record.runner === "veda"
             ? "veda"
-            : "pi",
+            : "omp",
     };
   } catch {
     return undefined;
@@ -374,7 +374,7 @@ export class AgentManager {
   readonly #retention: FabricRetentionConfig;
   readonly #workerPath: string;
   readonly #fabricExtensionPath: string;
-  readonly #piBinary: string;
+  readonly #ompBinary: string;
   readonly #claudeBinary: string;
   readonly #vedaBinary: string;
   readonly #currentDepth: number;
@@ -388,11 +388,11 @@ export class AgentManager {
   readonly #transports: Map<FabricAgentTransport, AgentTransportAdapter>;
   readonly #onBackgroundComplete: ((result: AgentRunResult) => void) | undefined;
   readonly #onLifecycle: ((event: FabricLifecyclePublishRequest) => void) | undefined;
-  readonly #preparePiModel:
+  readonly #prepareOmpModel:
     | ((model: string | undefined) => Promise<string | void>)
     | undefined;
   readonly #resolveParticipantGuidance: AgentParticipantGuidanceResolver | undefined;
-  readonly #piModelPreparations = new Map<string, Promise<string | undefined>>();
+  readonly #ompModelPreparations = new Map<string, Promise<string | undefined>>();
   readonly #budget: BudgetLedgerState | undefined;
   readonly #budgetOwned: boolean;
   readonly #uiListeners = new Set<() => void>();
@@ -412,7 +412,7 @@ export class AgentManager {
     options: {
       workerPath?: string;
       fabricExtensionPath?: string;
-      piBinary?: string;
+      ompBinary?: string;
       claudeBinary?: string;
       vedaBinary?: string;
       runRoot?: string;
@@ -426,38 +426,38 @@ export class AgentManager {
       retention?: FabricRetentionConfig;
       onBackgroundComplete?: (result: AgentRunResult) => void;
       onLifecycle?: (event: FabricLifecyclePublishRequest) => void;
-      preparePiModel?: (model: string | undefined) => Promise<string | void>;
+      prepareOmpModel?: (model: string | undefined) => Promise<string | void>;
       resolveParticipantGuidance?: AgentParticipantGuidanceResolver;
     } = {},
   ) {
     this.#semaphore = new Semaphore(config.maxConcurrent);
-    this.#managedTempRoot = options.runRoot === undefined && process.env.PI_FABRIC_RUN_ROOT === undefined;
+    this.#managedTempRoot = options.runRoot === undefined && process.env.OMP_FABRIC_RUN_ROOT === undefined;
     this.#runRoot =
-      options.runRoot ?? process.env.PI_FABRIC_RUN_ROOT ?? fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-runs-"));
+      options.runRoot ?? process.env.OMP_FABRIC_RUN_ROOT ?? fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-runs-"));
     this.#retention = options.retention ?? DEFAULT_FABRIC_CONFIG.retention;
     this.#workerPath =
       options.workerPath ?? fileURLToPath(new URL("../worker.js", import.meta.url));
     this.#fabricExtensionPath =
       options.fabricExtensionPath ?? fileURLToPath(new URL("../index.js", import.meta.url));
-    this.#piBinary = resolvePiBinary(options.piBinary);
+    this.#ompBinary = resolveOmpBinary(options.ompBinary);
     this.#claudeBinary =
-      options.claudeBinary ?? process.env.PI_FABRIC_CLAUDE_BINARY ?? config.claude.binary;
+      options.claudeBinary ?? process.env.OMP_FABRIC_CLAUDE_BINARY ?? config.claude.binary;
     this.#vedaBinary =
-      options.vedaBinary ?? process.env.PI_FABRIC_VEDA_BINARY ?? config.veda.binary;
+      options.vedaBinary ?? process.env.OMP_FABRIC_VEDA_BINARY ?? config.veda.binary;
     this.#onBackgroundComplete = options.onBackgroundComplete;
     this.#onLifecycle = options.onLifecycle;
-    this.#preparePiModel = options.preparePiModel;
+    this.#prepareOmpModel = options.prepareOmpModel;
     this.#resolveParticipantGuidance = options.resolveParticipantGuidance;
-    this.#currentDepth = Math.max(0, Number(process.env.PI_FABRIC_DEPTH ?? "0") || 0);
+    this.#currentDepth = Math.max(0, Number(process.env.OMP_FABRIC_DEPTH ?? "0") || 0);
     this.#fullCodeMode = options.fullCodeMode ?? true;
     this.#mainAgentId =
-      options.mainAgentId ?? process.env.PI_FABRIC_MAIN_AGENT_ID;
-    this.#fabricSessionId = options.fabricSessionId ?? process.env.PI_FABRIC_SESSION_ID;
-    this.#meshRoot = options.meshRoot ?? process.env.PI_FABRIC_MESH_ROOT;
+      options.mainAgentId ?? process.env.OMP_FABRIC_MAIN_AGENT_ID;
+    this.#fabricSessionId = options.fabricSessionId ?? process.env.OMP_FABRIC_SESSION_ID;
+    this.#meshRoot = options.meshRoot ?? process.env.OMP_FABRIC_MESH_ROOT;
     this.#projectRoot =
-      options.projectRoot ?? process.env.PI_FABRIC_PROJECT_ROOT ?? cwd;
-    this.#hostId = options.hostId ?? process.env.PI_FABRIC_HOST_ID;
-    this.#identityId = options.identityId ?? process.env.PI_FABRIC_IDENTITY_ID;
+      options.projectRoot ?? process.env.OMP_FABRIC_PROJECT_ROOT ?? cwd;
+    this.#hostId = options.hostId ?? process.env.OMP_FABRIC_HOST_ID;
+    this.#identityId = options.identityId ?? process.env.OMP_FABRIC_IDENTITY_ID;
     const inheritedBudget = activeBudgetState();
     this.#budget =
       inheritedBudget ??
@@ -488,20 +488,20 @@ export class AgentManager {
   }
 
   async #prepareModel(model: string | undefined): Promise<string | undefined> {
-    if (!this.#preparePiModel) return model;
+    if (!this.#prepareOmpModel) return model;
     const key = model?.trim() || "<session-default>";
-    const existing = this.#piModelPreparations.get(key);
+    const existing = this.#ompModelPreparations.get(key);
     if (existing) return existing;
-    const preparation = this.#preparePiModel(model).then((prepared) => {
+    const preparation = this.#prepareOmpModel(model).then((prepared) => {
       if (typeof prepared !== "string") return model;
       return prepared.trim() || model;
     });
-    this.#piModelPreparations.set(key, preparation);
+    this.#ompModelPreparations.set(key, preparation);
     try {
       return await preparation;
     } finally {
-      if (this.#piModelPreparations.get(key) === preparation) {
-        this.#piModelPreparations.delete(key);
+      if (this.#ompModelPreparations.get(key) === preparation) {
+        this.#ompModelPreparations.delete(key);
       }
     }
   }
@@ -530,7 +530,7 @@ export class AgentManager {
       throw new Error(`Invalid Fabric agent residency: ${String(request.residency)}`);
     }
     const runner = request.runner ?? this.config.runner;
-    if (runner !== "pi" && runner !== "claude" && runner !== "veda") {
+    if (runner !== "omp" && runner !== "claude" && runner !== "veda") {
       throw new Error(`Unsupported Fabric agent runner: ${String(runner)}`);
     }
     if (request.persona && runner !== "veda") {
@@ -538,16 +538,16 @@ export class AgentManager {
     }
     if (runner === "claude" && request.recursive) {
       throw new Error(
-        "Claude runner does not support recursive Fabric. Use a Pi runner for recursive: true, or omit recursive for Claude Code tools.",
+        "Claude runner does not support recursive Fabric. Use an OMP runner for recursive: true, or omit recursive for Claude Code tools.",
       );
     }
     if (runner === "veda" && request.recursive) {
       throw new Error(
-        "Veda runner does not support recursive Fabric. Use a Pi runner for recursive: true — Veda executes one headless prompt per invocation.",
+        "Veda runner does not support recursive Fabric. Use an OMP runner for recursive: true — Veda executes one headless prompt per invocation.",
       );
     }
-    if (request.sessionSeed && runner !== "pi") {
-      throw new Error("Trajectory handoff sessions are only supported by the Pi runner");
+    if (request.sessionSeed && runner !== "omp") {
+      throw new Error("Trajectory handoff sessions are only supported by the OMP runner");
     }
     if (request.sessionSeed && request.sessionFile) {
       throw new Error("A agent request cannot combine sessionSeed with sessionFile");
@@ -574,7 +574,7 @@ export class AgentManager {
     }
     const release = await this.#semaphore.acquire(signal);
     try {
-      if (runner === "pi") model = await this.#prepareModel(model);
+      if (runner === "omp") model = await this.#prepareModel(model);
     } catch (error) {
       release();
       throw error;
@@ -623,7 +623,7 @@ export class AgentManager {
 
     try {
       const sessionFile = request.sessionSeed
-        ? writeHandoffSession(
+        ? await writeHandoffSession(
             request.sessionSeed,
             agentCwd,
             path.join(runDirectory, "handoff-session"),
@@ -637,15 +637,15 @@ export class AgentManager {
         request.timeoutMs,
       );
       const thinking = request.thinking ?? this.config.thinking;
-      const recursive = runner === "pi" && request.recursive === true;
+      const recursive = runner === "omp" && request.recursive === true;
       const extensions = recursive ? true : (request.extensions ?? this.config.extensions);
-      // In a full-code parent every extension-enabled Pi child runs Fabric
+      // In a full-code parent every extension-enabled OMP child runs Fabric
       // through fabric_exec — not only recursively spawned agents. An explicit
       // extensions: false request opts the child back out to the native tool
       // surface, and a non-full-code parent keeps the historical behavior.
       // Recursive children additionally keep their recursive permission
       // surface (the "agent" granted risk) below.
-      const inheritedFullCodeMode = runner === "pi" && this.#fullCodeMode && extensions;
+      const inheritedFullCodeMode = runner === "omp" && this.#fullCodeMode && extensions;
       const componentGuidance = recursive
         ? undefined
         : this.#resolveParticipantGuidance?.({ ...(model ? { model } : {}), runner })?.trim();
@@ -674,8 +674,8 @@ export class AgentManager {
         logFile,
         "--cwd",
         agentCwd,
-        "--pi-binary",
-        this.#piBinary,
+        "--omp-binary",
+        this.#ompBinary,
         "--claude-binary",
         this.#claudeBinary,
         "--veda-binary",
@@ -990,17 +990,17 @@ export class AgentManager {
     return this.#appendSteer(id, { type: "set_follow_up_mode", mode });
   }
 
-  // Request an advisory compaction of a running Pi-runner child's context.
+  // Request an advisory compaction of a running OMP-runner child's context.
   // Appended to the same steer.jsonl channel as steer(); the worker queues it
-  // until child agent_settled, then correlates Pi's compact response and
-  // compaction_end before closing the one-shot RPC channel. Rejected for
+  // until child agent_end, then correlates OMP's compact response and
+  // auto_compaction_end before closing the one-shot RPC channel. Rejected for
   // Claude-runner children — the official Claude Code CLI exposes no compact
   // RPC; a fresh run is the only way to reset a Claude child's context.
   compact(id: string, instructions?: string): AgentSteerResult {
     const managed = this.#requireRun(id);
     if (managed.runner === "claude" || managed.runner === "veda") {
       throw new Error(
-        "Fabric agent compaction is only supported for Pi-runner children; Claude Code and Veda sessions cannot be compacted through Fabric.",
+        "Fabric agent compaction is only supported for OMP-runner children; Claude Code and Veda sessions cannot be compacted through Fabric.",
       );
     }
     return this.#appendSteer(id, {
@@ -1099,7 +1099,7 @@ export class AgentManager {
       managed.abortSignal?.aborted ||
       record.status !== "failed" ||
       !(
-        (managed.runner === "pi" && retryablePiStartupError(record.error)) ||
+        (managed.runner === "omp" && retryableOmpStartupError(record.error)) ||
         transportExitedWithoutResult(record.error)
       ) ||
       record.turns !== 0 ||
@@ -1119,7 +1119,7 @@ export class AgentManager {
     if (managed.settled || this.#closing || managed.abortSignal?.aborted) return false;
     managed.startupAttempts++;
     try {
-      if (managed.runner === "pi") {
+      if (managed.runner === "omp") {
         const model = await this.#prepareModel(managed.model);
         const modelIndex = managed.launch.workerArguments.indexOf("--model");
         if (model) {
@@ -1334,7 +1334,7 @@ export class AgentManager {
         }
         if (
           !isFabricLifecycleEventType(parsed.event) ||
-          !parsed.event.startsWith("pi.")
+          !parsed.event.startsWith("omp.")
         ) continue;
         this.#emitLifecycle(
           managed,
@@ -1431,7 +1431,7 @@ export class AgentManager {
     const extensions = request.recursive === true
       ? true
       : (request.extensions ?? this.config.extensions);
-    if (runner === "pi" && (request.recursive || (this.#fullCodeMode && extensions))) {
+    if (runner === "omp" && (request.recursive || (this.#fullCodeMode && extensions))) {
       tools.push("fabric_exec");
     }
     return [...new Set(tools)];

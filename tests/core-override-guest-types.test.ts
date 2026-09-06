@@ -1,4 +1,4 @@
-import { Type } from "typebox";
+import { Type } from "@oh-my-pi/pi-coding-agent/extensibility/legacy-typebox";
 import { describe, expect, it } from "vitest";
 import {
   buildCoreOverrideGuestDeclarations,
@@ -30,9 +30,9 @@ describe("captured core override guest declarations", () => {
 
     const accepted = typeCheckFabricCode(
       `
-const shorthand = await pi.read("src/index.ts");
-const builtin = await pi.read({ path: "src/index.ts", offset: 4, limit: 2 });
-const structure = await pi.read({
+const shorthand = await omp.read("src/index.ts");
+const builtin = await omp.read({ path: "src/index.ts", offset: 4, limit: 2 });
+const structure = await omp.read({
   path: "src/index.ts",
   structure: "symbols",
   symbolId: "opaque-id",
@@ -47,7 +47,7 @@ return { shorthand, builtin, text };
     expect(accepted.errors).toEqual([]);
 
     const misspelled = typeCheckFabricCode(
-      'await pi.read({ path: "src/index.ts", structrue: "symbols" }); return "never";',
+      'await omp.read({ path: "src/index.ts", structrue: "symbols" }); return "never";',
       declarations,
     );
     expect(misspelled.errors.length).toBeGreaterThan(0);
@@ -60,13 +60,13 @@ return { shorthand, builtin, text };
     });
     const checked = typeCheckFabricCode(
       `
-const readText: string = await pi.read("src/index.ts");
-const bashOutput: string = (await pi.bash("echo ok")).output;
-const editOutput: string = (await pi.edit("src/index.ts", "old", "new")).output;
-const writeOutput: string = (await pi.write("src/index.ts", "content")).output;
-const grepText: string = await pi.grep("TODO", "src", 10);
-const findText: string = await pi.find("*.ts", "src", 10);
-const lsText: string = await pi.ls("src");
+const readText: string = await omp.read("src/index.ts");
+const bashOutput: string = (await omp.bash("echo ok")).output;
+const editOutput: string = (await omp.edit("src/index.ts", "old", "new")).output;
+const writeOutput: string = (await omp.write("src/index.ts", "content")).output;
+const grepText: string = await omp.grep("TODO", "src", 10);
+const findText: string = await omp.find("*.ts", "src", 10);
+const lsText: string = await omp.ls("src");
 return { readText, bashOutput, editOutput, writeOutput, grepText, findText, lsText };
 `,
       declarations,
@@ -92,14 +92,14 @@ return { readText, bashOutput, editOutput, writeOutput, grepText, findText, lsTe
 
     const accepted = typeCheckFabricCode(
       `
-const positional = await pi.edit("src/index.ts", "old", "new");
-const exact = await pi.edit({ path: "src/index.ts", oldText: "old", newText: "new" });
-const batch = await pi.edit({
+const positional = await omp.edit("src/index.ts", "old", "new");
+const exact = await omp.edit({ path: "src/index.ts", oldText: "old", newText: "new" });
+const batch = await omp.edit({
   path: "src/index.ts",
   edits: [{ oldText: "one", newText: "two", all: true }],
 });
-const symbol = await pi.edit({ path: "src/index.ts", symbolId: "opaque-id", oldText: "old", newText: "new" });
-const symbolAlias = await pi.edit({ file: "src/index.ts", symbolId: "opaque-id", old: "old", new: "new" });
+const symbol = await omp.edit({ path: "src/index.ts", symbolId: "opaque-id", oldText: "old", newText: "new" });
+const symbolAlias = await omp.edit({ file: "src/index.ts", symbolId: "opaque-id", old: "old", new: "new" });
 const output: string = batch.output;
 return { positional, exact, symbol, symbolAlias, output };
 `,
@@ -108,7 +108,7 @@ return { positional, exact, symbol, symbolAlias, output };
     expect(accepted.errors).toEqual([]);
 
     const misspelled = typeCheckFabricCode(
-      'await pi.edit({ path: "src/index.ts", edits: [{ oldText: "a", newText: "b", alll: true }] }); return "never";',
+      'await omp.edit({ path: "src/index.ts", edits: [{ oldText: "a", newText: "b", alll: true }] }); return "never";',
       declarations,
     );
     expect(misspelled.errors.length).toBeGreaterThan(0);
@@ -132,7 +132,7 @@ return { positional, exact, symbol, symbolAlias, output };
     });
 
     const accepted = typeCheckFabricCode(
-      'await pi.read({ path: "src/index.ts", mode: "tree", cursor: null, symbols: ["A"], symbolId: "id" }); return "ok";',
+      'await omp.read({ path: "src/index.ts", mode: "tree", cursor: null, symbols: ["A"], symbolId: "id" }); return "ok";',
       declarations,
     );
     expect(accepted.errors).toEqual([]);
@@ -157,11 +157,11 @@ return { positional, exact, symbol, symbolAlias, output };
 
     const reachable = typeCheckFabricCode(
       `
-await pi.read({ overrideOnly: true });
-await pi.edit({ overrideOnly: true });
-await pi.write({ overrideOnly: true });
-await pi.grep({ overrideOnly: true });
-await pi.find({ overrideOnly: true });
+await omp.read({ overrideOnly: true });
+await omp.edit({ overrideOnly: true });
+await omp.write({ overrideOnly: true });
+await omp.grep({ overrideOnly: true });
+await omp.find({ overrideOnly: true });
 return "reachable";
 `,
       declarations,

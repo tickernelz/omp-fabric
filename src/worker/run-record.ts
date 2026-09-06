@@ -140,7 +140,7 @@ export const applyUsage = (
 };
 
 /**
- * Extract the per-message token delta a Pi assistant `message_end` contributed.
+ * Extract the per-message token delta an OMP assistant `message_end` contributed.
  * Unlike `applyUsage`, which mutates the run record, this returns the delta so
  * the worker can attribute a single event without re-deriving it from a
  * post-hoc cumulative diff. Cost is reported in the runner's own total units.

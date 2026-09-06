@@ -1,4 +1,4 @@
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
 import {
   MainAgentController,
@@ -19,9 +19,9 @@ describe("MainAgentController", () => {
 
     expect(
       resolveFabricIdentity("child", {
-        PI_FABRIC_PARENT_RUN: "run-child",
-        PI_FABRIC_AGENT_NAME: "Implementor",
-        PI_FABRIC_MAIN_AGENT_ID: "session:root",
+        OMP_FABRIC_PARENT_RUN: "run-child",
+        OMP_FABRIC_AGENT_NAME: "Implementor",
+        OMP_FABRIC_MAIN_AGENT_ID: "session:root",
       }),
     ).toEqual({
       identity: {
@@ -35,10 +35,10 @@ describe("MainAgentController", () => {
 
     expect(
       resolveFabricIdentity("actor-session", {
-        PI_FABRIC_ACTOR_ID: "actor-supervisor",
-        PI_FABRIC_ACTOR_NAME: "Supervisor",
-        PI_FABRIC_PARENT_RUN: "actor-worker-run",
-        PI_FABRIC_MAIN_AGENT_ID: "session:root",
+        OMP_FABRIC_ACTOR_ID: "actor-supervisor",
+        OMP_FABRIC_ACTOR_NAME: "Supervisor",
+        OMP_FABRIC_PARENT_RUN: "actor-worker-run",
+        OMP_FABRIC_MAIN_AGENT_ID: "session:root",
       }),
     ).toEqual({
       identity: {
@@ -101,7 +101,7 @@ describe("MainAgentController", () => {
     ).toMatchObject({ queued: true, routed: "main" });
     expect(sendMessage).toHaveBeenCalledWith(
       expect.objectContaining({
-        customType: "pi-fabric-agent-message",
+        customType: "omp-fabric-agent-message",
         content: expect.stringContaining("inspect &lt;unsafe&gt; &amp; continue"),
         details: expect.objectContaining({
           from: { id: "actor-1", name: "Supervisor", kind: "actor" },

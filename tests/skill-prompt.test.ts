@@ -1,4 +1,4 @@
-import { type Skill } from "@earendil-works/pi-coding-agent";
+import { type Skill } from "@oh-my-pi/pi-coding-agent";
 import { describe, expect, it } from "vitest";
 import { restoreSkillsForFullCodePrompt } from "../src/core/skill-prompt.js";
 
@@ -6,8 +6,8 @@ const makeSkill = (
   input: Pick<Skill, "name" | "description" | "filePath"> & Partial<Skill>,
 ): Skill => ({
   baseDir: `/skills/${input.name}`,
-  sourceInfo: {} as Skill["sourceInfo"],
-  disableModelInvocation: false,
+  source: "test",
+  hide: false,
   ...input,
 });
 
@@ -21,7 +21,7 @@ const skills: Skill[] = [
     name: "manual-only",
     description: "Run only when explicitly invoked.",
     filePath: "/skills/manual-only/SKILL.md",
-    disableModelInvocation: true,
+    hide: true,
   }),
 ];
 
@@ -29,23 +29,21 @@ const occurrences = (value: string, search: string): number =>
   value.split(search).length - 1;
 
 describe("full code skill prompt", () => {
-  it("restores Pi's skill catalog before the working directory", () => {
+  it("appends the catalog when OMP omitted its skills section", () => {
     const prompt = restoreSkillsForFullCodePrompt(
-      "Core prompt\nCurrent working directory: /workspace",
+      "Core prompt\n\n§ Runtime\n# Skills & Rules\n\nEnvironment: linux",
       skills,
     );
 
     expect(prompt).toContain(
-      "Use `pi.read` inside `fabric_exec` to load a skill's file when the task matches its description.",
+      "Use `omp.read` inside `fabric_exec` to load a skill's file when the task matches its description.",
     );
     expect(prompt).toContain("<name>release-risk</name>");
     expect(prompt).not.toContain("manual-only");
-    expect(prompt.indexOf("<available_skills>")).toBeLessThan(
-      prompt.indexOf("Current working directory:"),
-    );
+    expect(prompt).not.toContain("Use the read tool to load a skill");
   });
 
-  it("uses Pi's XML escaping for model-visible skill metadata", () => {
+  it("uses OMP's XML escaping for model-visible skill metadata", () => {
     const prompt = restoreSkillsForFullCodePrompt(
       "Core prompt",
       [makeSkill({
@@ -59,22 +57,25 @@ describe("full code skill prompt", () => {
     expect(prompt).toContain("/skills/a&amp;b/SKILL.md");
   });
 
-  it("adapts an existing Pi skill section instead of duplicating it", () => {
+  it("adapts OMP's rendered skill section instead of duplicating it", () => {
     const original = [
       "Core prompt",
-      "The following skills provide specialized instructions for specific tasks.",
-      "Use the read tool to load a skill's file when the task matches its description.",
-      "<available_skills>",
-      "  <skill><name>release-risk</name></skill>",
-      "</available_skills>",
-      "Current working directory: /workspace",
+      "§ Runtime",
+      "# Skills & Rules",
+      "Matching skill → MUST read `skill://<name>` first.",
+      "<skills>",
+      "- release-risk: Review launch plans for operational risk.",
+      "</skills>",
+      "Environment: linux",
     ].join("\n");
 
     const prompt = restoreSkillsForFullCodePrompt(original, skills);
 
-    expect(occurrences(prompt, "<available_skills>")).toBe(1);
-    expect(prompt).not.toContain("Use the read tool to load a skill");
-    expect(prompt).toContain("Use `pi.read` inside `fabric_exec`");
+    expect(occurrences(prompt, "<skills>")).toBe(1);
+    expect(prompt).not.toContain("<available_skills>");
+    expect(prompt).toContain(
+      "Matching skill → MUST read `skill://<name>` through `omp.read` inside `fabric_exec` first.",
+    );
   });
 
   it("leaves the prompt unchanged when every skill requires explicit invocation", () => {

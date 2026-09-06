@@ -54,17 +54,22 @@ import os
 import sys
 
 agent_dir = sys.argv[1]
-auth_path = os.path.expanduser("~/.pi/agent/auth.json")
-auth = json.load(open(auth_path)) if os.path.exists(auth_path) else {}
-selected = {key: auth[key] for key in ("openai-codex",) if key in auth}
-if not selected:
-    raise SystemExit("openai-codex OAuth credentials are unavailable")
-with open(os.path.join(agent_dir, "auth.json"), "w") as handle:
-    json.dump(selected, handle)
+source_dir = os.path.expanduser(os.environ.get("PI_CODING_AGENT_DIR", "~/.omp/agent"))
+store = os.path.join(source_dir, "agent.db")
+if not os.path.exists(store):
+    raise SystemExit(f"no OMP credential store at {store}")
+if not os.path.exists(os.path.join(agent_dir, "agent.db")):
+    raise SystemExit(
+        "this harness has no credential-isolation strategy yet.\n"
+        + """OMP stores credentials in agent.db, not auth.json (removed upstream), so the
+Pi-era single-entry extraction is impossible. Choose one and wire it here:
+  1. omp --profile <name>  (host-native isolation for auth/sessions/settings/caches)
+  2. copy the whole credential store with 'sqlite3 <src> "VACUUM INTO <dst>"'
+     (consistent single file, no -wal/-shm siblings; copies every provider)"""
+    )
 with open(os.path.join(agent_dir, "settings.json"), "w") as handle:
     json.dump({
         "defaultModel": "gpt-5.6-sol",
-        "defaultProvider": "openai-codex",
         "defaultThinkingLevel": "low",
     }, handle)
 PY
@@ -75,20 +80,20 @@ case "$CONFIG" in
   baseline)
     ;;
   fabric-local)
-    if [[ -n "${PI_FABRIC_PACKAGE:-}" ]]; then
-      FABRIC_PACKAGE=$(cd "$(dirname "$PI_FABRIC_PACKAGE")" && pwd)/$(basename "$PI_FABRIC_PACKAGE")
+    if [[ -n "${OMP_FABRIC_PACKAGE:-}" ]]; then
+      FABRIC_PACKAGE=$(cd "$(dirname "$OMP_FABRIC_PACKAGE")" && pwd)/$(basename "$OMP_FABRIC_PACKAGE")
       if [[ ! -f "$FABRIC_PACKAGE" ]]; then
-        echo "PI_FABRIC_PACKAGE does not exist: $FABRIC_PACKAGE" >&2
+        echo "OMP_FABRIC_PACKAGE does not exist: $FABRIC_PACKAGE" >&2
         exit 2
       fi
     else
-      rm -f "$ARTIFACT_DIR"/pi-fabric-*.tgz
+      rm -f "$ARTIFACT_DIR"/omp-fabric-*.tgz
       (
         cd "$REPO_ROOT"
-        pnpm run build
+        bun run build
         npm pack --ignore-scripts --pack-destination "$ARTIFACT_DIR"
       )
-      PACKAGES=("$ARTIFACT_DIR"/pi-fabric-*.tgz)
+      PACKAGES=("$ARTIFACT_DIR"/omp-fabric-*.tgz)
       FABRIC_PACKAGE=${PACKAGES[0]}
     fi
     FABRIC_ARGS=(--agent-kwarg "fabric_package_path=$FABRIC_PACKAGE")
@@ -124,15 +129,15 @@ if [[ "$PIER_ENVIRONMENT" == "docker" ]]; then
 fi
 
 TASK_NAME=$(basename "$TASK_PATH")
-JOB_NAME=${PIER_JOB_NAME:-"pi-$CONFIG-$TASK_NAME-$(date +%Y%m%d-%H%M%S)"}
+JOB_NAME=${PIER_JOB_NAME:-"omp-$CONFIG-$TASK_NAME-$(date +%Y%m%d-%H%M%S)"}
 export PYTHONPATH="$BENCH${PYTHONPATH:+:$PYTHONPATH}"
 
 PIER_ARGS=(
   uv run --directory "$PIER_ROOT" pier run
   --path "$TASK_PATH"
-  --agent-import-path pier_pi_agent:PiCodingAgent
+  --agent-import-path pier_omp_agent:OMPCodingAgent
   --model openai-codex/gpt-5.6-sol
-  --agent-kwarg "pi_agent_dir=$AGENT_DIR"
+  --agent-kwarg "omp_agent_dir=$AGENT_DIR"
 )
 PIER_ARGS+=("${FABRIC_ARGS[@]}")
 PIER_ARGS+=(

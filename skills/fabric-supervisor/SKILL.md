@@ -1,6 +1,6 @@
 ---
 name: fabric-supervisor
-description: Starts a persistent Pi Fabric supervisor that watches the main session toward a concrete goal and steers only when needed. Use for long-running goal supervision without another extension.
+description: Starts a persistent OMP Fabric supervisor that watches the main session toward a concrete goal and steers only when needed. Use for long-running goal supervision without another extension.
 disable-model-invocation: true
 ---
 
@@ -11,7 +11,7 @@ Create the supervisor with Fabric primitives; do not install a supervisor extens
 Hard pointer: read `<skill-dir>/../fabric-ambient/references/setup.md` completely before setup, then use its program with:
 
 - `strings.name`: `supervisor`
-- `strings.events`: `["agent_settled","tool_error"]`
+- `strings.events`: `["agent_end","tool_error"]`
 - `strings.triggerTurn`: `true`
 - `strings.model`: model key or substring, or an empty string when unset
 - `strings.instructions`: the prompt below with `GOAL` replaced

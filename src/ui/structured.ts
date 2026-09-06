@@ -34,7 +34,7 @@ const isPlainObject = (value: unknown): value is Record<string, unknown> =>
 // YAML literal block scalars must indent their content, so every multi-line
 // string serialized inside a structure is displayed with extra leading
 // whitespace on each line. Agents transcribe that corrupted indentation into
-// exact-match consumers (pi.edit oldText) and the match fails. Hoist
+// exact-match consumers (omp.edit oldText) and the match fails. Hoist
 // multi-line strings out of the YAML skeleton into raw sections so the
 // model-bound text preserves the original bytes.
 const hoistMultilineStrings = (

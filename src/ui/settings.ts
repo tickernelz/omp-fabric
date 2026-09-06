@@ -1,5 +1,4 @@
-import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
-import { resolveAgentDir } from "../core/agent-dir.js";
+import type { ExtensionContext, Theme } from "@oh-my-pi/pi-coding-agent";
 import { DynamicBorder } from "./dynamic-border.js";
 import {
   Container,
@@ -16,7 +15,8 @@ import {
   type SettingsListTheme,
   Spacer,
   Text,
-} from "@earendil-works/pi-tui";
+} from "@oh-my-pi/pi-tui";
+import { ompSymbolTheme } from "./symbol-theme.js";
 import { FabricModelSelector } from "./fabric-model-selector.js";
 import {
   buildClaudeModelSource,
@@ -50,16 +50,16 @@ const SUBMENU_LAYOUT: SelectListLayoutOptions = {
 
 const BOOLEANS = ["true", "false"] as const;
 const APPROVAL_MODES = ["allow", "ask", "auto", "deny"] as const;
-const RUNNERS = ["pi", "claude", "veda"] as const;
+const RUNNERS = ["omp", "claude", "veda"] as const;
 const TRANSPORTS = ["auto", "process", "tmux", "screen", "localterm", "herdr"] as const;
 const WIDGET_MODES = ["auto", "always", "hidden"] as const;
 const TOOL_DISPLAY_MODES = ["full", "compact"] as const;
 const RESULT_FORMATS = ["auto", "yaml", "json", "text"] as const;
 const EXECUTOR_RUNTIMES = ["quickjs", "node-process", "bun-process"] as const;
 const SCHEMA_MODES = ["off", "audit", "enforce"] as const;
-const COMPACTION_ENGINES = ["fabric", "pi"] as const;
+const COMPACTION_ENGINES = ["fabric", "omp"] as const;
 const COMPACTION_THRESHOLD_SETTING_ID = "compaction.threshold";
-const COMPACTION_DEFAULT_THRESHOLD_LABEL = "Pi default";
+const COMPACTION_DEFAULT_THRESHOLD_LABEL = "OMP default";
 const COMPACTION_PERCENT_OPTION_LABEL = "Custom percent…";
 const COMPACTION_TOKENS_OPTION_LABEL = "Custom tokens…";
 const COMPACTION_PERCENT_MIN = Math.round(MIN_COMPACTION_RATIO_THRESHOLD * 100);
@@ -93,8 +93,8 @@ const SHIKI_THEME_PRESETS = [
   "one-dark-pro",
 ] as const;
 const RISKS = ["read", "write", "execute", "network", "agent"] as const;
-const CORE_RISK_TOOLS = ["read", "grep", "find", "edit", "write", "bash", "powershell"] as const;
-const CORE_DEFAULT_TOOL_CANDIDATES = ["read", "bash", "powershell", "edit", "write", "grep", "find", "ls"];
+const CORE_RISK_TOOLS = ["read", "grep", "find", "edit", "write", "bash"] as const;
+const CORE_DEFAULT_TOOL_CANDIDATES = ["read", "bash", "edit", "write", "grep", "find", "ls"];
 const BUDGET_VALUES = [0, 0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10];
 const TOKEN_VALUES = [0, 50_000, 100_000, 250_000, 500_000, 1_000_000, 2_000_000];
 const PREWALK_MODEL_UNSET_LABEL = "Ask each time";
@@ -136,6 +136,7 @@ const selectListTheme = (theme: Theme): SelectListTheme => ({
   description: (text) => theme.fg("muted", text),
   scrollInfo: (text) => theme.fg("muted", text),
   noMatch: (text) => theme.fg("muted", text),
+  symbols: ompSymbolTheme,
 });
 
 const formatDebounce = (ms: number): string =>
@@ -187,8 +188,8 @@ const formatTokens = (value: number): string =>
 const formatToolCount = (count: number): string =>
   `${count} ${count === 1 ? "tool" : "tools"}`;
 
-// The threshold row is a mode selection: Pi default, a window-occupancy
-// percent, or an exact token count. mode: "default" clears both maps so Pi's
+// The threshold row is a mode selection: OMP default, a window-occupancy
+// percent, or an exact token count. mode: "default" clears both maps so OMP's
 // built-in threshold applies.
 export type CompactionThresholdSelection =
   | { mode: "default" }
@@ -538,7 +539,7 @@ class IntegerInputSubmenu extends Container {
     this.input.handleInput(data);
   }
 
-  render(width: number): string[] {
+  render(width: number): readonly string[] {
     this.input.focused = true;
     return super.render(width);
   }
@@ -580,7 +581,7 @@ class StringInputSubmenu extends Container {
     this.input.handleInput(data);
   }
 
-  render(width: number): string[] {
+  render(width: number): readonly string[] {
     this.input.focused = true;
     return super.render(width);
   }
@@ -639,7 +640,7 @@ class SelectSubmenu extends Container {
   }
 }
 
-// Three-phase threshold picker: the root select offers Pi default plus
+// Three-phase threshold picker: the root select offers OMP default plus
 // custom percent / token drill-ins; each drill-in swaps in an integer input
 // and Esc returns to the root select instead of closing the submenu.
 class CompactionThresholdSubmenu extends Container {
@@ -820,7 +821,7 @@ class SectionSubmenu extends Container {
       settingsListTheme(theme),
       onChange,
       onCancel,
-      { enableSearch },
+      { typeToSearch: enableSearch },
     );
     this.addChild(this.settingsList);
   }
@@ -902,14 +903,14 @@ export class FabricSettingsComponent extends Container {
       settingsListTheme(this.theme),
       this.onChange,
       this.onCancel,
-      { enableSearch: true },
+      { typeToSearch: true },
     );
   }
 
   private updateSaveScopeText(): void {
     const destination = this.saveScope === "project"
-      ? "Project overrides (.pi/fabric.json)"
-      : "Global defaults (~/.pi/agent/fabric.json)";
+      ? "Project overrides (.omp/fabric.json)"
+      : "Global defaults (<active OMP agent dir>/fabric.json)";
     const hint = !this.projectScopeAvailable
       ? " · project scope unavailable for untrusted projects"
       : this.saveScope === "global"
@@ -938,6 +939,7 @@ export const buildFabricSettingsItems = (
   apply: (id: string, value: unknown) => void,
   options: {
     keepVisibleCandidates: readonly string[];
+    toolCandidates?: readonly string[];
     modelSource: ModelSource;
     claudeModelSource?: ModelSource;
     activeModelKey?: string;
@@ -945,10 +947,10 @@ export const buildFabricSettingsItems = (
 ): SettingItem[] => {
   const persist = (id: string, newValue: string): void =>
     apply(id, coerceValue(id, newValue, config));
-  const envFullCode = process.env.PI_FABRIC_FULL_CODE_MODE;
+  const envFullCode = process.env.OMP_FABRIC_FULL_CODE_MODE;
   const fullCodeDescription = envFullCode
-    ? "Fabric owns Pi core tools (read, bash, edit, write, grep, find, ls) via fabric_exec. Currently overridden by the PI_FABRIC_FULL_CODE_MODE environment variable."
-    : "Fabric owns Pi core tools (read, bash, edit, write, grep, find, ls) via fabric_exec. Disable to keep native tools model-facing (orchestration-only mode).";
+    ? "Fabric owns OMP core tools (read, bash, edit, write, grep, find, ls) via fabric_exec. Currently overridden by the OMP_FABRIC_FULL_CODE_MODE environment variable."
+    : "Fabric owns OMP core tools (read, bash, edit, write, grep, find, ls) via fabric_exec. Disable to keep native tools model-facing (orchestration-only mode).";
   const executorMemoryDescription = (): string =>
     config.executor.runtime === "quickjs"
       ? "Maximum QuickJS heap size. WASM32 limits this to less than 4 GiB."
@@ -960,13 +962,13 @@ export const buildFabricSettingsItems = (
     "agents.defaultTools",
     "Default tools",
     formatToolCount(config.agents.defaultTools.length),
-    { description: "Pi core tools exposed to spawned agents by default." },
+    { description: "OMP core tools exposed to spawned agents by default." },
   );
   defaultToolsItem.submenu = listSubmenu(
     theme,
     "agents.defaultTools",
     "Default tools",
-    "Pi core tools exposed to spawned agents by default.",
+    "OMP core tools exposed to spawned agents by default.",
     CORE_DEFAULT_TOOL_CANDIDATES,
     config.agents.defaultTools,
     (selected) => {
@@ -991,6 +993,42 @@ export const buildFabricSettingsItems = (
     (selected) => {
       apply("capture.keepVisible", selected);
       keepVisibleItem.currentValue = formatToolCount(selected.length);
+    },
+  );
+  const includeToolsItem = setting(
+    "capture.includeTools",
+    "Include tools",
+    formatToolCount(config.capture.includeTools.length),
+    { description: "Explicitly keep registered tools visible; unavailable names are ignored." },
+  );
+  includeToolsItem.submenu = listSubmenu(
+    theme,
+    "capture.includeTools",
+    "Include tools",
+    "Explicit include overrides capture hiding. Explicit excludes still win.",
+    options.toolCandidates ?? [],
+    config.capture.includeTools,
+    (selected) => {
+      apply("capture.includeTools", selected);
+      includeToolsItem.currentValue = formatToolCount(selected.length);
+    },
+  );
+  const excludeToolsItem = setting(
+    "capture.excludeTools",
+    "Exclude tools",
+    formatToolCount(config.capture.excludeTools.length),
+    { description: "Hide selected registered tools from the model; excludes win over includes." },
+  );
+  excludeToolsItem.submenu = listSubmenu(
+    theme,
+    "capture.excludeTools",
+    "Exclude tools",
+    "Explicit exclude wins when a tool appears in both lists.",
+    options.toolCandidates ?? [],
+    config.capture.excludeTools,
+    (selected) => {
+      apply("capture.excludeTools", selected);
+      excludeToolsItem.currentValue = formatToolCount(selected.length);
     },
   );
 
@@ -1157,14 +1195,14 @@ export const buildFabricSettingsItems = (
         [
           setting("approvals.model", "Auto model", config.approvals.model || INHERIT_VALUE, {
             description:
-              "Pi model used as the auto-mode safety classifier. Inherit uses the active session model. The classifier has no executable tools and returns a structured allow-or-escalate verdict.",
+              "OMP model used as the auto-mode safety classifier. Inherit uses the active session model. The classifier has no executable tools and returns a structured allow-or-escalate verdict.",
             submenu: modelPickerSubmenu(
               theme,
               options.modelSource,
               {
                 headerText:
-                  "Safety classifier for auto approval policies. Pick Inherit to use the active Pi session model.",
-                inheritName: "Use the active Pi session model",
+                  "Safety classifier for auto approval policies. Pick Inherit to use the active OMP session model.",
+                inheritName: "Use the active OMP session model",
               },
             ),
           }),
@@ -1276,7 +1314,7 @@ export const buildFabricSettingsItems = (
             config.prewalk.detectShellWrites ? "true" : "false",
             {
               description:
-                "Filesystem fallback trigger: when an armed task ran a successful pi.bash or pi.powershell in fabric_exec without an audited pi.edit / pi.write / schema.commit, claim the handoff if file stats drifted from baseline, so shell heredocs, sed -i, or formatter-binary writes also reach the executor.",
+                "Filesystem fallback trigger: when an armed task ran a successful omp.bash in fabric_exec without an audited omp.edit / omp.write / schema.commit, claim the handoff if file stats drifted from baseline, so shell heredocs, sed -i, or formatter-binary writes also reach the executor.",
               values: BOOLEANS,
             },
           ),
@@ -1313,7 +1351,7 @@ export const buildFabricSettingsItems = (
             config.prewalk.model || PREWALK_MODEL_UNSET_LABEL,
             {
               description:
-                "Pi provider/model used by /fabric prewalk. In-place selects it for Main; trajectory uses it for the child executor. Ask each time is interactive only.",
+                "OMP provider/model used by /fabric prewalk. In-place selects it for Main; trajectory uses it for the child executor. Ask each time is interactive only.",
               submenu: modelPickerSubmenu(
                 theme,
                 options.modelSource,
@@ -1351,7 +1389,7 @@ export const buildFabricSettingsItems = (
           }),
           setting("agents.model", "Default model", config.agents.model || INHERIT_VALUE, {
             description:
-              "Model forwarded to Pi-backed agents and actors when a call does not specify one. Pick Inherit to use the host session's default. Order matches pi-model-sort (most recently used first).",
+              "Model forwarded to OMP-backed agents and actors when a call does not specify one. Pick Inherit to use the host session's default. Order matches pi-model-sort (most recently used first).",
             submenu: modelPickerSubmenu(
               theme,
               options.modelSource,
@@ -1449,16 +1487,16 @@ export const buildFabricSettingsItems = (
           }),
           setting("agents.sessionExport", "Usage export", config.agents.sessionExport ? "true" : "false", {
             description:
-              "Write usage-only pi-format session files (tokens/cost, never transcript content) for every agent run so tokscale and ccusage can track Fabric subagents.",
+              "Write usage-only OMP-format session files (tokens/cost, never transcript content) for every agent run so tokscale and ccusage can track Fabric subagents.",
             values: BOOLEANS,
           }),
-          setting("agents.sessionExportDir", "Usage export dir", config.agents.sessionExportDir || "~/.pi/agent (co-hosted, hidden .fabric namespace)", {
+          setting("agents.sessionExportDir", "Usage export dir", config.agents.sessionExportDir || "<active OMP agent dir> (co-hosted, hidden .fabric namespace)", {
             description:
-              "Root of the export store; sessions land under <dir>/sessions/.fabric/. Default reuses pi's own agent dir (tokscale/ccusage count it with zero setup; pi's resume picker never sees the hidden namespace). PI_FABRIC_AGENT_DIR overrides.",
+              "Root of the export store; sessions land under <dir>/sessions/.fabric/. Default reuses OMP's own agent dir (tokscale/ccusage count it with zero setup; OMP's resume picker never sees the hidden namespace). OMP_FABRIC_AGENT_DIR overrides.",
             submenu: stringInputSubmenu(
               theme,
               "Usage export dir",
-              "Root of the export store; PI_FABRIC_AGENT_DIR overrides this value.",
+              "Root of the export store; OMP_FABRIC_AGENT_DIR overrides this value.",
             ),
           }),
           setting("agents.maxTokensPerChild", "Token limit", formatTokens(config.agents.maxTokensPerChild), {
@@ -1536,6 +1574,8 @@ export const buildFabricSettingsItems = (
               values: RISKS,
             }),
           ),
+          includeToolsItem,
+          excludeToolsItem,
         ],
         persist,
       ),
@@ -1624,7 +1664,7 @@ export const buildFabricSettingsItems = (
       submenu: sectionSubmenu(
         theme,
         "Compaction",
-        "Choose Fabric deterministic compaction or Pi core model-driven compaction.",
+        "Choose Fabric deterministic compaction or OMP core model-driven compaction.",
         [
           ...(options.activeModelKey
             ? [setting(
@@ -1640,7 +1680,7 @@ export const buildFabricSettingsItems = (
             : []),
           setting("compaction.engine", "Engine", config.compaction.engine, {
             description:
-              "Fabric uses deterministic branch summaries; Pi delegates compaction to Pi core.",
+              "Fabric uses deterministic branch summaries; OMP delegates compaction to OMP core.",
             values: COMPACTION_ENGINES,
           }),
           setting(
@@ -1649,7 +1689,7 @@ export const buildFabricSettingsItems = (
             String(config.compaction.targetContextRatio),
             {
               description:
-                "Hard post-compaction occupancy ceiling; Fabric normally keeps Pi's bounded recent-token tail instead.",
+                "Hard post-compaction occupancy ceiling; Fabric normally keeps OMP's bounded recent-token tail instead.",
               values: COMPACTION_TARGET_RATIOS,
             },
           ),
@@ -1726,7 +1766,7 @@ export const buildFabricSettingsItems = (
           }),
           setting("mesh.actorScope", "Actor scope", config.mesh.actorScope, {
             description:
-              'Default storage for newly created actors. Each agents.create call may choose project or session independently; project actors are shared, while session actors follow the root Pi session and its participant agents.',
+              'Default storage for newly created actors. Each agents.create call may choose project or session independently; project actors are shared, while session actors follow the root OMP session and its participant agents.',
             values: ACTOR_SCOPES,
           }),
           setting("mesh.maxReadEvents", "Max read events", String(config.mesh.maxReadEvents), {
@@ -1792,12 +1832,12 @@ export const buildFabricSettingsItems = (
         [
           setting("codePreview.shikiTheme", "Shiki theme", config.codePreview.shikiTheme, {
             description:
-              "\"auto\" follows Pi's resolved light/dark variant; \"<light>/<dark>\" pins both; any other value fixes one theme.",
+              "\"auto\" follows OMP's resolved light/dark variant; \"<light>/<dark>\" pins both; any other value fixes one theme.",
             submenu: stringOptionsSubmenu(
               theme,
               SHIKI_THEME_PRESETS,
               "Shiki theme",
-              "\"auto\" follows Pi's light/dark switching (github-light/dark-plus); \"<light>/<dark>\" pins both variants.",
+              "\"auto\" follows OMP's light/dark switching (github-light/dark-plus); \"<light>/<dark>\" pins both variants.",
             ),
           }),
           setting("codePreview.syntaxHighlighting", "Syntax highlighting", config.codePreview.syntaxHighlighting ? "true" : "false", {
@@ -2105,8 +2145,8 @@ const openRpcFabricSettings = async (
     const items = options.itemsForScope(scope);
     const rows = items.map(rpcSettingRow);
     const scopeDestination = scope === "project"
-      ? "Project overrides (.pi/fabric.json)"
-      : "Global defaults (~/.pi/agent/fabric.json)";
+      ? "Project overrides (.omp/fabric.json)"
+      : "Global defaults (<active OMP agent dir>/fabric.json)";
     const controls = [
       ...(options.projectScopeAvailable ? [`${RPC_SWITCH_SCOPE} · ${scope === "project" ? "Global defaults" : "Project overrides"}`] : []),
       RPC_DONE,
@@ -2139,8 +2179,8 @@ export async function openFabricSettings(
   deps: FabricSettingsDeps,
 ): Promise<void> {
   await deps.state.ensure(context);
-
-  const agentDir = resolveAgentDir();
+  const { getAgentDir } = await import("@oh-my-pi/pi-utils");
+  const agentDir = getAgentDir();
   const projectTrusted = context.isProjectTrusted();
   const configLocation = { cwd: context.cwd, agentDir, projectTrusted };
   let saveScope: FabricConfigScope = projectTrusted ? "project" : "global";
@@ -2152,7 +2192,6 @@ export async function openFabricSettings(
   const activeModelKey = context.model
     ? modelKey(context.model.provider, context.model.id)
     : undefined;
-
   const apply = (id: string, value: unknown): void => {
     const partial = id === COMPACTION_THRESHOLD_SETTING_ID && activeModelKey
       ? compactionThresholdPartial(activeModelKey, value as CompactionThresholdSelection)
@@ -2170,21 +2209,12 @@ export async function openFabricSettings(
       return;
     }
     deps.state.reloadConfig(context);
-    // Render the persisted layers, not the live config: runtime-only
-    // environment and session overrides must not change what this editor saves.
-    Object.assign(
-      settingsConfig,
-      loadFabricConfigForScope(configLocation, saveScope),
-    );
+    Object.assign(settingsConfig, loadFabricConfigForScope(configLocation, saveScope));
     deps.onConfigApplied?.(id);
     dirty = true;
     changedSections.add(id.split(".")[0] ?? id);
     const list = rootComponent?.settingsList;
-    if (list) {
-      for (const rootId of ROOT_ITEM_IDS) {
-        list.updateValue(rootId, summaryFor(rootId, settingsConfig));
-      }
-    }
+    if (list) for (const rootId of ROOT_ITEM_IDS) list.updateValue(rootId, summaryFor(rootId, settingsConfig));
   };
 
   const persist = (id: string, newValue: string): void =>
@@ -2194,7 +2224,7 @@ export async function openFabricSettings(
     "fabric_exec",
     ...deps.capturedTools.list().map((tool) => tool.name),
   ]);
-  const modelSource = buildModelSource(context.modelRegistry, resolveAgentDir());
+  const modelSource = buildModelSource(context.modelRegistry, agentDir);
   const configuredClaudeModel = deps.state.config.agents.claude.model;
   const claudeModelSource: ModelSource = {
     models: configuredClaudeModel
@@ -2214,10 +2244,12 @@ export async function openFabricSettings(
     }
   });
 
+  const toolCandidates = keepVisibleCandidates;
   const itemsForScope = (scope: FabricConfigScope, theme: Theme): SettingItem[] => {
     settingsConfig = loadFabricConfigForScope(configLocation, scope);
     return buildFabricSettingsItems(theme, settingsConfig, apply, {
       keepVisibleCandidates,
+      toolCandidates,
       modelSource,
       claudeModelSource,
       ...(activeModelKey ? { activeModelKey } : {}),

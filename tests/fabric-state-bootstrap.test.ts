@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
 import { CapturedToolCatalog } from "../src/capture/catalog.js";
 import { FabricState } from "../src/fabric-state.js";
@@ -15,9 +15,9 @@ const contextAt = (cwd: string, sessionId = "session-1"): ExtensionContext => ({
 } as unknown as ExtensionContext);
 
 const project = (config: Record<string, unknown> = {}): string => {
-  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-bootstrap-"));
-  fs.mkdirSync(path.join(cwd, ".pi"), { recursive: true });
-  fs.writeFileSync(path.join(cwd, ".pi", "fabric.json"), JSON.stringify(config));
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-bootstrap-"));
+  fs.mkdirSync(path.join(cwd, ".omp"), { recursive: true });
+  fs.writeFileSync(path.join(cwd, ".omp", "fabric.json"), JSON.stringify(config));
   return cwd;
 };
 
@@ -107,7 +107,7 @@ describe("FabricState lazy bootstrap", () => {
   it("reserves every first-party provider and provider-component identity before activation", () => {
     const state = createState(runtimeHarness().loader);
     for (const name of [
-      "pi",
+      "omp",
       "extensions",
       "mcp",
       "mesh",
@@ -159,15 +159,15 @@ describe("FabricState lazy bootstrap", () => {
     expect(prewalkState.shouldEagerlyActivate(prewalkContext)).toBe(true);
 
     const actorCwd = project({ prewalk: { alwaysRearm: false }, mesh: { enabled: true } });
-    const actorDirectory = path.join(actorCwd, ".pi", "fabric", "mesh", "actors");
+    const actorDirectory = path.join(actorCwd, ".omp", "fabric", "mesh", "actors");
     const registryPath = path.join(actorDirectory, "actors.json");
     fs.mkdirSync(actorDirectory, { recursive: true });
     const actorState = createState(runtimeHarness().loader);
     const actorContext = contextAt(actorCwd);
     await actorState.bootstrap(actorContext);
-    vi.stubEnv("PI_FABRIC_ACTOR_ID", "");
-    vi.stubEnv("PI_FABRIC_PARENT_RUN", "");
-    vi.stubEnv("PI_FABRIC_MESH_ROOT", path.join(actorCwd, ".pi", "fabric", "mesh"));
+    vi.stubEnv("OMP_FABRIC_ACTOR_ID", "");
+    vi.stubEnv("OMP_FABRIC_PARENT_RUN", "");
+    vi.stubEnv("OMP_FABRIC_MESH_ROOT", path.join(actorCwd, ".omp", "fabric", "mesh"));
 
     fs.writeFileSync(registryPath, JSON.stringify({ actors: [] }));
     expect(actorState.shouldEagerlyActivate(actorContext)).toBe(false);
@@ -184,7 +184,7 @@ describe("FabricState lazy bootstrap", () => {
     expect(actorState.shouldEagerlyActivate(actorContext)).toBe(true);
 
     fs.writeFileSync(registryPath, JSON.stringify({ actors: [] }));
-    vi.stubEnv("PI_FABRIC_SESSION_ID", "root-session");
+    vi.stubEnv("OMP_FABRIC_SESSION_ID", "root-session");
     const sessionActorDirectory = path.join(actorDirectory, "root-session");
     fs.mkdirSync(sessionActorDirectory, { recursive: true });
     fs.writeFileSync(path.join(sessionActorDirectory, "actors.json"), JSON.stringify({
@@ -216,15 +216,15 @@ describe("FabricState lazy bootstrap", () => {
     const state = createState(runtimeHarness().loader);
     const context = contextAt(cwd);
     await state.bootstrap(context);
-    vi.stubEnv("PI_FABRIC_CAPABILITY_REQUIREMENTS", JSON.stringify(["memory.recall"]));
-    vi.stubEnv("PI_FABRIC_CAPABILITY_DIGEST", "semantic-digest");
+    vi.stubEnv("OMP_FABRIC_CAPABILITY_REQUIREMENTS", JSON.stringify(["memory.recall"]));
+    vi.stubEnv("OMP_FABRIC_CAPABILITY_DIGEST", "semantic-digest");
     expect(state.shouldEagerlyActivate(context)).toBe(true);
     vi.unstubAllEnvs();
   });
 
   it("does not probe persisted actors from nested actor or agent identities", async () => {
     const cwd = project({ prewalk: { alwaysRearm: false }, mesh: { enabled: true } });
-    const actorDirectory = path.join(cwd, ".pi", "fabric", "mesh", "actors");
+    const actorDirectory = path.join(cwd, ".omp", "fabric", "mesh", "actors");
     fs.mkdirSync(actorDirectory, { recursive: true });
     fs.writeFileSync(path.join(actorDirectory, "actors.json"), JSON.stringify({
       actors: [{ id: "b".repeat(32), name: "nested", instructions: "work", createdAt: 1 }],
@@ -232,14 +232,14 @@ describe("FabricState lazy bootstrap", () => {
     const state = createState(runtimeHarness().loader);
     const context = contextAt(cwd);
     await state.bootstrap(context);
-    vi.stubEnv("PI_FABRIC_MESH_ROOT", path.join(cwd, ".pi", "fabric", "mesh"));
+    vi.stubEnv("OMP_FABRIC_MESH_ROOT", path.join(cwd, ".omp", "fabric", "mesh"));
 
-    vi.stubEnv("PI_FABRIC_ACTOR_ID", "actor-child");
+    vi.stubEnv("OMP_FABRIC_ACTOR_ID", "actor-child");
     expect(state.shouldEagerlyActivate(context)).toBe(false);
-    vi.stubEnv("PI_FABRIC_ACTOR_ID", "");
-    vi.stubEnv("PI_FABRIC_PARENT_RUN", "agent-child");
+    vi.stubEnv("OMP_FABRIC_ACTOR_ID", "");
+    vi.stubEnv("OMP_FABRIC_PARENT_RUN", "agent-child");
     expect(state.shouldEagerlyActivate(context)).toBe(false);
-    vi.stubEnv("PI_FABRIC_PARENT_RUN", "");
+    vi.stubEnv("OMP_FABRIC_PARENT_RUN", "");
     expect(state.shouldEagerlyActivate(context)).toBe(true);
     vi.unstubAllEnvs();
   });

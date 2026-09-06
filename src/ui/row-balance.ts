@@ -1,4 +1,4 @@
-import { truncateToWidth, type Component } from "@earendil-works/pi-tui";
+import { truncateToWidth, type Component } from "@oh-my-pi/pi-tui";
 
 interface MeasuredPartialResult {
   component: Component;
@@ -26,7 +26,7 @@ export class HiddenRowBorrowingComponent implements Component {
     private readonly balance: ResultRowBalance,
   ) {}
 
-  render(width: number): string[] {
+  render(width: number): readonly string[] {
     const deficit = resultRowDeficit(this.balance, width);
     if (
       this.#cachedWidth === width &&
@@ -50,7 +50,7 @@ export class HiddenRowBorrowingComponent implements Component {
         }
       }
     }
-    // Upstream components (pi's Text wrap) can overproduce at tiny widths;
+    // Upstream components (OMP's Text wrap) can overproduce at tiny widths;
     // never emit a row wider than the requested width (issue #84).
     this.#cachedWidth = width;
     this.#cachedDeficit = deficit;
@@ -100,7 +100,7 @@ class PartialResultObserver implements Component {
     private readonly balance: ResultRowBalance,
   ) {}
 
-  render(width: number): string[] {
+  render(width: number): readonly string[] {
     const lines = this.component.render(width);
     const previous = this.balance.partial;
     if (

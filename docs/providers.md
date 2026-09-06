@@ -1,19 +1,19 @@
 # External providers
 
-Fabric [captures normal `pi.registerTool()` tools automatically](configuration.md#captured-extension-tools). Extensions use the versioned provider protocol for non-tool capabilities or virtual action catalogs with risk data.
+Fabric [captures normal `omp.registerTool()` tools automatically](configuration.md#captured-extension-tools). Extensions use the versioned provider protocol for non-tool capabilities or virtual action catalogs with risk data.
 
 Fabric mounts each non-kernel first-party provider through a pinned component. External providers can use direct registration with a host-owned lifetime. A provider that belongs to a supervised external component calls `context.provide()` for staged publication and rolling replacement. The same component link controls dependency withdrawal.
 
 ```ts
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI } from "@oh-my-pi/pi-coding-agent";
 import {
   FABRIC_PROVIDER_DISCOVER_EVENT,
   FABRIC_PROVIDER_REGISTER_EVENT,
   type FabricProvider,
   type FabricProviderDiscovery,
-} from "pi-fabric/protocol";
+} from "omp-fabric/protocol";
 
-export default function extension(pi: ExtensionAPI) {
+export default function extension(omp: ExtensionAPI) {
   const provider: FabricProvider = {
     name: "example",
     description: "Example actions",
@@ -28,19 +28,19 @@ export default function extension(pi: ExtensionAPI) {
     },
   };
 
-  pi.events.emit(FABRIC_PROVIDER_REGISTER_EVENT, {
+  omp.events.emit(FABRIC_PROVIDER_REGISTER_EVENT, {
     version: 1,
     provider,
     overwrite: true,
   });
 
-  pi.events.on(FABRIC_PROVIDER_DISCOVER_EVENT, (event: FabricProviderDiscovery) => {
+  omp.events.on(FABRIC_PROVIDER_DISCOVER_EVENT, (event: FabricProviderDiscovery) => {
     event.register(provider, { overwrite: true });
   });
 }
 ```
 
-Each provider owns its schemas, its state, and how its actions execute. Pi Fabric validates arguments, enforces the declared risk policy, records nested-call audits, and propagates cancellation. A provider can also enrich the generic [activity surface](interface.md#data-driven-activity) without registering a TUI component:
+Each provider owns its schemas, its state, and how its actions execute. OMP Fabric validates arguments, enforces the declared risk policy, records nested-call audits, and propagates cancellation. A provider can also enrich the generic [activity surface](interface.md#data-driven-activity) without registering a TUI component:
 
 ```ts
 async invoke(actionName, args, context) {
@@ -61,7 +61,7 @@ The `resources` field names the affected resource classes, and `ordering` is `co
 
 ## Nested `tool_result` proxy
 
-Results from MCP, agent, memory, state, schema, mesh, components, compact, and external providers pass through Pi's `tool_result` middleware before Fabric enforces `maxNestedResultChars`. A user extension can then externalize or replace an oversized provider result before that result crosses into QuickJS.
+Results from MCP, agent, memory, state, schema, mesh, components, compact, and external providers pass through OMP's `tool_result` middleware before Fabric enforces `maxNestedResultChars`. A user extension can then externalize or replace an oversized provider result before that result crosses into QuickJS.
 
 A proxied event carries:
 
@@ -71,14 +71,14 @@ A proxied event carries:
 - `details` matching `FabricToolResultProxyDetailsV1`, whose `result` is the exact host-side structured value.
 
 ```ts
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI } from "@oh-my-pi/pi-coding-agent";
 import {
   FABRIC_NESTED_TOOL_CALL_ID_PREFIX,
   readFabricToolResultProxyDetailsV1,
-} from "pi-fabric/protocol";
+} from "omp-fabric/protocol";
 
-export default function resultGuard(pi: ExtensionAPI) {
-  pi.on("tool_result", async (event) => {
+export default function resultGuard(omp: ExtensionAPI) {
+  omp.on("tool_result", async (event) => {
     if (!event.toolCallId.startsWith(FABRIC_NESTED_TOOL_CALL_ID_PREFIX)) return;
     const proxy = readFabricToolResultProxyDetailsV1(event.details);
     if (!proxy || proxy.ref !== event.toolName) return;
@@ -106,4 +106,4 @@ export default function resultGuard(pi: ExtensionAPI) {
 
 If you change only `content`, the nested sandbox value becomes the patched text. To keep a structured replacement, return the proxy envelope in `details` with a changed `result`, as in the example above. When both fields are patched, a valid changed `details.result` takes precedence. Returning `isError: true` fails the nested provider invocation.
 
-Pi core tools and captured extension tools skip this generic proxy, because they already replay their native `tool_call`, `tool_result`, and `tool_execution_*` lifecycle. Nested shell calls still emit their native identity: `pi.bash()` uses `toolName: "bash"`/`isBashToolResult()`, while `pi.powershell()` uses `toolName: "powershell"`/`isPowerShellToolResult()`. Proxied events act as middleware only. They create no separate persisted tool-result messages.
+OMP core tools and captured extension tools skip this generic proxy, because they already replay their native `tool_call`, `tool_result`, and `tool_execution_*` lifecycle. Nested shell calls still emit their native identity: `omp.bash()` uses `toolName: "bash"`/`isBashToolResult()`. Proxied events act as middleware only. They create no separate persisted tool-result messages.

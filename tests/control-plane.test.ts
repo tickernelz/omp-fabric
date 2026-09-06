@@ -48,7 +48,7 @@ afterEach(async () => {
 
 describe("FabricControlPlane", () => {
   it("routes to one execution owner and returns its acknowledgement", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-control-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-control-"));
     roots.push(root);
     const meshRoot = path.join(root, "mesh");
     const sender = plane(meshRoot, "host:sender");
@@ -89,7 +89,7 @@ describe("FabricControlPlane", () => {
   });
 
   it("returns an authenticated result with the caller's actor binding", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-control-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-control-"));
     roots.push(root);
     const meshRoot = path.join(root, "mesh");
     const sender = plane(meshRoot, "host:sender");
@@ -126,7 +126,7 @@ describe("FabricControlPlane", () => {
     );
   });
   it("ignores an acknowledgement forged by a different mesh identity", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-control-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-control-"));
     roots.push(root);
     const meshRoot = path.join(root, "mesh");
     const sender = plane(meshRoot, "host:sender");
@@ -166,7 +166,7 @@ describe("FabricControlPlane", () => {
   });
 
   it("recovers an unexpired command published before owner startup", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-control-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-control-"));
     roots.push(root);
     const meshRoot = path.join(root, "mesh");
     const store = new MeshStore(meshRoot, 64 * 1024, 1_000);
@@ -202,7 +202,7 @@ describe("FabricControlPlane", () => {
   });
 
   it("rejects an interrupted durable claim as indeterminate after restart", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-control-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-control-"));
     roots.push(root);
     const meshRoot = path.join(root, "mesh");
     const store = new MeshStore(meshRoot, 64 * 1024, 1_000);
@@ -255,7 +255,7 @@ describe("FabricControlPlane", () => {
   });
 
   it("does not re-execute a command republished after owner restart", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-control-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-control-"));
     roots.push(root);
     const meshRoot = path.join(root, "mesh");
     const sender = plane(meshRoot, "host:sender");
@@ -290,7 +290,7 @@ describe("FabricControlPlane", () => {
   });
 
   it("rejects a replay outside the acknowledgement lifetime", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-control-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-control-"));
     roots.push(root);
     const meshRoot = path.join(root, "mesh");
     const receiver = plane(meshRoot, "host:receiver");
@@ -327,7 +327,7 @@ describe("FabricControlPlane", () => {
   });
 
   it("final-drains a command published immediately before close", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-control-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-control-"));
     roots.push(root);
     const meshRoot = path.join(root, "mesh");
     const receiver = plane(meshRoot, "host:receiver");
@@ -365,7 +365,7 @@ describe("FabricControlPlane", () => {
   });
 
   it("does not re-execute a retained command after event-log compaction", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-control-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-control-"));
     roots.push(root);
     const meshRoot = path.join(root, "mesh");
     const storeOptions: MeshStoreOptions = {
@@ -404,7 +404,7 @@ describe("FabricControlPlane", () => {
   });
 
   it("keeps control traffic responsive while an ask is running and cancels the owner", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-control-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-control-"));
     roots.push(root);
     const meshRoot = path.join(root, "mesh");
     const sender = plane(meshRoot, "host:sender");
@@ -445,7 +445,7 @@ describe("FabricControlPlane", () => {
   });
 
   it("publishes an immediately cancelled command before its cancellation", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-control-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-control-"));
     roots.push(root);
     const meshRoot = path.join(root, "mesh");
     const sender = plane(meshRoot, "host:sender");
@@ -490,7 +490,7 @@ describe("FabricControlPlane", () => {
   });
 
   it("retains a completed ask outcome through its request deadline", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-control-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-control-"));
     roots.push(root);
     const meshRoot = path.join(root, "mesh");
     const sender = plane(meshRoot, "host:sender");
@@ -534,7 +534,7 @@ describe("FabricControlPlane", () => {
   });
 
   it("surfaces owner rejection instead of reporting an unverified queue", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-control-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-control-"));
     roots.push(root);
     const meshRoot = path.join(root, "mesh");
     const sender = plane(meshRoot, "host:sender");

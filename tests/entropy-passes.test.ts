@@ -106,17 +106,17 @@ const ratchetRepairs = () => [
 const structureTraces = (): EntropyTraceInput[] => [
   trace(
     [
-      op("pi.read", { path: "a" }),
-      op("pi.grep", { path: "." }),
-      op("pi.edit", { path: "a" }),
+      op("omp.read", { path: "a" }),
+      op("omp.grep", { path: "." }),
+      op("omp.edit", { path: "a" }),
     ],
     "loop",
   ),
   trace(
     [
-      op("pi.read", { path: "b" }),
-      op("pi.grep", { path: "." }),
-      op("pi.edit", { path: "b" }),
+      op("omp.read", { path: "b" }),
+      op("omp.grep", { path: "." }),
+      op("omp.edit", { path: "b" }),
     ],
     "loop",
   ),
@@ -332,7 +332,7 @@ describe("proposeEntropyReductions", () => {
     expect(expandSchema.required).toEqual(["session"]);
   });
 
-  it("does not mistake repeated Pi primitives for a composite action", () => {
+  it("does not mistake repeated OMP primitives for a composite action", () => {
     const report = measureEntropy({ traces: structureTraces() });
     const proposals = proposeEntropyReductions({
       report,
@@ -652,7 +652,7 @@ describe("evaluateGate", () => {
   it("fails when successful calls drop", () => {
     const full = measureEntropy({ traces: ratchetTraces(), surface: ratchetSurface() });
     const partial = measureEntropy({
-      traces: [trace([op("pi.read", { path: "src/a.ts", limit: 50 })])],
+      traces: [trace([op("omp.read", { path: "src/a.ts", limit: 50 })])],
     });
     const gate = evaluateGate(full, partial);
     expect(gate.passed).toBe(false);

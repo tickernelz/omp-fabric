@@ -3,12 +3,12 @@ import fs from "node:fs";
 import path from "node:path";
 
 /**
- * Usage-only Pi-format session export for external cost trackers (tokscale,
+ * Usage-only OMP-format session export for external cost trackers (tokscale,
  * ccusage). Fabric subagents run with `--no-session`, so nothing they spend is
  * visible to tools that aggregate token usage from session JSONL files. When
  * enabled, the worker appends one attributed assistant usage line per turn to
- * a minimal pi-format session file under `~/.pi-fabric/agent/sessions/`
- * (or PI_FABRIC_AGENT_DIR): a `session` header, a `session_info` marker naming
+ * a minimal OMP-format session file under `~/.omp-fabric/agent/sessions/`
+ * (or OMP_FABRIC_AGENT_DIR): a `session` header, a `session_info` marker naming
  * the run as "fabricagent-<name>", and `message` entries carrying only
  * model/provider/usage — never transcript content.
  *

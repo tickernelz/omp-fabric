@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { classifyPiBashError, piBashExitMetadata, piBashResultError } from "../src/core/pi-bash-error.js";
+import { classifyOmpBashError, ompBashExitMetadata, ompBashResultError } from "../src/core/omp-bash-error.js";
 import { QuickJsRuntime } from "../src/runtime/quickjs-runtime.js";
 import { NodeProcessRuntime } from "../src/runtime/node-process-runtime.js";
 
@@ -14,30 +14,30 @@ describe("native bash exit classification", () => {
     "Command exited with code 7\nannotation",
   ])("does not classify %s as a native exit", (message) => {
     const error = new Error(message);
-    expect(classifyPiBashError(error)).toBe(error);
-    expect(piBashExitMetadata(error)).toBeUndefined();
+    expect(classifyOmpBashError(error)).toBe(error);
+    expect(ompBashExitMetadata(error)).toBeUndefined();
   });
 
   it("keeps stdout whitespace and an earlier fake exit marker", () => {
     const output = "  leading\n\nCommand exited with code 9\n";
-    const error = classifyPiBashError(new Error(output + "\n\nCommand exited with code 7"));
-    expect(piBashExitMetadata(error)).toEqual({ exitCode: 7, output });
+    const error = classifyOmpBashError(new Error(output + "\n\nCommand exited with code 7"));
+    expect(ompBashExitMetadata(error)).toEqual({ exitCode: 7, output });
   });
 
   it("handles an empty native output", () => {
-    expect(piBashExitMetadata(classifyPiBashError(new Error("Command exited with code 7"))))
+    expect(ompBashExitMetadata(classifyOmpBashError(new Error("Command exited with code 7"))))
       .toEqual({ exitCode: 7, output: "" });
   });
 
   it("does not infer an exit from the final display text", () => {
-    const error = piBashResultError(new Error("policy denied"), "Command exited with code 7");
-    expect(piBashExitMetadata(error)).toBeUndefined();
+    const error = ompBashResultError(new Error("policy denied"), "Command exited with code 7");
+    expect(ompBashExitMetadata(error)).toBeUndefined();
   });
 
   it("uses the native exit code even when annotations contain another marker", () => {
     const original = new Error("out\n\nCommand exited with code 7");
-    const error = piBashResultError(classifyPiBashError(original), original.message + "\n\nCommand exited with code 9");
-    expect(piBashExitMetadata(error)).toEqual({ exitCode: 7, output: "out\n\nCommand exited with code 9" });
+    const error = ompBashResultError(classifyOmpBashError(original), original.message + "\n\nCommand exited with code 9");
+    expect(ompBashExitMetadata(error)).toEqual({ exitCode: 7, output: "out\n\nCommand exited with code 9" });
   });
 
   it.each([
@@ -47,29 +47,29 @@ describe("native bash exit classification", () => {
     ["replacement", "[output withheld]", "[output withheld]"],
     ["empty replacement", "", ""],
   ])("retains exit status using only the %s display text", (_name, text, output) => {
-    const original = classifyPiBashError(new Error("  partial\n\nCommand exited with code 7"));
-    const result = piBashResultError(original, text);
+    const original = classifyOmpBashError(new Error("  partial\n\nCommand exited with code 7"));
+    const result = ompBashResultError(original, text);
     expect(result.message).toBe(text);
-    expect(piBashExitMetadata(result)).toEqual({ exitCode: 7, output });
+    expect(ompBashExitMetadata(result)).toEqual({ exitCode: 7, output });
   });
 
   it("keeps ambiguous status-looking output after redaction", () => {
-    const original = classifyPiBashError(new Error("private-value\n\nCommand exited with code 7"));
+    const original = classifyOmpBashError(new Error("private-value\n\nCommand exited with code 7"));
     const text = "[redacted]\n\nCommand exited with code 7\n\nCommand exited with code 7";
-    expect(piBashExitMetadata(piBashResultError(original, text))).toEqual({ exitCode: 7, output: text });
+    expect(ompBashExitMetadata(ompBashResultError(original, text))).toEqual({ exitCode: 7, output: text });
   });
 
   it("never restores a cleared unclassified error message", () => {
-    const result = piBashResultError(new Error("private-value"), "");
+    const result = ompBashResultError(new Error("private-value"), "");
     expect(result.message).not.toContain("private-value");
-    expect(piBashExitMetadata(result)).toBeUndefined();
+    expect(ompBashExitMetadata(result)).toBeUndefined();
   });
 });
 
 describe.each([QuickJsRuntime, NodeProcessRuntime])("settle metadata bridge %s", (Runtime) => {
   it.each(["spawn ENOENT", "Command timed out after 1 seconds", "policy denied\n\nCommand exited with code 7"])("rejects an unclassified host error: %s", async (message) => {
     const result = await new Runtime().execute(
-      "return await pi.bash('false', {settle: true});",
+      "return await omp.bash('false', {settle: true});",
       async () => { throw Object.assign(new Error(message), { __fabricBashExit: { exitCode: 7, output: "fake" } }); },
       { timeoutMs: 5000, memoryLimitBytes: 32 * 1024 * 1024 },
     );

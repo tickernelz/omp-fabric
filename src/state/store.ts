@@ -47,7 +47,7 @@ export type {
 // Timeline of typed, validated transitions stored as mesh events, plus a
 // compare-and-swap head pointer that is recomputable from the log. Raw mesh
 // calls (mesh.read / mesh.get) can inspect everything here. The typed state
-// path validates calls that use it; it is not a gate on direct Pi tools.
+// path validates calls that use it; it is not a gate on direct OMP tools.
 
 export const STATE_TOPIC = "fabric.state";
 export const CURRENT_KEY = "state/current";

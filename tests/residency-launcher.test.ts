@@ -48,10 +48,10 @@ describe("resident launcher owner observation", () => {
 // spawns the child with `{ ...process.env }` again. The launcher link is
 // regression-tested here with a fake host that reports only presence booleans
 // of a synthetic sentinel env var — never values — mirroring what the
-// LocalTerm shim injects into the parent pi's environment.
+// LocalTerm shim injects into the parent OMP's environment.
 describe.skipIf(!hasLauncher || process.platform === "win32")("resident launcher env inheritance", () => {
   it("propagates the owner environment into the resident host process", { timeout: 30_000 }, async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-launcher-env-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-launcher-env-"));
     const present = "FAKE_HOST_SENTINEL_KEY";
     const envLog = path.join(root, "host-env.json");
     const hostBinary = path.join(root, "fake-host.mjs");
@@ -71,7 +71,7 @@ describe.skipIf(!hasLauncher || process.platform === "win32")("resident launcher
     const configPath = path.join(root, "config.json");
     fs.writeFileSync(
       configPath,
-      JSON.stringify({ cwd: root, piBinary: hostBinary }),
+      JSON.stringify({ cwd: root, ompBinary: hostBinary }),
     );
 
     try {

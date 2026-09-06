@@ -2,10 +2,10 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 
 // Faithful host-loader regression for issue #46.
 //
-// In Pi's extension host, shiki's internal lazy `import("@shikijs/themes/<id>)`
+// In OMP's extension host, shiki's internal lazy `import("@shikijs/themes/<id>)`
 // (invoked when createHighlighter is handed a bare theme *id string*) fails to
 // resolve, so previews fall to plain text. The fix resolves the theme object
-// from pi-fabric's own module graph and hands createHighlighter the *object*,
+// from omp-fabric's own module graph and hands createHighlighter the *object*,
 // so shiki never performs that host-fragile subpath import.
 //
 // This mock reproduces the host failure: createHighlighter throws the exact
@@ -37,7 +37,7 @@ beforeEach(() => {
   }) => {
     const first = options.themes[0];
     if (typeof first === "string") {
-      // Simulates Pi's extension host failing on shiki's internal lazy
+      // Simulates OMP's extension host failing on shiki's internal lazy
       // `import("@shikijs/themes/<id>)` subpath resolution.
       throw new Error(
         "Cannot find module '@shikijs/themes/dark-plus' from '.../shiki/dist/themes.mjs'",
@@ -83,7 +83,7 @@ describe("shiki host-loader theme resolution (#46)", () => {
     expect(lines).not.toBeNull();
   });
 
-  it("resolves a bundled theme id to its object from pi-fabric's module graph", async () => {
+  it("resolves a bundled theme id to its object from omp-fabric's module graph", async () => {
     const theme = await resolveShikiThemeObject("dark-plus");
     expect(theme).toBeDefined();
     expect(theme!.name).toBe("dark-plus");

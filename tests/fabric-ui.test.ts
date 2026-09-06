@@ -1,10 +1,10 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import type { Theme } from "@earendil-works/pi-coding-agent";
-import type { TUI } from "@earendil-works/pi-tui";
+import type { Theme } from "@oh-my-pi/pi-coding-agent";
+import type { TUI } from "@oh-my-pi/pi-tui";
 import type { CodePreviewSettings } from "../src/ui/code-preview.js";
-import { visibleWidth } from "@earendil-works/pi-tui";
+import { visibleWidth } from "@oh-my-pi/pi-tui";
 import { describe, expect, it, vi } from "vitest";
 import { FabricDashboard } from "../src/ui/dashboard.js";
 import { entitiesForOverview } from "../src/ui/dashboard-model.js";
@@ -72,7 +72,7 @@ const mainAgent = (now: number, status: "idle" | "running" = "running") => ({
   name: "Main" as const,
   kind: "main" as const,
   status,
-  runner: "pi" as const,
+  runner: "omp" as const,
   transport: "host" as const,
   cwd: "/tmp/project",
   sessionId: "main",
@@ -184,7 +184,7 @@ const snapshot = (): FabricDashboardSnapshot => {
         scope: "project",
         name: "advisor",
         status: "idle",
-        runner: "pi",
+        runner: "omp",
         events: ["turn_end"],
         topics: ["team.review"],
         delivery: "mailbox",
@@ -377,7 +377,7 @@ describe("Fabric dynamic UI", () => {
       id: "actor-run-1",
       name: "worker",
       status: "running",
-      runner: "pi",
+      runner: "omp",
       transport: "process",
       cwd: "/tmp/project",
     };
@@ -397,7 +397,7 @@ describe("Fabric dynamic UI", () => {
       id: "actor-run-2",
       name: "worker",
       status: "running",
-      runner: "pi",
+      runner: "omp",
       transport: "process",
       cwd: "/tmp/project",
     };
@@ -511,7 +511,7 @@ describe("Fabric dynamic UI", () => {
     current.agents[0]!.status = "completed";
     current.state = [];
     current.actors = [];
-    // A completed run remains visible through agent_settled so its rows do not collapse.
+    // A completed run remains visible through agent_end so its rows do not collapse.
     expect(shouldShowFabricWidget(current, "auto")).toBe(true);
     // An explicit dismissal watermark can still hide retained history.
     current.widgetDismissedAt = current.now;
@@ -551,7 +551,7 @@ describe("Fabric dynamic UI", () => {
     const run = current.runs[0];
     if (!run) throw new Error("missing fixture run");
     run.calls = [
-      { id: "c1", ref: "pi.bash", label: "pi.bash", kind: "tool", status: "completed", phaseId: "audit", startedAt: run.startedAt, updatedAt: current.now, finishedAt: current.now, detail: "done" },
+      { id: "c1", ref: "omp.bash", label: "omp.bash", kind: "tool", status: "completed", phaseId: "audit", startedAt: run.startedAt, updatedAt: current.now, finishedAt: current.now, detail: "done" },
     ];
     run.items = [];
     current.agents = [];
@@ -564,7 +564,7 @@ describe("Fabric dynamic UI", () => {
     expect(shouldShowFabricWidget(current, "auto")).toBe(true);
     const lines = new FabricWidget(theme, () => current, 8).render(72);
     expect(lines).toHaveLength(1);
-    expect(lines.join("\n")).not.toContain("pi.bash");
+    expect(lines.join("\n")).not.toContain("omp.bash");
     // An explicit dismissal hides retained history.
     current.widgetDismissedAt = current.now;
     expect(shouldShowFabricWidget(current, "auto")).toBe(false);
@@ -850,8 +850,8 @@ describe("Fabric dynamic UI", () => {
     current.runs[0]!.calls = [
       {
         id: "bash-detail",
-        ref: "pi.bash",
-        label: "pi.bash",
+        ref: "omp.bash",
+        label: "omp.bash",
         kind: "tool",
         status: "completed",
         args: { command: "pnpm vitest run tests/fabric-ui.test.ts" },
@@ -862,8 +862,8 @@ describe("Fabric dynamic UI", () => {
       },
       {
         id: "edit-detail",
-        ref: "pi.edit",
-        label: "pi.edit",
+        ref: "omp.edit",
+        label: "omp.edit",
         kind: "tool",
         status: "completed",
         args: {
@@ -881,8 +881,8 @@ describe("Fabric dynamic UI", () => {
       },
       {
         id: "write-detail",
-        ref: "pi.write",
-        label: "pi.write",
+        ref: "omp.write",
+        label: "omp.write",
         kind: "tool",
         status: "completed",
         args: { path: "src/example.ts", content: "export const value = 2;" },
@@ -994,29 +994,29 @@ describe("Fabric dynamic UI", () => {
       finishedAt: now,
     });
     current.runs[0]!.calls = [
-      call("lazy-read", "pi.read", { path: "src/lazy-read.ts" }, "export const lazyRead = true;"),
+      call("lazy-read", "omp.read", { path: "src/lazy-read.ts" }, "export const lazyRead = true;"),
       call(
         "lazy-write",
-        "pi.write",
+        "omp.write",
         { path: "src/lazy-write.ts", content: "export const lazyWrite = true;" },
         { ok: true },
         { writeBeforeCaptured: true },
       ),
       call(
         "lazy-edit",
-        "pi.edit",
+        "omp.edit",
         { path: "src/lazy-edit.ts", edits: [{ oldText: "const value = false;", newText: "const value = true;" }] },
         { ok: true, details: { diff: "-1 const value = false;\n+1 const value = true;" } },
       ),
       call(
         "lazy-grep",
-        "pi.grep",
+        "omp.grep",
         { path: "src", pattern: "lazyGrep", literal: true },
         "src/lazy-grep.ts:1: export const lazyGrep = true;",
       ),
       call(
         "lazy-bash",
-        "pi.bash",
+        "omp.bash",
         { command: "printf '%s\n' lazy-bash" },
         { ok: true, output: "lazy-bash" },
       ),
@@ -1852,7 +1852,7 @@ describe("Fabric dynamic UI", () => {
         parentId: "session:peer",
         name: "remote implementor",
         status: "running",
-        runner: "pi",
+        runner: "omp",
         transport: "process",
         capabilities: ["steer", "followUp", "stop"],
         startedAt: current.now - 1_000,
@@ -2250,7 +2250,7 @@ describe("Fabric dynamic UI", () => {
           truncated: true,
           entries: [
             { id: "message-1", kind: "assistant", label: "Agent", text: "## Live review\n\nReviewing the **event stream**.\n\n| Area | Status |\n| --- | --- |\n| Tail | Active |", status: "running" },
-            { id: "tool-1", kind: "tool", label: "pi.read", text: "src/ui/dashboard.ts", status: "running" },
+            { id: "tool-1", kind: "tool", label: "omp.read", text: "src/ui/dashboard.ts", status: "running" },
           ],
         }),
       },
@@ -2268,8 +2268,8 @@ describe("Fabric dynamic UI", () => {
       expect(transcript).toContain("Tail");
       expect(transcript).toContain("Active");
       expect(transcript).not.toContain("| --- | --- |");
-      expect(transcript).toContain("pi.read · running · src/ui/dashboard.ts");
-      expect(transcript.split("\n").filter((line) => line.includes("pi.read"))).toHaveLength(1);
+      expect(transcript).toContain("omp.read · running · src/ui/dashboard.ts");
+      expect(transcript.split("\n").filter((line) => line.includes("omp.read"))).toHaveLength(1);
       expect(transcript).toContain("G follow:on");
 
       dashboard.handleInput("k");
@@ -2703,7 +2703,7 @@ describe("Fabric dynamic UI", () => {
   });
 
   it("renders state-owned project files with highlighted readable previews", () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-state-preview-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-state-preview-"));
     fs.mkdirSync(path.join(root, "src"));
     fs.writeFileSync(
       path.join(root, "src", "answer.ts"),
@@ -2994,7 +2994,7 @@ describe("Fabric dashboard global actors and instructions editor", () => {
           scope: "project",
           name: "advisor",
           status: "idle",
-          runner: "pi",
+          runner: "omp",
           events: [],
           topics: [],
           delivery: "mailbox",
@@ -3015,7 +3015,7 @@ describe("Fabric dashboard global actors and instructions editor", () => {
           id: "g-actor-1",
           name: "global-reviewer",
           instructions: "You are a global reviewer template.",
-          runner: "pi",
+          runner: "omp",
           events: ["turn_end"],
           topics: [],
           delivery: "mailbox",

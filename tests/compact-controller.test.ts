@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { ExtensionRunner, type ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionContext, ExtensionRunner } from "@oh-my-pi/pi-coding-agent";
 import { decodeCompactionInstructions, FABRIC_COMPACTION_REQUEST_PREFIX } from "../src/compaction/instructions.js";
 import {
   CompactController,
@@ -7,17 +7,9 @@ import {
   type CompactPendingIntent,
 } from "../src/core/compact-controller.js";
 
-// A stub ExtensionContext whose `compact()` captures the options so a test can
-// drive the async onComplete/onError callbacks deterministically. `isIdle()`
-// is true by default (agent_settled boundary).
 interface CapturedCompact {
   customInstructions?: string;
-  onComplete: (result: {
-    summary: string;
-    firstKeptEntryId: string;
-    tokensBefore: number;
-    estimatedTokensAfter?: number;
-  }) => void;
+  onComplete: () => void;
   onError: (error: Error) => void;
 }
 
@@ -25,33 +17,20 @@ interface CompactCapture {
   current: CapturedCompact | undefined;
 }
 
-const fakeContext = (capture: CompactCapture, idle = true): ExtensionContext =>
+const fakeContext = (capture: CompactCapture, _idle = true): ExtensionContext =>
   ({
-    compact(options?: {
-      customInstructions?: string;
-      onComplete?: (result: {
-        summary: string;
-        firstKeptEntryId: string;
-        tokensBefore: number;
-        estimatedTokensAfter?: number;
-      }) => void;
-      onError?: (error: Error) => void;
-    }) {
-      capture.current = {
-        ...(options?.customInstructions ? { customInstructions: options.customInstructions } : {}),
-        onComplete: options?.onComplete ?? (() => {}),
-        onError: options?.onError ?? (() => {}),
-      };
+    compact(instructions?: string) {
+      return new Promise<void>((resolve, reject) => {
+        capture.current = {
+          ...(instructions ? { customInstructions: instructions } : {}),
+          onComplete: resolve,
+          onError: reject,
+        };
+      });
     },
-    isIdle: () => idle,
   }) as unknown as ExtensionContext;
 
-const committed = (tokensBefore = 1000): Parameters<CapturedCompact["onComplete"]>[0] => ({
-  summary: "compacted summary",
-  firstKeptEntryId: "entry-7",
-  tokensBefore,
-  estimatedTokensAfter: 200,
-});
+const committed = (..._args: unknown[]): void => undefined;
 
 describe("CompactController", () => {
   it("records a pending intent and reports it via status", () => {
@@ -114,7 +93,7 @@ describe("CompactController", () => {
     expect(capture.current).toBeUndefined();
     // Completing the first commit clears in-flight; the second intent is still
     // pending and can now be committed at a later boundary.
-    first.onComplete(committed());
+    first.onComplete();
     await Promise.all([firstCommit, reentrant]);
     expect(controller.status().last?.status).toBe("committed");
     expect(controller.status().pending?.reason).toBe("second");
@@ -122,30 +101,25 @@ describe("CompactController", () => {
     expect(capture.current).toBeDefined();
   });
 
-  it("commits at a settled boundary: clears intent and records last-commit info", () => {
+  it("commits at a settled boundary: clears intent and records last-commit info", async () => {
     const capture: CompactCapture = { current: undefined };
     const controller = new CompactController();
     controller.request({ instructions: "Keep the test plan" });
-    controller.maybeCommit(fakeContext(capture));
+    const commit = controller.maybeCommit(fakeContext(capture));
     expect(capture.current?.customInstructions).toBe("Keep the test plan");
-    capture.current!.onComplete(committed(1500));
+    capture.current!.onComplete();
+    await commit;
     const status = controller.status();
     expect(status.pending).toBeUndefined();
-    expect(status.last).toMatchObject({
-      status: "committed",
-      summary: "compacted summary",
-      tokensBefore: 1500,
-      estimatedTokensAfter: 200,
-      requestedBy: "model",
-    });
+    expect(status.last).toMatchObject({ status: "committed", requestedBy: "model" });
   });
 
-  it("encodes typed preserve items with instructions", () => {
+  it("encodes typed preserve items with instructions", async () => {
     const capture: CompactCapture = { current: undefined };
     const controller = new CompactController();
     controller.request({ instructions: "Keep the plan", preserve: ["rare fact", "src/a.ts"] });
     expect(controller.status().pending?.preserve).toEqual(["rare fact", "src/a.ts"]);
-    controller.maybeCommit(fakeContext(capture));
+    const commit = controller.maybeCommit(fakeContext(capture));
     expect(capture.current?.customInstructions?.startsWith(FABRIC_COMPACTION_REQUEST_PREFIX)).toBe(true);
     const decoded = decodeCompactionInstructions(capture.current?.customInstructions);
     expect(decoded.ok).toBe(true);
@@ -153,87 +127,63 @@ describe("CompactController", () => {
     expect(decoded.policy.mode).toBe("typed-v1");
     expect(decoded.requestLines.join("\n")).toContain("rare fact");
     capture.current!.onError(new Error("Already compacted"));
+    await commit;
   });
 
-  it("forwards customInstructions only when provided", () => {
+  it("forwards customInstructions only when provided", async () => {
     const capture: CompactCapture = { current: undefined };
     const controller = new CompactController();
     controller.request({ reason: "no instructions" });
-    controller.maybeCommit(fakeContext(capture));
+    const commit = controller.maybeCommit(fakeContext(capture));
     expect(capture.current?.customInstructions).toBeUndefined();
     capture.current!.onError(new Error("Already compacted"));
+    await commit;
   });
 
-  it("records 'Compaction cancelled' as cancelled, not failed", () => {
+  it("records 'Compaction cancelled' as cancelled, not failed", async () => {
     const capture: CompactCapture = { current: undefined };
     const controller = new CompactController();
     controller.request({ reason: "x" });
-    controller.maybeCommit(fakeContext(capture));
+    const commit = controller.maybeCommit(fakeContext(capture));
     capture.current!.onError(new Error("Compaction cancelled"));
+    await commit;
     const status = controller.status();
     expect(status.pending).toBeUndefined();
-    expect(status.last).toMatchObject({
-      status: "cancelled",
-      error: "Compaction cancelled",
-    });
+    expect(status.last).toMatchObject({ status: "cancelled", error: "Compaction cancelled" });
   });
 
-  it("records 'Already compacted' as cancelled, not failed", () => {
+  it("records 'Already compacted' as cancelled, not failed", async () => {
     const capture: CompactCapture = { current: undefined };
     const controller = new CompactController();
     controller.request({ reason: "x" });
-    controller.maybeCommit(fakeContext(capture));
+    const commit = controller.maybeCommit(fakeContext(capture));
     capture.current!.onError(new Error("Already compacted"));
+    await commit;
     const status = controller.status();
     expect(status.pending).toBeUndefined();
-    expect(status.last).toMatchObject({
-      status: "cancelled",
-      error: "Already compacted",
-    });
+    expect(status.last).toMatchObject({ status: "cancelled", error: "Already compacted" });
   });
 
-  it("records a failure and clears intent on other errors", () => {
+  it("records a failure and clears intent on other errors", async () => {
     const capture: CompactCapture = { current: undefined };
     const controller = new CompactController();
     controller.request({ reason: "x" });
-    controller.maybeCommit(fakeContext(capture));
+    const commit = controller.maybeCommit(fakeContext(capture));
     capture.current!.onError(new Error("API quota exceeded"));
+    await commit;
     const status = controller.status();
     expect(status.pending).toBeUndefined();
     expect(status.last).toMatchObject({ status: "failed", error: "API quota exceeded" });
   });
 
-  it("settles as failed without calling compact when the boundary signal is aborted", async () => {
-    const abort = new AbortController();
-    abort.abort();
-    const compact = vi.fn();
+  it("records a failed Promise rejection", async () => {
+    const compact = vi.fn().mockRejectedValue(new Error("compact unavailable"));
     const controller = new CompactController();
-    controller.request({ reason: "aborted boundary" });
-    await controller.maybeCommit({
-      compact,
-      signal: abort.signal,
-    } as unknown as ExtensionContext);
-    expect(compact).not.toHaveBeenCalled();
+    controller.request({ reason: "failed boundary" });
+    await controller.maybeCommit({ compact } as unknown as ExtensionContext);
+    expect(compact).toHaveBeenCalledOnce();
     expect(controller.status().pending).toBeUndefined();
-    expect(controller.status().last).toMatchObject({
-      status: "failed",
-      error: "Compaction aborted before it started",
-    });
-  });
-
-  it("records a failure when compact() throws synchronously", () => {
-    const controller = new CompactController();
-    const throwingContext = {
-      compact() {
-        throw new Error("compact unavailable");
-      },
-      isIdle: () => true,
-    } as unknown as ExtensionContext;
-    controller.request({ reason: "x" });
-    controller.maybeCommit(throwingContext);
-    const status = controller.status();
-    expect(status.pending).toBeUndefined();
-    expect(status.last).toMatchObject({ status: "failed", error: "compact unavailable" });
+    expect(controller.status().last).toMatchObject({ status: "failed", error: "compact unavailable" });
   });
 
   it("fires onRequest when an intent is recorded", () => {
@@ -252,7 +202,7 @@ describe("CompactController", () => {
     const capture: CompactCapture = { current: undefined };
     controller.request({ reason: "ok" });
     const first = controller.maybeCommit(fakeContext(capture));
-    capture.current!.onComplete(committed());
+    capture.current!.onComplete();
     await first;
     controller.request({ reason: "bad" });
     const second = controller.maybeCommit(fakeContext(capture));
@@ -262,13 +212,14 @@ describe("CompactController", () => {
     expect(commits[1]?.error ?? "").toBe("rate limited");
   });
 
-  it("fires onCommit with cancelled info for cancelled/already-compacted", () => {
+  it("fires onCommit with cancelled info for cancelled/already-compacted", async () => {
     const commits: CompactLastCommit[] = [];
     const controller = new CompactController({ onCommit: (info) => commits.push(info) });
     const capture: CompactCapture = { current: undefined };
     controller.request({ reason: "x" });
-    controller.maybeCommit(fakeContext(capture));
+    const commit = controller.maybeCommit(fakeContext(capture));
     capture.current!.onError(new Error("Compaction cancelled"));
+    await commit;
     expect(commits.map((info) => info.status)).toEqual(["cancelled"]);
     expect(commits[0]?.error).toBe("Compaction cancelled");
   });
@@ -283,41 +234,37 @@ describe("CompactController", () => {
     controller.request({ reason: "second" });
     const second = controller.maybeCommit(fakeContext(capture));
     expect(capture.current).toBeDefined();
-    capture.current!.onComplete(committed());
+    capture.current!.onComplete();
     await second;
     expect(controller.status().last?.status).toBe("committed");
   });
 
-  it("keeps ExtensionRunner agent_settled pending until compaction completes", async () => {
+  it("keeps ExtensionRunner agent_end pending until compaction completes", async () => {
     const timeline: string[] = [];
     const capture: CompactCapture = { current: undefined };
     const controller = new CompactController();
     controller.request({ reason: "event order" });
-    const runner = Object.create(ExtensionRunner.prototype) as ExtensionRunner;
-    Object.assign(runner as unknown as Record<string, unknown>, {
-      extensions: [{
-        path: "/extensions/pi-fabric/index.ts",
-        handlers: new Map([["agent_settled", [async () => {
-          timeline.push("handler:start");
-          await controller.maybeCommit(fakeContext(capture));
-          timeline.push("handler:end");
-        }]]]),
-      }],
-      createContext: () => ({}),
-      errorListeners: new Set(),
-    });
-
-    const emitted = runner.emit({ type: "agent_settled" }).then(() => {
-      timeline.push("public:agent_settled");
+    const handler = async () => {
+      timeline.push("handler:start");
+      await controller.maybeCommit(fakeContext(capture));
+      timeline.push("handler:end");
+    };
+    const runner = {
+      emit: async (event: { type: string }) => {
+        if (event.type === "agent_end") await handler();
+      },
+    } as unknown as { emit: (event: { type: string }) => Promise<void> };
+    const emitted = runner.emit({ type: "agent_end" }).then(() => {
+      timeline.push("public:agent_end");
     });
     await Promise.resolve();
     expect(timeline).toEqual(["handler:start"]);
-    capture.current!.onComplete(committed());
+    capture.current!.onComplete();
     await emitted;
     expect(timeline).toEqual([
       "handler:start",
       "handler:end",
-      "public:agent_settled",
+      "public:agent_end",
     ]);
   });
 });

@@ -22,7 +22,7 @@ import { recordedIntegrationTrace } from "./fixtures/fabric-execution-trace.js";
 
 const temporary: string[] = [];
 const temp = (name: string): string => {
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), `pi-fabric-memory-integrity-${name}-`));
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), `omp-fabric-memory-integrity-${name}-`));
   temporary.push(directory);
   return directory;
 };
@@ -58,7 +58,7 @@ const message = (id: string, text: string, offset = 0): FixtureEntry =>
   messageEntry(id, null, timestamp(offset), userMessage(text));
 
 const branchDetails = (facts: Array<Record<string, unknown>>, version: 1 | 2 = 1) => ({
-  kind: "pi-fabric.branch-summary",
+  kind: "omp-fabric.branch-summary",
   version,
   source: { firstEntryId: "source-first", lastEntryId: "source-last", entryCount: 2 },
   facts,
@@ -173,8 +173,8 @@ describe("memory final integrity guarantees", () => {
       entryId: "abandoned-result",
       subordinal: "call:write-1",
       address: "abandoned-result/call:write-1",
-      ref: "pi.write",
-      provider: "pi",
+      ref: "omp.write",
+      provider: "omp",
       action: "write",
       tool: "write",
       args: { path: "src/abandoned.ts", content: "typed" },
@@ -195,7 +195,7 @@ describe("memory final integrity guarantees", () => {
       entryId: "abandoned-custom",
       subordinal: "custom-message",
       address: "abandoned-custom/custom-message",
-      customType: "pi-fabric-agent-complete",
+      customType: "omp-fabric-agent-complete",
       text: "Agent completed CUSTOM_MEMORY_BRANCH_51",
       display: false,
       details: { status: "completed" },
@@ -231,8 +231,8 @@ describe("memory final integrity guarantees", () => {
       factAddress: operation.address,
       carrierEntryId: "carrier-original",
       carrierFromId: "abandoned-result",
-      ref: "pi.write",
-      provider: "pi",
+      ref: "omp.write",
+      provider: "omp",
       toolName: "write",
       outcome: "succeeded",
       filesTouched: ["src/abandoned.ts"],
@@ -257,10 +257,10 @@ describe("memory final integrity guarantees", () => {
       factAddress: customMessage.address,
       carrierEntryId: "carrier-original",
       role: "branchCustomMessage",
-      text: "[pi-fabric-agent-complete] Agent completed CUSTOM_MEMORY_BRANCH_51",
+      text: "[omp-fabric-agent-complete] Agent completed CUSTOM_MEMORY_BRANCH_51",
       branchFact: expect.objectContaining({
         kind: "customMessage",
-        customType: "pi-fabric-agent-complete",
+        customType: "omp-fabric-agent-complete",
         display: false,
       }),
     });
@@ -297,8 +297,8 @@ describe("memory final integrity guarantees", () => {
       entryId: "source",
       subordinal: "0",
       address: "source/0",
-      ref: "pi.read",
-      provider: "pi",
+      ref: "omp.read",
+      provider: "omp",
       action: "read",
       tool: "read",
       args: { path: "src/file.ts" },

@@ -7,7 +7,7 @@ const HOT_SESSIONS = 100;
 const COLD_SESSIONS = 100;
 const ENTRIES_PER_SESSION = 12;
 const ITERATIONS = 50;
-const refs = ["pi.grep", "pi.read", "agents.run", "memory.recall"];
+const refs = ["omp.grep", "omp.read", "agents.run", "memory.recall"];
 
 const descriptors = {
   pi: [
@@ -181,7 +181,7 @@ const recall = (found, expected) => {
 
 const expectedHotGrep = new Set(
   shards.flatMap((shard) => shard.entries)
-    .filter((item) => item.ref === "pi.grep")
+    .filter((item) => item.ref === "omp.grep")
     .map((item) => item.operationAddress),
 );
 const expectedColdGrepSessions = new Set(
@@ -189,8 +189,8 @@ const expectedColdGrepSessions = new Set(
 );
 
 const headQueries = [
-  ["search source files", "pi.grep"],
-  ["read a local file", "pi.read"],
+  ["search source files", "omp.grep"],
+  ["read a local file", "omp.read"],
   ["delegate work to a background agent", "agents.run"],
   ["search historical session memory", "memory.recall"],
 ];
@@ -204,22 +204,22 @@ const lexical = await searchMemoryIndex(shards, digests, {
   query: "search source files",
   queryMatch: "any",
 });
-const structural = await searchMemoryIndex(shards, digests, { filters: { ref: "pi.grep" } });
+const structural = await searchMemoryIndex(shards, digests, { filters: { ref: "omp.grep" } });
 const combined = await searchMemoryIndex(shards, digests, {
   query: "rarelexeme_target",
-  filters: { ref: "pi.grep" },
+  filters: { ref: "omp.grep" },
 });
-const negative = await searchMemoryIndex(shards, digests, { filters: { ref: "pi.write" } });
+const negative = await searchMemoryIndex(shards, digests, { filters: { ref: "omp.write" } });
 
 const expectedCombinedAddress = shards[0].entries.find(
-  (item) => item.ref === "pi.grep" && item.text.includes("rarelexeme_target"),
+  (item) => item.ref === "omp.grep" && item.text.includes("rarelexeme_target"),
 ).operationAddress;
 const combinedAddresses = hotAddresses(combined);
 
 const durations = [];
 for (let iteration = 0; iteration < ITERATIONS; iteration += 1) {
   const started = performance.now();
-  await searchMemoryIndex(shards, digests, { filters: { ref: "pi.grep" } });
+  await searchMemoryIndex(shards, digests, { filters: { ref: "omp.grep" } });
   durations.push(performance.now() - started);
 }
 durations.sort((left, right) => left - right);

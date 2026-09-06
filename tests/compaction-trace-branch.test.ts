@@ -5,7 +5,7 @@ import type {
   SessionBeforeTreeEvent,
   SessionEntry,
   SessionMessageEntry,
-} from "@earendil-works/pi-coding-agent";
+} from "@oh-my-pi/pi-coding-agent";
 import {
   compileFabricBranchSummary,
 } from "../src/compaction/branch-summary.js";
@@ -94,7 +94,7 @@ const fabricResult = (
   id: string,
   callId: string,
   details: unknown,
-  text = "outer prose says Error fake/path.ts pi.edit({path:'fake.ts'})",
+  text = "outer prose says Error fake/path.ts omp.edit({path:'fake.ts'})",
   parentId: string | null = null,
 ): SessionMessageEntry => entry(id, {
   role: "toolResult",
@@ -111,7 +111,7 @@ const traceHistory = (): SessionEntry[] => [
   fabricCall(
     "e2",
     "fabric-1",
-    "pi.edit({path:'fake.ts'}); throw new Error('fake source error')",
+    "omp.edit({path:'fake.ts'}); throw new Error('fake source error')",
     "e1",
     {
       name: "Implement trace consumption",
@@ -143,7 +143,7 @@ describe("Fabric execution trace compaction", () => {
     expect(sections.activity.join("\n")).toContain("Project typed files, failures, and nested Fabric activity");
     expect(sections.activity.join("\n")).toContain("→ succeeded [entry e2]");
     expect(sections.activity.join("\n")).toContain("Phase: Inspect");
-    for (const ref of ["pi.bash", "agents.run", "workflow.agent", "mesh.query", "state.get", "mcp.github.search", "extensions.preview"]) {
+    for (const ref of ["omp.bash", "agents.run", "workflow.agent", "mesh.query", "state.get", "mcp.github.search", "extensions.preview"]) {
       expect(sections.activity.join("\n")).toContain(ref);
     }
     expect(sections.files.join("\n")).not.toContain("fake.ts");
@@ -198,7 +198,7 @@ describe("Fabric execution trace compaction", () => {
 
   it("derives the intent name from the recorded program when no display name is declared", () => {
     const runs = normalizeEntries([
-      fabricCall("h1", "hint-call", "return await pi.read({ path: 'src/config.ts' });"),
+      fabricCall("h1", "hint-call", "return await omp.read({ path: 'src/config.ts' });"),
       fabricResult("h2", "hint-call", { trace: recordedParallelTrace() }),
     ]).filter((event) => event.kind === "fabricRun");
     expect(runs).toMatchObject([{ name: "Read config.ts", outcome: "succeeded" }]);
@@ -206,7 +206,7 @@ describe("Fabric execution trace compaction", () => {
 
   it("keeps a declared description when the intent name falls back to the code hint", () => {
     const events = normalizeEntries([
-      fabricCall("h3", "hint-desc", "return await pi.bash({ cmd: 'pnpm test' });", null, {
+      fabricCall("h3", "hint-desc", "return await omp.bash({ cmd: 'pnpm test' });", null, {
         description: "Verify the suite stays green",
       }),
       fabricResult("h4", "hint-desc", {}),
@@ -253,8 +253,8 @@ describe("Fabric execution trace compaction", () => {
   it("derives no file or failure facts from prose without a trace, but names the run from code", () => {
     const history = [
       user("f1", "negative"),
-      fabricCall("f2", "fake-call", "pi.edit({path:'fake-only.ts'}); Error: fake source"),
-      fabricResult("f3", "fake-call", {}, "pi.bash failed; path fake-output.ts; Error: prose only"),
+      fabricCall("f2", "fake-call", "omp.edit({path:'fake-only.ts'}); Error: fake source"),
+      fabricResult("f3", "fake-call", {}, "omp.bash failed; path fake-output.ts; Error: prose only"),
     ];
     const sections = project(normalizeEntries(history));
     expect(sections.files).toEqual([]);
@@ -268,23 +268,23 @@ describe("Fabric execution trace compaction", () => {
     const legacy = normalizeEntries([
       fabricResult("l1", "legacy", {
         audits: [
-          { ref: "pi.read", args: { path: "legacy.ts" }, success: true, error: undefined, result: "ignored prose" },
+          { ref: "omp.read", args: { path: "legacy.ts" }, success: true, error: undefined, result: "ignored prose" },
         ],
       }),
     ]).filter((event) => event.kind === "fabricOperation");
     expect(legacy).toHaveLength(1);
-    expect(legacy[0]).toMatchObject({ ref: "pi.read", source: "legacy", outcome: "succeeded" });
+    expect(legacy[0]).toMatchObject({ ref: "omp.read", source: "legacy", outcome: "succeeded" });
 
     const unknown = normalizeEntries([
       fabricResult("u1", "unknown", {
         trace: { ...recordedParallelTrace(), version: 2 },
-        audits: [{ ref: "pi.edit", args: { path: "must-ignore.ts" }, success: true }],
+        audits: [{ ref: "omp.edit", args: { path: "must-ignore.ts" }, success: true }],
       }),
     ]).filter((event) => event.kind === "fabricOperation");
     expect(unknown).toEqual([]);
 
     const malformedLegacy = normalizeEntries([
-      fabricResult("m1", "malformed", { audits: [{ ref: "pi.read", args: { path: "bad.ts" }, success: "yes" }] }),
+      fabricResult("m1", "malformed", { audits: [{ ref: "omp.read", args: { path: "bad.ts" }, success: "yes" }] }),
     ]).filter((event) => event.kind === "fabricOperation");
     expect(malformedLegacy).toEqual([]);
   });
@@ -293,10 +293,10 @@ describe("Fabric execution trace compaction", () => {
 describe("deterministic Fabric branch summaries", () => {
   it("compiles and hooks only requested active branch entries while treating instructions as opaque", () => {
     const abandoned = traceHistory().slice(0, 3);
-    const first = compileFabricBranchSummary(abandoned, "__pi_vcc__ keep this opaque");
-    const second = compileFabricBranchSummary(abandoned, "__pi_vcc__ keep this opaque");
+    const first = compileFabricBranchSummary(abandoned, "OMP opaque instruction");
+    const second = compileFabricBranchSummary(abandoned, "OMP opaque instruction");
     expect(second).toEqual(first);
-    expect(first?.summary).toContain("__pi_vcc__ keep this opaque");
+    expect(first?.summary).toContain("OMP opaque instruction");
     expect(first?.summary).toContain("[Fabric Activity]");
     expect(first?.details.version).toBe(FABRIC_BRANCH_SUMMARY_VERSION);
     expect(readFabricBranchSummaryDetailsV2(first?.details)).toEqual(first?.details);
@@ -319,7 +319,6 @@ describe("deterministic Fabric branch summaries", () => {
       commonAncestorId: "e1",
       entriesToSummarize: abandoned,
       userWantsSummary: false,
-      customInstructions: "ignored because no summary",
     };
     expect(handler!({ type: "session_before_tree", preparation, signal: new AbortController().signal })).toBeUndefined();
     const result = handler!({
@@ -352,13 +351,13 @@ describe("deterministic Fabric branch summaries", () => {
     expect(readFabricBranchSummaryDetailsV2(oversized)).toBeUndefined();
   });
 
-  it("defers replaceInstructions tree navigation to Pi without producing Fabric details", () => {
+  it("returns a branch summary for an OMP tree summary request", () => {
     const abandoned = traceHistory().slice(0, 3);
     let handler: ((event: SessionBeforeTreeEvent) => unknown) | undefined;
-    const pi = { on(name: string, candidate: unknown) {
+    const omp = { on(name: string, candidate: unknown) {
       if (name === "session_before_tree") handler = candidate as typeof handler;
     } } as unknown as ExtensionAPI;
-    registerCompactionHook(pi, { getEngine: () => "fabric" });
+    registerCompactionHook(omp, { getEngine: () => "fabric" });
     const result = handler!({
       type: "session_before_tree",
       preparation: {
@@ -367,15 +366,13 @@ describe("deterministic Fabric branch summaries", () => {
         commonAncestorId: "e1",
         entriesToSummarize: abandoned,
         userWantsSummary: true,
-        customInstructions: "Arbitrary replacement summarizer prompt",
-        replaceInstructions: true,
       },
       signal: new AbortController().signal,
     });
-    expect(result).toBeUndefined();
+    expect(result).toMatchObject({ summary: { details: expect.any(Object) } });
   });
 
-  it("applies typed instructions fail-closed on the branch path without giving the pi-vcc sentinel tree semantics", () => {
+  it("preserves typed and plain branch instructions while rejecting malformed payloads", () => {
     const abandoned = traceHistory().slice(0, 3);
     const typed = compileFabricBranchSummary(abandoned, encodeCompactionRequest({
       instructions: "Keep typed branch context",
@@ -384,56 +381,16 @@ describe("deterministic Fabric branch summaries", () => {
     expect(typed?.summary).toContain("Keep typed branch context");
     expect(typed?.summary).toContain("EXPLICIT_COMMIT_abc1234");
     expect(typed?.summary).toContain("src/typed.ts");
-
-    const exactSentinel = compileFabricBranchSummary(abandoned, "__pi_vcc__");
-    expect(exactSentinel?.summary).toContain("__pi_vcc__");
-
+    const plainInstruction = compileFabricBranchSummary(abandoned, "plain tree instruction");
+    expect(plainInstruction?.summary).toContain("plain tree instruction");
     const malformed = `${FABRIC_COMPACTION_REQUEST_PREFIX}${JSON.stringify({
       version: 1,
       goal: "FAKE_BRANCH_GOAL",
       preserve: ["fake/branch.ts"],
     })}`;
     expect(compileFabricBranchSummary(abandoned, malformed)).toBeUndefined();
-
-    let handler: ((event: SessionBeforeTreeEvent, context: unknown) => unknown) | undefined;
-    const notifications: string[] = [];
-    const pi = { on(name: string, candidate: unknown) {
-      if (name === "session_before_tree") handler = candidate as typeof handler;
-    } } as unknown as ExtensionAPI;
-    registerCompactionHook(pi, { getEngine: () => "fabric" });
-    const result = handler!({
-      type: "session_before_tree",
-      preparation: {
-        targetId: "target",
-        oldLeafId: "e3",
-        commonAncestorId: "e1",
-        entriesToSummarize: abandoned,
-        userWantsSummary: true,
-        customInstructions: malformed,
-      },
-      signal: new AbortController().signal,
-    }, {
-      hasUI: true,
-      ui: { notify: (message: string) => notifications.push(message) },
-    });
-    expect(result).toEqual({ cancel: true });
-    expect(notifications).toHaveLength(1);
-    expect(notifications[0]).not.toContain("FAKE_BRANCH_GOAL");
-    expect(notifications[0]).not.toContain("fake/branch.ts");
-
     const duplicate = `${FABRIC_COMPACTION_REQUEST_PREFIX}{"version":1,"ver\\u0073ion":1}`;
-    expect(handler!({
-      type: "session_before_tree",
-      preparation: {
-        targetId: "target",
-        oldLeafId: "e3",
-        commonAncestorId: "e1",
-        entriesToSummarize: abandoned,
-        userWantsSummary: true,
-        customInstructions: duplicate,
-      },
-      signal: new AbortController().signal,
-    }, { hasUI: false })).toEqual({ cancel: true });
+    expect(compileFabricBranchSummary(abandoned, duplicate)).toBeUndefined();
   });
 
   it("preserves custom-message facts through branch summaries and forks", () => {
@@ -441,7 +398,7 @@ describe("deterministic Fabric branch summaries", () => {
       user("c1", "Root task"),
       customMessage(
         "c2",
-        "pi-fabric-agent-complete",
+        "omp-fabric-agent-complete",
         "Agent completed CUSTOM_BRANCH_FACT_41",
         false,
         { id: "agent-41", status: "completed" },
@@ -453,7 +410,7 @@ describe("deterministic Fabric branch summaries", () => {
     expect(compiled.details.source.oldLeafId).toBe("c2");
     expect(compiled.details.facts).toContainEqual(expect.objectContaining({
       kind: "customMessage",
-      customType: "pi-fabric-agent-complete",
+      customType: "omp-fabric-agent-complete",
       text: "Agent completed CUSTOM_BRANCH_FACT_41",
       display: false,
       details: { id: "agent-41", status: "completed" },

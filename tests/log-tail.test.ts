@@ -12,7 +12,7 @@ afterEach(() => {
 
 describe("readJsonlPage", () => {
   it("returns bounded tail pages with stable older-page cursors", () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-log-tail-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-log-tail-"));
     roots.push(root);
     const file = path.join(root, "events.jsonl");
     fs.writeFileSync(
@@ -41,7 +41,7 @@ describe("readJsonlPage", () => {
   });
 
   it("reads a tail page that begins beyond the final file chunk", () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-log-tail-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-log-tail-"));
     roots.push(root);
     const file = path.join(root, "events.jsonl");
     const records = Array.from({ length: 2_000 }, (_, index) => ({
@@ -58,7 +58,7 @@ describe("readJsonlPage", () => {
   });
 
   it("bounds bytes read while retaining complete tail records", () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-log-tail-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-log-tail-"));
     roots.push(root);
     const file = path.join(root, "events.jsonl");
     const records = [
@@ -74,7 +74,7 @@ describe("readJsonlPage", () => {
   });
 
   it("parses only complete records and preserves malformed lines as raw text", () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-log-tail-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-log-tail-"));
     roots.push(root);
     const file = path.join(root, "events.jsonl");
     fs.writeFileSync(file, `${JSON.stringify({ ok: true })}\nnot-json`);

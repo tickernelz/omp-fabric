@@ -1,4 +1,5 @@
-import type { Theme } from "@earendil-works/pi-coding-agent";
+import type { Theme } from "@oh-my-pi/pi-coding-agent";
+import { Ellipsis } from "@oh-my-pi/pi-tui";
 import {
   Container,
   type Focusable,
@@ -8,7 +9,7 @@ import {
   type SelectListTheme,
   Spacer,
   Text,
-} from "@earendil-works/pi-tui";
+} from "@oh-my-pi/pi-tui";
 import { INHERIT_VALUE } from "./model-picker.js";
 import { THINKING_LEVELS, thinkingLabel } from "../thinking.js";
 
@@ -18,6 +19,7 @@ const LAYOUT: SelectListLayoutOptions = {
 };
 
 const selectListTheme = (theme: Theme): SelectListTheme => ({
+  symbols: (theme as Theme & { symbols: import("@oh-my-pi/pi-tui").SymbolTheme }).symbols,
   selectedPrefix: (text) => theme.fg("accent", text),
   selectedText: (text) => theme.fg("accent", text),
   description: (text) => theme.fg("muted", text),

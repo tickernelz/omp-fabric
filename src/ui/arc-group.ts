@@ -1,6 +1,6 @@
 // Tree grouping for stacked footer arcs: every item but the last renders as a
 // continuation (├─) so a block closes with exactly one corner (╰─).
-import type { Theme } from "@earendil-works/pi-coding-agent";
+import type { Theme } from "@oh-my-pi/pi-coding-agent";
 
 const ANSI_ESCAPE = /\x1b\[[0-9;]*m/g;
 const ARC_CLOSING = "╰─ ";

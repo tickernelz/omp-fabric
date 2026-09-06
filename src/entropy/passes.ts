@@ -306,7 +306,7 @@ export const proposeEntropyReductions = (input: EntropyProposalInput): EntropyPr
   }
 
   // sequence-fuse: only successful high-level action sequences repeated in
-  // independent fabric_exec executions can imply a reusable composite. Pi
+  // independent fabric_exec executions can imply a reusable composite. OMP
   // primitives are implementation steps (and should be batched instead),
   // while failed or ignored operations break contiguity rather than being
   // silently bridged. Every ref must be distinct and three executions must
@@ -346,7 +346,7 @@ export const proposeEntropyReductions = (input: EntropyProposalInput): EntropyPr
       if (
         operation.outcome !== "succeeded" ||
         operation.ref.startsWith("fabric.") ||
-        operation.ref.startsWith("pi.")
+        operation.ref.startsWith("omp.")
       ) {
         flush();
       } else {

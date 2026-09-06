@@ -12,41 +12,43 @@ from pier.models.agent.install import AgentInstallSpec, InstallStep
 from pier.models.agent.network import NetworkAllowlist
 
 
-class PiCodingAgent(BaseInstalledAgent):
-    """Pier adapter for paired Pi core and local pi-fabric DeepSWE trials."""
+class OMPCodingAgent(BaseInstalledAgent):
+    """OMP adapter for paired OMP core and local omp-fabric DeepSWE trials."""
 
     SUPPORTS_ATIF = False
 
     def __init__(
         self,
         *args: Any,
-        pi_agent_dir: str,
+        omp_agent_dir: str,
         fabric_package_path: str | None = None,
         thinking_level: str = "low",
-        pi_version: str = "0.83.0",
+        omp_version: str = "18.1.10",
         **kwargs: Any,
     ) -> None:
-        self._pi_agent_dir = Path(pi_agent_dir).resolve()
+        self._omp_agent_dir = Path(omp_agent_dir).resolve()
         self._fabric_package_path = (
             Path(fabric_package_path).resolve() if fabric_package_path else None
         )
         self._thinking_level = thinking_level
-        self._pi_version = pi_version
+        self._omp_version = omp_version
         self._session_logs_dir: Path | None = None
-        if not (self._pi_agent_dir / "auth.json").is_file():
-            raise ValueError(f"Pi auth.json not found under {self._pi_agent_dir}")
+        if not (self._omp_agent_dir / "agent.db").is_file():
+            raise ValueError(
+                f"OMP credential store (agent.db) not found under {self._omp_agent_dir}"
+            )
         if self._fabric_package_path and not self._fabric_package_path.is_file():
             raise ValueError(
-                f"pi-fabric package not found: {self._fabric_package_path}"
+                f"omp-fabric package not found: {self._fabric_package_path}"
             )
-        super().__init__(*args, version=pi_version, **kwargs)
+        super().__init__(*args, version=omp_version, **kwargs)
 
     @staticmethod
     def name() -> str:
-        return "pi"
+        return "omp"
 
     def get_version_command(self) -> str | None:
-        return "pi --version"
+        return "omp --version"
 
     def network_allowlist(self) -> NetworkAllowlist:
         return NetworkAllowlist(
@@ -58,62 +60,62 @@ class PiCodingAgent(BaseInstalledAgent):
         )
 
     def install_spec(self) -> AgentInstallSpec:
-        package = f"@earendil-works/pi-coding-agent@{self._pi_version}"
+        package = f"@oh-my-pi/pi-coding-agent@{self._omp_version}"
         return AgentInstallSpec(
             agent_name=self.name(),
-            version=self._pi_version,
+            version=self._omp_version,
             steps=[
                 InstallStep(
                     user="root",
                     run=(
                         "set -euo pipefail; "
                         "if ! command -v npm >/dev/null; then "
-                        "  echo 'Pi requires Node.js and npm' >&2; exit 1; "
+                        "  echo 'OMP requires Node.js and npm' >&2; exit 1; "
                         "fi; "
                         "if ! command -v rg >/dev/null; then "
                         "  if command -v apt-get >/dev/null; then "
                         "    apt-get update && apt-get install -y ripgrep; "
                         "  elif command -v apk >/dev/null; then apk add --no-cache ripgrep; "
                         "  elif command -v yum >/dev/null; then yum install -y ripgrep; "
-                        "  else echo 'Pi requires ripgrep' >&2; exit 1; fi; "
+                        "  else echo 'OMP requires ripgrep' >&2; exit 1; fi; "
                         "fi; "
                         f"npm install -g --ignore-scripts {shlex.quote(package)}; "
-                        "pi --version"
+                        "omp --version"
                     ),
                 )
             ],
-            verification_command="pi --version",
+            verification_command="omp --version",
         )
 
     async def setup(self, environment: BaseEnvironment) -> None:
         await super().setup(environment)
-        await environment.upload_dir(self._pi_agent_dir, "/tmp/pi-agent")
+        await environment.upload_dir(self._omp_agent_dir, "/tmp/omp-agent")
         ownership = ""
         if environment.default_user is not None:
             user = shlex.quote(str(environment.default_user))
-            ownership = f"chown -R {user} /tmp/pi-agent; "
+            ownership = f"chown -R {user} /tmp/omp-agent; "
         await self.exec_as_root(
             environment,
             command=(
                 ownership
-                + "chmod 700 /tmp/pi-agent; "
-                + "find /tmp/pi-agent -type f -exec chmod 600 {} +"
+                + "chmod 700 /tmp/omp-agent; "
+                + "find /tmp/omp-agent -type f -exec chmod 600 {} +"
             ),
         )
         await self.exec_as_agent(
             environment,
             command=(
-                "git -C /app config user.name 'Pi Agent'; "
-                "git -C /app config user.email 'pi-agent@localhost'"
+                "git -C /app config user.name 'OMP Agent'; "
+                "git -C /app config user.email 'omp-agent@localhost'"
             ),
         )
         if self._fabric_package_path:
             await environment.upload_file(
-                self._fabric_package_path, "/tmp/pi-fabric.tgz"
+                self._fabric_package_path, "/tmp/omp-fabric.tgz"
             )
             await self.exec_as_root(
                 environment,
-                command="npm install -g --ignore-scripts /tmp/pi-fabric.tgz",
+                command="npm install -g --ignore-scripts /tmp/omp-fabric.tgz",
             )
 
     @with_prompt_template
@@ -124,27 +126,27 @@ class PiCodingAgent(BaseInstalledAgent):
         context: AgentContext,
     ) -> None:
         if not self.model_name:
-            raise ValueError("Pi agent requires model_name")
-        remote_session_dir = "/tmp/pi-session"
-        local_session_dir = self.logs_dir / "pi-session"
+            raise ValueError("OMP agent requires model_name")
+        remote_session_dir = "/tmp/omp-session"
+        local_session_dir = self.logs_dir / "omp-session"
         self._session_logs_dir = local_session_dir
         extension_flags = ""
         if self._fabric_package_path:
-            extension_flags = '-e "$(npm root -g)/pi-fabric"'
+            extension_flags = '-e "$(npm root -g)/omp-fabric"'
         else:
             extension_flags = "--no-skills --no-extensions"
         command = " ".join(
             [
-                "mkdir -p /tmp/pi-session /logs/agent;",
-                "PI_CODING_AGENT_DIR=/tmp/pi-agent",
-                "pi --print",
+                "mkdir -p /tmp/omp-session /logs/agent;",
+                "PI_CODING_AGENT_DIR=/tmp/omp-agent",
+                "omp --print",
                 f"--thinking {shlex.quote(self._thinking_level)}",
                 f"--model {shlex.quote(self.model_name)}",
                 f"--session-dir {remote_session_dir}",
-                "--no-prompt-templates --no-context-files --no-themes",
+                "--no-rules",
                 extension_flags,
                 shlex.quote(instruction),
-                "2>&1 </dev/null | tee /logs/agent/pi.txt",
+                "2>&1 </dev/null | tee /logs/agent/omp.txt",
             ]
         )
         try:
@@ -152,7 +154,7 @@ class PiCodingAgent(BaseInstalledAgent):
                 environment,
                 command=command,
                 env=self.build_process_env(
-                    {"PI_CODING_AGENT_DIR": "/tmp/pi-agent"}
+                    {"PI_CODING_AGENT_DIR": "/tmp/omp-agent"}
                 ),
                 cwd="/app",
             )
@@ -162,12 +164,12 @@ class PiCodingAgent(BaseInstalledAgent):
                     remote_session_dir, local_session_dir
                 )
             except Exception as exc:
-                self.logger.warning("Failed to download Pi session: %s", exc)
+                self.logger.warning("Failed to download OMP session: %s", exc)
 
     def populate_context_post_run(self, context: AgentContext) -> None:
         if not self._session_logs_dir or not self._session_logs_dir.exists():
             return
-        metrics = collect_pi_session_metrics(self._session_logs_dir)
+        metrics = collect_omp_session_metrics(self._session_logs_dir)
         context.n_input_tokens = metrics["input_tokens"]
         context.n_cache_tokens = metrics["cache_tokens"]
         context.n_output_tokens = metrics["output_tokens"]
@@ -193,7 +195,7 @@ class PiCodingAgent(BaseInstalledAgent):
         }
 
 
-def collect_pi_session_metrics(session_dir: Path) -> dict[str, Any]:
+def collect_omp_session_metrics(session_dir: Path) -> dict[str, Any]:
     input_tokens = 0
     fresh_input_tokens = 0
     cache_tokens = 0
@@ -282,10 +284,10 @@ def collect_pi_session_metrics(session_dir: Path) -> dict[str, Any]:
                     ref = str(operation.get("ref") or "unknown")
                     nested_calls_by_ref[ref] = nested_calls_by_ref.get(ref, 0) + 1
                     args = operation.get("args") or {}
-                    if ref == "pi.edit" and isinstance(args.get("path"), str):
+                    if ref == "omp.edit" and isinstance(args.get("path"), str):
                         path = args["path"]
                         edit_paths[path] = edit_paths.get(path, 0) + 1
-                    if ref == "pi.read":
+                    if ref == "omp.read":
                         if "offset" in args or "limit" in args:
                             bounded_reads += 1
                         else:

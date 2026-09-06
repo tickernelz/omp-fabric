@@ -57,8 +57,8 @@ describe("codeUsesOrchestration", () => {
   });
 
   it("ignores plain tool calls and property access", () => {
-    expect(codeUsesOrchestration('return pi.read({ path: "x" });')).toBe(false);
-    expect(codeUsesOrchestration('return tools.call({ ref: "pi.read", args: {} });')).toBe(false);
+    expect(codeUsesOrchestration('return omp.read({ path: "x" });')).toBe(false);
+    expect(codeUsesOrchestration('return tools.call({ ref: "omp.read", args: {} });')).toBe(false);
     expect(codeUsesOrchestration('return obj.agent("x");')).toBe(false);
     expect(codeUsesOrchestration('return userAgent("x");')).toBe(false);
     expect(codeUsesOrchestration('return worker("x");')).toBe(false);

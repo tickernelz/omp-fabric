@@ -1,12 +1,11 @@
 import { existsSync, readFileSync, realpathSync } from "node:fs";
 import path from "node:path";
 
-export const MINIMUM_PI_HOST_VERSION = "0.80.6";
+export const MINIMUM_OMP_HOST_VERSION = "18.1.10";
 
-const PI_HOST_PACKAGE_NAMES = new Set([
-  "@earendil-works/pi-coding-agent",
-  "@mariozechner/pi-coding-agent",
-]);
+const OMP_HOST_PACKAGE_NAMES: Record<string, true> = {
+  "@oh-my-pi/pi-coding-agent": true,
+};
 
 interface ParsedVersion {
   numbers: [number, number, number];
@@ -36,7 +35,7 @@ export const compareVersions = (left: string, right: string): number | undefined
   return (a.prerelease ?? "").localeCompare(b.prerelease ?? "");
 };
 
-export const detectPiHostVersion = (
+export const detectOmpHostVersion = (
   cliPath: string | undefined = process.argv[1],
 ): string | undefined => {
   if (!cliPath) return undefined;
@@ -56,13 +55,12 @@ export const detectPiHostVersion = (
         };
         if (
           typeof manifest.name === "string" &&
-          PI_HOST_PACKAGE_NAMES.has(manifest.name) &&
+          OMP_HOST_PACKAGE_NAMES[manifest.name] === true &&
           typeof manifest.version === "string"
         ) {
           return manifest.version;
         }
       } catch {
-        // Keep walking when a parent package manifest is unreadable.
       }
     }
     const parent = path.dirname(directory);
@@ -71,11 +69,11 @@ export const detectPiHostVersion = (
   }
 };
 
-export const piHostCompatibilityWarning = (
-  version: string | undefined = detectPiHostVersion(),
+export const ompHostCompatibilityWarning = (
+  version: string | undefined = detectOmpHostVersion(),
 ): string | undefined => {
   if (!version) return undefined;
-  const comparison = compareVersions(version, MINIMUM_PI_HOST_VERSION);
+  const comparison = compareVersions(version, MINIMUM_OMP_HOST_VERSION);
   if (comparison === undefined || comparison >= 0) return undefined;
-  return "Pi Fabric requires Pi >= " + MINIMUM_PI_HOST_VERSION + "; detected " + version + ". Actor triggerTurn and other host continuations may be ignored. Upgrade Pi before relying on actor delivery.";
+  return `OMP Fabric requires OMP >= ${MINIMUM_OMP_HOST_VERSION}; detected ${version}. Upgrade OMP before relying on Fabric continuation behavior.`;
 };

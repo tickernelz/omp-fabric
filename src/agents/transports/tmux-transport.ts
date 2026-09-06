@@ -10,7 +10,7 @@ import {
   workerCommand,
 } from "./process-utils.js";
 
-const sessionName = (id: string): string => `pi-fabric-${id.slice(0, 12)}`;
+const sessionName = (id: string): string => `omp-fabric-${id.slice(0, 12)}`;
 
 export class TmuxTransport implements AgentTransportAdapter {
   readonly kind = "tmux" as const;

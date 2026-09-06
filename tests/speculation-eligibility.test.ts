@@ -18,7 +18,7 @@ describe("speculation eligibility", () => {
   it("admits Tier-A reads with none effects", () => {
     expect(
       isSpeculationEligible(
-        view({ ref: "pi.read", provider: "pi" }),
+        view({ ref: "omp.read", provider: "omp" }),
         [],
       ),
     ).toBe(true);
@@ -27,10 +27,10 @@ describe("speculation eligibility", () => {
 
   it("refuses Tier-A refs whose descriptor drifted from the read contract", () => {
     expect(
-      isSpeculationEligible(view({ ref: "pi.read", provider: "pi", risk: "execute" }), []),
+      isSpeculationEligible(view({ ref: "omp.read", provider: "omp", risk: "execute" }), []),
     ).toBe(false);
     expect(
-      isSpeculationEligible(view({ ref: "pi.read", provider: "pi", effectKind: "emission" }), []),
+      isSpeculationEligible(view({ ref: "omp.read", provider: "omp", effectKind: "emission" }), []),
     ).toBe(false);
   });
 

@@ -1,10 +1,10 @@
 import path from "node:path";
 import { readChildToolAllowlist } from "../core/child-tool-allowlist.js";
 import { runAbortable, throwIfAborted } from "../async-settlement.js";
-import type { AgentToolResult, SourceInfo } from "@earendil-works/pi-coding-agent";
+import type { AgentToolResult, SourceInfo, ToolDefinition } from "@oh-my-pi/pi-coding-agent";
 import { CapturedToolCatalog, type CapturedToolEntry } from "../capture/catalog.js";
-import { classifyPiBashError, piBashResultError } from "../core/pi-bash-error.js";
-import { isPiShellToolName } from "../core/pi-tools.js";
+import { classifyOmpBashError, ompBashResultError } from "../core/omp-bash-error.js";
+import { isOmpShellToolName } from "../core/omp-tools.js";
 import type {
   FabricActionDescriptor,
   FabricInvocationContext,
@@ -37,13 +37,27 @@ const sourceLabel = (sourceInfo: SourceInfo): string => {
   return path.basename(path.dirname(sourceInfo.path)) || sourceInfo.source;
 };
 
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+const schemaDocument = (schema: unknown): Record<string, unknown> => {
+  if (isRecord(schema)) return schema;
+  if (typeof schema === "function" && "toJsonSchema" in schema) {
+    const toJsonSchema = schema.toJsonSchema;
+    if (typeof toJsonSchema === "function") {
+      const document = toJsonSchema.call(schema);
+      if (isRecord(document)) return document;
+    }
+  }
+  return {};
+};
 const capturedToolNamespace = (entry: CapturedToolEntry): string =>
   `extension:${sourceLabel(entry.sourceInfo)}`;
 
 const descriptorFrom = (entry: CapturedToolEntry): FabricActionDescriptor => ({
   name: entry.name,
   description: `${entry.definition.description} (captured from ${sourceLabel(entry.sourceInfo)})`,
-  inputSchema: entry.definition.parameters as Record<string, unknown>,
+  inputSchema: schemaDocument(entry.definition.parameters),
   risk: entry.risk,
   namespace: capturedToolNamespace(entry),
 });
@@ -52,14 +66,17 @@ const asInvocationResult = (
   entry: CapturedToolEntry,
   result: AgentToolResult<unknown>,
   isError: boolean,
-): CapturedToolInvocationResult => ({
-  content: result.content,
-  text: textFromContent(result.content),
-  ...(result.details !== undefined ? { details: result.details } : {}),
-  isError,
-  ...(result.terminate !== undefined ? { terminate: result.terminate } : {}),
-  source: entry.sourceInfo,
-});
+): CapturedToolInvocationResult => {
+  const captured = result as AgentToolResult<unknown> & { terminate?: boolean };
+  return {
+    content: captured.content,
+    text: textFromContent(captured.content),
+    ...(captured.details !== undefined ? { details: captured.details } : {}),
+    isError,
+    ...(captured.terminate !== undefined ? { terminate: captured.terminate } : {}),
+    source: entry.sourceInfo,
+  };
+};
 
 class CapturedToolScheduler {
   #sequentialTail: Promise<void> = Promise.resolve();
@@ -91,7 +108,7 @@ class CapturedToolScheduler {
 export class CapturedToolsProvider implements FabricProvider {
   readonly name = "extensions";
   readonly description =
-    "Tools captured from other Pi extensions and invoked lazily through Fabric";
+    "Tools captured from other OMP extensions and invoked lazily through Fabric";
 
   readonly #scheduler = new CapturedToolScheduler();
   readonly #allowedTools = readChildToolAllowlist();
@@ -123,7 +140,10 @@ export class CapturedToolsProvider implements FabricProvider {
 
   prepareArguments(actionName: string, args: Record<string, unknown>): Record<string, unknown> {
     this.#assertAllowed(actionName);
-    const prepare = this.catalog.require(actionName).wrappedTool.prepareArguments;
+    const entry = this.catalog.require(actionName);
+    const prepare = (entry.definition as ToolDefinition<any, any> & {
+      prepareArguments?: (args: Record<string, unknown>) => unknown;
+    }).prepareArguments;
     if (!prepare) return args;
     const prepared = prepare(args);
     if (typeof prepared !== "object" || prepared === null || Array.isArray(prepared)) {
@@ -139,7 +159,9 @@ export class CapturedToolsProvider implements FabricProvider {
   ): Promise<CapturedToolInvocationResult> {
     this.#assertAllowed(actionName);
     const entry = this.catalog.require(actionName);
-    return this.#scheduler.run(entry.definition.executionMode, () =>
+    const mode = (entry.definition as ToolDefinition<any, any> & { executionMode?: unknown }).executionMode;
+    const schedulingMode = mode === "parallel" || mode === "sequential" ? mode : undefined;
+    return this.#scheduler.run(schedulingMode, () =>
       runAbortable(context.signal, () => this.#invokeCaptured(entry, args, context)),
     );
   }
@@ -182,7 +204,7 @@ export class CapturedToolsProvider implements FabricProvider {
       }
       executionStarted = true;
       const requestedCwd = args.cwd;
-      const executionContext = isPiShellToolName(entry.name) && typeof requestedCwd === "string"
+      const executionContext = isOmpShellToolName(entry.name) && typeof requestedCwd === "string"
         ? { ...runner.createContext(), cwd: requestedCwd }
         : undefined;
       result = await runAbortable(context.signal, () =>
@@ -202,8 +224,12 @@ export class CapturedToolsProvider implements FabricProvider {
           .catch(() => undefined);
         }, executionContext),
       );
+      isError = result.isError === true;
+      if (isError && isOmpShellToolName(entry.name)) {
+        thrown = classifyOmpBashError(new Error(textFromContent(result.content)));
+      }
     } catch (error) {
-      thrown = isPiShellToolName(entry.name) && executionStarted ? classifyPiBashError(error) : error;
+      thrown = isOmpShellToolName(entry.name) && executionStarted ? classifyOmpBashError(error) : error;
       isError = true;
       result = {
         content: [
@@ -232,6 +258,7 @@ export class CapturedToolsProvider implements FabricProvider {
         ...result,
         content: patch.content ?? result.content,
         ...(patch.details !== undefined ? { details: patch.details } : {}),
+        ...(patch.isError !== undefined ? { isError: patch.isError } : {}),
       };
       isError = patch.isError ?? isError;
     }
@@ -245,8 +272,8 @@ export class CapturedToolsProvider implements FabricProvider {
     }));
 
     if (isError) {
-      if (isPiShellToolName(entry.name)) {
-        throw piBashResultError(thrown, textFromContent(result.content));
+      if (isOmpShellToolName(entry.name)) {
+        throw ompBashResultError(thrown, textFromContent(result.content));
       }
       const text = textFromContent(result.content).trim();
       throw new Error(

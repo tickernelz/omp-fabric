@@ -54,12 +54,11 @@ describe("code preview startup", () => {
       isError: false,
       invalidate() {},
     } as any;
-    const shell = decorated.renderCall({}, theme, context);
+    const shell = decorated.renderCall({}, { expanded: false, isPartial: true, renderContext: context }, theme);
     decorated.renderResult(
       { content: [] },
-      { expanded: false, isPartial: true },
+      { expanded: false, isPartial: true, renderContext: context },
       theme,
-      context,
     );
     const rows = shell.render(20);
     expect(decorated.renderShell).toBe("self");
@@ -87,12 +86,11 @@ describe("code preview startup", () => {
       isPartial: false,
     } as any;
     const theme = { fg: (_color: string, text: string) => text, bold: (text: string) => text } as any;
-    decorated.renderCall({}, theme, context);
+    decorated.renderCall({}, { expanded: false, isPartial: false, renderContext: context }, theme);
     const result = decorated.renderResult(
       { content: [] },
-      { expanded: false, isPartial: false },
+      { expanded: false, isPartial: false, renderContext: context },
       theme,
-      context,
     );
     expect(result.render(80)).toEqual(["result"]);
   });

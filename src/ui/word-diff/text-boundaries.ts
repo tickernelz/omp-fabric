@@ -127,7 +127,10 @@ function graphemeStartAtOrBefore(
 ): number {
   if (offset <= 0) return 0;
   if (offset >= textLength) return textLength;
-  return segments.containing(offset)?.index ?? offset;
+  const segment = segments.containing(offset - 1);
+  if (!segment) return offset;
+  const segmentEnd = segment.index + segment.segment.length;
+  return segmentEnd === offset ? offset : segment.index;
 }
 
 function graphemeEndAtOrAfter(

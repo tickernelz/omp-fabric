@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
 import { CapturedToolCatalog } from "../src/capture/catalog.js";
 import { normalizeFabricConfig } from "../src/config.js";
@@ -17,10 +17,10 @@ import {
 
 describe("Fabric runtime provider components", () => {
   it("activates every enabled built-in component before execution and discovery", async () => {
-    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-runtime-components-"));
-    fs.mkdirSync(path.join(cwd, ".pi"), { recursive: true });
-    vi.stubEnv("PI_CODING_AGENT_DIR", path.join(cwd, "agent"));
-    vi.stubEnv("PI_FABRIC_PROJECT_ROOT", cwd);
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-runtime-components-"));
+    fs.mkdirSync(path.join(cwd, ".omp"), { recursive: true });
+    vi.stubEnv("OMP_FABRIC_AGENT_DIR", path.join(cwd, "agent"));
+    vi.stubEnv("OMP_FABRIC_PROJECT_ROOT", cwd);
 
     let runtime!: FabricRuntimeState;
     const discoverySnapshots: Array<{ initialized: boolean; active: string[] }> = [];
@@ -124,7 +124,7 @@ describe("Fabric runtime provider components", () => {
           "fabric.provider.mcp",
           "fabric.provider.memory",
           "fabric.provider.mesh",
-          "fabric.provider.pi",
+          "fabric.provider.omp",
           "fabric.provider.schema",
           "fabric.provider.state",
         ],
@@ -143,7 +143,7 @@ describe("Fabric runtime provider components", () => {
       expect(builtins).toEqual(
         expect.arrayContaining([
           ...[
-            "pi",
+            "omp",
             "extensions",
             "mcp",
             "mesh",
@@ -188,10 +188,10 @@ describe("Fabric runtime provider components", () => {
   });
 
   it("freezes repair surfaces across capture suspension and reload", async () => {
-    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-runtime-repairs-"));
-    fs.mkdirSync(path.join(cwd, ".pi"), { recursive: true });
-    vi.stubEnv("PI_CODING_AGENT_DIR", path.join(cwd, "agent"));
-    vi.stubEnv("PI_FABRIC_PROJECT_ROOT", cwd);
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-runtime-repairs-"));
+    fs.mkdirSync(path.join(cwd, ".omp"), { recursive: true });
+    vi.stubEnv("OMP_FABRIC_AGENT_DIR", path.join(cwd, "agent"));
+    vi.stubEnv("OMP_FABRIC_PROJECT_ROOT", cwd);
 
     const pi = {
       events: { emit: vi.fn() },

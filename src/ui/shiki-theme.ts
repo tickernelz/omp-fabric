@@ -2,10 +2,10 @@ import type { ThemeRegistration } from "shiki";
 
 // Theme resolution for issue #46.
 //
-// Pi's extension host cannot resolve shiki's internal lazy
+// OMP's extension host cannot resolve shiki's internal lazy
 // `import("@shikijs/themes/<id>)` (triggered when createHighlighter is handed
 // a bare theme *id string*), so previews fell back to plain text. We resolve
-// each theme object from pi-fabric's own module graph with static imports and
+// each theme object from omp-fabric's own module graph with static imports and
 // hand createHighlighter the *object*, so shiki never performs that
 // host-fragile subpath import at runtime.
 //

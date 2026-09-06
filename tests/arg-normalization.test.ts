@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 import { describe, expect, it, afterEach } from "vitest";
 import {
   actionArgNormalizer,
@@ -32,7 +32,7 @@ import {
 
 const tmpRoots: string[] = [];
 const makeTempDir = (prefix: string): string => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), `pi-fabric-argnorm-${prefix}-`));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), `omp-fabric-argnorm-${prefix}-`));
   tmpRoots.push(dir);
   return dir;
 };

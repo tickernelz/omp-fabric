@@ -1,6 +1,6 @@
 // Adapted from pi-code-previews; see THIRD_PARTY_NOTICES.md.
-import type { Theme } from "@earendil-works/pi-coding-agent";
-import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import type { Theme } from "@oh-my-pi/pi-coding-agent";
+import { truncateToWidth, visibleWidth } from "@oh-my-pi/pi-tui";
 import { ansi256ToRgb, observedThemeVariant } from "./highlight.js";
 
 export type DiffBackgroundIntensity = "off" | "subtle" | "medium";

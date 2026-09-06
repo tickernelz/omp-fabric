@@ -1,8 +1,8 @@
 # Deterministic compaction
 
-Pi Fabric provides an LLM-free compactor through `session_before_compact`. This compactor is the default engine. Set `compaction.engine` to `"pi"` to defer to Pi's compactor.
+OMP Fabric provides an LLM-free compactor through `session_before_compact`. This compactor is the default engine. Set `compaction.engine` to `"omp"` to defer to OMP's native compactor.
 
-Fabric keeps a bounded recent raw continuity tail after compaction. The tail uses Pi's active `keepRecentTokens` setting, which defaults to 20,000 tokens. Fabric rebuilds the older state into its deterministic summary. Pi's native cut and Codex-style checkpoint compaction use the same fresh-window principle. The summary carries durable state, and a small raw suffix keeps the recent conversation coherent for the model.
+Fabric keeps a bounded recent raw continuity tail after compaction. The tail uses OMP's active `keepRecentTokens` setting, which defaults to 20,000 tokens. Fabric rebuilds the older state into its deterministic summary. OMP's native cut and Codex-style checkpoint compaction use the same fresh-window principle. The summary carries durable state, and a small raw suffix keeps the recent conversation coherent for the model.
 
 `compaction.targetContextRatio` sets a hard occupancy ceiling that applies after compaction. Fabric never treats the ceiling as space to fill. The value defaults to 65%, and you can change it from `/fabric-settings` (shown as **Max occupancy**) or in JSON. Allowed values are bounded to `0.25`–`0.85`:
 
@@ -15,7 +15,7 @@ Fabric keeps a bounded recent raw continuity tail after compaction. The tail use
 }
 ```
 
-Configure Pi's continuity tail in Pi's `settings.json`:
+Configure OMP's continuity tail in OMP's `settings.json`:
 
 ```json
 {
@@ -25,13 +25,13 @@ Configure Pi's continuity tail in Pi's `settings.json`:
 }
 ```
 
-Use `{ "compaction": { "engine": "pi" } }` to disable the Fabric engine.
+Use `{ "compaction": { "engine": "omp" } }` to defer to OMP's native compaction engine.
 
 `/fabric settings` also exposes a **Threshold** for the active model. It
 supports two modes: a window-occupancy percent or an exact token count
 ("Custom tokens…"). Fabric stores thresholds by canonical `provider/model`
-key, so switching models selects that model's own value. `Pi default` clears
-both maps and leaves Pi's built-in threshold unchanged.
+key, so switching models selects that model's own value. `OMP default` clears
+both maps and leaves OMP's built-in threshold unchanged.
 
 ```json
 {
@@ -49,23 +49,24 @@ both maps and leaves Pi's built-in threshold unchanged.
 
 Fabric bounds percent thresholds to `0.25`–`0.95` and rounds token thresholds
 to integers bounded to `1,000`–`100,000,000`. When a hand-written config sets
-both for one model, the token threshold wins. A configured threshold lower
-than Pi's built-in threshold makes Fabric trigger compaction at a safe settled
-boundary. When Pi's built-in threshold is lower, Fabric defers that automatic
-compaction until the model reaches its model-specific threshold. Fabric never
-defers overflow and manual compactions.
+both for one model, the token threshold wins. A configured threshold makes
+Fabric trigger compaction at a safe settled boundary once the active model
+reaches it. OMP's own automatic compaction keeps its built-in trigger: the
+host's `session_before_compact` event carries no trigger reason, so Fabric
+cannot tell an automatic threshold compaction apart from an overflow or manual
+one and never defers the host's automatic pass.
 
 ## Invariants
 
 1. **The session log is ground truth.** The summary is a bounded continuation view with stable entry-id and file addresses.
 2. **Live cut and cumulative truth are separate.** The cut comes from the window made live by the last compaction. Fabric rebuilds the summary from every raw, typed, content-bearing entry on the supplied active branch prefix before the new kept boundary.
-3. **Rendered summaries are never semantic input.** `compaction` entries, branch-summary prose, custom summary prose, and unknown roles produce no normalized events. A valid Fabric branch-summary details envelope may contribute its typed facts. Its `summary` string never contributes. Top-level Pi `custom_message` entries work differently: Pi puts them in model context, so Fabric preserves their typed `customType`, text content, visibility, and bounded JSON details. `custom` state entries that bear no context remain excluded.
+3. **Rendered summaries are never semantic input.** `compaction` entries, branch-summary prose, custom summary prose, and unknown roles produce no normalized events. A valid Fabric branch-summary details envelope may contribute its typed facts. Its `summary` string never contributes. Top-level OMP `custom_message` entries work differently: OMP puts them in model context, so Fabric preserves their typed `customType`, text content, visibility, and bounded JSON details. `custom` state entries that bear no context remain excluded.
 4. **Structure drives projection.** The core uses entry/message types, roles, content-part types, custom-message fields, tool names, typed `fabric_exec` display fields, JSON arguments, call ids, `isError`, aggregate trace outcomes, exit codes, entry ids, ordering, valid Fabric execution traces, and valid Fabric branch-summary facts. It applies no semantic regex over prose, code, shell commands, or tool output. Whitespace normalization, bounded truncation, exact identity comparisons, and path segmentation stay mechanical.
 5. **Serialization is deterministic and bounded.** Identical branch entries and instructions produce byte-identical output. The rendered result is at most 32 KiB in UTF-8.
-6. **The nominal model window is the safety boundary.** Fabric never treats it as a target to fill. Fabric calibrates Pi's structural token estimate against `preparation.tokensBefore`, retains the largest closure-safe suffix within Pi's bounded `keepRecentTokens` continuity budget, and treats the configured occupancy ratio, Pi response reserve, estimator-error margin, and pre-compaction size as hard ceilings. Undocumented provider headroom never enters the budget.
+6. **The nominal model window is the safety boundary.** Fabric never treats it as a target to fill. Fabric calibrates OMP's structural token estimate against `preparation.tokensBefore`, retains the largest closure-safe suffix within OMP's bounded `keepRecentTokens` continuity budget, and treats the configured occupancy ratio, OMP response reserve, estimator-error margin, and pre-compaction size as hard ceilings. Undocumented provider headroom never enters the budget.
 
 These invariants prevent summary-chain drift and deterministic
-forgetting. Pi replaces the previous rendered summary on each compaction.
+forgetting. OMP replaces the previous rendered summary on each compaction.
 Fabric still re-derives the original goal, cumulative successful file
 addresses, error state, and user scope changes from raw branch history every
 time.
@@ -84,7 +85,7 @@ normal work, a bounded raw tail for immediate local coherence, and
 integrity-bound source recall for exact old detail. Deleting the source
 session removes the final exact-recall layer.
 
-## Pipeline
+## OMP pipeline
 
 ```text
 active branch entries ─┬─► live window ─► calibrated token budget ─► closure-safe cut ─► firstKeptEntryId
@@ -95,7 +96,7 @@ active branch entries ─┬─► live window ─► calibrated token budget �
 - `projections.ts` computes goal, file, operation-state, turn, status, and transcript views.
 - `enrichers.ts` permits deterministic optional annotations. Fabric ships no built-in enrichers.
 - `render.ts` independently bounds every rendered block and enforces the global UTF-8 limit.
-- `hook.ts` computes the live cut, selects cumulative source, emits v2 details, and implements Pi/pi-vcc precedence.
+- `hook.ts` computes the live cut, selects cumulative source, and emits v2 details for the configured OMP or Fabric engine.
 
 ## Live cut and closure
 
@@ -105,13 +106,13 @@ The last compaction marker identifies the live window:
 - a compact-all marker or missing/orphan kept id starts it after the marker.
 - without a marker, the whole supplied active path is live.
 
-When Pi supplies the active model metadata, Fabric chooses the live cut from a calibrated bounded continuity budget:
+When OMP supplies the active model metadata, Fabric chooses the live cut from a calibrated bounded continuity budget:
 
-1. Sum Pi's public structural message estimates for the current context.
+1. Sum OMP's public structural message estimates for the current context.
 2. Calibrate that estimate with `preparation.tokensBefore`, which compensates for provider tokenization, system prompts, tool schemas, and other fixed context that a character heuristic cannot observe directly.
-3. Set the continuity target to calibrated fixed overhead plus Pi's `keepRecentTokens` and the maximum 32 KiB summary reservation. The absolute recent-tail budget does not grow with a 200K, 1M, or proxy-inflated advertised window.
+3. Set the continuity target to calibrated fixed overhead plus OMP's `keepRecentTokens` and the maximum 32 KiB summary reservation. The absolute recent-tail budget does not grow with a 200K, 1M, or proxy-inflated advertised window.
 4. Clamp that target to all independent safety ceilings: `contextWindow × targetContextRatio`, 90% of `contextWindow - reserveTokens`, and 95% of `tokensBefore`. The last ceiling prevents a low-usage manual compaction from expanding context. The advertised window is authoritative for threshold and manual compaction. Overflow recovery treats the failed request as stronger evidence: an API rejection proves the effective window is below `tokensBefore`, so Fabric first clamps the working window to 90% of the observed failed size.
-5. Select the earliest eligible boundary whose retained suffix fits the resulting raw-tail budget. Suffix size decreases monotonically, so this boundary gives the largest legal raw suffix. User/custom boundaries and assistant boundaries are both eligible, which lets Fabric split a single enormous autonomous turn during compaction. On repeated compaction, the kept boundary must follow the previous compaction marker in raw log order. Pi replays entries contiguously from `firstKeptEntryId`, so a boundary before that marker would replay the old rendered summary beside the new one.
+5. Select the earliest eligible boundary whose retained suffix fits the resulting raw-tail budget. Suffix size decreases monotonically, so this boundary gives the largest legal raw suffix. User/custom boundaries and assistant boundaries are both eligible, which lets Fabric split a single enormous autonomous turn during compaction. On repeated compaction, the kept boundary must follow the previous compaction marker in raw log order. OMP replays entries contiguously from `firstKeptEntryId`, so a boundary before that marker would replay the old rendered summary beside the new one.
 
 Fabric computes structural spans for every call id across the supplied branch
 and rejects every candidate cut that separates an actual call/result pair.
@@ -129,7 +130,7 @@ the compaction to avoid persisting an expanding or over-budget result. If
 model metadata is unavailable, the legacy latest-turn closure-safe cut remains
 as a compatibility fallback.
 
-The live cut determines only what Pi keeps. The summary source is the raw
+The live cut determines only what OMP keeps. The summary source is the raw
 active-branch prefix before that new boundary. Normalization skips earlier
 compaction and branch-summary prose within that prefix.
 
@@ -190,7 +191,7 @@ The clean core retains only these mechanical text operations:
 - segment typed paths on `/` or `\\` to compute display roots.
 - split a typed Fabric ref once on `.` to expose provider/action identity.
 - inspect the explicit typed `created: true` result field for write classification.
-- match only the exact `__pi_vcc__` sentinel or exact typed-request prefix, then use a bounded structural JSON parser.
+- decode the exact typed Fabric request prefix with a bounded structural JSON parser.
 
 The core never recovers command prefixes, stdout/stderr line formats, error
 wording, path-looking prose, commit-looking prose, source code, or tool-result
@@ -198,7 +199,7 @@ renderings into semantic facts.
 
 ## Custom instructions
 
-`customInstructions === "__pi_vcc__"` is an exact routing sentinel. Fabric never renders that value.
+Plain custom instructions are always explicit user data; Fabric never treats a reserved text sentinel as routing control.
 
 Fabric treats every other plain instruction as explicit user data. It
 canonicalizes whitespace, bounds the input, and includes the text in
@@ -221,7 +222,7 @@ bytes. The complete prefix-plus-JSON source must fit within 16 KiB. The
 decoder checks the aggregate source limit before invoking its bounded
 recursive-descent parser. While parsing, it rejects duplicate decoded keys and
 validates scalar grammar and surrogate pairing. It checks the preserve count
-before it iterates or canonicalizes values. Plain Pi and manual instructions
+before it iterates or canonicalizes values. Plain OMP and manual instructions
 stay explicit bounded text and never run through the typed protocol parser.
 
 ## Compaction details v2
@@ -234,7 +235,7 @@ New summaries emit `details.compactor: "fabric"` and `details.version: 2` with:
 - per-projection omission counts, the typed preserve count (valid v1 requests cannot exceed the preserve limit), and the structural count of erased assistant thinking blocks.
 - instruction mode, canonicalization, source size, truncation, and preserve counts.
 - stable kept/source entry-id addresses and the source timestamp.
-- when continuity budgeting is active: effective window, occupancy ceiling ratio/tokens, continuity target, reserve and reduction ceilings, the binding constraint, Pi reserve/recent settings, raw estimate, calibration scale, fixed overhead, raw-tail budget, retained raw tokens, and Fabric's `projectedTokensAfter`. Pi core independently recomputes its own `estimatedTokensAfter` after persisting the compaction. Legacy v2 records with `strategy: "adaptive"` remain recognized.
+- when continuity budgeting is active: effective window, occupancy ceiling ratio/tokens, continuity target, reserve and reduction ceilings, the binding constraint, OMP reserve/recent settings, raw estimate, calibration scale, fixed overhead, raw-tail budget, retained raw tokens, and Fabric's `projectedTokensAfter`. OMP core independently recomputes its own `estimatedTokensAfter` after persisting the compaction. Legacy v2 records with `strategy: "adaptive"` remain recognized.
 
 Fabric recognizes exact versions 1 and 2 only. v1 details and rendered prose
 never serve as truth. An old session migrates to v2 on the next compaction,
@@ -258,8 +259,8 @@ operations remain the authoritative evidence. Normalization reads nested
 execution only from `message.details.trace` through
 `readFabricExecutionTraceV1`. Emitted operations follow `operation.sequence`
 order with addresses such as `entry-id/0`, and phases use `entry-id/phase:0`.
-Known `pi.read`, `pi.grep`, `pi.find`, `pi.ls`, `pi.edit`, `pi.write`, and
-`pi.bash` and `pi.powershell` calls retain exact typed arguments and outcomes. Other refs remain
+Known `omp.read`, `omp.grep`, `omp.find`, `omp.ls`, `omp.edit`, `omp.write`, and
+`omp.bash` and `` calls retain exact typed arguments and outcomes. Other refs remain
 typed Fabric activity.
 
 Fabric ignores a present trace version when it is malformed or unknown. It
@@ -277,16 +278,15 @@ When the Fabric engine is active, the same registration also handles
 `session_before_tree`. The handler returns nothing when `userWantsSummary` is
 false, and it compiles only `preparation.entriesToSummarize` when true. Tree
 custom instructions use the same plain/typed decoder and fail-closed limits as
-compaction. The exact `__pi_vcc__` value carries routing meaning only for
-compaction. On the tree path it stays ordinary explicit request text.
+compaction. Plain instructions remain ordinary explicit request text on the tree path.
 
-`replaceInstructions: true` follows Pi replacement-prompt semantics. A
+`replaceInstructions: true` follows OMP replacement-prompt semantics. A
 deterministic projection cannot execute an arbitrary replacement summarizer
-prompt, so Fabric returns `undefined` and defers to Pi or another handler.
+prompt, so Fabric returns `undefined` and defers to OMP or another handler.
 Fabric produces no summary and no typed Fabric branch details in that explicit
 mode.
 
-Branch details use `kind: "pi-fabric.branch-summary"`, current `version: 2`,
+Branch details use `kind: "omp-fabric.branch-summary"`, current `version: 2`,
 stable source addresses, and at most 256 bounded typed facts in a 128 KiB
 envelope. Facts cover source users, top-level custom messages, named Fabric
 runs, phases, and operations. V2 adds bounded `fabricRun` facts that carry the
@@ -294,7 +294,7 @@ declared name and description with the paired outcome. Strict v1 envelopes
 remain readable, and Fabric never reinterprets them as v2. Newly generated
 details record `source.oldLeafId` from `preparation.oldLeafId`, which is the
 canonical abandoned/from-leaf provenance. Older v1 envelopes without that
-field remain readable. Pi 0.80.6 writes the generic `BranchSummaryEntry.fromId`
+field remain readable. The OMP host writes the generic `BranchSummaryEntry.fromId`
 from the navigation target position, and that position differs from the
 abandoned leaf. A hook cannot correct that core-generated field, so consumers
 must use Fabric's typed `source.oldLeafId` when present.
@@ -302,32 +302,19 @@ must use Fabric's typed `source.oldLeafId` when present.
 Nested branch summaries re-emit only valid typed facts, and normalization
 never reads branch summary prose. Later compaction can then resolve
 abandoned-branch failures against later exact successes, and custom context, files, and
-activity survive navigation or forks without any prose parsing. Pi supplies
+activity survive navigation or forks without any prose parsing. OMP supplies
 only the active path or the abandoned `entriesToSummarize` path to each
 compiler, so sibling branches cannot contaminate one another.
 
-## pi-vcc precedence
+## OMP compaction precedence
 
 Precedence remains:
 
-1. exact `__pi_vcc__` custom-instruction sentinel.
-2. configured Fabric engine.
-3. pi-vcc/default Pi behavior.
+1. the configured compaction engine;
+2. OMP's native compaction behavior when the engine is `"omp"`;
+3. Fabric's deterministic summary when the engine is `"fabric"`.
 
-Fabric marks claimed events with `_fabricCompaction`. If an earlier pi-vcc
-handler marked `_piVccOverriding` and Fabric has nothing to compact, Fabric
-returns no cancellation that would erase the pi-vcc result. With engine
-`"pi"`, Fabric lets the event proceed without a claim or cancellation.
-
-Pi's public extension contract runs `session_before_*` handlers in extension
-load order and keeps the latest non-cancelling result. An unrelated handler
-loaded after Fabric can replace Fabric's compaction or tree result. A later
-cancellation terminates dispatch. No supported public registration phase
-can move one extension behind every subsequently loaded extension. Fabric
-preserves the explicit pi-vcc sentinel and marker cooperation above. It never
-monkeypatches Pi's private runner. A deployment that requires Fabric to
-win over arbitrary hooks must load Fabric after those extensions, while
-accounting for a pi-vcc override that loads later.
+Fabric marks claimed events with `_fabricCompaction`. OMP's public extension contract runs `session_before_*` handlers in extension load order and keeps the latest non-cancelling result. An unrelated handler loaded after Fabric can replace Fabric's compaction or tree result. A later cancellation terminates dispatch. Fabric never monkeypatches OMP's private runner.
 
 ## Reconstruction QA
 
@@ -341,5 +328,5 @@ information to verify that the report detects loss.
 Run:
 
 ```sh
-pnpm vitest run tests/compaction-qa.test.ts
+bun vitest run tests/compaction-qa.test.ts
 ```

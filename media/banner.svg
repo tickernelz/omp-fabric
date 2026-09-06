@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 110 1200 310" width="1200" height="310">
-  <title>pi-fabric — one checked TypeScript program weaving pi core tools, MCP servers, agents, and mesh into a single result</title>
+  <title>omp-fabric — one checked TypeScript program weaving pi core tools, MCP servers, agents, and mesh into a single result</title>
   <defs>
     <pattern id="warp" width="36" height="36" patternUnits="userSpaceOnUse">
       <path d="M 36 0 H 0 V 36" fill="none" stroke="#21262d" stroke-width="1"/>
@@ -43,10 +43,10 @@
     <animate attributeName="opacity" from="0" to="1" dur="0.01s" begin="0.85s" fill="freeze"/><tspan fill="#ff7b72">const</tspan><tspan> [man, srcs] = </tspan><tspan fill="#ff7b72">await</tspan><tspan> Promise.all([</tspan>
   </text>
   <text x="308" y="236" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#c9d1d9" opacity="0">
-    <animate attributeName="opacity" from="0" to="1" dur="0.01s" begin="1.17s" fill="freeze"/><tspan>pi.read({ path: </tspan><tspan fill="#a5d6ff">"package.json"</tspan><tspan> }),</tspan>
+    <animate attributeName="opacity" from="0" to="1" dur="0.01s" begin="1.17s" fill="freeze"/><tspan>omp.read({ path: </tspan><tspan fill="#a5d6ff">"package.json"</tspan><tspan> }),</tspan>
   </text>
   <text x="308" y="260" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#c9d1d9" opacity="0">
-    <animate attributeName="opacity" from="0" to="1" dur="0.01s" begin="1.49s" fill="freeze"/><tspan>pi.find({ pattern: </tspan><tspan fill="#a5d6ff">"src/**/*.ts"</tspan><tspan> }),</tspan>
+    <animate attributeName="opacity" from="0" to="1" dur="0.01s" begin="1.49s" fill="freeze"/><tspan>omp.find({ pattern: </tspan><tspan fill="#a5d6ff">"src/**/*.ts"</tspan><tspan> }),</tspan>
   </text>
   <text x="292" y="284" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#c9d1d9" opacity="0">
     <animate attributeName="opacity" from="0" to="1" dur="0.01s" begin="1.81s" fill="freeze"/><tspan>]);</tspan>

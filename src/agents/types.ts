@@ -1,8 +1,8 @@
-import type { ImageContent } from "@earendil-works/pi-ai";
+import type { ImageContent } from "@oh-my-pi/pi-ai";
 import type {
   SessionEntry,
   SessionMessageEntry,
-} from "@earendil-works/pi-coding-agent";
+} from "@oh-my-pi/pi-coding-agent";
 import type { FabricAgentRunner, FabricAgentTransport } from "../config.js";
 import type { ThinkingTransferInput } from "./thinking-transfer.js";
 import type { FabricThinking } from "../thinking.js";
@@ -65,7 +65,7 @@ export interface AgentRunRequest {
   capabilityDigest?: string;
   meshRoot?: string;
   runnerSessionId?: string;
-  /** Host-created Pi branch seed ending with the native outer fabric_exec result. */
+  /** Host-created OMP branch seed ending with the native outer fabric_exec result. */
   sessionSeed?: AgentSessionSeed;
   /** Source/executor reasoning channels for trajectory thinking transfer. */
   thinkingTransfer?: ThinkingTransferInput | undefined;
@@ -177,7 +177,7 @@ export interface AgentWorkerOptions {
   logFile: string;
   schemaFile?: string;
   cwd: string;
-  piBinary: string;
+  ompBinary: string;
   claudeBinary: string;
   vedaBinary: string;
   vedaBackend: string;

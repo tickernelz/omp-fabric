@@ -1,4 +1,4 @@
-import type { Theme } from "@earendil-works/pi-coding-agent";
+import type { Theme } from "@oh-my-pi/pi-coding-agent";
 import { describe, expect, it } from "vitest";
 import { FabricModelSelector } from "../src/ui/fabric-model-selector.js";
 import { INHERIT_VALUE, type ModelSource } from "../src/ui/model-picker.js";

@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { SessionManager } from "@earendil-works/pi-coding-agent";
+import { SessionManager } from "@oh-my-pi/pi-coding-agent";
 import { afterEach, describe, expect, it } from "vitest";
 import type { FabricMemoryConfig } from "../src/config.js";
 import { encodeCwdDir } from "../src/memory/discovery.js";
@@ -20,7 +20,7 @@ import {
 
 const temporaryDirectories: string[] = [];
 const temporaryDirectory = (name: string): string => {
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), `pi-fabric-memory-lineage-${name}-`));
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), `omp-fabric-memory-lineage-${name}-`));
   temporaryDirectories.push(directory);
   return directory;
 };
@@ -65,7 +65,7 @@ const memoryConfig = (
 });
 
 const branchDetails = (facts: Array<Record<string, unknown>>) => ({
-  kind: "pi-fabric.branch-summary",
+  kind: "omp-fabric.branch-summary",
   version: 1,
   source: { firstEntryId: "abandoned-source", lastEntryId: "abandoned-source", entryCount: 1 },
   facts,
@@ -74,7 +74,7 @@ const branchDetails = (facts: Array<Record<string, unknown>>) => ({
   request: { text: "", sourceBytes: 0, truncated: false },
 });
 
-describe("memory active lineage and privacy policy", () => {
+describe("memory active lineage and privacy policy", async () => {
   it("defaults to the latest persisted parent-linked branch and exposes siblings only in all mode", async () => {
     const agentDir = temporaryDirectory("tree-agent");
     const indexDir = temporaryDirectory("tree-index");
@@ -120,7 +120,7 @@ describe("memory active lineage and privacy policy", () => {
       message("navigated-leaf", "root", "LIVE_NAVIGATED_FACT_93", 1),
       message("last-appended-leaf", "root", "LAST_APPEND_DECOY_94", 2),
     ]);
-    const manager = SessionManager.open(file);
+    const manager = await SessionManager.open(file);
     manager.branch("navigated-leaf");
     const provider = new MemoryProvider({
       agentDir,

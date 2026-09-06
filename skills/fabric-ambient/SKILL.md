@@ -1,6 +1,6 @@
 ---
 name: fabric-ambient
-description: Creates a persistent Pi Fabric supervisor or advisor profile. Use for ambient supervision, ongoing peer review, an advisor, or a goal watcher without another extension.
+description: Creates a persistent OMP Fabric supervisor or advisor profile. Use for ambient supervision, ongoing peer review, an advisor, or a goal watcher without another extension.
 disable-model-invocation: true
 ---
 
@@ -17,7 +17,7 @@ Hard pointer: read `<skill-dir>/references/setup.md` completely before setup and
 
 ## Supervisor profile
 
-Use `name=supervisor`, `events=["agent_settled","tool_error"]`, and `triggerTurn=true`. Build `instructions` from:
+Use `name=supervisor`, `events=["agent_end","tool_error"]`, and `triggerTurn=true`. Build `instructions` from:
 
 ```text
 You are an ambient supervisor for this goal:

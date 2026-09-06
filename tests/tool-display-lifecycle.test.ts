@@ -1,9 +1,9 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import type { ExtensionAPI, ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext, Theme } from "@oh-my-pi/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
-import piFabric from "../src/index.js";
+import ompFabric from "../src/index.js";
 
 // Heavyweight runtime activations observed through the stub below: activation
 // means the runtime's initialize() ran (mesh, lifecycle, residency workers).
@@ -62,21 +62,22 @@ const plainTheme = {
 interface FabricExecTool {
   renderCall?: (
     params: unknown,
+    options: Record<string, unknown>,
     theme: Theme,
-    context: Record<string, unknown>,
+    context?: Record<string, unknown>,
   ) => { render: (width: number) => string[] };
 }
 
 interface Harness {
-  pi: ExtensionAPI;
+  omp: ExtensionAPI;
   handlers: Map<string, ExtensionHandler[]>;
   registeredTools: unknown[];
 }
 
 type CommandHandler = (argumentsText: string, context: ExtensionContext) => Promise<void>;
 
-const commandHandlerOf = (pi: ExtensionAPI): CommandHandler => {
-  const registerCommand = (pi as unknown as { registerCommand: ReturnType<typeof vi.fn> }).registerCommand;
+const commandHandlerOf = (omp: ExtensionAPI): CommandHandler => {
+  const registerCommand = (omp as unknown as { registerCommand: ReturnType<typeof vi.fn> }).registerCommand;
   const definition = registerCommand.mock.calls[0]?.[1] as { handler?: CommandHandler } | undefined;
   expect(definition?.handler).toBeTypeOf("function");
   return definition!.handler!;
@@ -85,27 +86,37 @@ const commandHandlerOf = (pi: ExtensionAPI): CommandHandler => {
 const createHarness = (): Harness => {
   const handlers = new Map<string, ExtensionHandler[]>();
   const registeredTools: unknown[] = [];
+  const toolInfos: unknown[] = [];
+  let activeTools: string[] = [];
 
-  const pi = {
+  const omp = {
     events: {
       emit: vi.fn(),
       on: vi.fn(() => () => {}),
     },
-    getActiveTools: vi.fn(() => []),
-    getAllTools: vi.fn(() => []),
+    getActiveTools: vi.fn(() => activeTools),
+    getAllTools: vi.fn(() => toolInfos),
     on: vi.fn((event: string, handler: ExtensionHandler) => {
       const registered = handlers.get(event) ?? [];
       registered.push(handler);
       handlers.set(event, registered);
     }),
     registerCommand: vi.fn(),
-    registerTool: vi.fn((tool: unknown) => {
+    registerTool: vi.fn((tool: { name: string }) => {
       registeredTools.push(tool);
+      toolInfos.push({
+        name: tool.name,
+        sourceInfo: { path: path.resolve(process.cwd(), "src/index.ts") },
+      });
+      activeTools = [...activeTools, tool.name];
     }),
-    setActiveTools: vi.fn(),
+    setActiveTools: vi.fn((names: string[]) => {
+      activeTools = [...names];
+      return Promise.resolve();
+    }),
   } as unknown as ExtensionAPI;
 
-  return { pi, handlers, registeredTools };
+  return { omp, handlers, registeredTools };
 };
 
 const fabricToolOf = (registeredTools: unknown[]): FabricExecTool => {
@@ -124,20 +135,24 @@ const renderCard = (
   invalidate: () => void,
   expanded = false,
 ): string =>
-  tool.renderCall!(params, plainTheme, {
-    args: params,
-    toolCallId,
-    invalidate,
-    lastComponent: undefined,
-    state: {},
-    cwd: process.cwd(),
-    executionStarted: true,
-    argsComplete: true,
-    isPartial: false,
+  tool.renderCall!(params, {
     expanded,
-    showImages: true,
-    isError: false,
-  } as never).render(120).join("\n");
+    isPartial: false,
+    renderContext: {
+      args: params,
+      toolCallId,
+      invalidate,
+      lastComponent: undefined,
+      state: {},
+      cwd: process.cwd(),
+      executionStarted: true,
+      argsComplete: true,
+      isPartial: false,
+      expanded,
+      showImages: true,
+      isError: false,
+    },
+  }, plainTheme).render(120).join("\n");
 
 const emit = async (handlers: Map<string, ExtensionHandler[]>, event: string, context: unknown): Promise<void> => {
   for (const handler of handlers.get(event) ?? []) {
@@ -148,22 +163,22 @@ const emit = async (handlers: Map<string, ExtensionHandler[]>, event: string, co
 describe("Fabric tool display lifecycle", () => {
   it("drops abandoned-branch invalidators when session_tree rebuilds the transcript", async () => {
     const harness = createHarness();
-    await piFabric(harness.pi);
+    await ompFabric(harness.omp);
     const { handlers, registeredTools } = harness;
-    const commandHandler = commandHandlerOf(harness.pi);
+    const commandHandler = commandHandlerOf(harness.omp);
 
     const fabricTool = fabricToolOf(registeredTools);
 
     // The abandoned branch renders its card and registers an invalidator.
     const abandonedInvalidate = vi.fn();
-    renderCard(fabricTool, "abandoned-branch-call", { code: "await pi.read('/tmp/leaf');" }, abandonedInvalidate);
+    renderCard(fabricTool, "abandoned-branch-call", { code: "await omp.read('/tmp/leaf');" }, abandonedInvalidate);
 
-    // Pi emits session_tree before it clears and rebuilds the transcript.
+    // OMP emits session_tree before it clears and rebuilds the transcript.
     await emit(handlers, "session_tree", {});
 
     // The rebuilt active branch renders its card and registers again.
     const activeInvalidate = vi.fn();
-    renderCard(fabricTool, "active-branch-call", { code: "await pi.read('/tmp/leaf');" }, activeInvalidate);
+    renderCard(fabricTool, "active-branch-call", { code: "await omp.read('/tmp/leaf');" }, activeInvalidate);
 
     // A display-mode switch re-renders registered cards through the real
     // settings apply path (openFabricSettings -> onConfigApplied ->
@@ -205,25 +220,24 @@ describe("Fabric tool display lifecycle", () => {
   });
 
   it("does not leak the previous session's preference when a re-bootstrap fails", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-failed-rebootstrap-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-failed-rebootstrap-"));
     const cwdA = path.join(root, "session-a");
     const cwdB = path.join(root, "session-b");
     const agentDir = path.join(root, "agent");
-    const inheritedAgentDir = process.env.PI_CODING_AGENT_DIR;
-    fs.mkdirSync(path.join(cwdA, ".pi"), { recursive: true });
-    fs.mkdirSync(path.join(cwdB, ".pi"), { recursive: true });
+    const inheritedAgentDir = process.env.OMP_FABRIC_AGENT_DIR;
+    fs.mkdirSync(path.join(cwdA, ".omp"), { recursive: true });
+    fs.mkdirSync(path.join(cwdB, ".omp"), { recursive: true });
     fs.mkdirSync(agentDir, { recursive: true });
     fs.writeFileSync(
-      path.join(cwdA, ".pi", "fabric.json"),
+      path.join(cwdA, ".omp", "fabric.json"),
       JSON.stringify({ ui: { toolDisplay: "compact" }, mesh: { enabled: false } }),
     );
-    // Malformed config: bootstrap() throws after #cwd moves to session B.
-    fs.writeFileSync(path.join(cwdB, ".pi", "fabric.json"), "{ not valid json ");
-    process.env.PI_CODING_AGENT_DIR = agentDir;
+    fs.writeFileSync(path.join(cwdB, ".omp", "fabric.json"), "{ not valid json ");
+    process.env.OMP_FABRIC_AGENT_DIR = agentDir;
     try {
       mockRuntimeActivations.count = 0;
       const harness = createHarness();
-      await piFabric(harness.pi);
+      await ompFabric(harness.omp);
       const { handlers, registeredTools } = harness;
       const fabricTool = fabricToolOf(registeredTools);
       const contextFor = (cwd: string, sessionId: string): ExtensionContext => ({
@@ -240,11 +254,11 @@ describe("Fabric tool display lifecycle", () => {
       const resumed = renderCard(
         fabricTool,
         "session-a-call",
-        { code: "await pi.read('/tmp/leaf');", display: { name: "Resume history" } },
+        { code: "await omp.read('/tmp/leaf');", display: { name: "Resume history" } },
         vi.fn(),
       );
       expect(resumed).toContain("Resume history");
-      expect(resumed).not.toContain("await pi.read('/tmp/leaf');");
+      expect(resumed).not.toContain("await omp.read('/tmp/leaf');");
       expect(mockRuntimeActivations.count).toBe(0);
 
       // Session B's malformed config fails to bootstrap; the failed load must
@@ -253,37 +267,37 @@ describe("Fabric tool display lifecycle", () => {
       const afterFailedRebootstrap = renderCard(
         fabricTool,
         "session-b-call",
-        { code: "await pi.read('/tmp/leaf');", display: { name: "Resume history" } },
+        { code: "await omp.read('/tmp/leaf');", display: { name: "Resume history" } },
         vi.fn(),
       );
       expect(afterFailedRebootstrap).toContain("TypeScript");
-      expect(afterFailedRebootstrap).toContain("await pi.read('/tmp/leaf');");
+      expect(afterFailedRebootstrap).toContain("await omp.read('/tmp/leaf');");
       expect(mockRuntimeActivations.count).toBe(0);
     } finally {
-      if (inheritedAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
-      else process.env.PI_CODING_AGENT_DIR = inheritedAgentDir;
+      if (inheritedAgentDir === undefined) delete process.env.OMP_FABRIC_AGENT_DIR;
+      else process.env.OMP_FABRIC_AGENT_DIR = inheritedAgentDir;
       fs.rmSync(root, { recursive: true, force: true });
     }
   });
 
   it("renders resumed history compact from bootstrapped config without activating the runtime", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-resume-compact-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-resume-compact-"));
     const cwd = path.join(root, "project");
     const agentDir = path.join(root, "agent");
-    const inheritedAgentDir = process.env.PI_CODING_AGENT_DIR;
-    fs.mkdirSync(path.join(cwd, ".pi"), { recursive: true });
+    const inheritedAgentDir = process.env.OMP_FABRIC_AGENT_DIR;
+    fs.mkdirSync(path.join(cwd, ".omp"), { recursive: true });
     fs.mkdirSync(agentDir, { recursive: true });
     // Resume state: effective ui.toolDisplay is compact and mesh is off, so
     // session_start bootstraps configuration without eager activation.
     fs.writeFileSync(
-      path.join(cwd, ".pi", "fabric.json"),
+      path.join(cwd, ".omp", "fabric.json"),
       JSON.stringify({ ui: { toolDisplay: "compact" }, mesh: { enabled: false } }),
     );
-    process.env.PI_CODING_AGENT_DIR = agentDir;
+    process.env.OMP_FABRIC_AGENT_DIR = agentDir;
     try {
       mockRuntimeActivations.count = 0;
       const harness = createHarness();
-      await piFabric(harness.pi);
+      await ompFabric(harness.omp);
       const { handlers, registeredTools } = harness;
       const fabricTool = fabricToolOf(registeredTools);
 
@@ -291,10 +305,10 @@ describe("Fabric tool display lifecycle", () => {
       const beforeBootstrap = renderCard(
         fabricTool,
         "pre-bootstrap",
-        { code: "await pi.read('/tmp/leaf');", display: { name: "Resume history" } },
+        { code: "await omp.read('/tmp/leaf');", display: { name: "Resume history" } },
         vi.fn(),
       );
-      expect(beforeBootstrap).toContain("await pi.read('/tmp/leaf');");
+      expect(beforeBootstrap).toContain("await omp.read('/tmp/leaf');");
       expect(beforeBootstrap).toContain("TypeScript");
       expect(mockRuntimeActivations.count).toBe(0);
 
@@ -317,26 +331,26 @@ describe("Fabric tool display lifecycle", () => {
       const resumed = renderCard(
         fabricTool,
         "resumed-history",
-        { code: "await pi.read('/tmp/leaf');", display: { name: "Resume history" } },
+        { code: "await omp.read('/tmp/leaf');", display: { name: "Resume history" } },
         vi.fn(),
       );
       expect(resumed).toContain("Resume history");
-      expect(resumed).not.toContain("await pi.read('/tmp/leaf');");
+      expect(resumed).not.toContain("await omp.read('/tmp/leaf');");
       expect(resumed).not.toContain("TypeScript");
 
       // ctrl+o expansion still promotes the resumed compact card to full.
       const resumedExpanded = renderCard(
         fabricTool,
         "resumed-history-expanded",
-        { code: "await pi.read('/tmp/leaf');", display: { name: "Resume history" } },
+        { code: "await omp.read('/tmp/leaf');", display: { name: "Resume history" } },
         vi.fn(),
         true,
       );
-      expect(resumedExpanded).toContain("await pi.read('/tmp/leaf');");
+      expect(resumedExpanded).toContain("await omp.read('/tmp/leaf');");
       expect(resumedExpanded).toContain("TypeScript");
     } finally {
-      if (inheritedAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
-      else process.env.PI_CODING_AGENT_DIR = inheritedAgentDir;
+      if (inheritedAgentDir === undefined) delete process.env.OMP_FABRIC_AGENT_DIR;
+      else process.env.OMP_FABRIC_AGENT_DIR = inheritedAgentDir;
       fs.rmSync(root, { recursive: true, force: true });
     }
   });

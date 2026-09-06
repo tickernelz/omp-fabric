@@ -1,13 +1,7 @@
-import { homedir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-
-// Local mirror of `getAgentDir` from @earendil-works/pi-coding-agent (0.84.2).
-// Kept identical so Fabric resolves the same config directory without
-// importing the host package during extension load.
-
-const ENV_AGENT_DIR = "PI_CODING_AGENT_DIR";
-const CONFIG_DIR_NAME = ".pi";
+import { homedir } from "node:os";
+import { getAgentDir } from "@oh-my-pi/pi-utils";
 
 const expandEnvDir = (envDir: string): string => {
   if (/^file:\/\//.test(envDir)) return fileURLToPath(envDir);
@@ -19,7 +13,7 @@ const expandEnvDir = (envDir: string): string => {
 };
 
 export const resolveAgentDir = (): string => {
-  const envDir = process.env[ENV_AGENT_DIR];
+  const envDir = process.env.OMP_FABRIC_AGENT_DIR;
   if (envDir) return expandEnvDir(envDir);
-  return path.join(homedir(), CONFIG_DIR_NAME, "agent");
+  return getAgentDir();
 };

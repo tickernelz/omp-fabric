@@ -5,32 +5,32 @@ import { fabricExecTitleHintCached } from "../src/ui/fabric-title-hint.js";
 const cases: [name: string, code: string, expected: string | undefined][] = [
   [
     "single read",
-    "return await pi.read({ path: 'src/ui/fabric-code-parser.ts', offset: 1, limit: 80 });",
+    "return await omp.read({ path: 'src/ui/fabric-code-parser.ts', offset: 1, limit: 80 });",
     "Read fabric-code-parser.ts",
   ],
   [
     "grep lexeme plus read",
-    "const [h, c] = await Promise.all([pi.grep({ pattern: 'fallback', path: 'src', limit: 20 }), pi.read({ path: 'src/config.ts', offset: 520, limit: 60 })]); return { h, c };",
+    "const [h, c] = await Promise.all([omp.grep({ pattern: 'fallback', path: 'src', limit: 20 }), omp.read({ path: 'src/config.ts', offset: 520, limit: 60 })]); return { h, c };",
     "Search \"fallback\" in src + Read config.ts",
   ],
   [
     "coalesced edit",
-    "await pi.edit({ path: 'src/config.ts', edits: [{ old: \"a\", new: \"b\" }] }); return 'ok';",
+    "await omp.edit({ path: 'src/config.ts', edits: [{ old: \"a\", new: \"b\" }] }); return 'ok';",
     "Edit config.ts",
   ],
   [
     "write via named string",
-    "const r = await pi.write({ path: 'src/ui/title.ts', text: π.title }); return r.output;",
+    "const r = await omp.write({ path: 'src/ui/title.ts', text: omp.title }); return r.output;",
     "Write title.ts",
   ],
   [
     "bash command",
-    "return await pi.bash({ cmd: 'pnpm run check', timeout: 180 });",
+    "return await omp.bash({ cmd: 'pnpm run check', timeout: 180 });",
     "Shell pnpm run check",
   ],
   [
     "long bash command clipped",
-    "return await pi.bash({ cmd: 'pnpm vitest run src/ui/title.test.ts', settle: true });",
+    "return await omp.bash({ cmd: 'pnpm vitest run src/ui/title.test.ts', settle: true });",
     "Shell pnpm vitest run src/ui/title.…",
   ],
   [
@@ -45,26 +45,26 @@ const cases: [name: string, code: string, expected: string | undefined][] = [
   ],
   [
     "distinct same-verb targets collapse to a count",
-    "const [a, b, c] = await Promise.all([pi.read('/x/a.ts'), pi.read('/x/b.ts'), pi.read('/x/c.ts')]); return [a, b, c];",
+    "const [a, b, c] = await Promise.all([omp.read('/x/a.ts'), omp.read('/x/b.ts'), omp.read('/x/c.ts')]); return [a, b, c];",
     "Read a.ts +2",
   ],
   [
     "segment assembly stops at the char budget",
-    `const g = await pi.grep({ pattern: 'renderCall', path: 'src/fabric-exec-tool.ts' });
-const r = await pi.read({ path: 'src/fabric-exec-tool.ts', offset: 240, limit: 30 });
-await pi.edit({ path: 'src/fabric-exec-tool.ts', edits: [{ old: 'x', new: 'y' }] });
-const b = await pi.bash({ cmd: 'pnpm run build', timeout: 120 });
+    `const g = await omp.grep({ pattern: 'renderCall', path: 'src/fabric-exec-tool.ts' });
+const r = await omp.read({ path: 'src/fabric-exec-tool.ts', offset: 240, limit: 30 });
+await omp.edit({ path: 'src/fabric-exec-tool.ts', edits: [{ old: 'x', new: 'y' }] });
+const b = await omp.bash({ cmd: 'pnpm run build', timeout: 120 });
 return { g, r, b };`,
     "Search \"renderCall\" in fabric-exec-tool.ts + Read fabric-exec-tool.ts +…",
   ],
   [
     "search sweep keeps first-occurrence order under one verb",
-    "return await Promise.all([pi.grep({pattern:'TODO',path:'src'}), pi.find({pattern:'*.ts',path:'src'}), pi.ls('src')]);",
+    "return await Promise.all([omp.grep({pattern:'TODO',path:'src'}), omp.find({pattern:'*.ts',path:'src'}), omp.ls('src')]);",
     "Search \"TODO\" in src +2",
   ],
   [
     "bare directory qualifies a grep",
-    "return await pi.grep({ pattern: 'TODO', path: 'src', ignoreCase: true });",
+    "return await omp.grep({ pattern: 'TODO', path: 'src', ignoreCase: true });",
     "Search \"TODO\" in src",
   ],
   [
@@ -79,12 +79,12 @@ return { g, r, b };`,
   ],
   [
     "regex pattern never quoted, path wins",
-    "return await pi.grep({ pattern: '\\\\.name\\\\?\\\\.trim', path: 'src/fabric-exec-tool.ts', limit: 5 });",
+    "return await omp.grep({ pattern: '\\\\.name\\\\?\\\\.trim', path: 'src/fabric-exec-tool.ts', limit: 5 });",
     "Search fabric-exec-tool.ts",
   ],
   [
     "glob head with directory qualifier",
-    "return await pi.find({ pattern: '*.test.ts', path: 'src/ui', limit: 10 });",
+    "return await omp.find({ pattern: '*.test.ts', path: 'src/ui', limit: 10 });",
     "Search *.test.ts in src/ui",
   ],
   [
@@ -94,27 +94,27 @@ return { g, r, b };`,
   ],
   [
     "aliased calls are statically invisible",
-    "const t = { r: pi.read }; return await t.r('src/config.ts');",
+    "const t = { r: omp.read }; return await t.r('src/config.ts');",
     undefined,
   ],
   [
     "dynamic template yields no target",
-    'return await pi.bash({ cmd: `pnpm vitest run ${name}.test.ts` });',
+    'return await omp.bash({ cmd: `pnpm vitest run ${name}.test.ts` });',
     "Shell",
   ],
   [
     "comments are never counted",
-    "// pi.write({ path: 'nope.ts' })\n/* pi.bash({ cmd: 'rm -rf /' }) */\nreturn await pi.read({ path: 'src/real.ts' });",
+    "// omp.write({ path: 'nope.ts' })\n/* omp.bash({ cmd: 'rm -rf /' }) */\nreturn await omp.read({ path: 'src/real.ts' });",
     "Read real.ts",
   ],
   [
     "unknown pi verb is humanized",
-    "return await pi.forgeWorkspace({ path: 'src/x.ts' });",
+    "return await omp.forgeWorkspace({ path: 'src/x.ts' });",
     "Forge Workspace x.ts",
   ],
   [
     "named-string payload never surfaces",
-    "const md = π['docs/secret.md']; return await pi.bash({ cmd: 'ls' });",
+    "const md = payloads['docs/secret.md']; return await omp.bash({ cmd: 'ls' });",
     "Shell ls",
   ],
 ];

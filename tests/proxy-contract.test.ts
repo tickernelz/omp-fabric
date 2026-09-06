@@ -78,7 +78,7 @@ describe("proxy contract reminder", () => {
     ledger.restoreFromEntries([
       {
         type: "custom_message",
-        customType: "pi-fabric-capability",
+        customType: "omp-fabric-capability",
         content: "fovea_sketch matched your prompt.",
         details: { matches: [{ namespace: "extension:pi-fovea" }] },
       },

@@ -1,7 +1,7 @@
 import type { FabricActionDescriptor } from "../protocol.js";
 
 // Argument-shape normalization shared by the stable Fabric providers,
-// mirroring the pi core tool architecture:
+// mirroring the OMP core tool architecture:
 //
 // 1. prepareArguments canonicalizes near-miss argument spellings at the
 //    registry prepare stage — aliases resolve to the canonical key (which

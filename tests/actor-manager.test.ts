@@ -32,18 +32,18 @@ const setup = (
     signal: AbortSignal,
   ) => Promise<FabricCapabilityViewLease>,
   modelValidation?: {
-    preparePiModel?: (model: string | undefined) => Promise<string | void>;
-    resolvePiModel?: (model: string) => string;
+    prepareOmpModel?: (model: string | undefined) => Promise<string | void>;
+    resolveOmpModel?: (model: string) => string;
   },
 ) => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-actor-test-"));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-actor-test-"));
   roots.push(root);
   const mesh = new MeshStore(path.join(root, "mesh"), 64 * 1024, 100);
   const agents = new AgentManager(process.cwd(), DEFAULT_FABRIC_CONFIG.agents, {
     workerPath: path.resolve("tests/fixtures/fake-worker.mjs"),
     runRoot: path.join(root, "runs"),
-    ...(modelValidation?.preparePiModel
-      ? { preparePiModel: modelValidation.preparePiModel }
+    ...(modelValidation?.prepareOmpModel
+      ? { prepareOmpModel: modelValidation.prepareOmpModel }
       : {}),
   });
   agentManagers.push(agents);
@@ -69,8 +69,8 @@ const setup = (
       persistent,
       ...(canManageActor ? { canManageActor } : {}),
       ...(acquireCapabilityView ? { acquireCapabilityView } : {}),
-      ...(modelValidation?.resolvePiModel
-        ? { resolvePiModel: modelValidation.resolvePiModel }
+      ...(modelValidation?.resolveOmpModel
+        ? { resolveOmpModel: modelValidation.resolveOmpModel }
         : {}),
     },
   );
@@ -120,70 +120,70 @@ describe("ActorManager", () => {
     expect(actors.tell(actor.id, "run after takeover")).toMatchObject({ queued: true });
   });
 
-  it("rejects unavailable Pi models on create, setModel, and activation overrides", async () => {
-    const resolvePiModel = (model: string): string => {
+  it("rejects unavailable OMP models on create, setModel, and activation overrides", async () => {
+    const resolveOmpModel = (model: string): string => {
       if (model !== "provider/visible") {
-        throw new Error(`Model ${JSON.stringify(model)} is not available to this Pi session`);
+        throw new Error(`Model ${JSON.stringify(model)} is not available to this OMP session`);
       }
       return model;
     };
-    const { actors } = setup(false, undefined, undefined, { resolvePiModel });
+    const { actors } = setup(false, undefined, undefined, { resolveOmpModel });
 
     await expect(
       actors.create({
         name: "hidden create",
         instructions: "Do not persist.",
-        runner: "pi",
+        runner: "omp",
         model: "provider/hidden",
       }),
-    ).rejects.toThrow(/not available to this Pi session/);
+    ).rejects.toThrow(/not available to this OMP session/);
     const actor = await actors.create({
       name: "visible actor",
       instructions: "Use the visible model.",
-      runner: "pi",
+      runner: "omp",
       model: "provider/visible",
     });
 
     await expect(actors.setModel(actor.id, "provider/hidden")).rejects.toThrow(
-      /not available to this Pi session/,
+      /not available to this OMP session/,
     );
     expect(() =>
       actors.tell(actor.id, "Do not queue", undefined, {
         overrides: { model: "provider/hidden" },
       })
-    ).toThrow(/not available to this Pi session/);
+    ).toThrow(/not available to this OMP session/);
     await expect(
       actors.ask(actor.id, "Do not run", undefined, undefined, {
         overrides: { model: "provider/hidden" },
       }),
-    ).rejects.toThrow(/not available to this Pi session/);
+    ).rejects.toThrow(/not available to this OMP session/);
     expect(actors.status(actor.id).queued).toBe(0);
   });
 
   it("rejects a persisted actor binding that becomes hidden before launch", async () => {
     let visible = true;
-    const preparePiModel = async (model: string | undefined): Promise<string | void> => {
+    const prepareOmpModel = async (model: string | undefined): Promise<string | void> => {
       if (!visible || model !== "provider/visible") {
-        throw new Error(`Model ${JSON.stringify(model)} is not available to this Pi session`);
+        throw new Error(`Model ${JSON.stringify(model)} is not available to this OMP session`);
       }
       return model;
     };
-    const { actors, agents, root } = setup(true, undefined, undefined, { preparePiModel });
+    const { actors, agents, root } = setup(true, undefined, undefined, { prepareOmpModel });
     const actor = await actors.create({
       name: "stale binding",
       instructions: "Never launch a newly hidden model.",
-      runner: "pi",
+      runner: "omp",
     });
     await actors.setModel(actor.id, "provider/visible");
     expect(fs.readdirSync(path.join(root, "actors", "bindings"))).toHaveLength(1);
 
     visible = false;
     await expect(actors.ask(actor.id, "Do not launch")).rejects.toThrow(
-      /not available to this Pi session/,
+      /not available to this OMP session/,
     );
     await waitFor(() => actors.status(actor.id).status === "idle");
     expect(agents.list()).toEqual([]);
-    expect(actors.status(actor.id).lastError).toMatch(/not available to this Pi session/);
+    expect(actors.status(actor.id).lastError).toMatch(/not available to this OMP session/);
   });
 
   it("isolates two live sessions over one shared actor definition", async () => {
@@ -483,7 +483,7 @@ describe("ActorManager", () => {
     const actor = await state.actors.create({
       name: "orphaned",
       instructions: "Survive the creating session.",
-      events: ["agent_settled"],
+      events: ["agent_end"],
       residency: "session",
     });
     expect(actor.rootId).toBe(state.identity.id);
@@ -761,7 +761,7 @@ describe("ActorManager", () => {
     const actor = await state.actors.create({
       name: "durable-orphan",
       instructions: "Belong to the resident host.",
-      events: ["agent_settled"],
+      events: ["agent_end"],
       residency: "durable",
     });
     await state.actors.close();
@@ -1094,12 +1094,12 @@ describe("ActorManager", () => {
     expect(agents.list()).toEqual([]);
   });
 
-  it("restores persistent ambient actors for the same Pi session", async () => {
+  it("restores persistent ambient actors for the same OMP session", async () => {
     const setupState = setup(true);
     const actor = await setupState.actors.create({
       name: "supervisor",
       instructions: "Watch until the goal is complete.",
-      events: ["agent_settled"],
+      events: ["agent_end"],
       responseMode: "directive",
     });
     await setupState.actors.close();
@@ -1120,12 +1120,12 @@ describe("ActorManager", () => {
       id: actor.id,
       name: "supervisor",
       status: "idle",
-      events: ["agent_settled"],
+      events: ["agent_end"],
     });
   });
 
   it("resumes a Claude Code session after a persistent actor is restored", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-claude-actor-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-claude-actor-"));
     roots.push(root);
     const invocationLog = path.join(root, "claude-args.jsonl");
     process.env.FAKE_CLAUDE_LOG = invocationLog;
@@ -1201,11 +1201,11 @@ describe("ActorManager", () => {
     }
   });
 
-  it("restores project-scoped actors across different Pi sessions", async () => {
+  it("restores project-scoped actors across different OMP sessions", async () => {
     // Project scope stores actors at a shared root (no sessionId segment), so a
-    // new Pi session that points at the same root picks up the roster without
+    // new OMP session that points at the same root picks up the roster without
     // redefining actors.
-    const scopeDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-actor-scope-"));
+    const scopeDir = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-actor-scope-"));
     roots.push(scopeDir);
     const sharedRoot = path.join(scopeDir, "actors");
     const firstMesh = new MeshStore(path.join(scopeDir, "mesh"), 64 * 1024, 100);
@@ -1233,7 +1233,7 @@ describe("ActorManager", () => {
     await first.close();
     actorManagers.splice(actorManagers.indexOf(first), 1);
 
-    // A brand-new Pi session, same shared actor root.
+    // A brand-new OMP session, same shared actor root.
     const secondMesh = new MeshStore(path.join(scopeDir, "mesh"), 64 * 1024, 100);
     const secondAgents = new AgentManager(
       process.cwd(),
@@ -1264,12 +1264,12 @@ describe("ActorManager", () => {
     const actor = await actors.create({
       name: "watcher",
       instructions: "Watch parent and team events.",
-      events: ["agent_settled"],
+      events: ["agent_end"],
       topics: ["team.auth"],
       responseMode: "text",
     });
 
-    expect(actors.dispatchHostEvent("agent_settled", { goal: "ship" })).toBe(1);
+    expect(actors.dispatchHostEvent("agent_end", { goal: "ship" })).toBe(1);
     await mesh.publish({
       topic: "team.auth",
       from: { id: "peer", name: "peer", kind: "actor" },
@@ -1283,7 +1283,7 @@ describe("ActorManager", () => {
       .messages(actor.id)
       .filter((message) => message.direction === "out")
       .map((message) => message.source);
-    expect(sources).toEqual(["host:agent_settled", "mesh:team.auth"]);
+    expect(sources).toEqual(["host:agent_end", "mesh:team.auth"]);
   });
 
   it("retains completed-run logs and exposes them via readLog", async () => {
@@ -1635,17 +1635,17 @@ describe("ActorManager", () => {
     const actor = await actors.create({
       name: "watcher",
       instructions: "Watch parent events.",
-      events: ["agent_settled"],
+      events: ["agent_end"],
       responseMode: "text",
     });
 
     // Before any halt, host events are delivered normally.
-    expect(actors.dispatchHostEvent("agent_settled", { turn: 1 })).toBe(1);
+    expect(actors.dispatchHostEvent("agent_end", { turn: 1 })).toBe(1);
     await waitFor(() => actors.status(actor.id).status === "idle");
 
     // A halt arms stop-the-world: subsequent host events are suppressed...
     actors.haltAll();
-    expect(actors.dispatchHostEvent("agent_settled", { turn: 2 })).toBe(0);
+    expect(actors.dispatchHostEvent("agent_end", { turn: 2 })).toBe(0);
 
     // ...including other event types, with no time-based expiry.
     expect(actors.dispatchHostEvent("tool_error", { turn: 2 })).toBe(0);
@@ -1657,7 +1657,7 @@ describe("ActorManager", () => {
     expect(actors.dispatchHostEvent("input", { turn: 3 })).toBe(0);
 
     // After resume, host-event dispatch is delivered again.
-    expect(actors.dispatchHostEvent("agent_settled", { turn: 4 })).toBe(1);
+    expect(actors.dispatchHostEvent("agent_end", { turn: 4 })).toBe(1);
     await waitFor(() => actors.status(actor.id).status === "idle");
   });
 
@@ -1756,10 +1756,10 @@ describe("ActorManager", () => {
     const actor = await actors.create({
       name: "watcher",
       instructions: "Watch parent events.",
-      events: ["agent_settled", "tool_error"],
+      events: ["agent_end", "tool_error"],
       responseMode: "text",
     });
-    expect(actors.status(actor.id).events).toEqual(["agent_settled", "tool_error"]);
+    expect(actors.status(actor.id).events).toEqual(["agent_end", "tool_error"]);
 
     await actors.setEvents(actor.id, ["input", "turn_end"]);
     expect(actors.status(actor.id).events).toEqual(["input", "turn_end"]);
@@ -1770,8 +1770,8 @@ describe("ActorManager", () => {
     expect(actors.status(actor.id).status).toBe("idle");
 
     // Duplicates are deduped, preserving first-seen order.
-    await actors.setEvents(actor.id, ["agent_settled", "agent_settled"]);
-    expect(actors.status(actor.id).events).toEqual(["agent_settled"]);
+    await actors.setEvents(actor.id, ["agent_end", "agent_end"]);
+    expect(actors.status(actor.id).events).toEqual(["agent_end"]);
   });
 
   it("setEvents rejects an unsupported event", async () => {
@@ -1821,7 +1821,7 @@ describe("ActorManager", () => {
     const actor = await actors.create({
       name: "advisor",
       instructions: "Advise only when useful.",
-      events: ["agent_settled"],
+      events: ["agent_end"],
       responseMode: "directive",
       delivery: "steer",
       triggerTurn: false,
@@ -1831,7 +1831,7 @@ describe("ActorManager", () => {
     // the drain exits before the next event. A regression in drain restart
     // (the "stuck at queue:1" race) would leave one of these stranded.
     for (let turn = 0; turn < 5; turn++) {
-      expect(actors.dispatchHostEvent("agent_settled", { turn })).toBe(1);
+      expect(actors.dispatchHostEvent("agent_end", { turn })).toBe(1);
       await waitFor(() => actors.status(actor.id).status === "idle");
     }
     expect(deliveries.length).toBe(5);
@@ -1843,17 +1843,17 @@ describe("ActorManager", () => {
     const actor = await actors.create({
       name: "advisor",
       instructions: "Advise only when useful.",
-      events: ["agent_settled"],
+      events: ["agent_end"],
       responseMode: "directive",
       delivery: "steer",
       triggerTurn: false,
       coalesce: true,
     });
-    expect(actors.dispatchHostEvent("agent_settled", { turn: 1 })).toBe(1);
+    expect(actors.dispatchHostEvent("agent_end", { turn: 1 })).toBe(1);
     await waitFor(() => actors.status(actor.id).status === "running");
     // A second event arrives while the first run is in flight; the running
     // drain must pick it up on its next loop instead of stranding it.
-    expect(actors.dispatchHostEvent("agent_settled", { turn: 2 })).toBe(1);
+    expect(actors.dispatchHostEvent("agent_end", { turn: 2 })).toBe(1);
     await waitFor(() => actors.status(actor.id).status === "idle");
     expect(deliveries.length).toBe(2);
     expect(actors.status(actor.id).queued).toBe(0);
@@ -1880,7 +1880,7 @@ describe("ActorManager", () => {
       responseMode: "text",
       triggerTurn: false,
       coalesce: true,
-      runner: "pi",
+      runner: "omp",
       model: "anthropic/sonnet",
     });
     // history never crosses the global⇄project boundary
@@ -1911,7 +1911,7 @@ describe("ActorManager steering relay", () => {
   };
 
   it("steerRemote throws when the mesh is disabled", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-relay-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-relay-"));
     roots.push(root);
     const mesh = new MeshStore(path.join(root, "mesh"), 64 * 1024, 100);
     const agents = new AgentManager(process.cwd(), DEFAULT_FABRIC_CONFIG.agents, {
@@ -1934,7 +1934,7 @@ describe("ActorManager steering relay", () => {
   });
 
   it("relays a fabric.steer event across processes to a remote agent", async () => {
-    const shared = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-relay-"));
+    const shared = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-relay-"));
     roots.push(shared);
     const meshPath = path.join(shared, "mesh");
     const meshA = new MeshStore(meshPath, 64 * 1024, 100);
@@ -1989,7 +1989,7 @@ describe("ActorManager steering relay", () => {
   });
 
   it("relays a cross-process follow-up to the owning Main session", async () => {
-    const shared = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-main-relay-"));
+    const shared = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-main-relay-"));
     roots.push(shared);
     const meshPath = path.join(shared, "mesh");
     const rootMesh = new MeshStore(meshPath, 64 * 1024, 100);
@@ -2015,7 +2015,7 @@ describe("ActorManager steering relay", () => {
         name: "Main" as const,
         kind: "main" as const,
         status: "idle" as const,
-        runner: "pi" as const,
+        runner: "omp" as const,
         transport: "host" as const,
         cwd: process.cwd(),
         startedAt: 1,
@@ -2097,14 +2097,14 @@ describe("ActorManager steering relay", () => {
   });
 });
 
-describe("ActorManager extensions flag (read-only Pi actors)", () => {
-    it("runs a read-only Pi actor (extensions:false) without fabric_exec or recursion", async () => {
+describe("ActorManager extensions flag (read-only OMP actors)", () => {
+    it("runs a read-only OMP actor (extensions:false) without fabric_exec or recursion", async () => {
       const { actors, agents } = setup();
       const runSpy = vi.spyOn(agents, "run");
       const actor = await actors.create({
         name: "readonly-nav",
         instructions: "Read-only navigator.",
-        runner: "pi",
+        runner: "omp",
         extensions: false,
         tools: ["read"],
         responseMode: "text",
@@ -2116,13 +2116,13 @@ describe("ActorManager extensions flag (read-only Pi actors)", () => {
       expect(request?.recursive).toBe(false);
     });
 
-    it("defaults to Fabric-enabled (extensions true, recursive true) for a Pi actor", async () => {
+    it("defaults to Fabric-enabled (extensions true, recursive true) for an OMP actor", async () => {
       const { actors, agents } = setup();
       const runSpy = vi.spyOn(agents, "run");
       const actor = await actors.create({
         name: "default-nav",
         instructions: "Default navigator.",
-        runner: "pi",
+        runner: "omp",
         responseMode: "text",
       });
       expect(actor.extensions).toBeUndefined();
@@ -2137,7 +2137,7 @@ describe("ActorManager extensions flag (read-only Pi actors)", () => {
       const created = await setupState.actors.create({
         name: "persistent-readonly",
         instructions: "Survive restart read-only.",
-        runner: "pi",
+        runner: "omp",
         extensions: false,
         tools: ["read"],
         responseMode: "text",

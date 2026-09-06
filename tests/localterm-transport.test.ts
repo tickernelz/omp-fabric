@@ -18,7 +18,7 @@ afterEach(() => {
 });
 
 const installFakeLocalterm = (): string => {
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-localterm-"));
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-localterm-"));
   temporaryDirectories.push(directory);
   const logFile = path.join(directory, "calls.log");
   const executable = path.join(directory, "localterm");

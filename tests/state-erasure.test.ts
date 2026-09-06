@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 import { afterEach, describe, expect, it } from "vitest";
 import { MeshStore, type MeshIdentity } from "../src/mesh/store.js";
 import { StateProvider } from "../src/providers/state-provider.js";
@@ -28,7 +28,7 @@ const createRoot = (prefix: string): string => {
 };
 
 const createStore = (): MeshStore =>
-  new MeshStore(createRoot("pi-fabric-erasure-mesh-"), 64 * 1024, 100);
+  new MeshStore(createRoot("omp-fabric-erasure-mesh-"), 64 * 1024, 100);
 
 const writeFixture = (root: string, file: string, source: string): void => {
   const target = path.join(root, file);
@@ -81,7 +81,7 @@ describe("structural decision-point counting", () => {
 
 describe("evidence-attached complexity transitions", () => {
   it("records a baseline and embeds subsequent deltas in transition events", async () => {
-    const project = createRoot("pi-fabric-erasure-project-");
+    const project = createRoot("omp-fabric-erasure-project-");
     const file = "src/counter.ts";
     writeFixture(project, file, "if (ready) run();\n");
     const mesh = createStore();
@@ -142,7 +142,7 @@ describe("evidence-attached complexity transitions", () => {
   });
 
   it("rejects reductions without evidence and keeps attached reductions pending until verify", async () => {
-    const project = createRoot("pi-fabric-erasure-project-");
+    const project = createRoot("omp-fabric-erasure-project-");
     const file = "src/reducer.ts";
     writeFixture(project, file, "if (ready) run();\ncatchError: while (open) wait();\n");
     const mesh = createStore();
@@ -223,7 +223,7 @@ describe("evidence-attached complexity transitions", () => {
   });
 
   it("reports unsupported languages without creating ledger entries", async () => {
-    const project = createRoot("pi-fabric-erasure-project-");
+    const project = createRoot("omp-fabric-erasure-project-");
     const file = "src/example.py";
     writeFixture(project, file, "if ready:\n    run()\n");
     const mesh = createStore();
@@ -250,7 +250,7 @@ describe("evidence-attached complexity transitions", () => {
   });
 
   it("exposes current counts through the read-risk provider action", async () => {
-    const project = createRoot("pi-fabric-erasure-project-");
+    const project = createRoot("omp-fabric-erasure-project-");
     const file = "src/provider.ts";
     writeFixture(project, file, "if (ready) run();\n");
     const provider = new StateProvider(createStore(), identity);

@@ -1,5 +1,5 @@
-import type { Usage } from "@earendil-works/pi-ai";
-import type { ExtensionContext, ToolCallEvent } from "@earendil-works/pi-coding-agent";
+import type { Usage } from "@oh-my-pi/pi-ai";
+import type { ExtensionContext, ToolCallEvent } from "@oh-my-pi/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
 import { DEFAULT_FABRIC_CONFIG } from "../src/config.js";
 import { FabricSessionApprovals } from "../src/core/approval-controller.js";
@@ -49,7 +49,7 @@ const usage: Usage = {
   },
 };
 
-describe("direct Pi tool approvals", () => {
+describe("direct OMP tool approvals", () => {
   it("applies configured core and extension risks without wrapping their tools", async () => {
     const config = structuredClone(DEFAULT_FABRIC_CONFIG);
     config.approvals.execute = "deny";
@@ -64,7 +64,7 @@ describe("direct Pi tool approvals", () => {
     await expect(approval.approve(
       event("bash", { command: "echo safe" }),
       noUiContext,
-    )).rejects.toThrow("pi.bash is denied by the Fabric execute policy");
+    )).rejects.toThrow("omp.bash is denied by the Fabric execute policy");
     await expect(approval.approve(
       event("deploy", { target: "production" }),
       noUiContext,
@@ -91,7 +91,7 @@ describe("direct Pi tool approvals", () => {
     await approval.approve(call, noUiContext);
 
     expect(classify).toHaveBeenCalledWith(
-      expect.objectContaining({ ref: "pi.bash", risk: "execute" }),
+      expect.objectContaining({ ref: "omp.bash", risk: "execute" }),
       { command: "pnpm test" },
       noUiContext,
       undefined,

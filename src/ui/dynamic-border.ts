@@ -1,4 +1,4 @@
-// Local mirror of the host's DynamicBorder component (pi 0.84.2). Fabric only
+// Local mirror of the host's DynamicBorder component (OMP host). Fabric only
 // constructs it with an explicit color function, so the host's global-theme
 // default (unreliable across module realms) is replaced with a pass-through
 // fallback that guards the no-color case.

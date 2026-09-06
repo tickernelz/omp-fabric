@@ -57,7 +57,7 @@ afterEach(async () => {
 
 describe("ActorDirectory", () => {
   it("runs project and session actor registries concurrently", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-actor-directory-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-actor-directory-"));
     roots.push(root);
     const alpha = open(root, "alpha");
 
@@ -93,7 +93,7 @@ describe("ActorDirectory", () => {
   });
 
   it("does not write to or delete durable roots from a transient participant runtime", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-actor-directory-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-actor-directory-"));
     roots.push(root);
     const projectRoot = path.join(root, "mesh", "actors");
     const sentinel = path.join(projectRoot, "keep.txt");
@@ -118,7 +118,7 @@ describe("ActorDirectory", () => {
   });
 
   it("persists independent mesh cursors for concurrent actor scopes", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-actor-directory-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-actor-directory-"));
     roots.push(root);
     const cursor = path.join(root, "actor-mesh-cursor.json");
     const opened = open(root, "alpha", { meshCursorPath: cursor });

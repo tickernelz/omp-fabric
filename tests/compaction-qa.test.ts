@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { SessionEntry, SessionMessageEntry } from "@earendil-works/pi-coding-agent";
+import type { SessionEntry, SessionMessageEntry } from "@oh-my-pi/pi-coding-agent";
 import { normalizeEntries } from "../src/compaction/normalize.js";
 import { project } from "../src/compaction/projections.js";
 import { generateProbes, checkProbes, qaReport } from "../src/compaction/qa.js";
@@ -93,7 +93,7 @@ const buildFixture = (): QaFixture => {
     user("Add mutation tests"),
     assistant(...filler),
     assistant(toolCallPart("qa-fabric", "fabric_exec", {
-      code: "return await pi.bash({ cmd: 'pnpm test' });",
+      code: "return await omp.bash({ cmd: 'pnpm test' });",
       display: {
         name: "Certify reconstruction QA",
         description: "Run the deterministic mutation and address probes",

@@ -29,7 +29,7 @@ export class FabricToolDisplayController {
   }
 
   // Drain a few cards per event-loop turn. invalidate() synchronously runs the
-  // card's full renderer pair (updateDisplay in pi's ToolExecutionComponent),
+  // card's full renderer pair (updateDisplay in OMP's ToolExecutionComponent),
   // so re-rendering a long transcript inside a single keypress froze the UI
   // until every card had been redrawn.
   #scheduleRefreshDrain(): void {

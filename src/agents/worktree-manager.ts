@@ -54,7 +54,7 @@ export class WorktreeManager {
     } catch {
       throw new Error("Worktree isolation requires a Git repository");
     }
-    const branch = `pi-fabric/${safeLabel(name)}-${id.slice(0, 8)}`;
+    const branch = `omp-fabric/${safeLabel(name)}-${id.slice(0, 8)}`;
     const worktreePath = fabricWorktreePath(gitRoot, id);
     await addCloneFirstWorktree({
       gitRoot,

@@ -1,6 +1,8 @@
-import type { Theme } from "@earendil-works/pi-coding-agent";
+import type { Theme } from "@oh-my-pi/pi-coding-agent";
+import { ompSymbolTheme } from "./symbol-theme.js";
+import { Ellipsis } from "@oh-my-pi/pi-tui";
 import type { CodePreviewSettings } from "./code-preview.js";
-import type { Component, Focusable, TUI } from "@earendil-works/pi-tui";
+import type { Component, Focusable, TUI } from "@oh-my-pi/pi-tui";
 import {
   Editor,
   getKeybindings,
@@ -9,7 +11,7 @@ import {
   truncateToWidth,
   type EditorTheme,
   visibleWidth,
-} from "@earendil-works/pi-tui";
+} from "@oh-my-pi/pi-tui";
 import type { FabricActivityRun } from "../activity/types.js";
 import type { MeshEvent } from "../mesh/store.js";
 import type { FabricAgentMessageDelivery } from "../main-agent.js";
@@ -67,8 +69,10 @@ import type { FabricDashboardSnapshot, FabricUiActor, FabricUiAgent } from "./ty
 import { isActiveStatus } from "./types.js";
 
 const editorTheme = (theme: Theme): EditorTheme => ({
+  symbols: ompSymbolTheme,
   borderColor: (value: string) => theme.fg("borderMuted", value),
   selectList: {
+      symbols: ompSymbolTheme,
     selectedPrefix: (text: string) => theme.fg("accent", text),
     selectedText: (text: string) => theme.fg("accent", text),
     description: (text: string) => theme.fg("muted", text),
@@ -846,7 +850,7 @@ export class FabricDashboard implements Component, Focusable {
     this.tui.requestRender();
   }
 
-  render(width: number): string[] {
+  render(width: number): readonly string[] {
     if (width <= 0) return [];
     if (this.mode === "help") return this.renderHelp(width);
     if (this.mode === "agentMessageEditor") return this.renderAgentMessageEditor(width);
@@ -992,7 +996,7 @@ export class FabricDashboard implements Component, Focusable {
   ): void {
     const target = this.messageTarget(entity);
     if (!target || !this.canMessage(entity, delivery)) return;
-    const editor = new Editor(this.tui, editorTheme(this.theme));
+    const editor = new Editor(editorTheme(this.theme));
     editor.focused = true;
     editor.onSubmit = (text) => {
       const message = text.trim();
@@ -1157,7 +1161,7 @@ export class FabricDashboard implements Component, Focusable {
     const currentValue = scope === "session" ? actor.binding?.model : projectModel;
     const runtimeDefault = actor.runner === "claude"
       ? "Fabric Claude model (or Claude Code runtime default)"
-      : "Fabric Pi model (or host default)";
+      : "Fabric OMP model (or host default)";
     this.pickerActorName = actor.name;
     this.picker = new FabricModelSelector({
       theme: this.theme,
@@ -1267,7 +1271,7 @@ export class FabricDashboard implements Component, Focusable {
     this.picker = new FabricActorToolSelector({
       theme: this.theme,
       currentValue: actor.tools ?? this.actorDefaultTools,
-      headerText: `Tools for actor "${actor.name}". Toggle with space, Enter to apply, Esc to cancel. Pi actors always retain fabric_exec.`,
+      headerText: `Tools for actor "${actor.name}". Toggle with space, Enter to apply, Esc to cancel. OMP actors always retain fabric_exec.`,
       onSelect: (tools) => {
         this.onActorTools!(actor.id, tools);
         this.closeModelPicker();
@@ -1286,7 +1290,7 @@ export class FabricDashboard implements Component, Focusable {
 
   /**
    * Open the embedded multi-line editor for an actor's default instruction.
-   * Matches Pi's editor dialog convention (Enter submit, Shift+Enter newline,
+   * Matches OMP's editor dialog convention (Enter submit, Shift+Enter newline,
    * Esc/Ctrl+C cancel) so a steering user edits the persona with the same
    * muscle memory as the chat input. Works for both live project actors and
    * global templates; the submit routes to the scope-appropriate callback.
@@ -1315,7 +1319,7 @@ export class FabricDashboard implements Component, Focusable {
     } else {
       return;
     }
-    const editor = new Editor(this.tui, editorTheme(this.theme));
+    const editor = new Editor(editorTheme(this.theme));
     editor.focused = true;
     editor.setText(instructions);
     editor.onSubmit = (text) => {
@@ -2004,8 +2008,8 @@ export class FabricDashboard implements Component, Focusable {
         this.canMessage(entity, "followUp") ? "u queue follow-up" : undefined,
       ].filter((value): value is string => Boolean(value));
       return actions.length > 0
-        ? `Main Pi agent actions: ${actions.join(" · ")}`
-        : "Main Pi agent controls are unavailable in this session.";
+        ? `Main OMP agent actions: ${actions.join(" · ")}`
+        : "Main OMP agent controls are unavailable in this session.";
     }
     if (entity.kind === "peer") {
       const actions = [

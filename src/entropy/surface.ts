@@ -4,7 +4,7 @@
 // catalogs, or the MCP descriptor cache, so a minimal synthetic invocation
 // context is safe for command-time surface listing.
 
-import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 import type { FabricInvocationContext } from "../protocol.js";
 import { stableJsonHash } from "../core/stable-hash.js";
 import { compareCodeUnits, roundMetric, staticFreedomFromSchema } from "./fingerprint.js";

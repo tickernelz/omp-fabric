@@ -1,6 +1,6 @@
 # Catalog repairs
 
-Pi Fabric learns **silent catalog-argument repairs** from unique invocation near-misses. It does not rewrite guidelines, `AGENTS.md`, or the system prompt. Session JSONL remains the only log. The durable product is a catalog-scoped table of spilled→declared maps.
+OMP Fabric learns **silent catalog-argument repairs** from unique invocation near-misses. It does not rewrite guidelines, `AGENTS.md`, or the system prompt. Session JSONL remains the only log. The durable product is a catalog-scoped table of spilled→declared maps.
 
 KPI: repeat **invocation** fingerprints → 0. Bash nonzero, edit misses, missing files, and guest typecheck/syntax are classified for status but never promoted.
 
@@ -22,7 +22,7 @@ Repair-candidate observation and apply happen in `ActionRegistry` only. Unique e
 
 ## Store
 
-`~/.pi/agent/fabric/repairs/current.json` (under `PI_CODING_AGENT_DIR`).
+`<active OMP agent dir>/fabric/repairs/current.json` (`OMP_FABRIC_AGENT_DIR` overrides the agent dir).
 
 `catalogDigest` hashes sorted provider names plus captured tool names. A digest change starts empty and **clears in-memory fingerprint counters** so a previous candidate cannot be re-inserted. Schema field/action renames do not bump the digest; apply re-proves each row's unique mapping against the **live** declared names instead. Repairs are **global across models**, not per project.
 
@@ -34,7 +34,7 @@ Table rows:
 Cap: 256 rows. Promotion is on the first unique hit; uniqueness against the
 live schema is the bound. A promoted row becomes active in memory immediately,
 while persistence queues behind a single asynchronous writer. Insert is
-identity-keyed (idempotent) and locked across Pi processes sharing the agent
+identity-keyed (idempotent) and locked across OMP processes sharing the agent
 directory; lock retries yield to the event loop, and stale-lock recovery is an
 exclusive rename claim, so racing reapers can never delete a lock a fresh
 writer owns. Queued writes merge with rows another process persisted and flush

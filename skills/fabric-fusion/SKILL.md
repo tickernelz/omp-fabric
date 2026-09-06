@@ -27,9 +27,9 @@ type ReferenceOutcome =
   | { label: string; model: string; runner: FabricAgentRunner; status: "completed"; advice: ActAdvice }
   | { label: string; model: string; runner: FabricAgentRunner; status: "failed"; error: string };
 
-const task = π.task;
-const panel = JSON.parse(π.panel) as Array<{ model: string; label?: string }>;
-const mode = (π.mode || "compare").trim().toLowerCase();
+const task = omp.task;
+const panel = JSON.parse(omp.panel) as Array<{ model: string; label?: string }>;
+const mode = (omp.mode || "compare").trim().toLowerCase();
 if (mode !== "compare" && mode !== "act") {
   throw new Error('Fusion mode must be "compare" or "act".');
 }
@@ -41,9 +41,9 @@ if (mode !== "act") {
   throw new Error("Act panel (reference models) must have 1–4 members.");
 }
 const toolset = mode === "compare"
-  ? (π.tools ? (JSON.parse(π.tools) as string[]) : ["read", "grep", "find", "ls", "bash"])
+  ? (omp.tools ? (JSON.parse(omp.tools) as string[]) : ["read", "grep", "find", "ls", "bash"])
   : [];
-const thinking = π.thinking ? (π.thinking as FabricThinking) : undefined;
+const thinking = omp.thinking ? (omp.thinking as FabricThinking) : undefined;
 
 if (mode !== "act") {
   await workflow.configure({
@@ -52,14 +52,14 @@ if (mode !== "act") {
   });
 }
 
-// Resolve models across Pi's registry and Claude Code's runtime catalog.
+// Resolve models across OMP's registry and Claude Code's runtime catalog.
 // Prefix Claude aliases with claude/ (for example claude/haiku) to select the
 // official CLI runner unambiguously. Claude Code is optional, so discovery is
-// best-effort when the panel contains only Pi models.
+// best-effort when the panel contains only OMP models.
 type RunnerModel = FabricModelInfo & { runner: FabricAgentRunner };
 const models: RunnerModel[] = (await tools.models()).map((entry) => ({
   ...entry,
-  runner: "pi" as const,
+  runner: "omp" as const,
 }));
 try {
   models.push(
@@ -105,13 +105,13 @@ if (members.some((member) => !member.label) ||
 
 // Act mode: read-only references advise; the explicit actor reconciles and executes.
 if (mode === "act") {
-  const actorNeedle = (π.actor || "").trim();
+  const actorNeedle = (omp.actor || "").trim();
   if (!actorNeedle) {
     throw new Error("Act mode requires an explicit strings.actor model.");
   }
   const actorModel = resolve(actorNeedle);
-  const parsedActorTools: unknown = π.actorTools
-    ? JSON.parse(π.actorTools)
+  const parsedActorTools: unknown = omp.actorTools
+    ? JSON.parse(omp.actorTools)
     : ["read", "grep", "find", "ls", "bash", "edit", "write"];
   if (!Array.isArray(parsedActorTools) ||
       parsedActorTools.some((tool) => typeof tool !== "string" || !tool.trim())) {
@@ -207,7 +207,7 @@ if (mode === "act") {
   }
 }
 
-const explicitJudge = π.judge ? resolve(π.judge) : undefined;
+const explicitJudge = omp.judge ? resolve(omp.judge) : undefined;
 
 type PanelOutcome =
   | { label: string; model: string; runner: FabricAgentRunner; status: "completed"; response: string }

@@ -1,6 +1,6 @@
 ---
 name: fabric-advisor
-description: Starts a persistent Pi Fabric peer advisor that reviews the main agent at decision points and surfaces only concrete, material advice. Use for ambient correctness review without another extension.
+description: Starts a persistent OMP Fabric peer advisor that reviews the main agent at decision points and surfaces only concrete, material advice. Use for ambient correctness review without another extension.
 disable-model-invocation: true
 ---
 
@@ -11,7 +11,7 @@ Create the advisor with Fabric primitives; do not install an advisor extension. 
 Hard pointer: read `<skill-dir>/../fabric-ambient/references/setup.md` completely before setup, then use its program with:
 
 - `strings.name`: `advisor`
-- `strings.events`: `["agent_settled","tool_error"]`
+- `strings.events`: `["agent_end","tool_error"]`
 - `strings.triggerTurn`: `false`
 - `strings.model`: model key or substring, or an empty string when unset
 - `strings.instructions`: the prompt below, with the requested focus appended
@@ -22,7 +22,7 @@ You are an ambient peer advisor for the main coding agent. Review the supplied p
 Prefer silence. Return {"action":"silent"} when work is on track. Return {"action":"message","message":"..."} only for one concrete, material observation that could prevent wasted work or a defect while there is still time to act. Cite the evidence and recommendation tersely as advice, not an order. Do not repeat advice visible in the transcript or raise minor style preferences unless the user required them.
 ```
 
-`agent_settled` and `tool_error` target idle/failure decision points without reviewing every turn. `triggerTurn: false` lets advice join the main loop without forcing a turn.
+`agent_end` and `tool_error` target idle/failure decision points without reviewing every turn. `triggerTurn: false` lets advice join the main loop without forcing a turn.
 
 ## Completion criterion
 

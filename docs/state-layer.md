@@ -1,6 +1,6 @@
 # State layer (fabric-schema)
 
-The `state` provider adds a typed, labeled world-model layer over mesh storage. It records claims, executable evidence attached to transitions, verification outcomes, and compare-and-swap state changes. On its own it gives durable process state and fail-closed reporting. With the default `schema.mode: "off"`, it does not gate direct Pi tools such as `pi.edit`, `pi.bash`, or `pi.powershell`.
+The `state` provider adds a typed, labeled world-model layer over mesh storage. It records claims, executable evidence attached to transitions, verification outcomes, and compare-and-swap state changes. On its own it gives durable process state and fail-closed reporting. With the default `schema.mode: "off"`, it does not gate direct OMP tools such as `omp.edit`, `omp.bash`,.
 
 The separate opt-in Schema transaction layer adds `audit` and `enforce` modes. Enforce mode keeps state reads available and blocks `state.transition`, `state.verify`, `state.goal`, and `state.checkGoal` from model-originated calls. Mutations then go through the host-owned `schema.*` transaction control plane. See [Schema enforcement](./schema-enforcement.md).
 
@@ -18,7 +18,7 @@ Evidence commands are arbitrary shell commands. Treat them as legacy trusted wor
 
 ## Schema-inspired mapping
 
-| Concept | Pi Fabric implementation |
+| Concept | OMP Fabric implementation |
 | --- | --- |
 | Editable labeled world state | Mesh key `state/current`, moved forward with compare-and-swap. |
 | Append-only timeline | Mesh topic `fabric.state`. Transition and verification events stay inspectable. |
@@ -106,7 +106,7 @@ The entry holds the latest recorded observation. Baselines and deltas stay in th
 ### Key `state/goal`
 
 ```json
-{ "check": "pnpm typecheck && pnpm test", "description": "green suite" }
+{ "check": "bun typecheck && bun test", "description": "green suite" }
 ```
 
 ## Actions

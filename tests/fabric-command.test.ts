@@ -1,4 +1,4 @@
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -135,7 +135,7 @@ describe("/fabric command", () => {
 
     await handler!("reload", context);
     expect(state.initialize).toHaveBeenCalledWith(context);
-    expect(notify).toHaveBeenCalledWith("Pi Fabric reloaded", "info");
+    expect(notify).toHaveBeenCalledWith("OMP Fabric reloaded", "info");
     expect(refreshToolDisplay).toHaveBeenCalledOnce();
   });
 
@@ -463,7 +463,7 @@ describe("/fabric command", () => {
       await handler!("prewalk --disable", context);
 
       const saved = JSON.parse(
-        await readFile(path.join(root, ".pi", "fabric.json"), "utf8"),
+        await readFile(path.join(root, ".omp", "fabric.json"), "utf8"),
       ) as { prewalk?: { enabled?: boolean } };
       expect(saved.prewalk?.enabled).toBe(false);
       expect(reloadConfig).toHaveBeenCalledWith(context);
@@ -478,7 +478,7 @@ describe("/fabric command", () => {
       // --enable flips the flag back without touching the live controller.
       await handler!("prewalk --enable", context);
       const enabled = JSON.parse(
-        await readFile(path.join(root, ".pi", "fabric.json"), "utf8"),
+        await readFile(path.join(root, ".omp", "fabric.json"), "utf8"),
       ) as { prewalk?: { enabled?: boolean } };
       expect(enabled.prewalk?.enabled).toBe(true);
       expect(notify).toHaveBeenCalledWith(

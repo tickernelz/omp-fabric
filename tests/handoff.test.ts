@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { SessionManager } from "@earendil-works/pi-coding-agent";
+import { SessionManager } from "@oh-my-pi/pi-coding-agent";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   checkedHandoffCompaction,
@@ -44,9 +44,9 @@ const outerResult = (toolCallId: string): AgentToolResultMessage => ({
   details: {
     success: true,
     trace: {
-      kind: "pi-fabric.execution",
+      kind: "omp-fabric.execution",
       version: 1,
-      operations: ["pi.read", "pi.edit", "pi.edit", "pi.bash"],
+      operations: ["omp.read", "omp.edit", "omp.edit", "omp.bash"],
     },
   },
   isError: false,
@@ -57,9 +57,9 @@ afterEach(() => {
   for (const root of roots.splice(0)) fs.rmSync(root, { recursive: true, force: true });
 });
 
-describe("trajectory handoff sessions", () => {
-  it("forks through the outer fabric_exec call and appends its finalized native result", () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-handoff-"));
+describe("trajectory handoff sessions", async () => {
+  it("forks through the outer fabric_exec call and appends its finalized native result", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-handoff-"));
     roots.push(root);
     const source = SessionManager.create(root, path.join(root, "source"));
     source.appendMessage({ role: "user", content: "Implement the token guard", timestamp: 1 });
@@ -74,7 +74,7 @@ describe("trajectory handoff sessions", () => {
           id: "outer-fabric-call",
           name: "fabric_exec",
           arguments: {
-            code: "await pi.read(...); await pi.edit(...); await pi.edit(...); await pi.bash(...);",
+            code: "await omp.read(...); await omp.edit(...); await omp.edit(...); await omp.bash(...);",
           },
         },
       ]),
@@ -87,8 +87,8 @@ describe("trajectory handoff sessions", () => {
       result,
       "outer-fabric-call",
     );
-    const sessionFile = writeHandoffSession(seed, root, path.join(root, "child"));
-    const child = SessionManager.open(sessionFile);
+    const sessionFile = await writeHandoffSession(seed, root, path.join(root, "child"));
+    const child = await SessionManager.open(sessionFile);
     const messages = child.buildSessionContext().messages;
 
     expect(seed.sourceBranchLeafId).toBe(activeEntryId);
@@ -111,7 +111,7 @@ describe("trajectory handoff sessions", () => {
           id: "outer-fabric-call",
           name: "fabric_exec",
           arguments: {
-            code: "await pi.read(...); await pi.edit(...); await pi.edit(...); await pi.bash(...);",
+            code: "await omp.read(...); await omp.edit(...); await omp.edit(...); await omp.bash(...);",
           },
         },
       ],
@@ -126,8 +126,8 @@ describe("trajectory handoff sessions", () => {
     }
   });
 
-  it("materializes an in-memory source with the complete outer boundary", () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-handoff-"));
+  it("materializes an in-memory source with the complete outer boundary", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-handoff-"));
     roots.push(root);
     const source = SessionManager.inMemory(root);
     source.appendMessage({ role: "user", content: "Preserve rare fact 43117", timestamp: 1 });
@@ -138,7 +138,7 @@ describe("trajectory handoff sessions", () => {
           type: "toolCall",
           id: "outer-in-memory",
           name: "fabric_exec",
-          arguments: { code: "await pi.write(...); await pi.bash(...);" },
+          arguments: { code: "await omp.write(...); await omp.bash(...);" },
         },
       ]),
     );
@@ -150,8 +150,8 @@ describe("trajectory handoff sessions", () => {
       result,
       "outer-in-memory",
     );
-    const sessionFile = writeHandoffSession(seed, root, path.join(root, "child"));
-    const child = SessionManager.open(sessionFile);
+    const sessionFile = await writeHandoffSession(seed, root, path.join(root, "child"));
+    const child = await SessionManager.open(sessionFile);
 
     expect(child.buildSessionContext().messages).toMatchObject([
       { role: "user", content: "Preserve rare fact 43117" },
@@ -171,7 +171,7 @@ describe("trajectory handoff sessions", () => {
     ]);
     expect(child.getEntries().at(-1)).toMatchObject({
       type: "custom",
-      customType: "pi-fabric-handoff",
+      customType: "omp-fabric-handoff",
       data: {
         sourceSessionId: source.getSessionId(),
         boundary: "fabric_exec_end",
@@ -179,7 +179,7 @@ describe("trajectory handoff sessions", () => {
     });
   });
 
-  it("fails rather than forking an incomplete parallel top-level tool batch", () => {
+  it("fails rather than forking an incomplete parallel top-level tool batch", async () => {
     const source = SessionManager.inMemory();
     source.appendMessage({ role: "user", content: "Do both", timestamp: 1 });
     source.appendMessage(
@@ -199,8 +199,8 @@ describe("trajectory handoff sessions", () => {
     ).toThrow(/only top-level tool call/);
   });
 
-  it("re-signs foreign thinking for an openai-completions reasoning executor", () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-handoff-"));
+  it("re-signs foreign thinking for an openai-completions reasoning executor", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-handoff-"));
     roots.push(root);
     const source = SessionManager.inMemory(root);
     source.appendMessage({ role: "user", content: "Implement the guard", timestamp: 1 });
@@ -216,7 +216,7 @@ describe("trajectory handoff sessions", () => {
           type: "toolCall",
           id: "outer-transfer",
           name: "fabric_exec",
-          arguments: { code: "await pi.edit(...);" },
+          arguments: { code: "await omp.edit(...);" },
         },
       ]),
     );
@@ -227,7 +227,7 @@ describe("trajectory handoff sessions", () => {
       outerResult("outer-transfer"),
       "outer-transfer",
     );
-    const sessionFile = writeHandoffSession(seed, root, path.join(root, "child"), {
+    const sessionFile = await writeHandoffSession(seed, root, path.join(root, "child"), {
       source: { provider: "openai-codex", modelId: "gpt-5.6-sol", api: "openai-responses" },
       target: {
         provider: "neuralwatt",
@@ -236,7 +236,7 @@ describe("trajectory handoff sessions", () => {
         reasoning: true,
       },
     });
-    const child = SessionManager.open(sessionFile);
+    const child = await SessionManager.open(sessionFile);
 
     const assistantMessage = child
       .buildSessionContext()
@@ -248,7 +248,7 @@ describe("trajectory handoff sessions", () => {
     expect(child.getEntries().some((entry) => entry.type === "custom_message")).toBe(false);
     expect(child.getEntries().at(-1)).toMatchObject({
       type: "custom",
-      customType: "pi-fabric-handoff",
+      customType: "omp-fabric-handoff",
       data: {
         thinkingTransfer: {
           policy: "re-signed",
@@ -261,8 +261,8 @@ describe("trajectory handoff sessions", () => {
     expect(source.getLeafId()).toBe(activeEntryId);
   });
 
-  it("strips foreign thinking and appends a digest for an incompatible executor", () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-handoff-"));
+  it("strips foreign thinking and appends a digest for an incompatible executor", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-handoff-"));
     roots.push(root);
     const source = SessionManager.create(root, path.join(root, "source"));
     source.appendMessage({ role: "user", content: "Implement the guard", timestamp: 1 });
@@ -278,7 +278,7 @@ describe("trajectory handoff sessions", () => {
           type: "toolCall",
           id: "outer-strip",
           name: "fabric_exec",
-          arguments: { code: "await pi.edit(...);" },
+          arguments: { code: "await omp.edit(...);" },
         },
       ]),
     );
@@ -289,7 +289,7 @@ describe("trajectory handoff sessions", () => {
       outerResult("outer-strip"),
       "outer-strip",
     );
-    const sessionFile = writeHandoffSession(seed, root, path.join(root, "child"), {
+    const sessionFile = await writeHandoffSession(seed, root, path.join(root, "child"), {
       source: { provider: "openai-codex", modelId: "gpt-5.6-sol", api: "openai-responses" },
       target: {
         provider: "anthropic",
@@ -298,7 +298,7 @@ describe("trajectory handoff sessions", () => {
         reasoning: true,
       },
     });
-    const child = SessionManager.open(sessionFile);
+    const child = await SessionManager.open(sessionFile);
 
     const messages = child.buildSessionContext().messages;
     for (const message of messages) {
@@ -311,7 +311,7 @@ describe("trajectory handoff sessions", () => {
       .getEntries()
       .find((entry) => entry.type === "custom_message");
     expect(digest).toMatchObject({
-      customType: "pi-fabric-handoff-thinking",
+      customType: "omp-fabric-handoff-thinking",
       display: false,
       details: { policy: "stripped", citedBlocks: 1 },
     });
@@ -319,7 +319,7 @@ describe("trajectory handoff sessions", () => {
     expect(JSON.stringify(digest)).toContain("Plan the token guard");
     expect(child.getEntries().at(-1)).toMatchObject({
       type: "custom",
-      customType: "pi-fabric-handoff",
+      customType: "omp-fabric-handoff",
       data: {
         sourceSessionId: source.getSessionId(),
         boundary: "fabric_exec_end",
@@ -334,8 +334,8 @@ describe("trajectory handoff sessions", () => {
     expect(child.getHeader()?.parentSession).toBe(source.getSessionFile());
   });
 
-  it("compacts the inherited trajectory with Fabric's deterministic compactor", () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-handoff-"));
+  it("compacts the inherited trajectory with Fabric's deterministic compactor", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-handoff-"));
     roots.push(root);
     const source = SessionManager.create(root, path.join(root, "source"));
     source.appendMessage({ role: "user", content: "Implement the token guard 43117", timestamp: 1 });
@@ -355,7 +355,7 @@ describe("trajectory handoff sessions", () => {
           type: "toolCall",
           id: "outer-compact",
           name: "fabric_exec",
-          arguments: { code: "await pi.edit(...);" },
+          arguments: { code: "await omp.edit(...);" },
         },
       ]),
     );
@@ -367,11 +367,11 @@ describe("trajectory handoff sessions", () => {
       result,
       "outer-compact",
     );
-    const sessionFile = writeHandoffSession(seed, root, path.join(root, "child"), undefined, {
+    const sessionFile = await writeHandoffSession(seed, root, path.join(root, "child"), undefined, {
       instructions: "Focus on the guard outcome.",
       preserve: ["Threshold is 90 percent of the context window"],
     });
-    const child = SessionManager.open(sessionFile);
+    const child = await SessionManager.open(sessionFile);
     const messages = child.buildSessionContext().messages;
 
     expect(messages.map((message) => message.role)).toEqual([
@@ -394,7 +394,7 @@ describe("trajectory handoff sessions", () => {
     const compactionEntry = child.getEntries().find((entry) => entry.type === "compaction");
     expect(compactionEntry).toMatchObject({
       type: "compaction",
-      fromHook: true,
+      fromExtension: true,
       firstKeptEntryId: proceedEntryId,
     });
     expect(
@@ -402,14 +402,14 @@ describe("trajectory handoff sessions", () => {
     ).toMatchObject({ compactor: "fabric", version: 2 });
     expect(child.getEntries().at(-1)).toMatchObject({
       type: "custom",
-      customType: "pi-fabric-handoff",
+      customType: "omp-fabric-handoff",
       data: { compaction: { applied: true, firstKeptEntryId: proceedEntryId } },
     });
     expect(messages.at(-1)).toEqual(result);
   });
 
-  it("applies the default compaction for a bare compact request", () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-handoff-"));
+  it("applies the default compaction for a bare compact request", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-handoff-"));
     roots.push(root);
     const source = SessionManager.inMemory(root);
     source.appendMessage({ role: "user", content: "Preserve rare fact 43117", timestamp: 1 });
@@ -423,7 +423,7 @@ describe("trajectory handoff sessions", () => {
           type: "toolCall",
           id: "outer-bare-compact",
           name: "fabric_exec",
-          arguments: { code: "await pi.write(...);" },
+          arguments: { code: "await omp.write(...);" },
         },
       ]),
     );
@@ -434,8 +434,8 @@ describe("trajectory handoff sessions", () => {
       outerResult("outer-bare-compact"),
       "outer-bare-compact",
     );
-    const sessionFile = writeHandoffSession(seed, root, path.join(root, "child"), undefined, {});
-    const child = SessionManager.open(sessionFile);
+    const sessionFile = await writeHandoffSession(seed, root, path.join(root, "child"), undefined, {});
+    const child = await SessionManager.open(sessionFile);
     const messages = child.buildSessionContext().messages;
 
     expect(messages.map((message) => message.role)).toEqual([
@@ -447,13 +447,13 @@ describe("trajectory handoff sessions", () => {
     expect(JSON.stringify(messages[0])).not.toContain("[Compaction Request]");
     expect(child.getEntries().at(-1)).toMatchObject({
       type: "custom",
-      customType: "pi-fabric-handoff",
+      customType: "omp-fabric-handoff",
       data: { compaction: { applied: true } },
     });
   });
 
-  it("summarizes the whole trajectory when no turn boundary qualifies to keep", () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-handoff-"));
+  it("summarizes the whole trajectory when no turn boundary qualifies to keep", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-handoff-"));
     roots.push(root);
     const source = SessionManager.inMemory(root);
     source.appendMessage(
@@ -463,7 +463,7 @@ describe("trajectory handoff sessions", () => {
           type: "toolCall",
           id: "outer-skip-compact",
           name: "fabric_exec",
-          arguments: { code: "await pi.read(...);" },
+          arguments: { code: "await omp.read(...);" },
         },
       ]),
     );
@@ -474,13 +474,13 @@ describe("trajectory handoff sessions", () => {
       outerResult("outer-skip-compact"),
       "outer-skip-compact",
     );
-    const sessionFile = writeHandoffSession(seed, root, path.join(root, "child"), undefined, {});
-    const child = SessionManager.open(sessionFile);
+    const sessionFile = await writeHandoffSession(seed, root, path.join(root, "child"), undefined, {});
+    const child = await SessionManager.open(sessionFile);
 
     const compactionEntry = child.getEntries().find((entry) => entry.type === "compaction");
     expect(compactionEntry).toMatchObject({
       type: "compaction",
-      fromHook: true,
+      fromExtension: true,
       firstKeptEntryId: "",
     });
     expect(child.buildSessionContext().messages.map((message) => message.role)).toEqual([
@@ -489,14 +489,14 @@ describe("trajectory handoff sessions", () => {
     ]);
     expect(child.getEntries().at(-1)).toMatchObject({
       type: "custom",
-      customType: "pi-fabric-handoff",
+      customType: "omp-fabric-handoff",
       data: { compaction: { applied: true } },
     });
   });
 });
 
-describe("checkedHandoffCompaction", () => {
-  it("normalizes and bounds-checks the agents.handoff compact option", () => {
+describe("checkedHandoffCompaction", async () => {
+  it("normalizes and bounds-checks the agents.handoff compact option", async () => {
     expect(checkedHandoffCompaction(undefined)).toBeUndefined();
     expect(checkedHandoffCompaction(false)).toBeUndefined();
     expect(checkedHandoffCompaction(true)).toEqual({});

@@ -121,7 +121,7 @@ export class HerdrTransport implements AgentTransportAdapter {
   #request(request: { method: string; params: Record<string, unknown> }): Promise<unknown> {
     const socketPath = this.environment.HERDR_SOCKET_PATH;
     if (!socketPath) return Promise.reject(new Error("Herdr transport requires HERDR_SOCKET_PATH"));
-    const payload = JSON.stringify({ id: `pi-fabric:${randomUUID()}`, ...request });
+    const payload = JSON.stringify({ id: `omp-fabric:${randomUUID()}`, ...request });
     return new Promise((resolve, reject) => {
       const socket = net.createConnection(endpointFor(socketPath));
       const responseChunks: string[] = [];

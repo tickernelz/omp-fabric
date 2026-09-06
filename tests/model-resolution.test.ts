@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   normalizeModelAliases,
-  resolveAvailablePiModel,
+  resolveAvailableOmpModel,
   resolveFabricModel,
   type FabricModelCandidate,
 } from "../src/core/model-resolution.js";
@@ -62,29 +62,29 @@ describe("normalizeModelAliases", () => {
   });
 });
 
-describe("resolveAvailablePiModel", () => {
+describe("resolveAvailableOmpModel", () => {
   it("accepts visible exact, fuzzy, and alias selectors", () => {
     const aliases = normalizeModelAliases({ fast: "google/gemini-2.5-flash" });
-    expect(resolveAvailablePiModel("google/gemini-2.5-pro", {
+    expect(resolveAvailableOmpModel("google/gemini-2.5-pro", {
       aliases,
       available: AVAILABLE,
     })).toMatchObject({ provider: "google", id: "gemini-2.5-pro" });
-    expect(resolveAvailablePiModel("gemni-2.5-pro", {
+    expect(resolveAvailableOmpModel("gemni-2.5-pro", {
       aliases,
       available: AVAILABLE,
     })).toMatchObject({ provider: "google", id: "gemini-2.5-pro" });
-    expect(resolveAvailablePiModel("fast", {
+    expect(resolveAvailableOmpModel("fast", {
       aliases,
       available: AVAILABLE,
     })).toMatchObject({ provider: "google", id: "gemini-2.5-flash" });
   });
 
   it("rejects hidden exact IDs and exhausted aliases with a session error", () => {
-    expect(() => resolveAvailablePiModel("google/private-gemini", {
+    expect(() => resolveAvailableOmpModel("google/private-gemini", {
       aliases: {},
       available: AVAILABLE,
-    })).toThrow(/not available to this Pi session/);
-    expect(() => resolveAvailablePiModel("retired", {
+    })).toThrow(/not available to this OMP session/);
+    expect(() => resolveAvailableOmpModel("retired", {
       aliases: normalizeModelAliases({
         retired: ["google/private-gemini", "anthropic/private-claude"],
       }),

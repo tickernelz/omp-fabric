@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { performance } from "node:perf_hooks";
 import { spawn } from "node:child_process";
-import { SessionManager } from "@earendil-works/pi-coding-agent";
+import { SessionManager } from "@oh-my-pi/pi-coding-agent";
 import { benchmarkGate, LfJsonlParser, pairedOrders, summarizeBenchmark } from "./certification/rpc-lib.mjs";
 import { evaluateFixtureOracle, snapshotFiles } from "./certification/context-lib.mjs";
 
@@ -63,7 +63,7 @@ class RpcProcess {
         record.success ? pending.resolve(record) : pending.reject(new Error(record.error ?? `RPC ${record.command} failed`));
       }
     }
-    if (record.type === "agent_settled") {
+    if (record.type === "agent_end") {
       for (const resolve of this.settledWaiters.splice(0)) resolve();
     }
   }
@@ -139,42 +139,26 @@ const seedSession = (repo, sessionDir) => {
   return file;
 };
 
-const baseArgs = ({ config, sessionFile, fabricExtension, includeVcc }) => [
+const baseArgs = ({ config, sessionFile, fabricExtension }) => [
   "--mode", "rpc",
   "--session", sessionFile,
   "--provider", config.provider,
   "--model", config.model,
   "--thinking", "off",
-  "--no-context-files",
   "--no-skills",
-  "--no-prompt-templates",
   "--no-extensions",
   "--extension", fabricExtension,
-  ...(includeVcc ? ["--extension", config.piVccExtension] : []),
-  "--approve",
+  "--auto-approve",
 ];
 
 const prepareVariant = async ({ variant, config, repo, sessionFile, fabricExtension, env }) => {
   if (variant === "baseline") return { compactor: "none" };
-  const rpc = new RpcProcess(config.piCommand, baseArgs({
-    config,
-    sessionFile,
-    fabricExtension,
-    includeVcc: variant === "pi-vcc",
-  }), { cwd: repo, env });
+  const rpc = new RpcProcess(config.ompCommand, baseArgs({ config, sessionFile, fabricExtension }), { cwd: repo, env });
   try {
-    const response = await rpc.command({
-      type: "compact",
-      ...(variant === "pi-vcc" ? { customInstructions: "__pi_vcc__" } : {}),
-    });
+    const response = await rpc.command({ type: "compact" });
     const details = response.data?.details;
-    if (variant === "fabric" && details?.compactor !== "fabric") {
-      throw new Error("Fabric arm was not compacted by Fabric");
-    }
-    if (variant === "pi-vcc" && details?.compactor !== "pi-vcc") {
-      throw new Error("Sentinel arm was not compacted by pi-vcc");
-    }
-    return { compactor: details?.compactor ?? "unknown", summaryBytes: Buffer.byteLength(response.data?.summary ?? "", "utf8") };
+    if (details?.compactor !== "fabric") throw new Error("Fabric arm was not compacted by Fabric");
+    return { compactor: details.compactor, summaryBytes: Buffer.byteLength(response.data?.summary ?? "", "utf8") };
   } finally {
     await rpc.close();
   }
@@ -188,12 +172,7 @@ const runVariant = async ({ repeat, variant, config, root, fabricExtension, env 
   const forbiddenBefore = snapshotFiles(repo, fixture.forbiddenPaths);
   const sessionFile = seedSession(repo, sessionDir);
   const preparation = await prepareVariant({ variant, config, repo, sessionFile, fabricExtension, env });
-  const rpc = new RpcProcess(config.piCommand, baseArgs({
-    config,
-    sessionFile,
-    fabricExtension,
-    includeVcc: variant === "pi-vcc",
-  }), { cwd: repo, env });
+  const rpc = new RpcProcess(config.ompCommand, baseArgs({ config, sessionFile, fabricExtension }), { cwd: repo, env });
   const started = performance.now();
   try {
     const settled = rpc.waitForSettled();
@@ -202,11 +181,11 @@ const runVariant = async ({ repeat, variant, config, root, fabricExtension, env 
     const stats = (await rpc.command({ type: "get_session_stats" })).data;
     const toolEvents = rpc.events.filter((event) => event.type === "tool_execution_start");
     const recallCalls = toolEvents.filter((event) => {
-      if (event.toolName === "memory.recall" || event.toolName === "vcc_recall") return true;
+      if (event.toolName === "memory.recall") return true;
       return event.toolName === "fabric_exec"
         && typeof event.args?.code === "string"
         && event.args.code.includes("recall")
-        && (event.args.code.includes("memory") || event.args.code.includes("vcc"));
+        && event.args.code.includes("memory");
     }).length;
     const oracle = evaluateFixtureOracle(repo, fixture, forbiddenBefore);
     return {
@@ -228,9 +207,9 @@ const runVariant = async ({ repeat, variant, config, root, fabricExtension, env 
 };
 
 const runBenchmark = async (gate) => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-real-resume-"));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-real-resume-"));
   const fabricExtension = path.resolve("dist/index.js");
-  const env = { ...process.env, PI_SKIP_VERSION_CHECK: "1", PI_TELEMETRY: "0" };
+  const env = { ...process.env };
   const orders = pairedOrders(gate.config.repeats, gate.config.seed);
   const runs = [];
   try {
@@ -249,15 +228,15 @@ const runBenchmark = async (gate) => {
 
 const gate = benchmarkGate();
 if (!gate.enabled) {
-  process.stdout.write(`Real Pi resume benchmark: SKIP\n${gate.reasons.map((reason) => `  - ${reason}`).join("\n")}\n`);
+  process.stdout.write(`Real OMP resume benchmark: SKIP\n${gate.reasons.map((reason) => `  - ${reason}`).join("\n")}\n`);
   process.stdout.write(`${JSON.stringify({ schemaVersion: 1, skipped: true, reasons: gate.reasons }, null, 2)}\n`);
 } else {
   try {
     const report = await runBenchmark(gate);
-    process.stdout.write(`Real Pi resume benchmark: COMPLETE (${report.runs.length} runs, $${report.budget.observedUsd.toFixed(4)})\n`);
+    process.stdout.write(`Real OMP resume benchmark: COMPLETE (${report.runs.length} runs, $${report.budget.observedUsd.toFixed(4)})\n`);
     process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
   } catch (error) {
-    process.stderr.write(`Real Pi resume benchmark failed: ${error instanceof Error ? error.message : String(error)}\n`);
+    process.stderr.write(`Real OMP resume benchmark failed: ${error instanceof Error ? error.message : String(error)}\n`);
     process.exitCode = 1;
   }
 }

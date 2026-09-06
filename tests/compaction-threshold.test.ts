@@ -1,4 +1,4 @@
-import type { ExtensionAPI, ExtensionContext, SessionBeforeCompactEvent } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext, SessionBeforeCompactEvent } from "@oh-my-pi/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
 import { registerCompactionHook } from "../src/compaction/hook.js";
 import { compactAtConfiguredThreshold, modelCompactionKey } from "../src/compaction/threshold.js";
@@ -27,34 +27,6 @@ describe("model-linked compaction thresholds", () => {
     expect(context.compact).toHaveBeenCalledOnce();
   });
 
-  it("defers Pi's earlier automatic threshold for the active model", () => {
-    let handler: ((event: SessionBeforeCompactEvent, context: ExtensionContext) => unknown) | undefined;
-    const pi = {
-      on(name: string, candidate: unknown) {
-        if (name === "session_before_compact") {
-          handler = candidate as typeof handler;
-        }
-      },
-    } as unknown as ExtensionAPI;
-    registerCompactionHook(pi, {
-      getEngine: () => "pi",
-      getThresholdContextRatio: (key) => key === "anthropic/sonnet" ? 0.8 : undefined,
-    });
-    const context = {
-      model: { provider: "anthropic", id: "sonnet", contextWindow: 100_000 },
-    } as unknown as ExtensionContext;
-    const event = {
-      reason: "threshold",
-      preparation: { tokensBefore: 70_000 },
-      branchEntries: [],
-    } as unknown as SessionBeforeCompactEvent;
-
-    expect(handler?.(event, context)).toEqual({ cancel: true });
-    expect(handler?.({ ...event, preparation: { tokensBefore: 80_000 } } as SessionBeforeCompactEvent, context))
-      .toBeUndefined();
-    expect(handler?.({ ...event, reason: "overflow" } as SessionBeforeCompactEvent, context))
-      .toBeUndefined();
-  });
 
   it("compacts when token usage reaches a configured token threshold", async () => {
     const config = structuredClone(DEFAULT_FABRIC_CONFIG);
@@ -79,36 +51,6 @@ describe("model-linked compaction thresholds", () => {
     expect(unknown.compact).not.toHaveBeenCalled();
   });
 
-  it("defers Pi's automatic threshold below a configured token threshold", () => {
-    let handler: ((event: SessionBeforeCompactEvent, context: ExtensionContext) => unknown) | undefined;
-    const pi = {
-      on(name: string, candidate: unknown) {
-        if (name === "session_before_compact") {
-          handler = candidate as typeof handler;
-        }
-      },
-    } as unknown as ExtensionAPI;
-    registerCompactionHook(pi, {
-      getEngine: () => "pi",
-      getThresholdTokens: (key) => key === "anthropic/sonnet" ? 150_000 : undefined,
-      // A configured token threshold takes precedence: this ratio is ignored.
-      getThresholdContextRatio: () => 0.25,
-    });
-    const context = {
-      model: { provider: "anthropic", id: "sonnet", contextWindow: 100_000 },
-    } as unknown as ExtensionContext;
-    const event = {
-      reason: "threshold",
-      preparation: { tokensBefore: 120_000 },
-      branchEntries: [],
-    } as unknown as SessionBeforeCompactEvent;
-
-    expect(handler?.(event, context)).toEqual({ cancel: true });
-    expect(handler?.({ ...event, preparation: { tokensBefore: 150_000 } } as SessionBeforeCompactEvent, context))
-      .toBeUndefined();
-    expect(handler?.({ ...event, reason: "overflow" } as SessionBeforeCompactEvent, context))
-      .toBeUndefined();
-  });
 
   it("does not compact below threshold or for an unconfigured model", async () => {
     const config = structuredClone(DEFAULT_FABRIC_CONFIG);

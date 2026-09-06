@@ -12,7 +12,7 @@ describe("prewalk prompt isolation", () => {
       path.join(process.cwd(), "src", "fabric-exec-tool.ts"),
       "utf8",
     );
-    const start = extensionSource.indexOf('pi.on("before_agent_start"');
+    const start = extensionSource.indexOf('omp.on("before_agent_start"');
     const end = extensionSource.indexOf("registerFabricCommand", start);
     expect(start).toBeGreaterThanOrEqual(0);
     expect(end).toBeGreaterThan(start);
@@ -54,7 +54,7 @@ describe("prewalk prompt isolation", () => {
     expect(guidelines).toContain("smallest checks that cover the ledger");
     expect(guidelines).toContain("instead of rerunning unchanged passing checks");
     expect(guidelines).toContain("A build alone is not completion");
-    expect(guidelines).toContain("one `pi.edit({path, edits:[...]})`");
+    expect(guidelines).toContain("one `omp.edit({path, edits:[...]})`");
     expect(guidelines).toContain("`all:true` only for intentional repeated exact anchors");
     expect(guidelines).toContain("`literal:true` for exact punctuated text");
     expect(guidelines).toContain("fan-out search limits small");
@@ -63,8 +63,8 @@ describe("prewalk prompt isolation", () => {
     expect(guidelines).toContain("batch only independent, bounded work");
     expect(guidelines).toContain("not raw logs or unused intermediate results");
     expect(guidelines).toContain("pass named payloads through top-level `payloads`");
-    expect(guidelines).toContain("prefer `pi.edit`/`pi.write`");
-    expect(guidelines).toContain("`pi.bash`: no stdin");
+    expect(guidelines).toContain("prefer `omp.edit`/`omp.write`");
+    expect(guidelines).toContain("`omp.bash`: no stdin");
     expect(guidelines).toContain("`display.name` and objective `display.description`");
     expect(guidelines).toContain("pairs them with verified outcomes");
     expect(guidelines).toContain("deterministic compaction");
@@ -79,19 +79,19 @@ describe("prewalk prompt isolation", () => {
       path.join(process.cwd(), "src", "fabric-exec-tool.ts"),
       "utf8",
     );
-    const start = extensionSource.indexOf('pi.on("tool_result"');
-    const end = extensionSource.indexOf('pi.on("tool_execution_end"', start);
+    const start = extensionSource.indexOf('omp.on("tool_result"');
+    const end = extensionSource.indexOf('omp.on("tool_execution_end"', start);
     const boundaryHandlers = extensionSource.slice(start, end);
 
-    expect(boundaryHandlers).toContain('pi.on("message_end"');
+    expect(boundaryHandlers).toContain('omp.on("message_end"');
     expect(boundaryHandlers).toContain("state.runHandoffAtBoundary");
     expect(toolSource).toContain("state.claimHandoff");
   });
 
-  it("disarms the captured task from the agent_settled lifecycle", () => {
+  it("disarms the captured task from the agent_end lifecycle", () => {
     const source = fs.readFileSync(path.join(process.cwd(), "src", "index.ts"), "utf8");
-    const start = source.indexOf('pi.on("agent_settled"');
-    const end = source.indexOf('pi.on("tool_call"', start);
+    const start = source.indexOf('omp.on("agent_end"');
+    const end = source.indexOf('omp.on("tool_call"', start);
 
     expect(start).toBeGreaterThanOrEqual(0);
     expect(end).toBeGreaterThan(start);

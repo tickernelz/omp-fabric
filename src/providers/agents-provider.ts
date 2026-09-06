@@ -64,7 +64,7 @@ import {
 } from "../config.js";
 import {
   FUZZY_RESOLUTION_MARKERS,
-  resolveAvailablePiModel,
+  resolveAvailableOmpModel,
   resolveFabricModel,
   type FabricModelCandidate,
 } from "../core/model-resolution.js";
@@ -189,11 +189,11 @@ const runRequest = (
   const tools = stringArray(args.tools);
   const timeoutMs = longerTimeoutOverride(args.timeoutMs, manager);
   const runner =
-    args.runner === "pi" || args.runner === "claude" || args.runner === "veda"
+    args.runner === "omp" || args.runner === "claude" || args.runner === "veda"
       ? args.runner
       : manager.config.runner;
   const inheritedModel =
-    runner === "pi" && !manager.config.model && context.extensionContext.model
+    runner === "omp" && !manager.config.model && context.extensionContext.model
       ? `${context.extensionContext.model.provider}/${context.extensionContext.model.id}`
       : undefined;
   return {
@@ -301,16 +301,16 @@ const actorRequest = (
     ? { version: 1 as const, source: (args.validWhile as { source: string }).source }
     : undefined;
   const runner =
-    args.runner === "pi" || args.runner === "claude" || args.runner === "veda"
+    args.runner === "omp" || args.runner === "claude" || args.runner === "veda"
       ? args.runner
       : manager.config.runner;
   if (runner === "veda") {
     throw new Error(
-      'The Veda runner does not support persistent actors: Veda executes one headless prompt per invocation. Use a Pi or Claude actor, or agents.run({ runner: "veda" }).',
+      'The Veda runner does not support persistent actors: Veda executes one headless prompt per invocation. Use an OMP or Claude actor, or agents.run({ runner: "veda" }).',
     );
   }
   const inheritedModel =
-    inheritModel && runner === "pi" && !manager.config.model && context.extensionContext.model
+    inheritModel && runner === "omp" && !manager.config.model && context.extensionContext.model
       ? `${context.extensionContext.model.provider}/${context.extensionContext.model.id}`
       : undefined;
   return {
@@ -387,7 +387,7 @@ export const collectAgentToolPreviewNodes = (
       id: record.id,
       name: record.actorName ?? record.name,
       status: record.status,
-      ...(record.runner === "pi" || record.runner === "claude" || record.runner === "veda"
+      ...(record.runner === "omp" || record.runner === "claude" || record.runner === "veda"
         ? { runner: record.runner }
         : {}),
       owner: record.actorId ? "actor" : "agent",
@@ -607,7 +607,7 @@ export class AgentsProvider implements FabricProvider {
   readonly #transcripts = new AgentTranscriptReader();
   readonly name = "agents";
   readonly description =
-    "The user-facing Main target, one-shot Pi or Claude Code agents, and persistent mailbox actors over process, tmux, screen, LocalTerm, or Herdr";
+    "The user-facing Main target, one-shot OMP or Claude Code agents, and persistent mailbox actors over process, tmux, screen, LocalTerm, or Herdr";
 
   constructor(
     readonly manager: AgentManager,
@@ -627,7 +627,7 @@ export class AgentsProvider implements FabricProvider {
       (target, batch) => this.#routeLifecycleBatch(target, batch),
       (target, batch, error) => {
         console.warn(
-          `[pi-fabric] lifecycle delivery to ${target} failed for ${batch.length} event(s): ` +
+          `[omp-fabric] lifecycle delivery to ${target} failed for ${batch.length} event(s): ` +
             (error instanceof Error ? error.message : String(error)),
         );
       },
@@ -669,8 +669,8 @@ export class AgentsProvider implements FabricProvider {
     );
   }
 
-  /** Resolve a Pi participant selector only within this session's visible registry. */
-  #resolvePiModel(
+  /** Resolve an OMP participant selector only within this session's visible registry. */
+  #resolveOmpModel(
     model: string,
     context: FabricInvocationContext,
   ): string {
@@ -684,7 +684,7 @@ export class AgentsProvider implements FabricProvider {
     } catch {
       // The authoritative visible set is empty when registry discovery fails.
     }
-    const resolved = resolveAvailablePiModel(model, {
+    const resolved = resolveAvailableOmpModel(model, {
       aliases: this.modelsConfig().aliases,
       available,
       lastUsed: loadModelUsage(),
@@ -692,29 +692,29 @@ export class AgentsProvider implements FabricProvider {
     return `${resolved.provider}/${resolved.id}`;
   }
 
-  #resolvePiModelArgs(
+  #resolveOmpModelArgs(
     args: Record<string, unknown>,
     context: FabricInvocationContext,
     runnerOverride?: FabricAgentRunner,
   ): Record<string, unknown> {
     const runner = runnerOverride ??
-      (args.runner === "pi" || args.runner === "claude" || args.runner === "veda"
+      (args.runner === "omp" || args.runner === "claude" || args.runner === "veda"
         ? args.runner
         : this.manager.config.runner);
-    if (runner !== "pi") return args;
+    if (runner !== "omp") return args;
     const model = typeof args.model === "string" ? args.model.trim() : "";
     if (!model) return args;
-    const resolved = this.#resolvePiModel(model, context);
+    const resolved = this.#resolveOmpModel(model, context);
     return resolved === model ? args : { ...args, model: resolved };
   }
 
-  #resolvePiRunBinding(
+  #resolveOmpRunBinding(
     binding: FabricActorRunBinding,
     runner: FabricAgentRunner,
     context: FabricInvocationContext,
   ): FabricActorRunBinding {
-    if (runner !== "pi" || !binding.model) return binding;
-    return { ...binding, model: this.#resolvePiModel(binding.model, context) };
+    if (runner !== "omp" || !binding.model) return binding;
+    return { ...binding, model: this.#resolveOmpModel(binding.model, context) };
   }
 
   async list(
@@ -748,17 +748,17 @@ export class AgentsProvider implements FabricProvider {
     context: FabricInvocationContext,
   ): Promise<Record<string, unknown>> {
     const model = typeof args.model === "string" ? args.model.trim() : "";
-    if (!model) throw new Error("agents.handoff requires an explicit Pi target model");
+    if (!model) throw new Error("agents.handoff requires an explicit OMP target model");
     checkedHandoffCompaction(args.compact);
     if (!context.deferHandoff) {
       throw new Error(
         "agents.handoff must be scheduled from inside fabric_exec and completed at its outer result boundary",
       );
     }
-    const handoffArgs = this.#resolvePiModelArgs(
+    const handoffArgs = this.#resolveOmpModelArgs(
       { ...args, model },
       context,
-      "pi",
+      "omp",
     );
     delete handoffArgs.cwd;
     return context.deferHandoff(handoffArgs);
@@ -770,9 +770,9 @@ export class AgentsProvider implements FabricProvider {
     sessionSeed: AgentSessionSeed,
   ): Promise<Record<string, unknown>> {
     const model = typeof args.model === "string" ? args.model.trim() : "";
-    if (!model) throw new Error("agents.handoff requires an explicit Pi target model");
+    if (!model) throw new Error("agents.handoff requires an explicit OMP target model");
     const request = runRequest(
-      this.#resolvePiModelArgs(
+      this.#resolveOmpModelArgs(
         {
           ...args,
           task: handoffTask(args),
@@ -780,7 +780,7 @@ export class AgentsProvider implements FabricProvider {
             typeof args.name === "string" && args.name.trim()
               ? args.name
               : "Trajectory handoff",
-          runner: "pi",
+          runner: "omp",
           model,
         },
         context,
@@ -789,7 +789,7 @@ export class AgentsProvider implements FabricProvider {
       this.manager,
       { allowCwd: false },
     );
-    request.runner = "pi";
+    request.runner = "omp";
     request.sessionSeed = sessionSeed;
     const targetModel = request.model ?? model;
     const handoffCompaction = checkedHandoffCompaction(args.compact);
@@ -832,7 +832,7 @@ export class AgentsProvider implements FabricProvider {
     switch (actionName) {
       case "run": {
         const handle = await this.manager.spawn(
-          runRequest(this.#resolvePiModelArgs(args, context), context, this.manager),
+          runRequest(this.#resolveOmpModelArgs(args, context), context, this.manager),
           context.signal,
         );
         this.participants.scheduleRefresh();
@@ -854,7 +854,7 @@ export class AgentsProvider implements FabricProvider {
       case "handoff":
         return this.handoff(args, context);
       case "spawn": {
-        const request = runRequest(this.#resolvePiModelArgs(args, context), context, this.manager);
+        const request = runRequest(this.#resolveOmpModelArgs(args, context), context, this.manager);
         validateAgentCwdRequest(request);
         const durableRequest = request.residency === "durable" && request.cwd !== undefined
           ? { ...request, cwd: this.manager.resolveCwd(request.cwd) }
@@ -977,7 +977,7 @@ export class AgentsProvider implements FabricProvider {
         return this.lifecycle.unsubscribe(String(args.id));
       case "models": {
         const runner =
-          args.runner === "pi" || args.runner === "claude" || args.runner === "veda"
+          args.runner === "omp" || args.runner === "claude" || args.runner === "veda"
             ? args.runner
             : this.manager.config.runner;
         if (runner === "veda") {
@@ -1001,7 +1001,7 @@ export class AgentsProvider implements FabricProvider {
         try {
           const available = context.extensionContext.modelRegistry.getAvailable();
           return available.map((model) => ({
-            runner: "pi",
+            runner: "omp",
             provider: String(model.provider),
             id: String(model.id),
             name: String(model.name ?? model.id),
@@ -1082,7 +1082,7 @@ export class AgentsProvider implements FabricProvider {
           throw new Error(`agents.switchModel: ${outcome.error ?? "switch failed"}`);
         }
         try {
-          this.residency?.syncPiModels();
+          this.residency?.syncOmpModels();
         } catch {
           // The next durable command retries synchronization before execution.
         }
@@ -1111,7 +1111,7 @@ export class AgentsProvider implements FabricProvider {
           : this.manager.cleanup(id, args.deleteBranch === true);
       }
       case "create": {
-        const createArgs = this.#resolvePiModelArgs(args, context);
+        const createArgs = this.#resolveOmpModelArgs(args, context);
         if (createArgs.scope === "global") {
           return this.globalActors.create(actorRequest(createArgs, context, this.manager, false));
         }
@@ -1129,7 +1129,7 @@ export class AgentsProvider implements FabricProvider {
         const ownsActor = actor ? this.actorManager.owns(actor.id) : false;
         const requestedOverrides = actorRunBinding(args);
         const overrides = ownsActor
-          ? this.#resolvePiRunBinding(requestedOverrides, actor!.runner, context)
+          ? this.#resolveOmpRunBinding(requestedOverrides, actor!.runner, context)
           : requestedOverrides;
         context.activity?.({
           type: "entity",
@@ -1236,7 +1236,7 @@ export class AgentsProvider implements FabricProvider {
         const ownsActor = target.actor ? this.actorManager.owns(target.actor.id) : false;
         const runner = target.actor?.runner ?? target.participant!.runner;
         const resolvedModel = model && ownsActor
-          ? this.#resolvePiModelArgs({ model }, context, runner).model as string
+          ? this.#resolveOmpModelArgs({ model }, context, runner).model as string
           : model || undefined;
         return this.actorManager.setModel(
           id,
@@ -1313,7 +1313,7 @@ export class AgentsProvider implements FabricProvider {
         const resolvedRequest = request.model
           ? {
               ...request,
-              model: this.#resolvePiModelArgs(
+              model: this.#resolveOmpModelArgs(
                 { model: request.model },
                 context,
                 request.runner ?? this.manager.config.runner,
@@ -1443,7 +1443,7 @@ export class AgentsProvider implements FabricProvider {
     const { actor, participant } = target;
     const localActor = Boolean(actor && (!participant || participant.local));
     const binding = options.binding && context && localActor
-      ? this.#resolvePiRunBinding(options.binding, actor!.runner, context)
+      ? this.#resolveOmpRunBinding(options.binding, actor!.runner, context)
       : options.binding;
     if (actor && localActor) {
       context?.activity?.({ type: "entity", id: actor.id, kind: "actor", name: actor.name });

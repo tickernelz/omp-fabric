@@ -49,6 +49,7 @@ export const evaluateCertification = (report, thresholds = DEFAULT_THRESHOLDS) =
     ["context.closureFixtures", Object.values(report.context.closureFixtureCounts).every((count) => count > 0), JSON.stringify(report.context.closureFixtureCounts)],
     ["context.steadyRange", steadyRange <= thresholds.maxSteadyRangeBytes, `${steadyRange} <= ${thresholds.maxSteadyRangeBytes}`],
     ["context.steadySlope", Math.abs(steadySlope) <= thresholds.maxSteadySlopeBytesPerCycle, `${steadySlope.toFixed(3)} <= ±${thresholds.maxSteadySlopeBytesPerCycle}`],
+    ["memory.sessionHeader", report.memory.sessionHeaderResolved === true, `readSessionHeader reported ${report.memory.sessionHeaderId === null ? "no session header" : JSON.stringify(report.memory.sessionHeaderId)}; SessionManager reported ${JSON.stringify(report.memory.sessionId)}`],
     ["memory.sessions", report.memory.eligibleSessions >= thresholds.minimumSessions, `${report.memory.eligibleSessions} >= ${thresholds.minimumSessions}`],
     ["memory.coverage", report.memory.coverageComplete === true, "all eligible sessions indexed"],
     ["memory.rareRecall", report.memory.rareRecallExact === true, "cold rare fact recalled and expanded exactly"],
@@ -106,7 +107,6 @@ export const evaluateFixtureOracle = (root, fixture, forbiddenBefore = {}) => {
       cwd: root,
       encoding: "utf8",
       timeout: 15_000,
-      env: { ...process.env, PI_OFFLINE: "1" },
     });
     test = {
       ...test,

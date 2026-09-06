@@ -17,7 +17,7 @@ const occurredAt = Date.now();
 const usage = {
   runId: id,
   name,
-  runner: "pi",
+  runner: "omp",
   depth,
   ...(actorId ? { actorId } : {}),
   input: 4,

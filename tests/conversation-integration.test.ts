@@ -1,5 +1,5 @@
-import type { ExtensionAPI, ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
-import type { TUI } from "@earendil-works/pi-tui";
+import type { ExtensionAPI, ExtensionContext, Theme } from "@oh-my-pi/pi-coding-agent";
+import type { TUI } from "@oh-my-pi/pi-tui";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -70,7 +70,7 @@ const stubActor: FabricActorInfo = {
   scope: "project",
   name: "red queen",
   status: "idle",
-  runner: "pi",
+  runner: "omp",
   events: ["turn_end"],
   topics: [],
   delivery: "mailbox",
@@ -87,7 +87,7 @@ const agentRecord = (overrides: Record<string, unknown> = {}) => ({
   id: "agent-root-1",
   name: "scout",
   status: "running",
-  runner: "pi",
+  runner: "omp",
   transport: "host",
   cwd: "/tmp/project",
   task: "scout the code",
@@ -109,7 +109,7 @@ const stubParticipant = (overrides: Record<string, unknown> = {}) => ({
   ownerIdentityId: "identity-remote",
   name: "scout",
   status: "running",
-  runner: "pi",
+  runner: "omp",
   transport: "host",
   capabilities: ["steer", "followUp", "stop"],
   startedAt: 1,
@@ -140,7 +140,7 @@ const stubState = () => {
       name: "Main",
       kind: "main",
       status: "idle",
-      runner: "pi",
+      runner: "omp",
       transport: "host",
       cwd: "/tmp/project",
       sessionId: "test",
@@ -165,7 +165,7 @@ const stubState = () => {
     },
     globalActors: {
       list: vi.fn(() => [
-        { id: "global-helper-1", name: "global helper", runner: "pi", instructions: "", createdAt: 0, updatedAt: 0 },
+        { id: "global-helper-1", name: "global helper", runner: "omp", instructions: "", createdAt: 0, updatedAt: 0 },
       ]),
     },
     mesh: { read: vi.fn(() => []), latestOffset: vi.fn(() => 0), list: vi.fn(() => []) },

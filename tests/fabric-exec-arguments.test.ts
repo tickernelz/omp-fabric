@@ -25,7 +25,6 @@ describe("prepareFabricExecArguments", () => {
     expect(prepareFabricExecArguments({
       code: null,
       payloads: null,
-      strings: null,
       resultFormat: null,
       tokenBudget: null,
       agentBudget: undefined,
@@ -47,20 +46,12 @@ describe("prepareFabricExecArguments", () => {
     });
   });
 
-  it("remaps the strings alias onto payloads", () => {
+  it("normalizes canonical payloads", () => {
     expect(prepareFabricExecArguments({
-      code: "return π.body;",
-      strings: { body: "ok" },
-    })).toEqual({
-      code: "return π.body;",
-      payloads: { body: "ok" },
-    });
-    expect(prepareFabricExecArguments({
-      code: "return π.body;",
+      code: "return payloads.body;",
       payloads: { body: "canonical" },
-      strings: { body: "alias" },
     })).toEqual({
-      code: "return π.body;",
+      code: "return payloads.body;",
       payloads: { body: "canonical" },
     });
   });
@@ -68,17 +59,17 @@ describe("prepareFabricExecArguments", () => {
   it("parses JSON-object payload maps before schema validation", () => {
     const payload = { lifecycle: "#!/bin/sh\n# inventory" };
     expect(prepareFabricExecArguments({
-      code: "return π.lifecycle;",
+      code: "return omp.lifecycle;",
       payloads: JSON.stringify(payload),
     })).toEqual({
-      code: "return π.lifecycle;",
+      code: "return omp.lifecycle;",
       payloads: payload,
     });
     expect(prepareFabricExecArguments({
-      code: "return π.body;",
-      strings: JSON.stringify(JSON.stringify({ body: "ok" })),
+      code: "return payloads.body;",
+      payloads: JSON.stringify(JSON.stringify({ body: "ok" })),
     })).toEqual({
-      code: "return π.body;",
+      code: "return payloads.body;",
       payloads: { body: "ok" },
     });
   });
@@ -86,7 +77,7 @@ describe("prepareFabricExecArguments", () => {
   it("leaves malformed payload maps invalid on the canonical key", () => {
     expect(prepareFabricExecArguments({
       code: "return 1;",
-      strings: "not-json",
+      payloads: "not-json",
     })).toEqual({
       code: "return 1;",
       payloads: "not-json",
@@ -100,7 +91,7 @@ describe("prepareFabricExecArguments", () => {
     });
     expect(prepareFabricExecArguments({
       code: "return 1;",
-      strings: '{"n":1}',
+      payloads: '{"n":1}',
     })).toEqual({
       code: "return 1;",
       payloads: '{"n":1}',

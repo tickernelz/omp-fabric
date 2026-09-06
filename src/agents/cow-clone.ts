@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 
-export const CLONE_SKIP_PREFIXES = [".git", ".pi/fabric/worktrees"] as const;
+export const CLONE_SKIP_PREFIXES = [".git", ".omp/fabric/worktrees"] as const;
 
 export class CowUnavailableError extends Error {
   constructor(message: string, options?: { cause?: unknown }) {

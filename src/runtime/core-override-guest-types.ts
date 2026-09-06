@@ -1,7 +1,7 @@
-import { PI_CORE_TOOL_NAMES, type PiCoreToolName } from "../core/pi-tools.js";
+import { OMP_CORE_TOOL_NAMES, type OmpCoreToolName } from "../core/omp-tools.js";
 import {
-  PI_CORE_COMPATIBILITY_ARGUMENT_TYPE_NAMES,
-  PI_CORE_NUMERIC_FIELDS,
+  OMP_CORE_COMPATIBILITY_ARGUMENT_TYPE_NAMES,
+  OMP_CORE_NUMERIC_FIELDS,
 } from "./guest-types.js";
 
 /** The small source shape needed to render a captured core override. */
@@ -22,12 +22,12 @@ const IDENTIFIER = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
 
 // The extra overload must also accept Fabric's existing built-in forms. In
 // particular, the runtime accepts numeric strings before host validation; the
-// compatibility aliases beside PiToolsApi keep those forms in the same SSOT.
-const compatibilityArgumentTypeFor = (name: PiCoreToolName): string =>
-  PI_CORE_COMPATIBILITY_ARGUMENT_TYPE_NAMES[name];
+// compatibility aliases beside OmpToolsApi keep those forms in the same SSOT.
+const compatibilityArgumentTypeFor = (name: OmpCoreToolName): string =>
+  OMP_CORE_COMPATIBILITY_ARGUMENT_TYPE_NAMES[name];
 
-const returnTypeFor = (name: PiCoreToolName): string =>
-  `ReturnType<PiToolsApi["${name}"]>`;
+const returnTypeFor = (name: OmpCoreToolName): string =>
+  `ReturnType<OmpToolsApi["${name}"]>`;
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
@@ -304,17 +304,23 @@ const renderArgumentType = (
   return { type, required };
 };
 
+const normalizedSchema = (schema: unknown): unknown => {
+  if (typeof schema !== "function" || !("toJsonSchema" in schema)) return schema;
+  const toJsonSchema = schema.toJsonSchema;
+  return typeof toJsonSchema === "function" ? toJsonSchema.call(schema) : schema;
+};
+
 const resolveValidCoreOverrideSource = (
   source: FabricCoreOverrideTypeSource,
-): { name: PiCoreToolName; inputSchema: unknown } | undefined => {
-  if (!PI_CORE_TOOL_NAMES.includes(source.name as PiCoreToolName)) return undefined;
-  return { name: source.name as PiCoreToolName, inputSchema: source.inputSchema };
+): { name: OmpCoreToolName; inputSchema: unknown } | undefined => {
+  if (!OMP_CORE_TOOL_NAMES.includes(source.name as OmpCoreToolName)) return undefined;
+  return { name: source.name as OmpCoreToolName, inputSchema: normalizedSchema(source.inputSchema) };
 };
 
 /**
- * Build the full-code `pi` declaration for the current exact-name overrides.
+ * Build the full-code `omp` declaration for the current exact-name overrides.
  *
- * The static PiToolsApi remains the base interface. Each generated member is
+ * The static OmpToolsApi remains the base interface. Each generated member is
  * an additive overload with the core slot's static result type; a renderer
  * failure intentionally produces a loose object overload so runtime schema
  * validation remains the authority.
@@ -322,16 +328,16 @@ const resolveValidCoreOverrideSource = (
 export const buildCoreOverrideGuestDeclarations = (
   sources: readonly FabricCoreOverrideTypeSource[],
 ): string | undefined => {
-  const byName = new Map<PiCoreToolName, FabricCoreOverrideTypeSource>();
+  const byName = new Map<OmpCoreToolName, FabricCoreOverrideTypeSource>();
   for (const source of sources) {
     const resolved = resolveValidCoreOverrideSource(source);
-    if (resolved && !byName.has(resolved.name)) byName.set(resolved.name, source);
+    if (resolved && !byName.has(resolved.name)) byName.set(resolved.name, resolved);
   }
   if (byName.size === 0) return undefined;
 
   const methods: string[] = [];
   let outputChars = 0;
-  for (const name of PI_CORE_TOOL_NAMES) {
+  for (const name of OMP_CORE_TOOL_NAMES) {
     const source = byName.get(name);
     if (!source) continue;
     let argumentType = LOOSE_ARGUMENT_TYPE;
@@ -339,7 +345,7 @@ export const buildCoreOverrideGuestDeclarations = (
     try {
       const rendered = renderArgumentType(
         source.inputSchema,
-        new Set(PI_CORE_NUMERIC_FIELDS[name]),
+        new Set(OMP_CORE_NUMERIC_FIELDS[name]),
       );
       argumentType = rendered.type;
       required = rendered.required;
@@ -362,10 +368,10 @@ export const buildCoreOverrideGuestDeclarations = (
   if (methods.length === 0) return undefined;
   return [
     "// Generated from the current captured exact-name core overrides for this execution.",
-    "type FabricPiCoreOverrideApi = PiToolsApi & {",
+    "type FabricOmpCoreOverrideApi = OmpToolsApi & {",
     ...methods,
     "};",
-    "declare const pi: FabricPiCoreOverrideApi;",
+    "declare const omp: FabricOmpCoreOverrideApi;",
     "",
   ].join("\n");
 };

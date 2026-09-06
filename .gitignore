@@ -1,9 +1,9 @@
 node_modules/
 dist/
 coverage/
-.pi/fabric-runs/
-.pi/fabric/mesh/
-.pi/fabric/worktrees/
+.omp/fabric-runs/
+.omp/fabric/mesh/
+.omp/fabric/worktrees/
 .veda/
 *.log
 .DS_Store

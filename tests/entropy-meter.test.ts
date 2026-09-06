@@ -40,10 +40,10 @@ const surfaceOf = (actions: Array<{ ref: string; inputSchema: unknown }>): Entro
 const convergedTraces = (): EntropyTraceInput[] => [
   trace(
     [
-      op("pi.read", { path: "src/a.ts", limit: 50 }),
-      op("pi.read", { path: "src/b.ts", limit: 50 }),
-      op("pi.edit", { path: "src/a.ts" }),
-      op("pi.bash", { command: "bun test" }),
+      op("omp.read", { path: "src/a.ts", limit: 50 }),
+      op("omp.read", { path: "src/b.ts", limit: 50 }),
+      op("omp.edit", { path: "src/a.ts" }),
+      op("omp.bash", { command: "bun test" }),
     ],
     "converged",
   ),
@@ -52,7 +52,7 @@ const convergedTraces = (): EntropyTraceInput[] => [
 const convergedSurface = (): EntropySurfaceSnapshot =>
   surfaceOf([
     {
-      ref: "pi.read",
+      ref: "omp.read",
       inputSchema: {
         type: "object",
         additionalProperties: false,
@@ -61,7 +61,7 @@ const convergedSurface = (): EntropySurfaceSnapshot =>
       },
     },
     {
-      ref: "pi.edit",
+      ref: "omp.edit",
       inputSchema: {
         type: "object",
         additionalProperties: false,
@@ -70,7 +70,7 @@ const convergedSurface = (): EntropySurfaceSnapshot =>
       },
     },
     {
-      ref: "pi.bash",
+      ref: "omp.bash",
       inputSchema: {
         type: "object",
         additionalProperties: false,
@@ -83,17 +83,17 @@ const convergedSurface = (): EntropySurfaceSnapshot =>
 const wobbleTraces = (): EntropyTraceInput[] => [
   trace(
     [
-      op("pi.read", { path: "src/x.ts", limit: 50 }),
-      op("pi.grep", { path: "src", limit: 20 }),
-      op("pi.edit", { path: "src/x.ts" }),
+      op("omp.read", { path: "src/x.ts", limit: 50 }),
+      op("omp.grep", { path: "src", limit: 20 }),
+      op("omp.edit", { path: "src/x.ts" }),
     ],
     "flaky-edit",
   ),
   trace(
     [
-      op("pi.grep", { path: "src", limit: 20 }),
-      op("pi.read", { path: "src/x.ts", limit: 50 }),
-      op("pi.edit", { path: "src/x.ts" }),
+      op("omp.grep", { path: "src", limit: 20 }),
+      op("omp.read", { path: "src/x.ts", limit: 50 }),
+      op("omp.edit", { path: "src/x.ts" }),
     ],
     "flaky-edit",
   ),
@@ -105,8 +105,8 @@ const wobbleTraces = (): EntropyTraceInput[] => [
       op("memory.expand", { session: "s1" }),
       op("fabric.discovery.search", { limit: 5 }),
       op("fabric.workflow.phase", { name: "verify", id: "p1", total: 1 }),
-      op("pi.bash", { command: "vitest run" }, "failed", "invoke"),
-      op("pi.bash", { command: "vitest run" }),
+      op("omp.bash", { command: "vitest run" }, "failed", "invoke"),
+      op("omp.bash", { command: "vitest run" }),
     ],
     "wobble",
   ),
@@ -252,7 +252,7 @@ describe("measureEntropy", () => {
 
   it("matches the pure meter while yielding throughout a large corpus", async () => {
     const traces = Array.from({ length: 512 }, (_, index) =>
-      trace([op("pi.read", { path: `file-${index % 3}` })], `task-${index % 5}`),
+      trace([op("omp.read", { path: `file-${index % 3}` })], `task-${index % 5}`),
     );
     const expected = measureEntropy({ traces });
     let turns = 0;
@@ -280,19 +280,19 @@ describe("per-model attribution", () => {
   it("attributes behavioral terms per producing model with exact scores", () => {
     const wobbleA: EntropyTraceInput = {
       ...trace(
-        [op("pi.read", { path: "a" }), op("pi.read", { path: "a", limit: 5 })],
+        [op("omp.read", { path: "a" }), op("omp.read", { path: "a", limit: 5 })],
         "ta",
       ),
       model: "p/alpha",
     };
     const stillB: EntropyTraceInput = {
       ...trace(
-        [op("pi.edit", { path: "a" }), op("pi.edit", { path: "a" })],
+        [op("omp.edit", { path: "a" }), op("omp.edit", { path: "a" })],
         "tb",
       ),
       model: "p/beta",
     };
-    const unstamped = trace([op("pi.bash", { command: "x" })], "tc");
+    const unstamped = trace([op("omp.bash", { command: "x" })], "tc");
     const report = measureEntropy({ traces: [wobbleA, stillB, unstamped] });
     expect(report.metricVersion).toBe(2);
     expect(report.totals.operations).toBe(5);
@@ -317,7 +317,7 @@ describe("per-model attribution", () => {
 
   it("leaves byModel empty for unstamped corpora", () => {
     const report = measureEntropy({
-      traces: [trace([op("pi.read", { path: "a" })], "t")],
+      traces: [trace([op("omp.read", { path: "a" })], "t")],
     });
     expect(report.byModel).toEqual([]);
   });

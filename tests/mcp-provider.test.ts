@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 import { describe, expect, it } from "vitest";
 import type { FabricMcpConfig } from "../src/config.js";
 import { McpDescriptorCacheStore } from "../src/providers/mcp-descriptor-cache.js";
@@ -41,7 +41,7 @@ const cacheConfig = (
 const temporaryDirectories: string[] = [];
 
 const temporaryDirectory = (): string => {
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-mcp-"));
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-mcp-"));
   temporaryDirectories.push(directory);
   return directory;
 };
@@ -62,16 +62,16 @@ const writeTwoServerConfig = (options: {
           command: process.execPath,
           args: [FAKE_SERVER],
           env: {
-            PI_FABRIC_MCP_COUNT_FILE: options.countFile,
-            PI_FABRIC_MCP_COUNT_LABEL: "test",
+            OMP_FABRIC_MCP_COUNT_FILE: options.countFile,
+            OMP_FABRIC_MCP_COUNT_LABEL: "test",
           },
         },
         "fal-ai": {
           command: process.execPath,
           args: [FAKE_SERVER, ...(options.falExtraArgs ?? [])],
           env: {
-            PI_FABRIC_MCP_COUNT_FILE: options.countFile,
-            PI_FABRIC_MCP_COUNT_LABEL: "fal-ai",
+            OMP_FABRIC_MCP_COUNT_FILE: options.countFile,
+            OMP_FABRIC_MCP_COUNT_LABEL: "fal-ai",
           },
         },
       },
@@ -131,8 +131,8 @@ describe("McpProvider", () => {
             command: process.execPath,
             args: [path.resolve("tests/fixtures/fake-mcp-server.mjs")],
             env: {
-              PI_FABRIC_MCP_COUNT_FILE: countFile,
-              PI_FABRIC_MCP_COUNT_LABEL: "dynamic-server",
+              OMP_FABRIC_MCP_COUNT_FILE: countFile,
+              OMP_FABRIC_MCP_COUNT_LABEL: "dynamic-server",
             },
           },
           context,
@@ -158,7 +158,7 @@ describe("McpProvider descriptor cache", () => {
     const directory = temporaryDirectory();
     const countFile = path.join(directory, "tools-list.log");
     const configPath = writeTwoServerConfig({ directory, countFile });
-    const cachePath = path.join(directory, ".pi", "fabric", "mcp-cache.json");
+    const cachePath = path.join(directory, ".omp", "fabric", "mcp-cache.json");
 
     const first = new McpProvider(directory, cacheConfig(configPath), {
       cache: new McpDescriptorCacheStore(cachePath),
@@ -344,7 +344,7 @@ describe("McpProvider descriptor cache", () => {
           flaky: {
             command: process.execPath,
             args: [FLAKY_SERVER],
-            env: { PI_FABRIC_MCP_FLAKY_STATE: stateFile },
+            env: { OMP_FABRIC_MCP_FLAKY_STATE: stateFile },
           },
         },
         imports: [],
@@ -411,8 +411,8 @@ describe("McpProvider descriptor cache", () => {
           command: process.execPath,
           args: [FAKE_SERVER],
           env: {
-            PI_FABRIC_MCP_COUNT_FILE: countFile,
-            PI_FABRIC_MCP_COUNT_LABEL: "dynamic-server",
+            OMP_FABRIC_MCP_COUNT_FILE: countFile,
+            OMP_FABRIC_MCP_COUNT_LABEL: "dynamic-server",
           },
         },
         context,

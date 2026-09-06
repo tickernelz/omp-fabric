@@ -5,8 +5,8 @@ import { resolveAgentDir } from "./agent-dir.js";
 import type { FabricModelUsage } from "./model-resolution.js";
 
 /**
- * Usage store filename written by the pi-model-sort extension under the pi
- * agent directory's extensions folder. pi-fabric consumes it read-only: the
+ * Usage store filename written by the model-sort extension under the active OMP
+ * agent directory's extensions folder. OMP Fabric consumes it read-only: the
  * extension is installed separately and might be absent entirely.
  */
 const MODEL_USAGE_FILENAME = "pi-model-sort.json";

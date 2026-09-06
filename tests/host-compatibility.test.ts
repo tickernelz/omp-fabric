@@ -4,9 +4,9 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   compareVersions,
-  detectPiHostVersion,
-  MINIMUM_PI_HOST_VERSION,
-  piHostCompatibilityWarning,
+  detectOmpHostVersion,
+  MINIMUM_OMP_HOST_VERSION,
+  ompHostCompatibilityWarning,
 } from "../src/host-compatibility.js";
 
 const roots: string[] = [];
@@ -18,7 +18,7 @@ const fakeHost = (version: string): string => {
   fs.mkdirSync(dist);
   fs.writeFileSync(
     path.join(root, "package.json"),
-    JSON.stringify({ name: "@earendil-works/pi-coding-agent", version }),
+    JSON.stringify({ name: "@oh-my-pi/pi-coding-agent", version }),
   );
   const cli = path.join(dist, "cli.js");
   fs.writeFileSync(cli, "");
@@ -29,23 +29,23 @@ afterEach(() => {
   for (const root of roots.splice(0)) fs.rmSync(root, { recursive: true, force: true });
 });
 
-describe("Pi host compatibility", () => {
+describe("OMP host compatibility", () => {
   it("compares release and prerelease versions", () => {
-    expect(compareVersions("0.80.5", MINIMUM_PI_HOST_VERSION)).toBeLessThan(0);
-    expect(compareVersions("0.80.6", MINIMUM_PI_HOST_VERSION)).toBe(0);
-    expect(compareVersions("0.80.10", MINIMUM_PI_HOST_VERSION)).toBeGreaterThan(0);
-    expect(compareVersions("0.80.6-beta.1", MINIMUM_PI_HOST_VERSION)).toBeLessThan(0);
-    expect(compareVersions("invalid", MINIMUM_PI_HOST_VERSION)).toBeUndefined();
+    expect(compareVersions("18.1.9", MINIMUM_OMP_HOST_VERSION)).toBeLessThan(0);
+    expect(compareVersions("18.1.10", MINIMUM_OMP_HOST_VERSION)).toBe(0);
+    expect(compareVersions("18.1.11", MINIMUM_OMP_HOST_VERSION)).toBeGreaterThan(0);
+    expect(compareVersions("18.1.10-beta.1", MINIMUM_OMP_HOST_VERSION)).toBeLessThan(0);
+    expect(compareVersions("invalid", MINIMUM_OMP_HOST_VERSION)).toBeUndefined();
   });
 
   it("detects the host package from the CLI path", () => {
-    expect(detectPiHostVersion(fakeHost("0.80.10"))).toBe("0.80.10");
-    expect(detectPiHostVersion("/does/not/exist")).toBeUndefined();
+    expect(detectOmpHostVersion(fakeHost("18.1.10"))).toBe("18.1.10");
+    expect(detectOmpHostVersion("/does/not/exist")).toBeUndefined();
   });
 
   it("warns only for a detected unsupported host", () => {
-    expect(piHostCompatibilityWarning("0.80.5")).toContain("requires Pi >= 0.80.6");
-    expect(piHostCompatibilityWarning("0.80.6")).toBeUndefined();
-    expect(piHostCompatibilityWarning(undefined)).toBeUndefined();
+    expect(ompHostCompatibilityWarning("18.1.9")).toContain("requires OMP >= 18.1.10");
+    expect(ompHostCompatibilityWarning("18.1.10")).toBeUndefined();
+    expect(ompHostCompatibilityWarning(undefined)).toBeUndefined();
   });
 });

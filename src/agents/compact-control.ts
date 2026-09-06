@@ -33,7 +33,6 @@ interface InFlightCompact {
   requestedAt: number;
   startedAt: number;
   responseSeen: boolean;
-  endSeen: boolean;
   error?: string;
 }
 
@@ -81,30 +80,29 @@ export class ChildCompactControl {
   observe(event: CompactControlEvent): void {
     const inFlight = this.#inFlight;
     if (!inFlight) return;
-    if (
-      event.type === "response" &&
-      event.command === "compact" &&
-      event.id === inFlight.id
-    ) {
-      if (event.success !== true) {
-        this.#finish(
-          typeof event.error === "string" && event.error
-            ? event.error
-            : "Child Pi rejected the compact request",
-        );
-        return;
+    if (event.type === "auto_compaction_end") {
+      if (event.aborted === true) {
+        inFlight.error = "Child OMP compaction was aborted";
+      } else if (typeof event.errorMessage === "string" && event.errorMessage) {
+        inFlight.error = event.errorMessage;
       }
-      inFlight.responseSeen = true;
       this.#maybeFinish();
       return;
     }
-    if (event.type !== "compaction_end") return;
-    inFlight.endSeen = true;
-    if (event.aborted === true) {
-      inFlight.error = "Child Pi compaction was aborted";
-    } else if (typeof event.errorMessage === "string" && event.errorMessage) {
-      inFlight.error = event.errorMessage;
+    if (
+      event.type !== "response" ||
+      event.command !== "compact" ||
+      event.id !== inFlight.id
+    ) return;
+    if (event.success !== true) {
+      this.#finish(
+        typeof event.error === "string" && event.error
+          ? event.error
+          : "Child OMP rejected the compact request",
+      );
+      return;
     }
+    inFlight.responseSeen = true;
     this.#maybeFinish();
   }
 
@@ -119,7 +117,6 @@ export class ChildCompactControl {
       requestedAt: pending.requestedAt,
       startedAt,
       responseSeen: false,
-      endSeen: false,
     };
     this.#inFlight = inFlight;
     this.#attempts++;
@@ -131,13 +128,13 @@ export class ChildCompactControl {
         ...(pending.instructions ? { customInstructions: pending.instructions } : {}),
       });
     } catch (error) {
-      this.#finish(error instanceof Error ? error.message : "Child Pi compact send failed");
+      this.#finish(error instanceof Error ? error.message : "Child OMP compact send failed");
     }
   }
 
   #maybeFinish(): void {
     const inFlight = this.#inFlight;
-    if (!inFlight || !inFlight.responseSeen || !inFlight.endSeen) return;
+    if (!inFlight || !inFlight.responseSeen) return;
     this.#finish(inFlight.error);
   }
 

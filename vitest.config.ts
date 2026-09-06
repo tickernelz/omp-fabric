@@ -6,5 +6,10 @@ export default defineConfig({
     include: ["tests/**/*.test.ts"],
     maxWorkers: 2,
     restoreMocks: true,
+    server: {
+      deps: {
+        external: [/\/node_modules\/(?:\.pnpm\/)?@oh-my-pi(?:[+/]|\/)/],
+      },
+    },
   },
 });

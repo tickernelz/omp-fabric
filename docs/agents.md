@@ -47,13 +47,13 @@ return await agents.wait({ id: handle.id });
 
 Set `cwd` on `agents.run()` or `agents.spawn()` to choose the leaf child's filesystem execution directory. Absolute paths are accepted; relative paths resolve from the parent Fabric manager's cwd. Fabric canonicalizes the directory (including symlinks) before launch, and reports that effective path in the handle, status, participant snapshot, result, and log status. Invalid, missing, inaccessible, or non-directory paths fail without falling back to the parent. The option is also forwarded by workflow helpers and `council.run()`. It is not available on recursive `rlm.query()`, persistent actors, or trajectory handoff; recursive agents must omit `cwd`.
 
-For Pi children, selecting `cwd` neither grants nor requires project trust. Fabric adds no trust gate and passes neither `--approve` nor `--no-approve`; Pi loads `AGENTS.override.md`, `AGENTS.md`, and `CLAUDE.md` under its normal context rules, while protected project resources remain governed by Pi's saved decisions and `defaultProjectTrust`. Each runner keeps its native startup behavior. A generated worktree is evaluated at its own canonical path.
+For OMP children, selecting `cwd` neither grants nor requires project trust. Fabric adds no trust gate and passes neither `--approve` nor `--no-approve`; OMP loads `AGENTS.override.md`, `AGENTS.md`, and `CLAUDE.md` under its normal context rules, while protected project resources remain governed by OMP's saved decisions and `defaultProjectTrust`. Each runner keeps its native startup behavior. A generated worktree is evaluated at its own canonical path.
 
-Extension-enabled Pi children inherit the parent’s full-code mode, including ordinary non-recursive leaves. They retain `fabric_exec` as the outer tool, and their optional `tools` allowlist also constrains nested Pi and captured-tool calls. `extensions: false` explicitly opts out; Claude/Veda and parents outside full-code mode keep their existing tool surfaces. Recursive children additionally receive the delegated `agent` risk. A launch-policy change requires `/reload` and newly launched children; it does not hot-swap an already running worker’s tools.
+Extension-enabled OMP children inherit the parent’s full-code mode, including ordinary non-recursive leaves. They retain `fabric_exec` as the outer tool, and their optional `tools` allowlist also constrains nested OMP and captured-tool calls. `extensions: false` explicitly opts out; Claude/Veda and parents outside full-code mode keep their existing tool surfaces. Recursive children additionally receive the delegated `agent` risk. A launch-policy change requires `/reload` and newly launched children; it does not hot-swap an already running worker’s tools.
 
 ### Durable participant residency
 
-`agents.spawn()` and `agents.create()` accept `residency: "session" | "durable"`. The default is `session`. It keeps the usual lifecycle: the current Pi host owns the participant and stops or suspends it when the host shuts down. The model chooses `durable` during execution. Users do not configure it as a setting.
+`agents.spawn()` and `agents.create()` accept `residency: "session" | "durable"`. The default is `session`. It keeps the usual lifecycle: the current OMP host owns the participant and stops or suspends it when the host shuts down. The model chooses `durable` during execution. Users do not configure it as a setting.
 
 ```ts
 const audit = await agents.spawn({
@@ -84,28 +84,28 @@ A durable actor has one resident execution owner. Other trusted sessions in the 
 
 ### Trajectory-preserving handoff
 
-A handoff delegates work from Pi to Pi through a real fork of the caller's active session branch. It blocks while the delegated work runs. The worker receives more than a task string. One complete `fabric_exec` invocation forms the atomic frontier unit. An explicit `agents.handoff()` call records a deferred request in the guest. It does not create a child or stop the program at that line. Later sequential and parallel calls continue as usual.
+A handoff delegates work from OMP to OMP through a real fork of the caller's active session branch. It blocks while the delegated work runs. The worker receives more than a task string. One complete `fabric_exec` invocation forms the atomic frontier unit. An explicit `agents.handoff()` call records a deferred request in the guest. It does not create a child or stop the program at that line. Later sequential and parallel calls continue as usual.
 
-Pi finalizes the native outer `fabric_exec` tool result after the complete Fabric program returns. At the `message_end` boundary, Fabric forks through the original assistant entry that contains the native `fabric_exec` call. It appends the exact finalized native `toolResult` to the child branch. Fabric then starts the selected executor in the same workspace and waits before Pi performs another Main inference. The child sees the outer call and frontier result exactly as finalized before handoff replacement. This context includes the Fabric source, output, and persisted trace. Fabric does not rewrite nested calls as synthetic assistant turns. It materializes an in-memory source in the same native Pi session format.
+OMP finalizes the native outer `fabric_exec` tool result after the complete Fabric program returns. At the `message_end` boundary, Fabric forks through the original assistant entry that contains the native `fabric_exec` call. It appends the exact finalized native `toolResult` to the child branch. Fabric then starts the selected executor in the same workspace and waits before OMP performs another Main inference. The child sees the outer call and frontier result exactly as finalized before handoff replacement. This context includes the Fabric source, output, and persisted trace. Fabric does not rewrite nested calls as synthetic assistant turns. It materializes an in-memory source in the same native OMP session format.
 
 Fabric sets no special count or size limit for handoffs. The normal `fabric_exec` output and trace projection limits apply before the boundary. Handoff fails closed when Fabric cannot identify the active outer turn or when that turn belongs to an incomplete parallel top-level tool batch.
 
 ```ts
-await pi.edit({ path: "src/guard.ts", edits: [{ oldText, newText }] });
+await omp.edit({ path: "src/guard.ts", edits: [{ oldText, newText }] });
 await agents.handoff({
   model: "anthropic/claude-haiku-4-5",
   task: "Continue from this completed Fabric invocation.",
-  when: ({ count }) => count("pi.edit") >= 1,
+  when: ({ count }) => count("omp.edit") >= 1,
 });
-await pi.bash({ command: "pnpm test guard" });
+await omp.bash({ command: "bun test guard" });
 return "Frontier Fabric invocation completed";
 ```
 
-`when` is an optional pure synchronous predicate that runs inside the Fabric guest. It receives immutable `{ calls, count(ref?) }` facts for each successful resolved bridge call that finished earlier in the same `fabric_exec` program. These calls include `pi.*`, `extensions.*`, `mcp.*`, external providers, and computed `tools.call()` refs. `count()` counts all calls. `count("pi.edit")` counts one ref. `count(["pi.edit", "schema.commit"])` counts a set. Fabric records each generic call under its resolved target. Fabric excludes failed calls. A false predicate does not start a child and reports a clear failure. The function never crosses the host bridge. Omit `when` to schedule unconditionally.
+`when` is an optional pure synchronous predicate that runs inside the Fabric guest. It receives immutable `{ calls, count(ref?) }` facts for each successful resolved bridge call that finished earlier in the same `fabric_exec` program. These calls include `omp.*`, `extensions.*`, `mcp.*`, external providers, and computed `tools.call()` refs. `count()` counts all calls. `count("omp.edit")` counts one ref. `count(["omp.edit", "schema.commit"])` counts a set. Fabric records each generic call under its resolved target. Fabric excludes failed calls. A false predicate does not start a child and reports a clear failure. The function never crosses the host bridge. Omit `when` to schedule unconditionally.
 
-In the guest, `agents.handoff()` resolves to `{ scheduled: true, status: "deferred", boundary: "fabric_exec_end" }`. Code later in the same Fabric invocation cannot consume the child output. At the outer boundary, Fabric replaces Main's tool result with the compact completion `{ handedOff, completed, status, agent, implementation, error? }`. The `model` field is required. The target runner is Pi. The `worktree` field is unavailable because the implementation must remain visible in the caller's workspace. You can also set `task`, `name`, `transport`, `thinking`, `tools`, `timeoutMs`, `extensions`, `recursive`, `schema`, and `compact`. Fabric does not switch or rewrite the history of the source session.
+In the guest, `agents.handoff()` resolves to `{ scheduled: true, status: "deferred", boundary: "fabric_exec_end" }`. Code later in the same Fabric invocation cannot consume the child output. At the outer boundary, Fabric replaces Main's tool result with the compact completion `{ handedOff, completed, status, agent, implementation, error? }`. The `model` field is required. The target runner is OMP. The `worktree` field is unavailable because the implementation must remain visible in the caller's workspace. You can also set `task`, `name`, `transport`, `thinking`, `tools`, `timeoutMs`, `extensions`, `recursive`, `schema`, and `compact`. Fabric does not switch or rewrite the history of the source session.
 
-**Trajectory compaction.** Set `compact` to give the executor a compacted transcript in place of the full raw branch. A value of `true` applies the default summary. Use `{ instructions?, preserve? }` to add compaction instructions of up to 8K characters and as many as 16 explicit preserve facts of up to 2K characters each. These limits match `compact.request`. Fabric writes the child session with a deterministic Fabric compaction entry before the boundary result. The executor context starts with the projected summary. It then contains the retained tail from the calculated cut point and the outer `fabric_exec` result. The append-only child file keeps the complete raw branch below the compaction marker. Fabric records the outcome under `compaction` in the child's `pi-fabric-handoff` custom entry. The outcome contains `applied`, sections, tokens, and cut point. If Fabric skips compaction, it gives the skip reason. Omit `compact` to keep the fork verbatim.
+**Trajectory compaction.** Set `compact` to give the executor a compacted transcript in place of the full raw branch. A value of `true` applies the default summary. Use `{ instructions?, preserve? }` to add compaction instructions of up to 8K characters and as many as 16 explicit preserve facts of up to 2K characters each. These limits match `compact.request`. Fabric writes the child session with a deterministic Fabric compaction entry before the boundary result. The executor context starts with the projected summary. It then contains the retained tail from the calculated cut point and the outer `fabric_exec` result. The append-only child file keeps the complete raw branch below the compaction marker. Fabric records the outcome under `compaction` in the child's `omp-fabric-handoff` custom entry. The outcome contains `applied`, sections, tokens, and cut point. If Fabric skips compaction, it gives the skip reason. Omit `compact` to keep the fork verbatim.
 
 ### Automatic Fabric-boundary prewalk
 
@@ -122,25 +122,25 @@ In the guest, `agents.handoff()` resolves to `{ scheduled: true, status: "deferr
 
 When you supply a task, Fabric arms prewalk and immediately submits the task to Main. Without a task, it captures the next user input. Select the executor in `/fabric settings` under **Prewalk**. **Always re-arm** uses `prewalk.model` to arm prewalk automatically at each session start without interaction. It also arms prewalk after each completed handoff. `/fabric prewalk --off` cancels only the current session arm. `/fabric prewalk --disable` persists the master switch to the project config when trusted (global config otherwise), cancels any live arm, and keeps prewalk inert after restart; `--enable` reverses it.
 
-Host extensions that must serialize work after prewalk can use the acknowledged protocol exported from `pi-fabric/protocol`. Emit `FABRIC_PREWALK_REQUEST_EVENT` with `{ version: 1, context, claim, respond }`. Fabric calls `claim()` synchronously; the first claimant owns the request. It calls `respond({ ok: true })` only after prewalk is armed, or `respond({ ok: false, error })` after cancellation or failure. A request that is not claimed means no compatible Fabric runtime is installed. The protocol intentionally arms without submitting a task, so the caller can deliver its next queued row only after the acknowledgment.
+Host extensions that must serialize work after prewalk can use the acknowledged protocol exported from `omp-fabric/protocol`. Emit `FABRIC_PREWALK_REQUEST_EVENT` with `{ version: 1, context, claim, respond }`. Fabric calls `claim()` synchronously; the first claimant owns the request. It calls `respond({ ok: true })` only after prewalk is armed, or `respond({ ok: false, error })` after cancellation or failure. A request that is not claimed means no compatible Fabric runtime is installed. The protocol intentionally arms without submitting a task, so the caller can deliver its next queued row only after the acknowledgment.
 
 The default value of `prewalk.mode` is `"in-place"`:
 
-1. Fabric detects a successful `pi.edit`, `pi.write`, or `schema.commit`, then lets the full outer program settle. A successful `pi.bash` or `pi.powershell` can also trigger detection when no audited mutation occurred. In that case, a stat-baseline diff of the work tree identifies shell writes such as heredocs, `sed -i`, and formatter binaries as a filesystem trigger (`fs.drift`). Set `prewalk.detectShellWrites` to `false` to disable this behavior.
+1. Fabric detects a successful `omp.edit`, `omp.write`, or `schema.commit`, then lets the full outer program settle. A successful `omp.bash` can also trigger detection when no audited mutation occurred. In that case, a stat-baseline diff of the work tree identifies shell writes such as heredocs, `sed -i`, and formatter binaries as a filesystem trigger (`fs.drift`). Set `prewalk.detectShellWrites` to `false` to disable this behavior.
 2. At the finalized outer result boundary, Fabric selects `prewalk.model` on Main.
 3. Fabric queues a hidden follow-up. It tells Main to continue the current task, complete the remaining implementation, check related call sites, and run verification.
-4. The terminating outer tool prevents an automatic turn on the old model. Pi drains the queued follow-up and continues the same Main session on the executor model.
+4. The terminating outer tool prevents an automatic turn on the old model. OMP drains the queued follow-up and continues the same Main session on the executor model.
 5. After the continuation settles, Fabric compacts the session with the configured compaction engine. Set `prewalk.compactOnReturn` to `false` to skip this step. Fabric then restores the Main model captured at the boundary.
 
-In-place mode uses Main directly and keeps one transcript. It works with `agents.enabled` set to `false`. Pi's public extension model switch also changes the default model setting, so restoring the captured Main model repairs that default. A switch can fail before continuation when the model is unavailable or unauthenticated. The outer result then reports the cause. Fabric queues a hidden follow-up that asks Main to report the failure and propose the next action.
+In-place mode uses Main directly and keeps one transcript. It works with `agents.enabled` set to `false`. OMP's public extension model switch also changes the default model setting, so restoring the captured Main model repairs that default. A switch can fail before continuation when the model is unavailable or unauthenticated. The outer result then reports the cause. Fabric queues a hidden follow-up that asks Main to report the failure and propose the next action.
 
-Set `prewalk.mode` to `"trajectory"` to use child-based behavior. Fabric forks the exact finalized outer call and result into a Pi child. It starts the selected executor in the shared workspace and waits. When the child finishes, Fabric replaces the boundary result with the executor report and queues a hidden continuation. Main verifies the implementation with the applicable checks and provides a summary. It does not repeat completed executor work, and it relays links, PR numbers, and commit hashes verbatim. If the child fails, stops, or times out, Fabric queues a hidden follow-up that reports the result and proposes an action. Main always tells the user how execution ended and what the child completed. Every boundary reports a result. The executor uses `prewalk.thinking` for reasoning effort. When unset, it inherits `agents.thinking`. The parent Fabric card and activity UI display the synthetic `agents.handoff` call, child identity, live status or current tool, nested preview, metrics, and terminal result. Users can see progress during the wait. Trajectory mode requires enabled agents. Explicit `agents.handoff()` also uses this behavior.
+Set `prewalk.mode` to `"trajectory"` to use child-based behavior. Fabric forks the exact finalized outer call and result into an OMP child. It starts the selected executor in the shared workspace and waits. When the child finishes, Fabric replaces the boundary result with the executor report and queues a hidden continuation. Main verifies the implementation with the applicable checks and provides a summary. It does not repeat completed executor work, and it relays links, PR numbers, and commit hashes verbatim. If the child fails, stops, or times out, Fabric queues a hidden follow-up that reports the result and proposes an action. Main always tells the user how execution ended and what the child completed. Every boundary reports a result. The executor uses `prewalk.thinking` for reasoning effort. When unset, it inherits `agents.thinking`. The parent Fabric card and activity UI display the synthetic `agents.handoff` call, child identity, live status or current tool, nested preview, metrics, and terminal result. Users can see progress during the wait. Trajectory mode requires enabled agents. Explicit `agents.handoff()` also uses this behavior.
 
-**Thinking transfer across models.** Providers define the shape of stored thinking blocks. Codex uses encrypted reasoning items. Anthropic requires valid signatures. Replaying these blocks to another provider can place them in unusable request fields or cause failure. Fabric applies a family policy when it writes the trajectory child session. It uses `preserved` when the executor has the same provider and API family as the source model. For openai-completions reasoning targets, it uses `re-signed`. This policy keeps the thinking text and normalizes the signature to `reasoning_content`, which lets preserve-thinking servers receive earlier reasoning. For other targets, Fabric uses `stripped`. Fabric removes the thinking blocks and foreign thought signatures, then adds a bounded digest custom message with entry IDs for continuity. The digest covers deliberation only. Fabric records the policy and counts under `thinkingTransfer` in the child's `pi-fabric-handoff` custom entry. In-place prewalk cannot rewrite Pi's session log. When channels are incompatible, it sends the same digest in a hidden follow-up. Fabric never modifies the source session.
+**Thinking transfer across models.** Providers define the shape of stored thinking blocks. Codex uses encrypted reasoning items. Anthropic requires valid signatures. Replaying these blocks to another provider can place them in unusable request fields or cause failure. Fabric applies a family policy when it writes the trajectory child session. It uses `preserved` when the executor has the same provider and API family as the source model. For openai-completions reasoning targets, it uses `re-signed`. This policy keeps the thinking text and normalizes the signature to `reasoning_content`, which lets preserve-thinking servers receive earlier reasoning. For other targets, Fabric uses `stripped`. Fabric removes the thinking blocks and foreign thought signatures, then adds a bounded digest custom message with entry IDs for continuity. The digest covers deliberation only. Fabric records the policy and counts under `thinkingTransfer` in the child's `omp-fabric-handoff` custom entry. In-place prewalk cannot rewrite OMP's session log. When channels are incompatible, it sends the same digest in a hidden follow-up. Fabric never modifies the source session.
 
 Prewalk does not add system-prompt instructions. It queues its hidden continuation only after a matching mutation boundary. The continuation is not an open-ended prompt on each turn. A turn that settles without a handoff leaves prewalk armed. A matching mutation consumes the arm through an in-place switch or trajectory spawn. A completed explicit `agents.handoff()` also consumes it, as does `/fabric prewalk --off`. Fabric drops the settled turn's captured task text so that it captures the next prompt as new input. Both modes require full code mode. Schema enforce mode does not support them.
 
-The filesystem fallback compares each file's size and mtime with a baseline captured when prewalk was armed. Fabric refreshes the baseline after every considered boundary and settle. In Git work trees, it lists files through the index, so ignored build output does not register. In trees without Git, it walks the files and skips only `.git` and `node_modules`. Artifact writes then count as drift. The diff cannot identify who made a change. An external editor save during a shell-running window also counts. The fallback scans only programs that ran `pi.bash`, so read-only turns have no scan cost and cannot trigger it. Stat drift can occur without a content change, for example from rare `touch` churn. This drift triggers prewalk. The report lists affected files in `trigger.files`.
+The filesystem fallback compares each file's size and mtime with a baseline captured when prewalk was armed. Fabric refreshes the baseline after every considered boundary and settle. In Git work trees, it lists files through the index, so ignored build output does not register. In trees without Git, it walks the files and skips only `.git` and `node_modules`. Artifact writes then count as drift. The diff cannot identify who made a change. An external editor save during a shell-running window also counts. The fallback scans only programs that ran `omp.bash`, so read-only turns have no scan cost and cannot trigger it. Stat drift can occur without a content change, for example from rare `touch` churn. This drift triggers prewalk. The report lists affected files in `trigger.files`.
 
 ### Claude Code runner
 
@@ -172,11 +172,11 @@ Claude runs call `claude -p` with stream-JSON input and output, partial messages
 
 Unknown tools cause failure before launch. Set `extensions: false` to start Claude in safe mode. The default value, `true`, keeps the user's standard Claude Code customizations. The explicit tool list continues to control the tools that the model can use. JSON schemas use Claude's native `--json-schema`. Fabric normalizes usage, cost, turns, tool activity, errors, and Claude's session ID into the standard Fabric result and dashboard transcript. It adds `--no-session-persistence` to one-shot runs.
 
-Claude-backed children have no recursive Fabric capabilities. Fabric rejects `recursive: true`, `fabric_exec`, and direct `mesh.*` access. Choose `runner: "pi"` for RLM or recursive Fabric. For host-managed mailbox and event coordination, use a persistent actor backed by Claude.
+Claude-backed children have no recursive Fabric capabilities. Fabric rejects `recursive: true`, `fabric_exec`, and direct `mesh.*` access. Choose `runner: "omp"` for RLM or recursive Fabric. For host-managed mailbox and event coordination, use a persistent actor backed by Claude.
 
 ### Veda runner
 
-The `veda` runner starts the [Veda CLI](https://github.com/kennyfrc/veda) as a one-shot headless child. Install and authenticate the configured backend CLI with its normal procedure. Veda can use `agy`, `codex`, `claude-code`, `droid`, `pi`, and any backend that the installed Veda build registers. Fabric invokes `agents.veda.binary` with `-b <backend> -p <persona> --json`. It sends the task through stdin:
+The `veda` runner starts the [Veda CLI](https://github.com/kennyfrc/veda) as a one-shot headless child. Install and authenticate the configured backend CLI with its normal procedure. Veda can use `agy`, `codex`, `claude-code`, `droid`, `pi`, and any backend that the installed Veda build registers. Here `pi` is only Veda's external backend identifier, not the OMP host runtime. Fabric invokes `agents.veda.binary` with `-b <backend> -p <persona> --json`. It sends the task through stdin:
 
 ```ts
 return agents.run({
@@ -194,20 +194,20 @@ For each run, Fabric passes `--tools <allowlist>`. It passes `--no-tools` for an
 
 Each run gets an isolated `fabric-<run-id>` Veda session through `-S` and `--no-sel`. Parallel children cannot share selection or conversation state. Veda stores these sessions under `.veda/sessions/` at the project root. Outside a Git repository, it uses `~/.config/veda`. This repository includes `.veda/` in `.gitignore`.
 
-Veda children do not have recursive Fabric capabilities. Fabric rejects `recursive: true`. Veda does not support steering, so steer and follow-up calls throw when called. It also cannot run persistent actors because each invocation executes one headless prompt. Use `runner: "pi"` when you need recursive Fabric or persistent coordination.
+Veda children do not have recursive Fabric capabilities. Fabric rejects `recursive: true`. Veda does not support steering, so steer and follow-up calls throw when called. It also cannot run persistent actors because each invocation executes one headless prompt. Use `runner: "omp"` when you need recursive Fabric or persistent coordination.
 
 ### Switching Main's session model
 
-`agents.switchModel` changes the live Pi session model in place and keeps it there:
+`agents.switchModel` changes the live OMP session model in place and keeps it there:
 
 ```ts
 await agents.switchModel({ model: "anthropic/claude-opus-4-5" });
 await agents.switchModel({ model: "cheap" });
 ```
 
-The selector resolves in order: a `models.aliases` entry (a string alias is one target; an array is a fallback chain where the first authenticated target wins), an exact `provider/id`, an exact model id, then the closest match across provider, id, and display name. Closeness ties fall to the most recently used model, read from the [pi-model-sort](https://github.com/monotykamary/pi-model-sort) extension's usage store when it is installed, and then to the highest-sorting key, mirroring pi's newest-alias convention. An optional `provider` argument narrows every stage. Selectors with no resemblance to an authenticated entry and exhausted alias chains throw; the session model stays unchanged. `agents.models()` enumerates the authenticated registry entries this resolution runs against. The result reports the active model, the previous one, and how the selector resolved: `via` is the alias name for configured aliases, or `closest`, `recent`, or `latest` for fuzzy picks. A call naming the active model returns `{ switched: false, reason: "already-active" }`. The switch applies to the next model turn and later, unlike `prewalk`, which temporarily installs an executor model at a mutation boundary and then restores the boundary model.
+The selector resolves in order: a `models.aliases` entry (a string alias is one target; an array is a fallback chain where the first authenticated target wins), an exact `provider/id`, an exact model id, then the closest match across provider, id, and display name. Closeness ties fall to the most recently used model, read from the [pi-model-sort](https://github.com/monotykamary/pi-model-sort) extension's usage store when it is installed, and then to the highest-sorting key, mirroring OMP's newest-alias convention. An optional `provider` argument narrows every stage. Selectors with no resemblance to an authenticated entry and exhausted alias chains throw; the session model stays unchanged. `agents.models()` enumerates the authenticated registry entries this resolution runs against. The result reports the active model, the previous one, and how the selector resolved: `via` is the alias name for configured aliases, or `closest`, `recent`, or `latest` for fuzzy picks. A call naming the active model returns `{ switched: false, reason: "already-active" }`. The switch applies to the next model turn and later, unlike `prewalk`, which temporarily installs an executor model at a mutation boundary and then restores the boundary model.
 
-Pi-runner `model` arguments on `agents.run`, `agents.spawn`, `agents.create`, and `agents.handoff`, plus actor defaults and activation overrides, resolve through the same selector logic (aliases, closest match, recency). The execution owner's `agents.models({ runner: "pi" })` result is authoritative: unresolved exact IDs, fuzzy selectors with no match, and exhausted aliases fail with a session-availability error. Fabric revalidates the canonical model at the worker launch boundary, including remote and durable actor execution, so stale bindings cannot start a model that is no longer visible. Catalog-fresh or custom IDs must appear in the owner's visible registry before a Pi participant can use them. Claude and Veda model values keep their runner-specific behavior.
+OMP-runner `model` arguments on `agents.run`, `agents.spawn`, `agents.create`, and `agents.handoff`, plus actor defaults and activation overrides, resolve through the same selector logic (aliases, closest match, recency). The execution owner's `agents.models({ runner: "omp" })` result is authoritative: unresolved exact IDs, fuzzy selectors with no match, and exhausted aliases fail with a session-availability error. Fabric revalidates the canonical model at the worker launch boundary, including remote and durable actor execution, so stale bindings cannot start a model that is no longer visible. Catalog-fresh or custom IDs must appear in the owner's visible registry before an OMP participant can use them. Claude and Veda model values keep their runner-specific behavior.
 
 This is the host-level equivalent of the `pi-model-switch` extension's `switch_model` tool, with aliases moved into Fabric configuration so project and agent scopes behave like every other Fabric section.
 
@@ -222,9 +222,9 @@ This is the host-level equivalent of the `pi-model-switch` extension's `switch_m
 | `herdr`     | Creates one background Herdr tab for each child               | `herdr terminal attach …`    |
 | `auto`      | Tries Herdr, LocalTerm, tmux, screen, and then process         | Depends on the transport     |
 
-Herdr uses its local socket API to create an argv-backed background tab as one atomic operation. It does not change focus or require shell quoting. Automatic selection works only when the parent Pi process already runs in Herdr. This requires `HERDR_ENV=1` with an injected workspace and socket. Select `transport: "herdr"` under the same conditions. Use the attach command in the handle to open a child directly.
+Herdr uses its local socket API to create an argv-backed background tab as one atomic operation. It does not change focus or require shell quoting. Automatic selection works only when the parent OMP process already runs in Herdr. This requires `HERDR_ENV=1` with an injected workspace and socket. Select `transport: "herdr"` under the same conditions. Use the attach command in the handle to open a child directly.
 
-LocalTerm provides the required primitives that match tmux: detached creation, pinning, listing, capture, exec, attach, and kill. Pi Fabric requires no LocalTerm patch. Start the daemon before you select this transport:
+LocalTerm provides the required primitives that match tmux: detached creation, pinning, listing, capture, exec, attach, and kill. OMP Fabric requires no LocalTerm patch. Start the daemon before you select this transport:
 
 ```bash
 localterm start
@@ -232,15 +232,15 @@ localterm start
 
 `/fabric agents` lists the children. Run `/fabric attach <id>` to show the correct attach command. Abort signals propagate to the transport and the selected child process. When a program uses orchestration entry points such as `agent`/`workflow.agent`, `agents.run`/`agents.wait`/`agents.ask`, `council.run`, or `rlm.query`, Fabric increases the whole-program `executor.timeoutMs` to at least `agents.timeoutMs`. The same increase applies to `agents.*` refs called through `tools.call()` and to refs calculated at runtime. The parent deadline then cannot stop a child that remains within its own agent budget.
 
-Set `worktree: true` to create a dedicated Git worktree and a `pi-fabric/<name>-<id>` branch from the repository containing the selected `cwd`. Fabric writes that worktree at `<repo>/.pi/fabric/worktrees/<id>` so copy-on-write cloning can keep ignored build artifacts on the same volume, and it records the path in the repository `.git/info/exclude` file. Simple `git worktree add` commands run through `pi.bash` take the same clone-first path. Fabric retains worktrees for inspection until you call `agents.cleanup()`. When the selected cwd is a repository subdirectory, Fabric uses the matching subdirectory in the generated worktree when it exists; otherwise it uses the worktree root. The reported effective cwd is the generated worktree path, and Pi evaluates that generated path as its own canonical cwd. The caller's project and mesh roots remain unchanged, so a child targeting another repository still belongs to the orchestrating Fabric topology. A recursive child in a worktree stays in the same participant directory and does not create another `.pi/fabric/mesh` inside that worktree.
+Set `worktree: true` to create a dedicated Git worktree and a `omp-fabric/<name>-<id>` branch from the repository containing the selected `cwd`. Fabric writes that worktree at `<repo>/.omp/fabric/worktrees/<id>` so copy-on-write cloning can keep ignored build artifacts on the same volume, and it records the path in the repository `.git/info/exclude` file. Simple `git worktree add` commands run through `omp.bash` take the same clone-first path. Fabric retains worktrees for inspection until you call `agents.cleanup()`. When the selected cwd is a repository subdirectory, Fabric uses the matching subdirectory in the generated worktree when it exists; otherwise it uses the worktree root. The reported effective cwd is the generated worktree path, and OMP evaluates that generated path as its own canonical cwd. The caller's project and mesh roots remain unchanged, so a child targeting another repository still belongs to the orchestrating Fabric topology. A recursive child in a worktree stays in the same participant directory and does not create another `.omp/fabric/mesh` inside that worktree.
 
-[Model-guidance components](components.md#model-facing-guidance-components) can target participants by canonical provider/model. Direct agents and actors retain their role prompt and receive matching append guidance after it. Recursive Pi children load the project components and resolve their own replaceable Fabric execution slot, so the parent does not duplicate guidance. Durable owners use the latest atomically committed guidance snapshot for each launch. Guidance changes prompts only; it cannot widen tools, approvals, or committed capabilities. Task text, message envelopes, run IDs, and timestamps stay out of the guidance system prompt, so repeated runs with the same role, model, and component projection retain a byte-stable prefix.
+[Model-guidance components](components.md#model-facing-guidance-components) can target participants by canonical provider/model. Direct agents and actors retain their role prompt and receive matching append guidance after it. Recursive OMP children load the project components and resolve their own replaceable Fabric execution slot, so the parent does not duplicate guidance. Durable owners use the latest atomically committed guidance snapshot for each launch. Guidance changes prompts only; it cannot widen tools, approvals, or committed capabilities. Task text, message envelopes, run IDs, and timestamps stay out of the guidance system prompt, so repeated runs with the same role, model, and component projection retain a byte-stable prefix.
 
 ## Unified participants and steering
 
-Fabric uses one participant directory for each project. Every live entity has a fixed `kind` of `root`, `agent`, or `actor`. It also has a `rootId`, an optional `parentId`, an `ownerHostId`, and an authenticated owner identity for the process that controls its lifecycle. **Main** is the local user-facing view of one root. **Peers** provide compatibility views of the other roots. These views do not use separate registries or control planes. **Fabric reserves Peer for another root Pi session. The term never means a child agent.** When asked about a peer, call `agents.peers()` first. `agents.list()` reports only child agents, so it cannot determine whether a peer root has settled.
+Fabric uses one participant directory for each project. Every live entity has a fixed `kind` of `root`, `agent`, or `actor`. It also has a `rootId`, an optional `parentId`, an `ownerHostId`, and an authenticated owner identity for the process that controls its lifecycle. **Main** is the local user-facing view of one root. **Peers** provide compatibility views of the other roots. These views do not use separate registries or control planes. **Fabric reserves Peer for another root OMP session. The term never means a child agent.** When asked about a peer, call `agents.peers()` first. `agents.list()` reports only child agents, so it cannot determine whether a peer root has settled.
 
-`agents.self()` returns the participant record for the caller. `agents.sessions()` lists every live root Pi session, including the caller's root and peers, as symmetric participant records for session-to-session coordination. Call `agents.members({ scope?, kinds?, includeStale? })` to list all kinds. `agents.list({ scope? })` lists agents and uses `scope: "local"` by default. Set the scope to `"lineage"` for descendants of the same root across recursive runtimes. Use `"project"` for all live project agents. `agents.main()` and `agents.peers()` remain convenient compatibility projections. Standard discovery hides participants with expired execution-host leases. Shared summaries include operational metadata. They exclude agent prompts, results, and errors.
+`agents.self()` returns the participant record for the caller. `agents.sessions()` lists every live root OMP session, including the caller's root and peers, as symmetric participant records for session-to-session coordination. Call `agents.members({ scope?, kinds?, includeStale? })` to list all kinds. `agents.list({ scope? })` lists agents and uses `scope: "local"` by default. Set the scope to `"lineage"` for descendants of the same root across recursive runtimes. Use `"project"` for all live project agents. `agents.main()` and `agents.peers()` remain convenient compatibility projections. Standard discovery hides participants with expired execution-host leases. Shared summaries include operational metadata. They exclude agent prompts, results, and errors.
 
 ```ts
 const main = await agents.main();
@@ -263,23 +263,23 @@ Local routing returns `"main"` or `"local"`. For cross-process `steer`, `followU
 
 Every root participant mints a project-scoped label such as `FAB-1` when it first publishes: the prefix derives from the project directory basename (initials for multi-word names, up to three letters for single-word names) and the number comes from a mesh-wide monotonic counter, so retired labels are never reused. Labels appear on participant records, peer projections, and the dashboard, giving other sessions' tooling a stable handle to show users in place of raw session ids.
 
-Two host-local, versioned events on `pi.events` let queue extensions coordinate with peers:
+Two host-local, versioned events on `omp.events` let queue extensions coordinate with peers:
 
-- `pi-fabric:peers:cards:v1` claims and resolves with live peer cards (`{ id, label, status, model?, cwd?, startedAt, updatedAt, pendingMessages }`), sorted by creation time.
-- `pi-fabric:peer:await-settle:v1` claims and resolves once every watched peer (a `selector` label/id, or all peers when omitted) has been quiet for `settledForMs` (default 3s) since its last observed run. Peers that vanish from the mesh count as settled. The request accepts an `AbortSignal` for cancellation, and an optional `update` callback reports per-peer waiting status. Requests fail when the mesh is disabled.
+- `omp-fabric:peers:cards:v1` claims and resolves with live peer cards (`{ id, label, status, model?, cwd?, startedAt, updatedAt, pendingMessages }`), sorted by creation time.
+- `omp-fabric:peer:await-settle:v1` claims and resolves once every watched peer (a `selector` label/id, or all peers when omitted) has been quiet for `settledForMs` (default 3s) since its last observed run. Peers that vanish from the mesh count as settled. The request accepts an `AbortSignal` for cancellation, and an optional `update` callback reports per-peer waiting status. Requests fail when the mesh is disabled.
 
 [pi-queue-steer](https://github.com/monotykamary/pi-queue-steer-factory) uses both: its `/fabric await LABEL` gate row holds queued rows until the target peers settle.
 
 ### Participant lifecycle subscriptions
 
-Use durable, source-qualified subscriptions when one participant must respond to the Pi or run lifecycle of another participant. Subscriptions differ from `agents.status()` because the host manages them across turns. The model does not need to poll.
+Use durable, source-qualified subscriptions when one participant must respond to the OMP or run lifecycle of another participant. Subscriptions differ from `agents.status()` because the host manages them across turns. The model does not need to poll.
 
 ```ts
 const [peer] = await agents.peers();
 if (peer) {
   await agents.subscribe({
     from: peer.id,
-    events: ["pi.agent_settled"],
+    events: ["omp.agent_end"],
     to: "main",
     delivery: "followUp",
     triggerTurn: true,
@@ -290,7 +290,7 @@ if (peer) {
 
 `agents.subscribe` accepts an exact source participant ID. You can use `"main"` for the caller's root. Supply one or more lifecycle events and an optional target, which defaults to Main. Set a `steer` or `followUp` delivery mode, an explicit `triggerTurn` policy, and the optional `once` flag. Inspect routes with `agents.subscriptions()`, and remove one with `agents.unsubscribe({ id })`. A subscription starts at the current mesh sequence and does not replay earlier events. Its delivery cursor remains durable across host restarts. Delivery is at least once when a host crashes between inserting the target message and saving the cursor. Consumers can use the lifecycle event `id` to deduplicate side effects.
 
-Pi events use these names: `pi.input`, `pi.agent_start`, `pi.agent_end`, `pi.turn_end`, `pi.agent_settled`, `pi.tool_error`, and `pi.session_compact`. Runner-neutral terminal events use `run.completed`, `run.failed`, `run.stopped`, and `run.timed_out`. The `tokens.usage` event provides bounded usage. The `component.state` event reports supervised component transitions. Lifecycle envelopes contain source identity and bounded operational metadata. They do not contain session transcripts.
+OMP events use these names: `omp.input`, `omp.agent_start`, `omp.agent_end`, `omp.turn_end`, `omp.tool_error`, and `omp.session_compact`. Runner-neutral terminal events use `run.completed`, `run.failed`, `run.stopped`, and `run.timed_out`. The `tokens.usage` event provides bounded usage. The `component.state` event reports supervised component transitions. Lifecycle envelopes contain source identity and bounded operational metadata. They do not contain session transcripts.
 
 A detached local `agents.spawn()` has a smaller convenience route. When `agents.notifyOnComplete` is enabled, terminal completion automatically sends Main a triggered follow-up. A call to `agents.wait()` makes the run foreground work and disables that detached notification.
 
@@ -303,7 +303,7 @@ return agents.create({
   name: "auth-supervisor",
   instructions: `Watch the main session until the auth migration is complete and tested.
 Prefer silence. Reply with a directive only for material drift, a blocker, or verified completion.`,
-  events: ["agent_settled", "tool_error"],
+  events: ["agent_end", "tool_error"],
   responseMode: "directive",
   delivery: "steer",
   triggerTurn: true,
@@ -321,7 +321,7 @@ return agents.create({
   runner: "claude",
   model: "claude/haiku",
   instructions: "Review each delivered event and report only concrete regressions.",
-  events: ["agent_settled", "tool_error"],
+  events: ["agent_end", "tool_error"],
   responseMode: "directive",
   delivery: "steer",
   triggerTurn: false,
@@ -329,14 +329,14 @@ return agents.create({
 });
 ```
 
-Claude actors can keep context and use mapped Claude Code tools to inspect or edit. They consume host events and mesh messages that Fabric delivers, then return text or directives. They cannot directly call `fabric_exec`, `agents.*`, or `mesh.*`. Use a Pi actor when the actor must coordinate recursively through Fabric.
+Claude actors can keep context and use mapped Claude Code tools to inspect or edit. They consume host events and mesh messages that Fabric delivers, then return text or directives. They cannot directly call `fabric_exec`, `agents.*`, or `mesh.*`. Use an OMP actor when the actor must coordinate recursively through Fabric.
 
 ### Shared actors and session bindings
 
 A project-scoped actor stores one definition for the project. Select storage per actor with `agents.create({ scope: "project" | "session", ... })`; omitted scope uses `mesh.actorScope` as a compatibility default. Fabric keeps three pieces of state:
 
 - **Project definition.** The shared registry stores the actor ID, instructions, runner, subscriptions, tools, and project model and thinking defaults.
-- **Session binding.** A mode-`0600` file stores only `model` and `thinking` for one Pi session ID. It survives a resume of that session and does not rewrite `actors.json`.
+- **Session binding.** A mode-`0600` file stores only `model` and `thinking` for one OMP session ID. It survives a resume of that session and does not rewrite `actors.json`.
 - **Runtime.** One owner keeps the stable actor identity, serial mailbox, and runner session. Other sessions send direct work to that owner.
 
 Fabric resolves each activation in this order:
@@ -346,7 +346,7 @@ call override → session binding → project default → Fabric or runner defau
 ```
 
 ```ts
-// Change only this Pi session.
+// Change only this OMP session.
 await agents.setModel({ id: actor.id, model: "anthropic/claude-sonnet-4-6" });
 await agents.setThinking({ id: actor.id, thinking: "low" });
 
@@ -370,17 +370,17 @@ Omit `model` or `thinking` to clear the selected layer. A cleared session bindin
 
 `FabricActorInfo.model` and `thinking` show the effective values for the caller. `binding` shows the session layer. `projectDefaults` shows the shared definition layer.
 
-Fabric stores the resolved binding on each mailbox item before it queues. Later binding changes cannot alter a running activation or an older queued item. `ask` waits for the owner to return a result. `tell`, `steer`, and `followUp` enqueue through the same owner. Pi and Claude actors both support these direct-call bindings.
+Fabric stores the resolved binding on each mailbox item before it queues. Later binding changes cannot alter a running activation or an older queued item. `ask` waits for the owner to return a result. `tell`, `steer`, and `followUp` enqueue through the same owner. OMP and Claude actors both support these direct-call bindings.
 
-The mailbox, history, and runner session remain shared. Host events and mesh subscriptions run once on the owner and use the owner's session binding. Opening another Pi session does not start another copy of the actor.
+The mailbox, history, and runner session remain shared. Host events and mesh subscriptions run once on the owner and use the owner's session binding. Opening another OMP session does not start another copy of the actor.
 
-Use `scope: "session"` when one root Pi session needs its own definition, mailbox, history, and runtime; use `scope: "project"` for repository-wide guardians. Both run concurrently. Session identity propagates to recursive participant agents in the same lineage. Under project scope, every trusted session can read shared actor definitions, mailbox history, and logs. Do not store secrets in them.
+Use `scope: "session"` when one root OMP session needs its own definition, mailbox, history, and runtime; use `scope: "project"` for repository-wide guardians. Both run concurrently. Session identity propagates to recursive participant agents in the same lineage. Under project scope, every trusted session can read shared actor definitions, mailbox history, and logs. Do not store secrets in them.
 
-Use `requires` to declare exact `provider.action` capabilities for every activation. An entry can use `{ ref, optional: true }`. Before launch, the host resolves and keeps one view identified by its descriptor hash. Pi children separately resolve the portable semantic digest. They run with a closed-world Fabric surface, so a live provider addition cannot expand the actor during a run. When required refs are missing, mailbox work stays queued. `missingCapabilities` reports which capabilities are available, separately from `idle | queued | running | stopped`. Changes to providers or catalogs retry dispatch. Actor status and run metadata include the normalized requirements and last committed digest. Claude actors receive the host availability commitment. They have no child Fabric surface to limit. If the private Claude session was removed, the next activation reports a clear failure and preserves actor context. Recreate the actor when you need a new Claude session.
+Use `requires` to declare exact `provider.action` capabilities for every activation. An entry can use `{ ref, optional: true }`. Before launch, the host resolves and keeps one view identified by its descriptor hash. OMP children separately resolve the portable semantic digest. They run with a closed-world Fabric surface, so a live provider addition cannot expand the actor during a run. When required refs are missing, mailbox work stays queued. `missingCapabilities` reports which capabilities are available, separately from `idle | queued | running | stopped`. Changes to providers or catalogs retry dispatch. Actor status and run metadata include the normalized requirements and last committed digest. Claude actors receive the host availability commitment. They have no child Fabric surface to limit. If the private Claude session was removed, the next activation reports a clear failure and preserves actor context. Recreate the actor when you need a new Claude session.
 
-This primitive supports emergent supervisors and advisors without another extension. Actors can observe all session-bound public Pi extension events. These include resource discovery; session start, info, switch, fork, compaction, tree, and shutdown events; input and before-agent-start; agent, turn, and message lifecycle; context and provider request or response lifecycle; tool call, result, and execution lifecycle; model and thinking changes; and user bash. Event names match the Pi extension names, such as `input`, `before_agent_start`, `tool_call`, and `tool_result`. Fabric also adds the synthetic `tool_error`. The only exception is `project_trust`, which fires before Fabric can read the trusted project actor registry. Actors only observe intercepting Pi hooks. An actor runs asynchronously and cannot block a tool, rewrite context, change provider headers, or return another extension hook result. Shutdown observations and observations during immediate session replacement are best effort because the owner runtime is shutting down.
+This primitive supports emergent supervisors and advisors without another extension. Actors can observe all session-bound public OMP extension events. These include resource discovery; session start, info, switch, fork, compaction, tree, and shutdown events; input and before-agent-start; agent, turn, and message lifecycle; context and provider request or response lifecycle; tool call, result, and execution lifecycle; model and thinking changes; and user bash. Event names match the OMP extension names, such as `input`, `before_agent_start`, `tool_call`, and `tool_result`. Fabric also adds the synthetic `tool_error`. The only exception is `project_trust`, which fires before Fabric can read the trusted project actor registry. Actors only observe intercepting OMP hooks. An actor runs asynchronously and cannot block a tool, rewrite context, change provider headers, or return another extension hook result. Shutdown observations and observations during immediate session replacement are best effort because the owner runtime is shutting down.
 
-Fabric sanitizes host-event JSON before placing it in the mailbox. The JSON includes a bounded snapshot of the recent session. Fabric redacts fields that resemble credentials and encoded blobs. Pi `ImageContent` blocks follow another path. Fabric replaces every persisted block with an indexed descriptor. It sends the raw image outside the mailbox with the transient activation and automatically submits it to the selected Pi or Claude actor model. There is no media opt-in flag because the explicit event subscription defines the trust boundary. Raw image bytes never enter `actors.json` or the actor mailbox record. The selected runner's persistent model session can retain images through its standard session behavior. Use `activation.signal.media` to read descriptor metadata for freshness predicates and correlation.
+Fabric sanitizes host-event JSON before placing it in the mailbox. The JSON includes a bounded snapshot of the recent session. Fabric redacts fields that resemble credentials and encoded blobs. OMP `ImageContent` blocks follow another path. Fabric replaces every persisted block with an indexed descriptor. It sends the raw image outside the mailbox with the transient activation and automatically submits it to the selected OMP or Claude actor model. There is no media opt-in flag because the explicit event subscription defines the trust boundary. Raw image bytes never enter `actors.json` or the actor mailbox record. The selected runner's persistent model session can retain images through its standard session behavior. Use `activation.signal.media` to read descriptor metadata for freshness predicates and correlation.
 
 Actors handle one message at a time. By default, they coalesce repeated host events, which is useful for `message_update` and `tool_execution_update`. They restore from the trusted project actor registry.
 
@@ -396,7 +396,7 @@ Return { action: "silent" } when no image is attached.
 Otherwise return { action: "message", message } with a precise, compact visual description
 that Main can use without seeing the image. Do not answer the user's broader coding task.`,
   events: ["input"],
-  runner: "pi",
+  runner: "omp",
   model: "provider/multimodal-model", // use a key from tools.models()
   responseMode: "directive",
   delivery: "steer",
@@ -409,7 +409,7 @@ that Main can use without seeing the image. Do not answer the user's broader cod
 });
 ```
 
-`validWhile` removes input activations without images before a model run. Ordinary text prompts use no vision-agent inference. The actor persists. Dispatch stays asynchronous. Main never waits for the visual description during its current inference. Subscribe to `before_agent_start` when the actor needs Pi's expanded prompt or system context. A subscription to both events creates two activations for one user prompt.
+`validWhile` removes input activations without images before a model run. Ordinary text prompts use no vision-agent inference. The actor persists. Dispatch stays asynchronous. Main never waits for the visual description during its current inference. Subscribe to `before_agent_start` when the actor needs OMP's expanded prompt or system context. A subscription to both events creates two activations for one user prompt.
 
 `validWhile` supplies a programmable freshness guard for persistent actors. Fabric serializes the source of its pure synchronous function. It checks the function before starting queued work and before delivering completed work. Fabric also stores it with project actors and global templates. The immutable `activation` fact describes a `hostEvent`, `direct`, or `mesh` activation. The `current` object contains `latestActivationSequence`, `mainRevision`, `taskRevision`, `idle`, and `now`. Main revisions increase after completed tools and lifecycle events. A tool-error review can become stale after Main recovers. Return `false` or `{ valid: false, reason? }` to discard stale work. Fabric records invalidated fire-and-forget work as a silent stale outbox entry. An invalidated `agents.ask()` rejects. Predicates must be synchronous. They cannot call tools or use closures because their source must run after restoration.
 
@@ -417,7 +417,7 @@ that Main can use without seeing the image. Do not answer the user's broader cod
 return agents.create({
   name: "fresh-reviewer",
   instructions: "Review only the latest useful parent-session event.",
-  events: ["tool_error", "agent_settled"],
+  events: ["tool_error", "agent_end"],
   responseMode: "directive",
   delivery: "steer",
   triggerTurn: false,
@@ -436,7 +436,7 @@ return agents.create({
 });
 ```
 
-Pi actors keep model context in a Fabric-owned Pi session file. Claude actors keep the session ID returned by the official CLI and use `--resume <id>` after the first message. Every activation reapplies tools, permissions, schema, and system-prompt flags. Fabric also stores a runner-neutral stream transcript. `thinking` accepts `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, or `max` and uses the precedence described above. In the dashboard, `e` changes this session and `E` changes the project default. The persisted `tools` array is an allowlist. Set it during creation, replace it with `agents.setTools({ id, tools })`, or press `o` in the dashboard. An empty array disables optional tools. Pi actors keep the host-required `fabric_exec` capability for mailbox and mesh coordination unless you create them with `extensions: false`. This setting removes Fabric from a Pi actor. Its activation then runs without `fabric_exec`, `agents.*`, or `mesh.*`. The host continues to manage its mailbox and delivery. The setting alone does not make the actor read-only because `tools` still defaults to `agents.defaultTools`. Also set `tools: ["read", "grep", "find", "ls"]` for a read-only persistent actor. Use `tools: []` for an actor without tools.
+OMP actors keep model context in a Fabric-owned OMP session file. Claude actors keep the session ID returned by the official CLI and use `--resume <id>` after the first message. Every activation reapplies tools, permissions, schema, and system-prompt flags. Fabric also stores a runner-neutral stream transcript. `thinking` accepts `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, or `max` and uses the precedence described above. In the dashboard, `e` changes this session and `E` changes the project default. The persisted `tools` array is an allowlist. Set it during creation, replace it with `agents.setTools({ id, tools })`, or press `o` in the dashboard. An empty array disables optional tools. OMP actors keep the host-required `fabric_exec` capability for mailbox and mesh coordination unless you create them with `extensions: false`. This setting removes Fabric from an OMP actor. Its activation then runs without `fabric_exec`, `agents.*`, or `mesh.*`. The host continues to manage its mailbox and delivery. The setting alone does not make the actor read-only because `tools` still defaults to `agents.defaultTools`. Also set `tools: ["read", "grep", "find", "ls"]` for a read-only persistent actor. Use `tools: []` for an actor without tools.
 
 ### Response modes and delivery
 
@@ -457,7 +457,7 @@ await agents.setDeliveryPolicy({
 });
 ```
 
-Set `scope: "global"` to update a reusable template. In the dashboard, press `y` on an actor or template, then choose mailbox, steer, follow-up, or next-turn delivery. Lowercase `m` and `e` change this Pi session. Uppercase `M` and `E` change the owner-gated project defaults. These changes keep the Pi or Claude runner session. Use `agents.ask()` for a blocking exchange and `agents.tell()` for fire-and-forget mail. Both accept one-activation `model` and `thinking` overrides. Read shared history with `agents.messages()`. `agents.remove()` is local-owner-only for session actors and routes durable actors to the resident owner.
+Set `scope: "global"` to update a reusable template. In the dashboard, press `y` on an actor or template, then choose mailbox, steer, follow-up, or next-turn delivery. Lowercase `m` and `e` change this OMP session. Uppercase `M` and `E` change the owner-gated project defaults. These changes keep the OMP or Claude runner session. Use `agents.ask()` for a blocking exchange and `agents.tell()` for fire-and-forget mail. Both accept one-activation `model` and `thinking` overrides. Read shared history with `agents.messages()`. `agents.remove()` is local-owner-only for session actors and routes durable actors to the resident owner.
 
 ## Paged agent logs
 
@@ -476,14 +476,14 @@ The `offset` values on log lines and all page cursors are byte offsets in the JS
 
 ## Global actor templates
 
-Persistent actors belong to a project mesh. If you want to reuse a persona in several projects, store it in the project-independent **template library**. This library is in your agent directory at `~/.pi/agent/fabric/actors/`. A template contains only an actor definition, including its name, instructions, subscriptions, and run settings. It contains no mailbox, session transcript, run logs, or other history. Templates are inactive. Import one into a project to run it.
+Persistent actors belong to a project mesh. If you want to reuse a persona in several projects, store it in the project-independent **template library**. This library is in your agent directory at `<active OMP agent dir>/fabric/actors/`. A template contains only an actor definition, including its name, instructions, subscriptions, and run settings. It contains no mailbox, session transcript, run logs, or other history. Templates are inactive. Import one into a project to run it.
 
 ```ts
 // Store a reusable persona in the global registry. This does not create a live actor.
 return agents.create({
   name: "security-reviewer",
   instructions: "Review changes for security defects. Reply with a directive only for material drift.",
-  events: ["agent_settled"],
+  events: ["agent_end"],
   responseMode: "directive",
   scope: "global",
 });
@@ -525,13 +525,13 @@ Council members run at the same time under the global agent semaphore. When `syn
 
 ```ts
 return rlm.query({
-  runner: "pi",
+  runner: "omp",
   task: "Recursively decompose this repository and produce a compact architecture map.",
   transport: "process",
 });
 ```
 
-`rlm.query()` calls `agents.run({ runner: "pi", recursive: true })` with Fabric enabled in the child; it does not accept `cwd`. Recursive spawning means Fabric agent composition, not recursive filesystem traversal. Fabric rejects Claude runners for recursive use. It also rejects recursion at `agents.maxDepth`. This setting accepts any non-negative safe integer, and `0` disables child spawning. Approval for the initial recursive call delegates only the `agent` risk capability to recursive children. It does not delegate approvals for network access, execution, or writes. Each Fabric process applies its own configured concurrency and timeout limits. When `agents.budgetUsd` is set, a shared append-only cost ledger limits total spending across the recursion tree. Each node writes the cost of its children to one ledger file that it receives through the environment. A node rejects a new child when accumulated spending reaches the budget. This check is best effort. Concurrent children can pass the check before another child records cost, so the tree can exceed the limit slightly. Use `agents.maxPerExecution` as the race-free ceiling. Results and live status for each recursive child include a `budget` summary with `limit`, `spent`, `remaining`, and `tokens`. Fabric keeps the latest bounded nested-agent status tree in memory. Completed recursive leaves remain visible in **Topology · Run** after the child process deletes its temporary nested run directories. Fabric releases the snapshot when the parent run is cleaned up or the Fabric session shuts down.
+`rlm.query()` calls `agents.run({ runner: "omp", recursive: true })` with Fabric enabled in the child; it does not accept `cwd`. Recursive spawning means Fabric agent composition, not recursive filesystem traversal. Fabric rejects Claude runners for recursive use. It also rejects recursion at `agents.maxDepth`. This setting accepts any non-negative safe integer, and `0` disables child spawning. Approval for the initial recursive call delegates only the `agent` risk capability to recursive children. It does not delegate approvals for network access, execution, or writes. Each Fabric process applies its own configured concurrency and timeout limits. When `agents.budgetUsd` is set, a shared append-only cost ledger limits total spending across the recursion tree. Each node writes the cost of its children to one ledger file that it receives through the environment. A node rejects a new child when accumulated spending reaches the budget. This check is best effort. Concurrent children can pass the check before another child records cost, so the tree can exceed the limit slightly. Use `agents.maxPerExecution` as the race-free ceiling. Results and live status for each recursive child include a `budget` summary with `limit`, `spent`, `remaining`, and `tokens`. Fabric keeps the latest bounded nested-agent status tree in memory. Completed recursive leaves remain visible in **Topology · Run** after the child process deletes its temporary nested run directories. Fabric releases the snapshot when the parent run is cleaned up or the Fabric session shuts down.
 
 `agents.maxTokensPerChild` limits cumulative token use for each child. Its default value, `0`, disables the limit. The wall-clock `timeoutMs` limits time, and `budgetUsd` limits cost. This limit caps the context of one runaway child before the host session compacts. Fabric stops the child with the same `timed_out` status and a `token limit` error. See [`/skill:fabric-rlm`](../skills/fabric-rlm/SKILL.md).
 

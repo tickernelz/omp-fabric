@@ -21,7 +21,7 @@ import {
 
 const tmpRoots: string[] = [];
 const makeTempDir = (): string => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-entropy-pool-"));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-entropy-pool-"));
   tmpRoots.push(dir);
   return dir;
 };

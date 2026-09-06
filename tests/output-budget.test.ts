@@ -28,14 +28,14 @@ describe("boundModelOutput", () => {
 
   it("bounds visible text and links the complete artifact", async () => {
     const full = `start-${"x".repeat(4_000)}-end`;
-    const writer = vi.fn(async () => "/tmp/pi-fabric-output/output.txt");
+    const writer = vi.fn(async () => "/tmp/omp-fabric-output/output.txt");
     const result = await boundModelOutput(full, 1_000, full, writer);
 
     expect(result.text.length).toBeLessThanOrEqual(1_000);
     expect(result.text).toContain("start-");
     expect(result.text).toContain("-end");
     expect(result.text).toContain("Full output (4010 chars) saved to:");
-    expect(result.artifactPath).toBe("/tmp/pi-fabric-output/output.txt");
+    expect(result.artifactPath).toBe("/tmp/omp-fabric-output/output.txt");
     expect(result.omittedChars).toBeGreaterThan(0);
     expect(writer).toHaveBeenCalledWith(full);
   });
@@ -56,6 +56,6 @@ describe("boundModelOutput", () => {
 
     expect(result.text.length).toBeLessThanOrEqual(1_000);
     expect(result.artifactPath).toBeUndefined();
-    expect(result.text).toContain("characters omitted by Pi Fabric");
+    expect(result.text).toContain("characters omitted by OMP Fabric");
   });
 });

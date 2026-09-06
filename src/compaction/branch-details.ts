@@ -3,7 +3,7 @@ import type {
   FabricTraceJsonValue,
 } from "../audit/trace.js";
 
-export const FABRIC_BRANCH_SUMMARY_KIND = "pi-fabric.branch-summary" as const;
+export const FABRIC_BRANCH_SUMMARY_KIND = "omp-fabric.branch-summary" as const;
 const FABRIC_BRANCH_SUMMARY_VERSION_V1 = 1 as const;
 export const FABRIC_BRANCH_SUMMARY_VERSION = 2 as const;
 export const FABRIC_BRANCH_SUMMARY_MAX_BYTES = 128 * 1024;

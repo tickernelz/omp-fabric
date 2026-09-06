@@ -16,7 +16,7 @@ interface FabricPersistedExecutionDetailsV1 {
 }
 
 interface FabricExecutionTraceV1 {
-  kind: "pi-fabric.execution";
+  kind: "omp-fabric.execution";
   version: 1;
   outcome: "succeeded" | "failed" | "aborted" | "timed_out";
   phases: string[];
@@ -54,13 +54,13 @@ interface FabricExecutionTraceOperationV1 {
 
 The host bridge assigns `sequence` when it receives any durable operation. A parallel completion only updates the existing record, and operation order stays unchanged. Fabric issues action attempts before reference resolution, preparation, schema validation, approval, and execution guards. Discovery and workflow attempts go out before their guards, lookups, validation, or activity mutation, so failures in those stages stay visible. The configured executor returns a typed termination reason. Trace sealing uses that reason for deadline and cancellation outcomes, and it never classifies exception text.
 
-V1 keeps `type: "call"` for wire compatibility. Exact internal refs separate discovery, lifecycle, and combinator operations from provider action calls. V1 also leaves `result` optional, and discovery, workflow lifecycle, and combinator operations never persist one. The generic recorder drops provider results, with a single exception: the exact `{ created: true }` creation outcome from `pi.write`. No output or provider details accompany that outcome. Argument projection follows the exact reference:
+V1 keeps `type: "call"` for wire compatibility. Exact internal refs separate discovery, lifecycle, and combinator operations from provider action calls. V1 also leaves `result` optional, and discovery, workflow lifecycle, and combinator operations never persist one. The generic recorder drops provider results, with a single exception: the exact `{ created: true }` creation outcome from `omp.write`. No output or provider details accompany that outcome. Argument projection follows the exact reference:
 
-- `pi.read`: local `path`, numeric `offset`, numeric `limit`
-- `pi.grep`: local `path`, numeric `context`, numeric `limit`. Drops pattern and query
-- `pi.find`, `pi.ls`: local `path`, numeric `limit`. Drops pattern and query
-- `pi.edit`, `pi.write`: local `path` only. Drops edit replacements and write content. `pi.write` can keep `{ created: true }`
-- `pi.bash`, `pi.powershell`: bounded command text
+- `omp.read`: local `path`, numeric `offset`, numeric `limit`
+- `omp.grep`: local `path`, numeric `context`, numeric `limit`. Drops pattern and query
+- `omp.find`, `omp.ls`: local `path`, numeric `limit`. Drops pattern and query
+- `omp.edit`, `omp.write`: local `path` only. Drops edit replacements and write content. `omp.write` can keep `{ created: true }`
+- `omp.bash`: bounded command text
 - selected `agents.*` lifecycle calls: `id` only. Drops task, message, instructions, names, model options, and outputs
 - `mesh.publish`/`read`: topic/address and numeric cursor/limit. Drops payload text and data
 - `mesh.get`/`put`/`delete`/`list`: key or prefix and limit. Drops values

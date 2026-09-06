@@ -21,7 +21,7 @@ describe("skill-dir markers", () => {
     );
   });
 
-  it("expands only the Pi skill block and preserves user arguments", () => {
+  it("expands only the OMP skill block and preserves user arguments", () => {
     const prompt = [
       `<skill name="duplicate-name" location="${skillPath}">`,
       `References are relative to ${skillDir}.`,

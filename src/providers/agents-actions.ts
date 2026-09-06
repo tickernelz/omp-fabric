@@ -12,7 +12,7 @@ const runProperties = {
   name: { type: "string" },
   runner: {
     type: "string",
-    enum: ["pi", "claude", "veda"],
+    enum: ["omp", "claude", "veda"],
     description: "Execution harness. Defaults to agents.runner.",
   },
   transport: {
@@ -22,7 +22,7 @@ const runProperties = {
   model: {
     type: "string",
     description:
-      "Pi provider/id, a configured models.aliases name, or a search term resolved to the closest authenticated model (recency from pi-model-sort breaks ties); Claude runtime value or Veda backend model/alias are forwarded verbatim.",
+      "OMP provider/id, a configured models.aliases name, or a search term resolved to the closest authenticated model (recency from pi-model-sort breaks ties); Claude runtime value or Veda backend model/alias are forwarded verbatim.",
   },
   persona: {
     type: "string",
@@ -58,13 +58,13 @@ const runSchema = {
 const residencySchema = {
   type: "string",
   enum: ["session", "durable"],
-  description: "session stops with the current Pi host; durable transfers execution to Fabric's hidden resident host.",
+  description: "session stops with the current OMP host; durable transfers execution to Fabric's hidden resident host.",
 };
 
 const actorBindingScopeSchema = {
   type: "string",
   enum: ["session", "project"],
-  description: "session (default) changes only this Pi session; project pins the shared actor default and requires ownership.",
+  description: "session (default) changes only this OMP session; project pins the shared actor default and requires ownership.",
 };
 
 const actorInvocationProperties = {
@@ -119,7 +119,7 @@ const handoffSchema = {
     transport: runProperties.transport,
     model: {
       ...runProperties.model,
-      description: "Explicit Pi provider/id target that will continue the inherited trajectory",
+      description: "Explicit OMP provider/id target that will continue the inherited trajectory",
     },
     thinking: runProperties.thinking,
     tools: runProperties.tools,
@@ -148,21 +148,21 @@ const lifecycleEventSchema = {
 export const AGENTS_ACTION_DESCRIPTORS: FabricActionDescriptor[] = [
   {
     name: "run",
-    description: "Run a child agent through Pi or Claude Code and wait for its final result",
+    description: "Run a child agent through OMP or Claude Code and wait for its final result",
     inputSchema: runSchema,
     risk: "agent",
   },
   {
     name: "handoff",
     description:
-      "Schedule a Pi trajectory handoff after the current outer fabric_exec result, then wait for implementation at that boundary",
+      "Schedule an OMP trajectory handoff after the current outer fabric_exec result, then wait for implementation at that boundary",
     inputSchema: handoffSchema,
     risk: "agent",
   },
   {
     name: "spawn",
     description:
-      "Start a child agent through Pi or Claude Code and return a handle immediately. Detached runs send Main a follow-up on terminal completion when agents.notifyOnComplete is enabled; use wait when this Fabric program needs the result and status only for progress inspection.",
+      "Start a child agent through OMP or Claude Code and return a handle immediately. Detached runs send Main a follow-up on terminal completion when agents.notifyOnComplete is enabled; use wait when this Fabric program needs the result and status only for progress inspection.",
     inputSchema: spawnSchema,
     risk: "agent",
   },
@@ -214,19 +214,19 @@ export const AGENTS_ACTION_DESCRIPTORS: FabricActionDescriptor[] = [
   {
     name: "main",
     description:
-      "Return the root user-facing Main Pi agent target. The stable alias main is also accepted by agents.steer and agents.followUp.",
+      "Return the root user-facing Main OMP agent target. The stable alias main is also accepted by agents.steer and agents.followUp.",
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
     risk: "read",
   },
   {
     name: "sessions",
-    description: "List all live root Pi session agents in the project, including the current lineage root and peers, with symmetric participant identities.",
+    description: "List all live root OMP session agents in the project, including the current lineage root and peers, with symmetric participant identities.",
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
     risk: "read",
   },
   {
     name: "peers",
-    description: "List other live root Pi sessions sharing this project mesh. The dashboard-owning session remains Main; these targets are named peers.",
+    description: "List other live root OMP sessions sharing this project mesh. The dashboard-owning session remains Main; these targets are named peers.",
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
     risk: "read",
   },
@@ -272,7 +272,7 @@ export const AGENTS_ACTION_DESCRIPTORS: FabricActionDescriptor[] = [
     inputSchema: {
       type: "object",
       properties: {
-        runner: { type: "string", enum: ["pi", "claude", "veda"] },
+        runner: { type: "string", enum: ["omp", "claude", "veda"] },
         refresh: { type: "boolean" },
       },
       additionalProperties: false,
@@ -282,7 +282,7 @@ export const AGENTS_ACTION_DESCRIPTORS: FabricActionDescriptor[] = [
   {
     name: "switchModel",
     description:
-      "Switch Main's live Pi session model in place. The model selector accepts an exact provider/id, a configured models.aliases name (alias chains try each target in order until one is authenticated), an exact model id, or a search term; inexact terms resolve to the closest match, preferring recently used models (via pi-model-sort usage, when present).",
+      "Switch Main's live OMP session model in place. The model selector accepts an exact provider/id, a configured models.aliases name (alias chains try each target in order until one is authenticated), an exact model id, or a search term; inexact terms resolve to the closest match, preferring recently used models (via pi-model-sort usage, when present).",
     inputSchema: {
       type: "object",
       properties: {
@@ -377,7 +377,7 @@ export const AGENTS_ACTION_DESCRIPTORS: FabricActionDescriptor[] = [
         scope: {
           type: "string",
           enum: ["session", "project", "global"],
-          description: "session isolates the actor to the root Pi session; project shares it across sessions; global creates a non-live template.",
+          description: "session isolates the actor to the root OMP session; project shares it across sessions; global creates a non-live template.",
         },
       },
       required: ["name", "instructions"],
@@ -429,7 +429,7 @@ export const AGENTS_ACTION_DESCRIPTORS: FabricActionDescriptor[] = [
   {
     name: "steer",
     description:
-      "Steer Main, a running one-shot agent between turns, or a persistent actor through its mailbox. The stable id alias main targets the root user-facing Pi session. Non-local targets route over the project mesh.",
+      "Steer Main, a running one-shot agent between turns, or a persistent actor through its mailbox. The stable id alias main targets the root user-facing OMP session. Non-local targets route over the project mesh.",
     inputSchema: {
       type: "object",
       properties: { id: { type: "string" }, message: { type: "string" }, data: {} },
@@ -441,7 +441,7 @@ export const AGENTS_ACTION_DESCRIPTORS: FabricActionDescriptor[] = [
   {
     name: "followUp",
     description:
-      "Queue a follow-up for Main or a running one-shot agent, or enqueue a persistent actor mailbox message. The stable id alias main targets the root user-facing Pi session. Non-local targets route over the project mesh.",
+      "Queue a follow-up for Main or a running one-shot agent, or enqueue a persistent actor mailbox message. The stable id alias main targets the root user-facing OMP session. Non-local targets route over the project mesh.",
     inputSchema: {
       type: "object",
       properties: { id: { type: "string" }, message: { type: "string" }, data: {} },
@@ -483,14 +483,14 @@ export const AGENTS_ACTION_DESCRIPTORS: FabricActionDescriptor[] = [
   {
     name: "compact",
     description:
-      "Request an advisory compaction of a running Pi-runner child agent's context at its next safe boundary (between its own turns), preserving the child's accumulated context. Rejected for Claude-runner children. The child pi core applies the compaction; Fabric only forwards the intent.",
+      "Request an advisory compaction of a running OMP-runner child agent's context at its next safe boundary (between its own turns), preserving the child's accumulated context. Rejected for Claude-runner children. The child OMP core applies the compaction; Fabric only forwards the intent.",
     inputSchema: {
       type: "object",
       properties: {
         id: { type: "string" },
         instructions: {
           type: "string",
-          description: "Optional custom compaction instructions forwarded to the child pi",
+          description: "Optional custom compaction instructions forwarded to the child OMP",
         },
       },
       required: ["id"],
@@ -576,7 +576,7 @@ export const AGENTS_ACTION_DESCRIPTORS: FabricActionDescriptor[] = [
   },
   {
     name: "setEvents",
-    description: "Replace a persistent actor's session-bound Pi and synthetic tool_error event subscriptions",
+    description: "Replace a persistent actor's session-bound OMP and synthetic tool_error event subscriptions",
     inputSchema: {
       type: "object",
       properties: {

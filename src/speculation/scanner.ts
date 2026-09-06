@@ -5,7 +5,7 @@ import type { FabricSpeculationCandidate } from "./types.js";
 // Root namespaces the model can call from a fabric program. Calls are emitted
 // as candidates regardless of action so the tap can apply its eligibility
 // policy in one place; args must still be fully literal.
-const ROOTS = new Set(["pi", "memory", "state", "schema", "compact", "components", "mcp"]);
+const ROOTS = new Set(["omp", "memory", "state", "schema", "compact", "components", "mcp"]);
 
 const LITERAL_FAIL = Symbol("literal-fail");
 

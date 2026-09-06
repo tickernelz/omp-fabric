@@ -1,6 +1,6 @@
 ---
 name: fabric-workflow
-description: Runs a dynamic Pi Fabric workflow with code-held phases, fan-out, pipelines, structured agents, and best-effort verification. Use for large audits, migrations, parallel research, or explicit workflow requests.
+description: Runs a dynamic OMP Fabric workflow with code-held phases, fan-out, pipelines, structured agents, and best-effort verification. Use for large audits, migrations, parallel research, or explicit workflow requests.
 disable-model-invocation: true
 ---
 
@@ -29,7 +29,7 @@ await workflow.configure({
 });
 await phase("Discover", { total: 1 });
 const inventory = await agent<{ items: string[] }>(
-  `Discover the bounded work items for this objective.\n\nObjective:\n${π.task}`,
+  `Discover the bounded work items for this objective.\n\nObjective:\n${omp.task}`,
   {
     label: "inventory",
     tools: ["read", "grep", "find", "ls"],
@@ -62,7 +62,7 @@ for (let offset = 0; offset < items.length; offset += batchSize) {
     batch.map((item) => async (): Promise<WorkOutcome> => {
       try {
         const finding = await agent(
-          `Analyze this bounded item with evidence: ${item}\n\nObjective:\n${π.task}`,
+          `Analyze this bounded item with evidence: ${item}\n\nObjective:\n${omp.task}`,
           {
             label: `analyze ${item}`.slice(0, 50),
             tools: ["read", "grep", "find", "ls"],
@@ -106,7 +106,7 @@ if (completed.length === 0) {
 await phase("Verify", { total: 1 });
 try {
   const result = await agent(
-    `Adversarially verify only these completed findings, remove unsupported claims, and do not infer anything about failed items.\n\nObjective:\n${π.task}\n\nFindings:\n${JSON.stringify(completed)}`,
+    `Adversarially verify only these completed findings, remove unsupported claims, and do not infer anything about failed items.\n\nObjective:\n${omp.task}\n\nFindings:\n${JSON.stringify(completed)}`,
     { label: "verify synthesis", tools: ["read", "grep", "find", "ls"] },
   );
   await workflow.event({ message: "Verification complete", level: "success" });

@@ -26,7 +26,7 @@ const untracked = (() => {
 if (tracked === null) {
   console.error("git unavailable; running the full suite");
   try {
-    execFileSync("bunx", ["vitest", "run"], { stdio: "inherit" });
+    execFileSync("bun", ["--bun", "node_modules/vitest/vitest.mjs", "run"], { stdio: "inherit" });
     process.exit(0);
   } catch {
     process.exit(1);
@@ -44,11 +44,13 @@ if (srcFiles.length === 0 && testFiles.length === 0) {
 
 // vitest 4: `related` is a subcommand, not a `run` flag.
 const runs = [];
-if (srcFiles.length > 0) runs.push(["vitest", "related", ...srcFiles]);
-if (testFiles.length > 0) runs.push(["vitest", "run", ...testFiles]);
-console.log(runs.map((args) => "vitest " + args.slice(2).join(" ")).join(" && "));
+if (srcFiles.length > 0) runs.push(["related", ...srcFiles]);
+if (testFiles.length > 0) runs.push(["run", ...testFiles]);
+console.log(runs.map((args) => "vitest " + args.join(" ")).join(" && "));
 try {
-  for (const args of runs) execFileSync("bunx", args, { stdio: "inherit" });
+  for (const args of runs) {
+    execFileSync("bun", ["--bun", "node_modules/vitest/vitest.mjs", ...args], { stdio: "inherit" });
+  }
 } catch {
   process.exit(1);
 }

@@ -28,8 +28,8 @@ export interface ModelSource {
  * to alphabetical order.
  *
  * The agent dir is injected by the caller because this module loads through a
- * native dynamic import (lazy dashboard) that cannot resolve pi's
- * extension-loader alias for "@earendil-works/pi-coding-agent" (#13).
+ * native dynamic import (lazy dashboard) that cannot resolve OMP's
+ * extension-loader alias for "@oh-my-pi/pi-coding-agent" (#13).
  */
 export function readModelSortLastUsed(agentDir?: string): Record<string, number> {
   if (!agentDir) return {};
@@ -96,5 +96,5 @@ export function buildClaudeModelSource(models: readonly ClaudeModelLike[]): Mode
   };
 }
 
-/** Build the canonical `provider/id` key used on disk and by `pi --model`. */
+/** Build the canonical `provider/id` key used on disk and by `omp --model`. */
 export const modelKey = buildModelKey;

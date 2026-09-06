@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import type { ImageContent } from "@earendil-works/pi-ai";
+import type { ImageContent } from "@oh-my-pi/pi-ai";
 
 interface FabricActorHostMediaDescriptor {
   type: "image";

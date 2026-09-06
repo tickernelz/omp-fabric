@@ -1,6 +1,6 @@
-import type { Theme } from "@earendil-works/pi-coding-agent";
+import type { Theme } from "@oh-my-pi/pi-coding-agent";
 import type { CodePreviewSettings } from "../src/ui/code-preview.js";
-import { visibleWidth } from "@earendil-works/pi-tui";
+import { visibleWidth } from "@oh-my-pi/pi-tui";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   configureHighlighting,
@@ -68,7 +68,7 @@ const options = (
 const audit = (
   tool: string,
   values: Omit<FabricRenderAudit, "ref" | "provider" | "tool">,
-): FabricRenderAudit => ({ ref: `pi.${tool}`, provider: "pi", tool, ...values });
+): FabricRenderAudit => ({ ref: `omp.${tool}`, provider: "omp", tool, ...values });
 
 describe("Fabric core tool parity rendering", () => {
   it("renders offset-aware read gutters and secret warnings", () => {
@@ -206,9 +206,9 @@ describe("Fabric core tool parity rendering", () => {
   });
 
   it.each([
-    "[Showing last 50.0KB of line 1 (line is 60.0KB). Full output: /tmp/pi-bash.log]",
-    "[Showing lines 51-100 of 100. Full output: /tmp/pi-bash.log]",
-    "[Showing lines 5-6 of 6 (50.0KB limit). Full output: /tmp/pi-bash.log]",
+    "[Showing last 50.0KB of line 1 (line is 60.0KB). Full output: /tmp/omp-bash.log]",
+    "[Showing lines 51-100 of 100. Full output: /tmp/omp-bash.log]",
+    "[Showing lines 5-6 of 6 (50.0KB limit). Full output: /tmp/omp-bash.log]",
   ])("renders bash truncation notices in write diffs as muted metadata", (notice) => {
     const noticeTheme = {
       ...theme,
@@ -269,7 +269,7 @@ describe("Fabric core tool parity rendering", () => {
     expect(rendered!.lines.join("\n")).toContain("src/");
   });
 
-  it("lets Pi's no-output sentinel inherit the enclosing tool background", () => {
+  it("lets OMP's no-output sentinel inherit the enclosing tool background", () => {
     const rendered = renderCoreToolBody(
       audit("bash", {
         args: { command: "git status --short" },
@@ -567,7 +567,7 @@ describe("Fabric core tool stateful highlighting", () => {
   beforeEach(async () => {
     const { mkdtempSync, writeFileSync } = await import("node:fs");
     const { tmpdir } = await import("node:os");
-    dir = mkdtempSync((await import("node:path")).join(tmpdir(), "pi-fabric-render-"));
+    dir = mkdtempSync((await import("node:path")).join(tmpdir(), "omp-fabric-render-"));
     file = (await import("node:path")).join(dir, "audio.cpp");
     writeFileSync(
       file,

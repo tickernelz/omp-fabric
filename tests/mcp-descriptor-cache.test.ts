@@ -16,7 +16,7 @@ const temporaryDirectories: string[] = [];
 const savedEnv: Record<string, string | undefined> = {};
 
 const temporaryDirectory = (): string => {
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-mcp-cache-"));
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-mcp-cache-"));
   temporaryDirectories.push(directory);
   return directory;
 };
@@ -151,7 +151,7 @@ describe("server definition hashing", () => {
 describe("McpDescriptorCacheStore", () => {
   it("round-trips a cache document", async () => {
     const directory = temporaryDirectory();
-    const store = new McpDescriptorCacheStore(path.join(directory, ".pi", "fabric", "mcp-cache.json"));
+    const store = new McpDescriptorCacheStore(path.join(directory, ".omp", "fabric", "mcp-cache.json"));
     const document = {
       version: 1,
       layers: [{ path: "/tmp/config.json", mtimeMs: 123.4, size: 10 }],

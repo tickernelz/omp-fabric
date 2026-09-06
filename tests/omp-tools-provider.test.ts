@@ -4,14 +4,14 @@ import path from "node:path";
 import {
   type ExtensionContext,
   type ExtensionRunner,
-} from "@earendil-works/pi-coding-agent";
+} from "@oh-my-pi/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
 import { FabricExecutionTraceRecorder } from "../src/audit/trace.js";
 import { CapturedToolCatalog } from "../src/capture/catalog.js";
 import { DEFAULT_FABRIC_CONFIG } from "../src/config.js";
 import { ActionRegistry, type FabricCallAudit } from "../src/core/action-registry.js";
 import { NESTED_TOOL_CALL_ID_PREFIX } from "../src/core/action-registry.js";
-import { PiToolsProvider } from "../src/providers/pi-tools-provider.js";
+import { OmpToolsProvider } from "../src/providers/omp-tools-provider.js";
 
 const baseContext = {
   cwd: process.cwd(),
@@ -50,11 +50,11 @@ const registerWithRunner = (runner: ExtensionRunner) => {
     "/extensions/pi-fabric/index.ts",
   );
   const registry = new ActionRegistry();
-  registry.register(new PiToolsProvider(process.cwd(), catalog, undefined));
+  registry.register(new OmpToolsProvider(process.cwd(), catalog, undefined));
   return registry;
 };
 
-describe("PiToolsProvider lifecycle", () => {
+describe("OmpToolsProvider lifecycle", () => {
   it("fires the full tool-execution lifecycle for a pi core tool", async () => {
     const events: string[] = [];
     const runner = makeRunner({
@@ -64,7 +64,7 @@ describe("PiToolsProvider lifecycle", () => {
     });
     const registry = registerWithRunner(runner);
 
-    await registry.invoke("pi.ls", { path: process.cwd() }, baseContext);
+    await registry.invoke("omp.ls", { path: process.cwd() }, baseContext);
 
     expect(events).toEqual(["tool_execution_start", "tool_execution_end"]);
     expect(runner.emitToolCall).toHaveBeenCalledOnce();
@@ -83,7 +83,7 @@ describe("PiToolsProvider lifecycle", () => {
     });
     const registry = registerWithRunner(runner);
     const invocation = registry.invoke(
-      "pi.ls",
+      "omp.ls",
       { path: process.cwd() },
       { ...baseContext, signal: controller.signal },
     );
@@ -106,7 +106,7 @@ describe("PiToolsProvider lifecycle", () => {
     const trace = new FabricExecutionTraceRecorder();
 
     const result = await registry.invoke(
-      "pi.bash",
+      "omp.bash",
       { command: `printf "executed:$EXAMPLE\n"` },
       {
         ...baseContext,
@@ -133,7 +133,7 @@ describe("PiToolsProvider lifecycle", () => {
     const runner = makeRunner();
     const registry = registerWithRunner(runner);
     const error = await registry
-      .invoke("pi.bash", { command: "exit 7" }, baseContext)
+      .invoke("omp.bash", { command: "exit 7" }, baseContext)
       .then(() => undefined, (e: unknown) => e as Error);
     expect(error).toBeInstanceOf(Error);
     const message = (error as Error).message;
@@ -154,7 +154,7 @@ describe("PiToolsProvider lifecycle", () => {
     // A tool_result patch must flow through normalizeResult as the returned text.
     // Use a text file here because image decoding is covered by the media tests below.
     const result = await registry.invoke(
-      "pi.read",
+      "omp.read",
       { path: "package.json" },
       baseContext,
     );
@@ -170,12 +170,12 @@ describe("PiToolsProvider lifecycle", () => {
     const registry = registerWithRunner(runner);
 
     await expect(
-      registry.invoke("pi.ls", { path: process.cwd() }, baseContext),
+      registry.invoke("omp.ls", { path: process.cwd() }, baseContext),
     ).rejects.toThrow("denied by gate");
   });
 
   it("forwards bounded partial previews without an extension runner", async () => {
-    const provider = new PiToolsProvider(process.cwd(), undefined, undefined);
+    const provider = new OmpToolsProvider(process.cwd(), undefined, undefined);
     const previews: Array<{ result?: unknown }> = [];
     const updates: string[] = [];
 
@@ -195,13 +195,13 @@ describe("PiToolsProvider lifecycle", () => {
 
   it("falls back to a direct execute (no events) when no runner is bound", async () => {
     const registry = new ActionRegistry();
-    registry.register(new PiToolsProvider(process.cwd(), undefined, undefined));
-    const result = await registry.invoke("pi.ls", { path: process.cwd() }, baseContext);
+    registry.register(new OmpToolsProvider(process.cwd(), undefined, undefined));
+    const result = await registry.invoke("omp.ls", { path: process.cwd() }, baseContext);
     expect(typeof result).toBe("string");
     expect((result as string).length).toBeGreaterThan(0);
   });
 
-  it("preserves shell cwd through pi 0.85 argument preparation", async () => {
+  it("preserves shell cwd through host argument preparation", async () => {
     const root = fs.realpathSync.native(
       fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-provider-cwd-")),
     );
@@ -209,9 +209,9 @@ describe("PiToolsProvider lifecycle", () => {
     fs.mkdirSync(nested);
     try {
       const registry = new ActionRegistry();
-      registry.register(new PiToolsProvider(root, undefined, undefined));
+      registry.register(new OmpToolsProvider(root, undefined, undefined));
       const result = await registry.invoke(
-        "pi.bash",
+        "omp.bash",
         {
           command: `${JSON.stringify(process.execPath.replaceAll("\\", "/"))} -e "process.stdout.write(process.cwd())"`,
           cwd: "nested",
@@ -231,37 +231,6 @@ describe("PiToolsProvider lifecycle", () => {
     }
   });
 
-  it("omits PowerShell when the host factory is unavailable", async () => {
-    const provider = new PiToolsProvider(
-      process.cwd(),
-      undefined,
-      undefined,
-      { powerShellToolDefinitionFactory: undefined },
-    );
-
-    expect(await provider.describe("powershell", baseContext)).toBeUndefined();
-    expect((await provider.list({}, baseContext)).map((item) => item.name))
-      .not.toContain("powershell");
-    expect(await provider.describe("bash", baseContext)).toBeDefined();
-    await expect(provider.invoke("powershell", { command: "Write-Output ok" }, baseContext))
-      .rejects.toThrow("Unknown Pi tool: powershell");
-  });
-
-  it("registers PowerShell with shell schema and execution risk", async () => {
-    const provider = new PiToolsProvider(process.cwd(), undefined, undefined);
-    const descriptor = await provider.describe("powershell", baseContext);
-
-    expect(descriptor).toMatchObject({
-      name: "powershell",
-      namespace: "builtin",
-      risk: "execute",
-    });
-    expect(descriptor?.inputSchema.properties).toMatchObject({
-      command: expect.any(Object),
-      timeout: expect.any(Object),
-      cwd: expect.any(Object),
-    });
-  });
 
   it("expands explicit skill-dir markers only for SKILL.md reads", async () => {
     const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-skill-dir-"));
@@ -274,18 +243,18 @@ describe("PiToolsProvider lifecycle", () => {
       fs.writeFileSync(skillPath, source);
       fs.writeFileSync(referencePath, source);
       const registry = new ActionRegistry();
-      registry.register(new PiToolsProvider(cwd, undefined, undefined));
+      registry.register(new OmpToolsProvider(cwd, undefined, undefined));
       const context = {
         ...baseContext,
         cwd,
         extensionContext: { cwd } as ExtensionContext,
       };
 
+      const skillResult = await registry.invoke("omp.read", { path: skillPath }, context) as string;
+      expect(skillResult).toContain(`Read \`${skillDir}/reference.md\`.`);
+      expect(skillResult).not.toContain("[installed/duplicate-name/SKILL.md#");
       await expect(
-        registry.invoke("pi.read", { path: skillPath }, context),
-      ).resolves.toBe(`Read \`${skillDir}/reference.md\`.\n`);
-      await expect(
-        registry.invoke("pi.read", { path: referencePath }, context),
+        registry.invoke("omp.read", { path: referencePath }, context),
       ).resolves.toBe(source);
     } finally {
       fs.rmSync(cwd, { recursive: true, force: true });
@@ -294,9 +263,9 @@ describe("PiToolsProvider lifecycle", () => {
 
   it("returns truncated Bash output once while preserving recovery metadata", async () => {
     const registry = new ActionRegistry();
-    registry.register(new PiToolsProvider(process.cwd(), undefined, undefined));
+    registry.register(new OmpToolsProvider(process.cwd(), undefined, undefined));
     const result = await registry.invoke(
-      "pi.bash",
+      "omp.bash",
       {
         command:
           `node -e 'for (let i = 0; i < 5000; i++) console.log(i, "x".repeat(100))'`,
@@ -311,7 +280,6 @@ describe("PiToolsProvider lifecycle", () => {
         truncation?: Record<string, unknown>;
       };
     };
-
     try {
       expect(bashResult).toMatchObject({
         ok: true,
@@ -323,9 +291,7 @@ describe("PiToolsProvider lifecycle", () => {
       });
       expect("content" in (bashResult.details.truncation ?? {})).toBe(false);
     } finally {
-      if (bashResult.details.fullOutputPath) {
-        fs.rmSync(bashResult.details.fullOutputPath, { force: true });
-      }
+      if (bashResult.details.fullOutputPath) fs.rmSync(bashResult.details.fullOutputPath, { force: true });
     }
   });
 
@@ -335,9 +301,9 @@ describe("PiToolsProvider lifecycle", () => {
     try {
       fs.writeFileSync(filePath, "header\nneedle one\nneedle two\n");
       const registry = new ActionRegistry();
-      registry.register(new PiToolsProvider(cwd, undefined, undefined));
+      registry.register(new OmpToolsProvider(cwd, undefined, undefined));
       const result = await registry.invoke(
-        "pi.edit",
+        "omp.edit",
         {
           path: "example.txt",
           edits: [
@@ -367,9 +333,9 @@ describe("PiToolsProvider lifecycle", () => {
     try {
       fs.writeFileSync(filePath, before);
       const registry = new ActionRegistry();
-      registry.register(new PiToolsProvider(cwd, undefined, undefined));
+      registry.register(new OmpToolsProvider(cwd, undefined, undefined));
       await expect(registry.invoke(
-        "pi.edit",
+        "omp.edit",
         {
           path: "example.txt",
           edits: [
@@ -400,10 +366,10 @@ describe("PiToolsProvider lifecycle", () => {
     try {
       fs.writeFileSync(path.join(cwd, "example.ts"), before);
       const registry = new ActionRegistry();
-      registry.register(new PiToolsProvider(cwd, undefined, undefined));
+      registry.register(new OmpToolsProvider(cwd, undefined, undefined));
       const audits: FabricCallAudit[] = [];
       const result = await registry.invoke(
-        "pi.write",
+        "omp.write",
         { path: "example.ts", content: after },
         {
           ...baseContext,
@@ -451,7 +417,7 @@ describe("PiToolsProvider lifecycle", () => {
     const audits: FabricCallAudit[] = [];
 
     await registry.invoke(
-      "pi.read",
+      "omp.read",
       { path: "tests/fixtures/images/sample.jpg" },
       { ...baseContext, audits },
     );
@@ -472,7 +438,7 @@ describe("PiToolsProvider lifecycle", () => {
 describe("extension hijack contract for nested core tools", () => {
   // Generalized pi-vision-handoff pattern: any extension that expresses a
   // core-tool hijack as tool_call/tool_result handlers sees its behavior
-  // inside fabric_exec pi.* calls, because the provider replays pi's
+  // inside fabric_exec omp.* calls, because the provider replays OMP's
   // lifecycle event pipeline for nested executions.
   it("co-exists native grep lines with an extension-appended block via tool_result", async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fabric-grep-append-"));
@@ -494,7 +460,7 @@ describe("extension hijack contract for nested core tools", () => {
       const registry = registerWithRunner(runner);
 
       const result = await registry.invoke(
-        "pi.grep",
+        "omp.grep",
         { pattern: "GetUserHandler", path: dir },
         baseContext,
       );
@@ -520,7 +486,7 @@ describe("extension hijack contract for nested core tools", () => {
       const registry = registerWithRunner(runner);
 
       const result = await registry.invoke(
-        "pi.grep",
+        "omp.grep",
         { pattern: "GetUserHandler", path: dir },
         baseContext,
       );
@@ -538,7 +504,7 @@ describe("extension hijack contract for nested core tools", () => {
     const registry = registerWithRunner(runner);
 
     await expect(
-      registry.invoke("pi.grep", { pattern: "anything" }, baseContext),
+      registry.invoke("omp.grep", { pattern: "anything" }, baseContext),
     ).rejects.toThrow("grep requires an audit note");
   });
 });

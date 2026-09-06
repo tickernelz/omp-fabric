@@ -1,6 +1,6 @@
-import type { ExtensionRunner, RegisteredTool, ToolDefinition } from "@earendil-works/pi-coding-agent";
+import type { ExtensionRunner, RegisteredTool, ToolDefinition } from "@oh-my-pi/pi-coding-agent";
 
-// Local mirror of wrapRegisteredTool/wrapToolDefinition (pi 0.84.2,
+// Local mirror of wrapRegisteredTool/wrapToolDefinition (OMP host,
 // core/extensions/wrapper.js and core/tools/tool-definition-wrapper.js).
 // Captured tools must execute with exactly the host wrapper semantics —
 // extension runner context injection and post-execution addedToolNames merge —
@@ -26,7 +26,7 @@ export interface WrappedRegisteredTool {
 }
 
 const wrapToolDefinition = (
-  definition: ToolDefinition<any, any, any>,
+  definition: ToolDefinition<any, any>,
   ctxFactory: () => unknown,
 ): WrappedRegisteredTool => {
   const execute = definition.execute as unknown as WrappedExecute;
@@ -35,9 +35,9 @@ const wrapToolDefinition = (
     label: definition.label,
     description: definition.description,
     parameters: definition.parameters,
-    constrainedSampling: definition.constrainedSampling,
-    prepareArguments: definition.prepareArguments,
-    executionMode: definition.executionMode,
+    constrainedSampling: undefined,
+    prepareArguments: undefined,
+    executionMode: undefined,
     execute: (toolCallId, params, signal, onUpdate, ctx) =>
       execute(toolCallId, params, signal, onUpdate, ctx ?? ctxFactory()),
   };
@@ -48,16 +48,17 @@ export const wrapRegisteredToolForCapture = (
   runner: ExtensionRunner,
 ): WrappedRegisteredTool => {
   const tool = wrapToolDefinition(
-    registeredTool.definition as ToolDefinition<any, any, any>,
+    registeredTool.definition as ToolDefinition<any, any>,
     () => runner.createContext(),
   );
   const execute = tool.execute;
   return {
     ...tool,
     execute: async (toolCallId, params, signal, onUpdate, ctx): Promise<any> => {
-      const activeBefore = runner.getActiveTools();
+      const getActiveTools = (runner as unknown as { getActiveTools?: () => string[] }).getActiveTools;
+      const activeBefore = getActiveTools?.() ?? [];
       const result = await execute(toolCallId, params, signal, onUpdate, ctx);
-      const activeAfter = runner.getActiveTools();
+      const activeAfter = getActiveTools?.() ?? activeBefore;
       if (!activeBefore.every((name) => activeAfter.includes(name))) {
         return result;
       }

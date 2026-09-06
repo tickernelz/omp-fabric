@@ -174,11 +174,11 @@ const collectOperations = (events: CompactionEvent[]): StructuralOperation[] => 
 
 const isFileOperation = (operation: StructuralOperation): boolean =>
   FILE_TOOLS.has(operation.tool)
-  && (operation.ref === operation.tool || operation.ref === `pi.${operation.tool}`);
+  && (operation.ref === operation.tool || operation.ref === `omp.${operation.tool}`);
 
 const isBashOperation = (operation: StructuralOperation): boolean =>
   operation.tool === "bash"
-  && (operation.ref === "bash" || operation.ref === "pi.bash");
+  && (operation.ref === "bash" || operation.ref === "omp.bash");
 
 const resultProvesCreation = (result: unknown): boolean => {
   if (!result || typeof result !== "object" || Array.isArray(result)) return false;
@@ -355,9 +355,9 @@ const projectActivity = (events: CompactionEvent[]): ProjectedSection => {
       items.push({ entryId: event.address, line: `- Phase: ${truncate(event.phase, MAX_LINE)}` });
     } else if (event.kind === "fabricOperation") {
       if (FILE_TOOLS.has(event.tool)
-        && (event.ref === event.tool || event.ref === `pi.${event.tool}`)) continue;
+        && (event.ref === event.tool || event.ref === `omp.${event.tool}`)) continue;
       const bash = event.tool === "bash"
-        && (event.ref === "bash" || event.ref === "pi.bash");
+        && (event.ref === "bash" || event.ref === "omp.bash");
       const primary = bash
         ? event.args.command
         : event.args.id ?? event.args.name ?? event.args.query ?? event.args.action;

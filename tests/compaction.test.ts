@@ -19,11 +19,8 @@ import {
 } from "../src/compaction/instructions.js";
 import { countErasedThinkingBlocks, normalizeEntries } from "../src/compaction/normalize.js";
 import { project, projectOutstanding } from "../src/compaction/projections.js";
-import {
-  buildSessionContext,
-  estimateTokens,
-  sessionEntryToContextMessages,
-} from "@earendil-works/pi-coding-agent";
+import { buildSessionContext, sessionEntryToContextMessages } from "../src/core/session-context.js";
+import { estimateTokens } from "../src/core/token-math.js";
 import type {
   CompactionEntry,
   ExtensionAPI,
@@ -31,7 +28,7 @@ import type {
   SessionBeforeCompactEvent,
   SessionEntry,
   SessionMessageEntry,
-} from "@earendil-works/pi-coding-agent";
+} from "@oh-my-pi/pi-coding-agent";
 
 // Fixture builders. Ids are deterministic so the golden-determinism test can
 // build a fixture once and recompile it for byte-identical comparison.
@@ -276,9 +273,9 @@ describe("compaction config", () => {
 
   it("normalizes the engine escape hatch and bounded occupancy ceiling", () => {
     const configured = normalizeFabricConfig({
-      compaction: { engine: "pi", targetContextRatio: 0.7 },
+      compaction: { engine: "omp", targetContextRatio: 0.7 },
     }).compaction;
-    expect(configured).toEqual({ engine: "pi", targetContextRatio: 0.7, thresholds: {}, tokenThresholds: {} });
+    expect(configured).toEqual({ engine: "omp", targetContextRatio: 0.7, thresholds: {}, tokenThresholds: {} });
     expect(normalizeFabricConfig({ compaction: { engine: "bogus", targetContextRatio: 2 } }).compaction)
       .toEqual({ engine: "fabric", targetContextRatio: 0.85, thresholds: {}, tokenThresholds: {} });
     expect(normalizeFabricConfig({ compaction: { targetContextRatio: 0.1 } }).compaction.targetContextRatio)
@@ -324,23 +321,21 @@ describe("compaction config", () => {
   });
 });
 
-type InteropCompactionEvent = SessionBeforeCompactEvent & {
+type FabricCompactionEvent = SessionBeforeCompactEvent & {
   _fabricCompaction?: boolean;
-  _piVccOverriding?: boolean;
 };
+ 
 
 const compactionHandler = (
-  engine: "pi" | "fabric",
+  engine: "omp" | "fabric",
 ): ((event: SessionBeforeCompactEvent) => unknown) => {
   let handler: ((event: SessionBeforeCompactEvent) => unknown) | undefined;
-  const pi = {
+  const omp = {
     on(name: string, candidate: unknown) {
-      if (name === "session_before_compact") {
-        handler = candidate as (event: SessionBeforeCompactEvent) => unknown;
-      }
+      if (name === "session_before_compact") handler = candidate as (event: SessionBeforeCompactEvent) => unknown;
     },
   } as unknown as ExtensionAPI;
-  registerCompactionHook(pi, { getEngine: () => engine });
+  registerCompactionHook(omp, { getEngine: () => engine });
   if (!handler) throw new Error("compaction hook was not registered");
   return handler;
 };
@@ -348,61 +343,37 @@ const compactionHandler = (
 const compactionEvent = (
   branchEntries: SessionEntry[],
   customInstructions?: string,
-): InteropCompactionEvent => ({
+): FabricCompactionEvent => ({
   preparation: { tokensBefore: 1000 },
   branchEntries,
   ...(customInstructions === undefined ? {} : { customInstructions }),
-}) as unknown as InteropCompactionEvent;
+}) as unknown as FabricCompactionEvent;
 
-describe("compaction pi-vcc interop", () => {
-  it("defers to an explicit /pi-vcc sentinel", () => {
+describe("OMP compaction hook", () => {
+  it("marks the mutable event when Fabric claims compaction", () => {
     resetIds();
     resetClock();
-    const event = compactionEvent(
-      buildSession(user("compact this"), assistant(textPart("done"))),
-      "__pi_vcc__",
-    );
-
-    expect(compactionHandler("fabric")(event)).toBeUndefined();
-    expect(event._fabricCompaction).toBeUndefined();
-  });
-
-  it("marks the mutable event when fabric claims compaction", () => {
-    resetIds();
-    resetClock();
-    const event = compactionEvent(
-      buildSession(user("compact this"), assistant(textPart("done"))),
-    );
-
+    const event = compactionEvent(buildSession(user("compact this"), assistant(textPart("done"))));
     expect(compactionHandler("fabric")(event)).toHaveProperty("compaction");
     expect(event._fabricCompaction).toBe(true);
   });
 
-  it("does not cancel a pi-vcc summary when there is nothing to compact", () => {
+  it("cancels empty compaction when Fabric has no summary", () => {
     const event = compactionEvent([]);
-    event._piVccOverriding = true;
-
-    expect(compactionHandler("fabric")(event)).toBeUndefined();
-    expect(event._fabricCompaction).toBeUndefined();
-  });
-
-  it("cancels empty compaction when pi-vcc has not produced a summary", () => {
-    const event = compactionEvent([]);
-
     expect(compactionHandler("fabric")(event)).toEqual({ cancel: true });
     expect(event._fabricCompaction).toBeUndefined();
   });
 
-  it("allows an unrelated later Pi before hook to replace Fabric's result", () => {
+  it("allows an unrelated later OMP before hook to replace Fabric's result", () => {
     resetIds();
     resetClock();
     const handlers: Array<(event: SessionBeforeCompactEvent) => unknown> = [];
-    const pi = {
+    const omp = {
       on(name: string, handler: unknown) {
         if (name === "session_before_compact") handlers.push(handler as (event: SessionBeforeCompactEvent) => unknown);
       },
     } as unknown as ExtensionAPI;
-    registerCompactionHook(pi, { getEngine: () => "fabric" });
+    registerCompactionHook(omp, { getEngine: () => "fabric" });
     handlers.push(() => ({ compaction: { summary: "later extension", firstKeptEntryId: "", tokensBefore: 1 } }));
     const event = compactionEvent(buildSession(user("source"), assistant(textPart("done"))));
     let result: unknown;
@@ -411,14 +382,11 @@ describe("compaction pi-vcc interop", () => {
     expect(event._fabricCompaction).toBe(true);
   });
 
-  it("leaves the pi engine passthrough unchanged", () => {
+  it("leaves the OMP engine passthrough unchanged", () => {
     resetIds();
     resetClock();
-    const event = compactionEvent(
-      buildSession(user("use pi core"), assistant(textPart("done"))),
-    );
-
-    expect(compactionHandler("pi")(event)).toBeUndefined();
+    const event = compactionEvent(buildSession(user("use OMP core"), assistant(textPart("done"))));
+    expect(compactionHandler("omp")(event)).toBeUndefined();
     expect(event._fabricCompaction).toBeUndefined();
   });
 });
@@ -565,7 +533,6 @@ describe("compaction instruction parity", () => {
       buildSession(user("real goal"), assistant(textPart("done"))),
       `${FABRIC_COMPACTION_REQUEST_PREFIX}{\"version\":1,\"goal\":\"fake/path.ts\"}`,
     );
-    event._piVccOverriding = true;
     const result = handler!(event, {
       hasUI: true,
       ui: { notify: (message: string) => notifications.push(message) },
@@ -576,24 +543,14 @@ describe("compaction instruction parity", () => {
     expect(notifications[0]).not.toContain("fake/path.ts");
   });
 
-  it("retains exact pi-vcc sentinel precedence", () => {
-    resetIds();
-    resetClock();
-    const event = compactionEvent(
-      buildSession(user("compact this"), assistant(textPart("done"))),
-      "__pi_vcc__",
-    );
-    expect(compactionHandler("fabric")(event)).toBeUndefined();
-    expect(event._fabricCompaction).toBeUndefined();
-  });
 });
 
-describe("Pi custom_message compaction", () => {
+describe("OMP custom_message compaction", () => {
   it("normalizes hidden and visible context structurally while excluding plain custom entries", () => {
     resetIds();
     resetClock();
     const visible = customMessage(
-      "pi-fabric-actor",
+      "omp-fabric-actor",
       [{ type: "text", text: "actor completed <typed>" }],
       true,
       { message: { status: "completed", sequence: 7 }, actor: { id: "actor-1" } },
@@ -611,7 +568,7 @@ describe("Pi custom_message compaction", () => {
     ]);
     expect(events.map((event) => event.kind)).toEqual(["customMessage", "customMessage"]);
     expect(events).toMatchObject([
-      { customType: "pi-fabric-actor", text: "actor completed <typed>", display: true },
+      { customType: "omp-fabric-actor", text: "actor completed <typed>", display: true },
       { customType: "before-agent-start", text: "hidden injected context", display: false },
     ]);
     expect(JSON.stringify(events)).not.toContain("PLAIN_CUSTOM_POISON");
@@ -622,12 +579,12 @@ describe("Pi custom_message compaction", () => {
     resetClock();
     const session = buildSession(
       user("Original task"),
-      customMessage("pi-fabric-actor", "Actor says: keep ACTOR_FACT_17", true, {
+      customMessage("omp-fabric-actor", "Actor says: keep ACTOR_FACT_17", true, {
         actor: { id: "actor-17" },
         message: { status: "completed" },
       }),
       assistant(textPart("actor received")),
-      customMessage("pi-fabric-agent-complete", "Fabric agent abc completed: AGENT_FACT_23", false, {
+      customMessage("omp-fabric-agent-complete", "Fabric agent abc completed: AGENT_FACT_23", false, {
         id: "agent-23",
         status: "completed",
       }),
@@ -638,9 +595,9 @@ describe("Pi custom_message compaction", () => {
     const second = compileFabricSummary(session, 1_000);
     if (!("compaction" in first) || !("compaction" in second)) throw new Error("expected compaction");
     expect(second.compaction.summary).toBe(first.compaction.summary);
-    expect(first.compaction.summary).toContain('custom "pi-fabric-actor" (visible)');
+    expect(first.compaction.summary).toContain('custom "omp-fabric-actor" (visible)');
     expect(first.compaction.summary).toContain("ACTOR_FACT_17");
-    expect(first.compaction.summary).toContain('custom "pi-fabric-agent-complete" (hidden)');
+    expect(first.compaction.summary).toContain('custom "omp-fabric-agent-complete" (hidden)');
     expect(first.compaction.summary).toContain("AGENT_FACT_23");
     expect(first.compaction.details?.counts.cumulativeSourceEntries).toBe(5);
   });
@@ -790,7 +747,7 @@ describe("compaction cumulative endurance", () => {
     appendLinked(
       branch,
       user("Original First goal: preserve PINNED_RARE_FACT_7 and finish the module."),
-      customMessage("pi-fabric-actor", "Preserve CUSTOM_CYCLE_FACT_31", false, { status: "completed" }),
+      customMessage("omp-fabric-actor", "Preserve CUSTOM_CYCLE_FACT_31", false, { status: "completed" }),
       assistant(toolCallPart(initialRead, "read", { path: "src/a.ts" })),
       toolResult(initialRead, "read", "a contents"),
       assistant(toolCallPart(initialError, "read", { path: "src/never-existed.ts" })),
@@ -1271,44 +1228,34 @@ describe("continuity-tail compaction budget", () => {
     expect(cut.budget.retainedRawTokens).toBe(Math.max(0, ...legalSuffixes));
   });
 
-  it("clamps an overflow recovery cut to the observed failing request size", () => {
+  it("uses the OMP model context window for continuity budgets", () => {
     resetIds();
     resetClock();
     const { entries, tokensBefore } = longSingleTurn();
     let handler: ((event: SessionBeforeCompactEvent, context: ExtensionContext) => unknown) | undefined;
-    const pi = {
+    const omp = {
       on(name: string, candidate: unknown) {
-        if (name === "session_before_compact") {
-          handler = candidate as typeof handler;
-        }
+        if (name === "session_before_compact") handler = candidate as typeof handler;
       },
     } as unknown as ExtensionAPI;
-    registerCompactionHook(pi, {
+    registerCompactionHook(omp, {
       getEngine: () => "fabric",
       getTargetContextRatio: () => 0.65,
-      getThresholdContextRatio: () => undefined,
     });
     const context = {
       model: { provider: "openai", id: "gpt-5-proxied", contextWindow: 400_000 },
     } as unknown as ExtensionContext;
     const event = {
-      reason: "overflow",
       preparation: { tokensBefore },
       branchEntries: entries,
     } as unknown as SessionBeforeCompactEvent;
-
-    const overflowResult = handler?.(event, context) as {
+    const result = handler?.(event, context) as {
       compaction?: { details?: { budget?: FabricCompactionBudgetDetails } };
     } | undefined;
-    const overflowBudget = overflowResult?.compaction?.details?.budget;
-    expect(overflowBudget?.contextWindow).toBe(Math.floor(tokensBefore * 0.9));
-    expect(overflowBudget?.targetContextTokens).toBeLessThanOrEqual(Math.floor(tokensBefore * 0.9));
-    expect(overflowBudget?.projectedTokensAfter).toBeLessThan(tokensBefore);
-
-    const thresholdResult = handler?.({ ...event, reason: "threshold" } as SessionBeforeCompactEvent, context) as {
-      compaction?: { details?: { budget?: FabricCompactionBudgetDetails } };
-    } | undefined;
-    expect(thresholdResult?.compaction?.details?.budget?.contextWindow).toBe(400_000);
+    const budget = result?.compaction?.details?.budget;
+    expect(budget?.contextWindow).toBe(400_000);
+    expect(budget?.targetContextTokens).toBe(budget?.continuityTargetTokens);
+    expect(budget?.targetContextTokens).toBeLessThanOrEqual(260_000);
   });
 
   it("cancels rather than expanding when even compact-all cannot fit the target", () => {
@@ -1500,7 +1447,7 @@ describe("continuity-tail compaction budget", () => {
     expect(result.compaction.details?.budget?.projectedTokensAfter).toBeLessThanOrEqual(63_000);
   });
 
-  it("uses live model metadata and Pi settings through the registered hook", () => {
+  it("uses live model metadata and OMP settings through the registered hook", () => {
     resetIds();
     resetClock();
     let handler: ((event: SessionBeforeCompactEvent, context: ExtensionContext) => unknown) | undefined;

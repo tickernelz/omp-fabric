@@ -7,7 +7,7 @@ const primaryEntryPoints = [
   "src/worker.ts",
   "src/residency/host.ts",
   "src/residency/launcher.ts",
-  "src/residency/pi-entry.ts",
+  "src/residency/omp-entry.ts",
   "src/residency/actor-client.ts",
   "src/compaction/hook.ts",
   "src/core/action-registry.ts",

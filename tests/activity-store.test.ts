@@ -111,16 +111,16 @@ describe("FabricActivityStore", () => {
   it("summarizes finished call results into a detail field", () => {
     const store = new FabricActivityStore();
     store.start("run-d");
-    store.beginCall("run-d", { callId: "bash-1", ref: "pi.bash", args: { command: "seq 1 3" } });
+    store.beginCall("run-d", { callId: "bash-1", ref: "omp.bash", args: { command: "seq 1 3" } });
     store.updateCallArgs("run-d", "bash-1", { command: "export SAFE=true\nseq 1 3" });
     store.finishCall("run-d", "bash-1", { success: true, result: { ok: true, output: "line1\nline2" } });
-    store.beginCall("run-d", { callId: "read-1", ref: "pi.read", args: { path: "/a.ts" } });
+    store.beginCall("run-d", { callId: "read-1", ref: "omp.read", args: { path: "/a.ts" } });
     store.finishCall("run-d", "read-1", {
       success: true,
       result: "export const x = 1;",
       preview: { details: { truncation: { truncated: false } } },
     });
-    store.beginCall("run-d", { callId: "fail-1", ref: "pi.bash", args: {} });
+    store.beginCall("run-d", { callId: "fail-1", ref: "omp.bash", args: {} });
     store.finishCall("run-d", "fail-1", { success: false, error: "boom" });
 
     const run = store.get("run-d");
@@ -143,7 +143,7 @@ describe("FabricActivityStore", () => {
     store.start("bounded");
     store.beginCall("bounded", {
       callId: "large",
-      ref: "pi.write",
+      ref: "omp.write",
       args: { path: "/tmp/large.txt", content: large },
     });
     store.finishCall("bounded", "large", {
@@ -207,7 +207,7 @@ describe("FabricActivityStore", () => {
     const store = new FabricActivityStore();
     store.start("run-2");
     store.phase("run-2", { name: "Execute" });
-    store.beginCall("run-2", { callId: "call-2", ref: "pi.bash", args: {} });
+    store.beginCall("run-2", { callId: "call-2", ref: "omp.bash", args: {} });
     store.finishCall("run-2", "call-2", { success: false, error: "command failed" });
     store.finish("run-2", false, "Execution cancelled");
 
@@ -236,7 +236,7 @@ describe("FabricActivityStore", () => {
     const phase = store.phase("run-1", { name: "Scan", total: 1 });
     store.beginCall("run-1", {
       callId: "call-1",
-      ref: "pi.read",
+      ref: "omp.read",
       args: { path: "src/a.ts", blob: "x".repeat(10_000) },
     });
     store.updateCall("run-1", "call-1", { type: "metrics", tokens: 42 });
@@ -263,7 +263,7 @@ describe("FabricActivityStore", () => {
     expect(call).not.toHaveProperty("preview");
     expect(call).toMatchObject({
       id: "call-1",
-      ref: "pi.read",
+      ref: "omp.read",
       kind: "tool",
       status: "completed",
       metrics: { tokens: 42 },

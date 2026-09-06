@@ -1,4 +1,4 @@
-import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
 import {
   ApprovalController,
@@ -52,7 +52,7 @@ describe("ApprovalController", () => {
     expect(notify).toHaveBeenCalledWith("Allowed once: demo.writeAgain", "info");
   });
 
-  it("shares an Always allow grant across the Pi session", async () => {
+  it("shares an Always allow grant across the OMP session", async () => {
     const custom = vi.fn(async () => "allow-session");
     const notify = vi.fn();
     const session = new FabricSessionApprovals();
@@ -73,7 +73,7 @@ describe("ApprovalController", () => {
     expect(custom).toHaveBeenCalledOnce();
     expect(session.approvedRisks).toContain("write");
     expect(notify).toHaveBeenLastCalledWith(
-      "Allowed write access for this Pi session",
+      "Allowed write access for this OMP session",
       "info",
     );
   });
@@ -90,7 +90,7 @@ describe("ApprovalController", () => {
     await controller.approve(action);
 
     expect(select).toHaveBeenCalledWith(
-      "Pi Fabric permission · demo.write requests write access. Write data",
+      "OMP Fabric permission · demo.write requests write access. Write data",
       ["Allow once", "Allow write access for this session", "Deny"],
     );
   });

@@ -17,12 +17,12 @@ describe("PartialCodeFieldExtractor", () => {
     const extractor = new PartialCodeFieldExtractor(1_000_000);
     pushAll(extractor, [
       '{"cod',
-      'e": "const x = pi.read({ p',
+      'e": "const x = omp.read({ p',
       'ath: \\"sr',
       'c/a.ts\\" });\\n"',
       ' "display": "preview"}',
     ]);
-    expect(extractor.code).toBe('const x = pi.read({ path: "src/a.ts" });\n');
+    expect(extractor.code).toBe('const x = omp.read({ path: "src/a.ts" });\n');
     expect(extractor.complete).toBe(true);
   });
 
@@ -49,7 +49,7 @@ describe("PartialCodeFieldExtractor", () => {
 
   it("ignores bytes after the code string closes", () => {
     const extractor = new PartialCodeFieldExtractor(1_000_000);
-    pushAll(extractor, ['{"code": "done()"', ', "strings": {"k": "pi.read({path:\\\"z\\"})"}}']);
+    pushAll(extractor, ['{"code": "done()"', ', "strings": {"k": "omp.read({path:\\\"z\\"})"}}']);
     expect(extractor.code).toBe("done()");
     // Later fragments are ignored: the extractor completed the code field.
     expect(extractor.complete).toBe(true);

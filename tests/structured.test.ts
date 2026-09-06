@@ -30,7 +30,7 @@ describe("formatFabricValue", () => {
 describe("multi-line string fidelity", () => {
   // A multi-line string nested in a returned object must reach the model with
   // its exact bytes. YAML literal block scalars indent every content line, so
-  // text transcribed from the display (e.g. into pi.edit oldText) does not
+  // text transcribed from the display (e.g. into omp.edit oldText) does not
   // match the file on disk.
   const file = "function x() {\n    stopLoader();\n        deep();\n}";
 

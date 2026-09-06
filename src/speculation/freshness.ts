@@ -57,6 +57,6 @@ export const createFreshnessChecker = (
   preparedArgs: Record<string, unknown>,
   cwd: string,
 ): FabricFreshnessChecker | undefined => {
-  if (ref === "pi.read") return readFreshness(preparedArgs, cwd);
+  if (ref === "omp.read") return readFreshness(preparedArgs, cwd);
   return undefined;
 };

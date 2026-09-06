@@ -1,5 +1,5 @@
-import { Type } from "typebox";
-import { Value } from "typebox/value";
+import { Type } from "@oh-my-pi/pi-coding-agent/extensibility/legacy-typebox";
+import { validateJsonSchemaValue } from "@oh-my-pi/pi-ai/utils/schema";
 import {
   compactionRequestBoundsError,
   encodeCompactionRequest,
@@ -18,7 +18,7 @@ import { actionArgNormalizer } from "./arg-normalization.js";
 
 // Fabric provider exposing the host-session compaction controller to
 // `fabric_exec`. Compaction is advisory-then-committed: `request` only records
-// an intent the host commits at the next `agent_settled` boundary; the model
+// an intent the host commits at the next `agent_end` boundary; the model
 // cannot compact the running context directly. Always available (no config
 // guard) — it is a first-principles primitive, not an optional capability.
 
@@ -29,7 +29,7 @@ const requestSchema = Type.Object({
   })),
   instructions: Type.Optional(Type.String({
     maxLength: MAX_COMPACTION_INSTRUCTIONS_CHARS,
-    description: "Custom compaction instructions forwarded to Pi core",
+    description: "Custom compaction instructions forwarded to OMP core",
   })),
   preserve: Type.Optional(Type.Array(
     Type.String({ maxLength: MAX_PRESERVE_ITEM_CHARS }),
@@ -52,8 +52,9 @@ interface CompactRequestArguments {
 }
 
 const checkedRequestArguments = (args: Record<string, unknown>): CompactRequestArguments => {
-  if (!Value.Check(requestSchema, args)) {
-    const message = [...Value.Errors(requestSchema, args)]
+  const validation = validateJsonSchemaValue(requestSchema.toJsonSchema(), args);
+  if (!validation.success) {
+    const message = validation.issues
       .slice(0, 5)
       .map((error) => error.message)
       .join("; ");
@@ -86,8 +87,8 @@ const descriptors: FabricActionDescriptor[] = [
   {
     name: "request",
     description:
-      "Request an advisory compaction of the host session's context at the next safe boundary (agent_settled). The host commits it only between turns, never mid-turn. A new request replaces any pending one.",
-    inputSchema: requestSchema as unknown as Record<string, unknown>,
+      "Request an advisory compaction of the host session's context at the next safe boundary (agent_end). The host commits it only between turns, never mid-turn. A new request replaces any pending one.",
+    inputSchema: requestSchema.toJsonSchema() as unknown as Record<string, unknown>,
     risk: "write",
   },
   {
@@ -115,7 +116,7 @@ export const normalizeCompactArgs = actionArgNormalizer(() => descriptors);
 export class CompactProvider implements FabricProvider {
   readonly name = "compact";
   readonly description =
-    "Programmatic, advisory-then-committed context compaction for the host Pi session";
+    "Programmatic, advisory-then-committed context compaction for the host OMP session";
 
   constructor(readonly controller: CompactController) {}
 
@@ -169,7 +170,7 @@ export class CompactProvider implements FabricProvider {
           type: "progress",
           message: intent.reason
             ? `Compaction requested: ${intent.reason}`
-            : "Compaction requested (advisory; commits at next agent_settled)",
+            : "Compaction requested (advisory; commits at next agent_end)",
         });
         return { requested: true, intent };
       }

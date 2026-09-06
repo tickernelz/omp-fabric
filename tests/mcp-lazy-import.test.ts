@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { FabricMcpConfig } from "../src/config.js";
 import {
@@ -43,7 +43,7 @@ beforeEach(() => {
 
 describe("McpProvider lazy mcporter runtime", () => {
   it("hydrates a valid descriptor cache without creating the runtime", async () => {
-    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-mcp-lazy-"));
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-mcp-lazy-"));
     const configPath = path.join(cwd, "mcporter.json");
     fs.writeFileSync(configPath, JSON.stringify({ mcpServers: {}, imports: [] }));
     const store = new McpDescriptorCacheStore(path.join(cwd, "cache.json"));
@@ -72,7 +72,7 @@ describe("McpProvider lazy mcporter runtime", () => {
   });
 
   it("single-flights concurrent first live runtime use", async () => {
-    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-mcp-live-"));
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-mcp-live-"));
     const configPath = path.join(cwd, "mcporter.json");
     fs.writeFileSync(configPath, JSON.stringify({ mcpServers: {}, imports: [] }));
     let release!: () => void;

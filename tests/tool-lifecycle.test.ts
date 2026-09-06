@@ -1,9 +1,4 @@
-import {
-  ExtensionRunner,
-  type ExtensionContext,
-  type ToolCallEvent,
-  type ToolResultEvent,
-} from "@earendil-works/pi-coding-agent";
+import type { ExtensionContext, ToolCallEvent, ToolResultEvent } from "@oh-my-pi/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
 import {
   createFabricPersistedExecutionDetails,
@@ -17,17 +12,6 @@ import {
   type FabricTopLevelToolAuthorizer,
 } from "../src/core/tool-ownership.js";
 
-const eventRunner = (
-  handlers: Map<string, Array<(event: never, context: never) => unknown>>,
-): ExtensionRunner => {
-  const runner = Object.create(ExtensionRunner.prototype) as ExtensionRunner;
-  Object.assign(runner as unknown as Record<string, unknown>, {
-    extensions: [{ path: "/extensions/pi-fabric/index.ts", handlers }],
-    createContext: () => ({}),
-    errorListeners: new Set(),
-  });
-  return runner;
-};
 
 const failedDetails = (
   outcome: FabricExecutionOutcomeV1,
@@ -35,7 +19,7 @@ const failedDetails = (
 ) => {
   const recorder = new FabricExecutionTraceRecorder();
   if (failureStage) {
-    recorder.issueCall(failureStage === "guard" ? "pi.write" : "agents.run", {}).fail(
+    recorder.issueCall(failureStage === "guard" ? "omp.write" : "agents.run", {}).fail(
       failureStage,
       new Error(`${failureStage} failure`),
       outcome,
@@ -47,55 +31,31 @@ const failedDetails = (
   });
 };
 
-const executeThroughPiLifecycle = async (details: unknown) => {
-  const toolErrors: Array<{ toolName: string; isError: boolean }> = [];
+const executeThroughOmpLifecycle = async (details: unknown) => {
   const lifecycle = new FabricToolLifecycle(
     () => true,
     () => ({ authorize: async () => {} }),
   );
-  const handlers = new Map<string, Array<(event: never, context: never) => unknown>>([
-    ["tool_call", [(event) => lifecycle.toolCall(event as unknown as ToolCallEvent)]],
-    ["tool_result", [(event) => lifecycle.toolResult(event as unknown as ToolResultEvent)]],
-    ["tool_execution_end", [(event) => {
-      const end = event as unknown as { toolName: string; isError: boolean };
-      if (end.isError) toolErrors.push(end);
-    }]],
-  ]);
-  const runner = eventRunner(handlers);
-  const toolCallId = "call-outer";
-  await runner.emitToolCall({
-    type: "tool_call",
-    toolCallId,
+  const toolCall = {
+    type: "tool_call" as const,
+    toolCallId: "call-outer",
     toolName: "fabric_exec",
     input: { code: "return 1" },
-  });
-
+  } satisfies ToolCallEvent;
+  await lifecycle.toolCall(toolCall);
   const content = [{ type: "text" as const, text: "original output" }];
-  // Pi 0.80.6 treats every returned custom-tool value as successful, even if
-  // execute() included isError: true. The lifecycle event therefore starts at
-  // false and middleware must repair it before tool_execution_end.
-  const patch = await runner.emitToolResult({
-    type: "tool_result",
-    toolCallId,
+  const toolResult = {
+    type: "tool_result" as const,
+    toolCallId: toolCall.toolCallId,
     toolName: "fabric_exec",
     input: { code: "return 1" },
     content,
     details,
     isError: false,
-  });
-  const final = {
-    content: patch?.content ?? content,
-    details: patch?.details ?? details,
-    isError: patch?.isError ?? false,
-  };
-  await runner.emit({
-    type: "tool_execution_end",
-    toolCallId,
-    toolName: "fabric_exec",
-    result: final,
-    isError: final.isError,
-  });
-  return { final, toolErrors };
+  } satisfies ToolResultEvent;
+  const patch = lifecycle.toolResult(toolResult);
+  const final = { content, details, isError: patch?.isError ?? false };
+  return { final, toolErrors: final.isError ? [{ toolName: "fabric_exec", isError: true }] : [] };
 };
 
 describe("Fabric outer tool lifecycle", () => {
@@ -109,7 +69,7 @@ describe("Fabric outer tool lifecycle", () => {
     ["valid failed trace despite aggregate success", { ...failedDetails("failed"), success: true }],
     ["explicit aggregate failure", { success: false, trace: { invalid: true } }],
   ])("repairs %s through tool_result and triggers tool_error dispatch", async (_label, details) => {
-    const { final, toolErrors } = await executeThroughPiLifecycle(details);
+    const { final, toolErrors } = await executeThroughOmpLifecycle(details);
     expect(final.isError).toBe(true);
     expect(final.content).toEqual([{ type: "text", text: "original output" }]);
     expect(final.details).toBe(details);
@@ -125,7 +85,7 @@ describe("Fabric outer tool lifecycle", () => {
       success: true,
       trace: recorder.seal("succeeded", []),
     });
-    const { final, toolErrors } = await executeThroughPiLifecycle(details);
+    const { final, toolErrors } = await executeThroughOmpLifecycle(details);
     expect(final.isError).toBe(false);
     expect(toolErrors).toEqual([]);
   });
@@ -210,7 +170,7 @@ describe("Schema top-level tool gate", () => {
   };
 
   it("uses canonical source provenance rather than SDK/extension metadata claims", () => {
-    const entry = "/extensions/pi-fabric/index.ts";
+    const entry = "/extensions/omp-fabric/index.ts";
     expect(ownsFabricToolSource([{
       name: "fabric_exec",
       sourceInfo: { path: entry },

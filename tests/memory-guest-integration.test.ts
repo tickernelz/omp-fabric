@@ -17,7 +17,7 @@ import {
 const temporaryDirectories: string[] = [];
 
 const temporaryDirectory = (): string => {
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-memory-guest-"));
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-memory-guest-"));
   temporaryDirectories.push(directory);
   return directory;
 };

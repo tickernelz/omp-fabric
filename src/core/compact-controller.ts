@@ -1,14 +1,14 @@
-import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 import {
   compactionRequestBoundsError,
   encodeCompactionRequest,
 } from "../compaction/instructions.js";
 
-// A pending-intent controller for the host Pi session's context compaction.
+// A pending-intent controller for the host OMP session's context compaction.
 //
 // Compaction here is a deliberate, advisory-then-committed act: the model (or a
 // skill) requests a compaction by calling `request()`, which only records the
-// *intent*. The host commits it later at a safe boundary — `agent_settled`,
+// *intent*. The host commits it later at a safe boundary — `agent_end`,
 // never mid-turn and never while a turn is in flight — by calling
 // `maybeCommit(context)`, which forwards to `ExtensionContext.compact()`.
 //
@@ -53,10 +53,9 @@ export interface CompactStatus {
 export interface CompactControllerHooks {
   // Fired when a new intent is recorded (request replaces any pending one).
   onRequest?: (intent: CompactPendingIntent) => void;
-  // Fired when the host settles a recorded intent: "committed" when pi
-  // applied the compaction, "cancelled" when pi reports "Compaction
-  // cancelled" / "Already compacted" (the intent is still cleared; the raw pi
-  // message is kept in `error`), and "failed" for any other error.
+  // Fired when the host settles a recorded intent: "committed" after the OMP
+  // compaction promise resolves, "cancelled" for an expected cancellation, and
+  // "failed" for any other error.
   onCommit?: (info: CompactLastCommit) => void;
 }
 
@@ -119,9 +118,6 @@ export class CompactController {
     };
   }
 
-  // Commit the pending intent at a safe boundary. Called and awaited from the
-  // host `agent_settled` event so Pi cannot publish its public settled event
-  // until the callback-based compaction API has completed or failed.
   async maybeCommit(context: ExtensionContext): Promise<void> {
     if (this.#inFlight) return this.#inFlight;
     const pending = this.#pending;
@@ -138,79 +134,27 @@ export class CompactController {
     const clearCommittedIntent = (): void => {
       if (this.#pending === committing) this.#pending = undefined;
     };
-
-    let settle!: () => void;
-    const completion = new Promise<void>((resolve) => {
-      settle = resolve;
-    });
-    this.#inFlight = completion;
-    let callbackSettled = false;
-    const finish = (apply: () => void): void => {
-      if (callbackSettled) return;
-      callbackSettled = true;
+    const completion = (async (): Promise<void> => {
       try {
-        apply();
-      } finally {
-        settle();
-      }
-    };
-
-    try {
-      if (context.signal?.aborted) {
-        finish(() => {
-          this.#last = {
-            at: Date.now(),
-            requestedBy,
-            status: "failed",
-            error: "Compaction aborted before it started",
-          };
-          clearCommittedIntent();
-          this.#hooks.onCommit?.(this.#last);
-        });
-      } else {
-        context.compact({
-          ...(instructions ? { customInstructions: instructions } : {}),
-          onComplete: (result) => finish(() => {
-            this.#last = {
-              at: Date.now(),
-              requestedBy,
-              status: "committed",
-              summary: result.summary,
-              tokensBefore: result.tokensBefore,
-              ...(result.estimatedTokensAfter !== undefined
-                ? { estimatedTokensAfter: result.estimatedTokensAfter }
-                : {}),
-            };
-            clearCommittedIntent();
-            this.#hooks.onCommit?.(this.#last);
-          }),
-          onError: (error) => finish(() => {
-            const message = error?.message ?? "Compaction error";
-            clearCommittedIntent();
-            const cancelled =
-              message === "Compaction cancelled" || message === "Already compacted";
-            this.#last = {
-              at: Date.now(),
-              requestedBy,
-              status: cancelled ? "cancelled" : "failed",
-              error: message,
-            };
-            this.#hooks.onCommit?.(this.#last);
-          }),
-        });
-      }
-      await completion;
-    } catch (error) {
-      finish(() => {
+        await context.compact(instructions);
+        clearCommittedIntent();
+        this.#last = { at: Date.now(), requestedBy, status: "committed" };
+        this.#hooks.onCommit?.(this.#last);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Compaction failed";
+        clearCommittedIntent();
+        const cancelled = message === "Compaction cancelled" || message === "Already compacted";
         this.#last = {
           at: Date.now(),
           requestedBy,
-          status: "failed",
-          error: error instanceof Error ? error.message : "Compaction failed to start",
+          status: cancelled ? "cancelled" : "failed",
+          error: message,
         };
-        clearCommittedIntent();
         this.#hooks.onCommit?.(this.#last);
-      });
+      }
+    })();
+    this.#inFlight = completion;
+    try {
       await completion;
     } finally {
       if (this.#inFlight === completion) this.#inFlight = undefined;

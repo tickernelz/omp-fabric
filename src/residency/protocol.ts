@@ -22,7 +22,7 @@ export const residentRoot = (meshRoot: string, rootId: string): string =>
 export const residentDeliveryPrefix = (rootId: string): string =>
   `${RESIDENT_DELIVERY_PREFIX}${digest(rootId).slice(0, 32)}/`;
 
-export interface ResidentPiModelState {
+export interface ResidentOmpModelState {
   available: FabricModelCandidate[];
   aliases: Record<string, string[]>;
   defaultModel?: string;
@@ -44,10 +44,10 @@ export interface ResidentHostConfig {
   retention: FabricRetentionConfig;
   workerPath: string;
   fabricExtensionPath: string;
-  piBinary: string;
+  ompBinary: string;
   claudeBinary: string;
   vedaBinary: string;
-  piModels?: ResidentPiModelState;
+  models?: ResidentOmpModelState;
   modelGuidance?: FabricOwnedModelGuidance[];
 }
 

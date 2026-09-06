@@ -6,7 +6,7 @@ export interface FabricConfigMigrationResult {
   toVersion: number;
   appliedVersions: number[];
   changed: boolean;
-  // True when the document was written by a newer pi-fabric build. The document
+  // True when the document was written by a newer omp-fabric build. The document
   // is accepted as-is (newer builds only add semantics older builds can safely
   // ignore) and is never rewritten or version-stamped down.
   forwardCompatible: boolean;

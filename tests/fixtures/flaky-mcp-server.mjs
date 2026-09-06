@@ -4,7 +4,7 @@ import readline from "node:readline";
 // Serves exactly once per state file: the first spawned process records
 // itself and answers normally; any later process dies at startup, so a live
 // relist fails while cached descriptors remain available.
-const stateFile = process.env.PI_FABRIC_MCP_FLAKY_STATE;
+const stateFile = process.env.OMP_FABRIC_MCP_FLAKY_STATE;
 if (stateFile && fs.existsSync(stateFile)) process.exit(1);
 if (stateFile) fs.writeFileSync(stateFile, String(process.pid));
 
@@ -21,7 +21,7 @@ input.on("line", (line) => {
     respond(request.id, {
       protocolVersion: request.params.protocolVersion,
       capabilities: { tools: {} },
-      serverInfo: { name: "pi-fabric-test-flaky", version: "1.0.0" },
+      serverInfo: { name: "omp-fabric-test-flaky", version: "1.0.0" },
     });
     return;
   }

@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
-import type { Theme } from "@earendil-works/pi-coding-agent";
+import type { Theme } from "@oh-my-pi/pi-coding-agent";
 import type { CodePreviewSettings } from "../src/ui/code-preview.js";
-import { Box, visibleWidth } from "@earendil-works/pi-tui";
+import { Box, visibleWidth } from "@oh-my-pi/pi-tui";
 import { describe, expect, it, vi } from "vitest";
 import { configureHighlighting, initHighlighting } from "../src/ui/highlight.js";
 import {
@@ -58,7 +58,7 @@ describe("TUI width bounds (#84)", () => {
     "a̐éö̲".repeat(150),
   ];
 
-  const expectBounded = (rows: string[], width: number) => {
+  const expectBounded = (rows: readonly string[], width: number) => {
     for (const row of rows) {
       expect(visibleWidth(row)).toBeLessThanOrEqual(width);
     }
@@ -118,7 +118,7 @@ describe("fabric nested rendering", () => {
   it("renders a bash title with a $ prompt and a highlighted command", async () => {
     await initHighlighting("dark-plus", true);
     const title = nestedCallTitle(
-      { ref: "pi.bash", tool: "bash", args: { command: "ls -la src/" } },
+      { ref: "omp.bash", tool: "bash", args: { command: "ls -la src/" } },
       theme,
     );
     expect(title).toContain("$");
@@ -134,14 +134,14 @@ describe("fabric nested rendering", () => {
       `sha256:${createHash("sha256").update(command).digest("hex")}`;
     const restored = restoreLegacyBashCommands(
       [literalCommand, namedCommand].map((command) => ({
-        ref: "pi.bash",
-        provider: "pi",
+        ref: "omp.bash",
+        provider: "omp",
         tool: "bash",
         args: { commandDigest: digest(command) },
       })),
       {
-        code: `await pi.bash({ cmd: "${literalCommand}" });\nawait pi.bash({ cmd: π.script });`,
-        strings: { script: namedCommand },
+        code: `await omp.bash({ cmd: "${literalCommand}" });\nawait omp.bash({ cmd: payloads.script });`,
+        payloads: { script: namedCommand },
       },
     );
 
@@ -154,7 +154,7 @@ describe("fabric nested rendering", () => {
   it("never renders an unrecoverable legacy command digest", () => {
     const digest = `sha256:${"a".repeat(64)}`;
     const [restored] = restoreLegacyBashCommands(
-      [{ ref: "pi.bash", provider: "pi", tool: "bash", args: { commandDigest: digest } }],
+      [{ ref: "omp.bash", provider: "omp", tool: "bash", args: { commandDigest: digest } }],
       { code: "return true;" },
     );
 
@@ -164,12 +164,12 @@ describe("fabric nested rendering", () => {
     expect(title).not.toContain("sha256:");
   });
 
-  it("extracts π write bindings in source order", () => {
+  it("extracts payloads write bindings in source order", () => {
     const bindings = fabricWriteBindings(`
 return Promise.all([
-  pi.write({ path: "README.md", text: π.readme }),
-  pi.write({ file: "docs/configuration.md", contents: π.configuration }),
-  pi.write({ file_path: "docs/interface.md", content: π["interface"] }),
+  omp.write({ path: "README.md", text: payloads.readme }),
+  omp.write({ file: "docs/configuration.md", contents: payloads.configuration }),
+  omp.write({ file_path: "docs/interface.md", content: payloads["interface"] }),
 ]);
 `);
 
@@ -182,9 +182,9 @@ return Promise.all([
 
   it("extracts escaped and quoted write bindings without matching comments", () => {
     const bindings = fabricWriteBindings(`
-// pi.write({ path: "ignored.md", text: π.ignored })
-pi.write({ "path": "docs/quoted\\nname.md", "content": π["quoted"] });
-pi.write({ path: "nested.md", metadata: { content: π.wrong }, text: π.right });
+// omp.write({ path: "ignored.md", text: payloads.ignored })
+omp.write({ "path": "docs/quoted\\nname.md", "content": payloads["quoted"] });
+omp.write({ path: "nested.md", metadata: { content: payloads.wrong }, text: payloads.right });
 `);
 
     expect(bindings).toEqual([
@@ -193,11 +193,11 @@ pi.write({ path: "nested.md", metadata: { content: π.wrong }, text: π.right })
     ]);
   });
 
-  it("renders a growing single π value during argument composition", () => {
+  it("renders a growing single payloads value during argument composition", () => {
     const streaming = renderFabricWriteArgumentPreview(
       {
         bindings: [{ path: "preview.unknown", stringKey: "preview" }],
-        strings: { preview: "first line\nsecond line" },
+        payloads: { preview: "first line\nsecond line" },
         expanded: false,
       },
       plainTheme,
@@ -207,7 +207,7 @@ pi.write({ path: "nested.md", metadata: { content: π.wrong }, text: π.right })
     expect(streaming).toContain("second line");
   });
 
-  it("streams only the latest π value in a multicall", () => {
+  it("streams only the latest payloads value in a multicall", () => {
     const composing = renderFabricWriteArgumentPreview(
       {
         bindings: [
@@ -215,7 +215,7 @@ pi.write({ path: "nested.md", metadata: { content: π.wrong }, text: π.right })
           { path: "two.unknown", stringKey: "two" },
           { path: "three.unknown", stringKey: "three" },
         ],
-        strings: { one: "one complete", two: "two growing" },
+        payloads: { one: "one complete", two: "two growing" },
         expanded: false,
         spinner: "◓",
       },
@@ -230,8 +230,8 @@ pi.write({ path: "nested.md", metadata: { content: π.wrong }, text: π.right })
 
   it("exposes in-flight write content for single-call previews", () => {
     const audit = {
-      ref: "pi.write",
-      provider: "pi",
+      ref: "omp.write",
+      provider: "omp",
       tool: "write",
       args: { path: "README.md", content: "# Fabric\n\nLive preview" },
     };
@@ -249,7 +249,7 @@ pi.write({ path: "nested.md", metadata: { content: π.wrong }, text: π.right })
     const invalidate = vi.fn();
     const input = {
       bindings: [{ path: "src/lazy-stream.ts", stringKey: "preview" }],
-      strings: { preview: "export const lazyStream = true;" },
+      payloads: { preview: "export const lazyStream = true;" },
       expanded: false,
       cwd: process.cwd(),
       settings: {
@@ -270,8 +270,8 @@ pi.write({ path: "nested.md", metadata: { content: π.wrong }, text: π.right })
 
   it("falls back to plain in-flight write content for unknown file types", () => {
     const audit = {
-      ref: "pi.write",
-      provider: "pi",
+      ref: "omp.write",
+      provider: "omp",
       tool: "write",
       args: { path: "fixture.unknown", content: "first\nsecond" },
     };
@@ -283,8 +283,8 @@ pi.write({ path: "nested.md", metadata: { content: π.wrong }, text: π.right })
   it("restores rich core arguments, results, and renderer metadata after final projection", () => {
     const live = [
       {
-        ref: "pi.grep",
-        provider: "pi",
+        ref: "omp.grep",
+        provider: "omp",
         tool: "grep",
         args: { path: "src", pattern: "needle", literal: true },
         result: "src/a.ts:1: needle",
@@ -292,8 +292,8 @@ pi.write({ path: "nested.md", metadata: { content: π.wrong }, text: π.right })
         success: true,
       },
       {
-        ref: "pi.edit",
-        provider: "pi",
+        ref: "omp.edit",
+        provider: "omp",
         tool: "edit",
         args: { path: "src/a.ts", edits: [{ oldText: "old", newText: "new" }] },
         result: { ok: true, output: "edited", details: { diff: "-1 old\n+1 new" } },
@@ -303,8 +303,8 @@ pi.write({ path: "nested.md", metadata: { content: π.wrong }, text: π.right })
     const previews = captureFabricCoreToolPreviews(live);
     const restored = restoreFabricCoreToolPreviews(
       [
-        { ref: "pi.grep", provider: "pi", tool: "grep", args: { path: "src" }, success: true },
-        { ref: "pi.edit", provider: "pi", tool: "edit", args: { path: "src/a.ts" }, success: true },
+        { ref: "omp.grep", provider: "omp", tool: "grep", args: { path: "src" }, success: true },
+        { ref: "omp.edit", provider: "omp", tool: "edit", args: { path: "src/a.ts" }, success: true },
       ],
       previews,
     );
@@ -319,8 +319,8 @@ pi.write({ path: "nested.md", metadata: { content: π.wrong }, text: π.right })
   it("restores ephemeral write content after final trace projection", () => {
     const live = [
       {
-        ref: "pi.write",
-        provider: "pi",
+        ref: "omp.write",
+        provider: "omp",
         tool: "write",
         args: { path: "README.md", content: "# Cached preview" },
         success: true,
@@ -330,8 +330,8 @@ pi.write({ path: "nested.md", metadata: { content: π.wrong }, text: π.right })
     const restored = restoreFabricWritePreviews(
       [
         {
-          ref: "pi.write",
-          provider: "pi",
+          ref: "omp.write",
+          provider: "omp",
           tool: "write",
           args: { path: "README.md" },
           success: true,
@@ -357,7 +357,7 @@ pi.write({ path: "nested.md", metadata: { content: π.wrong }, text: π.right })
               id: "agent-child-12345678",
               name: "researcher",
               status: "running",
-              runner: "pi",
+              runner: "omp",
               owner: "agent",
               text: "I previously inspected the repository.",
               tools: [
@@ -500,7 +500,7 @@ pi.write({ path: "nested.md", metadata: { content: π.wrong }, text: π.right })
               id: "agent-child-123",
               name: "implementor",
               status: "running",
-              runner: "pi",
+              runner: "omp",
               owner: "agent",
               tools: [
                 {
@@ -553,7 +553,7 @@ pi.write({ path: "nested.md", metadata: { content: π.wrong }, text: π.right })
               id: "agent-parent",
               name: "orchestrator",
               status: "running",
-              runner: "pi" as const,
+              runner: "omp" as const,
               owner: "agent" as const,
               tools: [tool("parent-read", "read", "running", { path: "src/parent.ts" })],
               agents: [
@@ -960,7 +960,7 @@ pi.write({ path: "nested.md", metadata: { content: π.wrong }, text: π.right })
               id: "agent-child-123",
               name: "implementor",
               status: "running",
-              runner: "pi",
+              runner: "omp",
               owner: "agent",
               text: "Inspecting the routing configuration now.\nThe response stays expanded.",
               tools: [
@@ -1006,7 +1006,7 @@ pi.write({ path: "nested.md", metadata: { content: π.wrong }, text: π.right })
               id: "agent-reader",
               name: "reader",
               status: "running",
-              runner: "pi",
+              runner: "omp",
               owner: "agent",
               text: "Reviewing the routing configuration.",
               tools: [],
@@ -1022,7 +1022,7 @@ pi.write({ path: "nested.md", metadata: { content: π.wrong }, text: π.right })
               id: "agent-searcher",
               name: "searcher",
               status: "running",
-              runner: "pi",
+              runner: "omp",
               owner: "agent",
               text: "I will inspect the tests.",
               tools: [
@@ -1066,7 +1066,7 @@ pi.write({ path: "nested.md", metadata: { content: π.wrong }, text: π.right })
               id: "agent-child-123",
               name: "implementor",
               status: "running",
-              runner: "pi",
+              runner: "omp",
               owner: "agent",
               text: Array.from({ length: 10 }, (_, index) => `narrative ${index + 1}`).join("\n"),
               tools: Array.from({ length: 8 }, (_, index) => ({
@@ -1120,7 +1120,7 @@ pi.write({ path: "nested.md", metadata: { content: π.wrong }, text: π.right })
               id: "agent-child-123",
               name: "implementor",
               status: "running",
-              runner: "pi",
+              runner: "omp",
               owner: "agent",
               tools: [
                 {
@@ -1305,7 +1305,7 @@ pi.write({ path: "nested.md", metadata: { content: π.wrong }, text: π.right })
         id: `agent-child-${agentIndex}`,
         name: `agent-${agentIndex}`,
         status: "running",
-        runner: "pi" as const,
+        runner: "omp" as const,
         owner: "agent" as const,
         text: "first narrative\nlatest narrative",
         tools: Array.from({ length: 3 }, (_, toolIndex) => ({
@@ -1336,20 +1336,20 @@ pi.write({ path: "nested.md", metadata: { content: π.wrong }, text: π.right })
       {
         audits: [
           {
-            ref: "pi.write",
-            provider: "pi",
+            ref: "omp.write",
+            provider: "omp",
             tool: "write",
             args: { path: "one.md" },
             success: true,
           },
           {
-            ref: "pi.write",
-            provider: "pi",
+            ref: "omp.write",
+            provider: "omp",
             tool: "write",
             args: { path: "two.md" },
             success: true,
           },
-          { ref: "pi.bash", provider: "pi", tool: "bash", args: { command: "sleep 1" } },
+          { ref: "omp.bash", provider: "omp", tool: "bash", args: { command: "sleep 1" } },
         ],
         phases: [],
         progress: "bash: waiting",
@@ -1378,14 +1378,14 @@ pi.write({ path: "nested.md", metadata: { content: π.wrong }, text: π.right })
   });
 
   it("returns null for non-edit calls and edits without operations", () => {
-    expect(nestedEditDiff({ ref: "pi.read", tool: "read" }, theme)).toBeNull();
-    expect(nestedEditDiff({ ref: "pi.edit", tool: "edit", args: { path: "a.ts" } }, theme)).toBeNull();
+    expect(nestedEditDiff({ ref: "omp.read", tool: "read" }, theme)).toBeNull();
+    expect(nestedEditDiff({ ref: "omp.edit", tool: "edit", args: { path: "a.ts" } }, theme)).toBeNull();
   });
 
   it("renders a plain +/- diff with context for unknown languages", () => {
     const lines = nestedEditDiff(
       {
-        ref: "pi.edit",
+        ref: "omp.edit",
         tool: "edit",
         args: {
           path: "notes.txt",
@@ -1410,7 +1410,7 @@ pi.write({ path: "nested.md", metadata: { content: π.wrong }, text: π.right })
     await initHighlighting("dark-plus", true);
     const lines = nestedEditDiff(
       {
-        ref: "pi.edit",
+        ref: "omp.edit",
         tool: "edit",
         args: {
           path: "src/index.ts",
@@ -1430,7 +1430,7 @@ pi.write({ path: "nested.md", metadata: { content: π.wrong }, text: π.right })
   it("modelReadHint reports model lines vs read lines for a sliced read", () => {
     expect(
       modelReadHint(
-        [{ ref: "pi.read", tool: "read", result: `a
+        [{ ref: "omp.read", tool: "read", result: `a
 b
 c
 d
@@ -1447,7 +1447,7 @@ d`,
   });
 
   it("modelReadHint is empty when the full read went to the model", () => {
-    expect(modelReadHint([{ ref: "pi.read", tool: "read", result: `a
+    expect(modelReadHint([{ ref: "omp.read", tool: "read", result: `a
 b
 c` }], `x
 y
@@ -1455,7 +1455,7 @@ z`, theme)).toBe("");
   });
 
   it("modelReadHint ignores non-read audits", () => {
-    expect(modelReadHint([{ ref: "pi.bash", tool: "bash", result: `a
+    expect(modelReadHint([{ ref: "omp.bash", tool: "bash", result: `a
 b
 c
 d
@@ -1690,15 +1690,15 @@ b`, theme)).toBe("");
   it("keeps multicall progress inline without adding completion-only rows", () => {
     const audits = [
       {
-        ref: "pi.read",
-        provider: "pi",
+        ref: "omp.read",
+        provider: "omp",
         tool: "read",
         args: { path: "src/index.ts" },
         success: true,
       },
       {
-        ref: "pi.ls",
-        provider: "pi",
+        ref: "omp.ls",
+        provider: "omp",
         tool: "ls",
         args: { path: "src" },
       },
@@ -1725,13 +1725,13 @@ b`, theme)).toBe("");
 
   it("uses the completed-render call cap while a multicall is partial", () => {
     const audits = Array.from({ length: 12 }, (_, index) => ({
-      ref: "pi.read",
-      provider: "pi",
+      ref: "omp.read",
+      provider: "omp",
       tool: "read",
       args: { path: `file-${index}.ts` },
     }));
     const lines = renderFabricMulticallPartial(
-      { audits, phases: [], progress: "Calling pi.read", expanded: false },
+      { audits, phases: [], progress: "Calling omp.read", expanded: false },
       plainTheme,
     ).render(100);
 
@@ -1751,8 +1751,8 @@ b`, theme)).toBe("");
 
 describe("nestedCallTitle truncation marker", () => {
   const bashAudit = (result: unknown) => ({
-    ref: "pi.bash",
-    provider: "pi",
+    ref: "omp.bash",
+    provider: "omp",
     tool: "bash",
     args: { cmd: "curl -sf https://example.com" },
     result,

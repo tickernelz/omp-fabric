@@ -21,7 +21,7 @@ afterEach(async () => {
 });
 
 const startServer = async () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-herdr-"));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-herdr-"));
   roots.push(root);
   const socketPath = path.join(root, "herdr.sock");
   let paneAlive = true;

@@ -2,8 +2,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { executeFile } from "./transports/process-utils.js";
 
-const FABRIC_WORKTREE_SEGMENTS = [".pi", "fabric", "worktrees"] as const;
-export const FABRIC_WORKTREE_EXCLUDE = ".pi/fabric/worktrees/";
+const FABRIC_WORKTREE_SEGMENTS = [".omp", "fabric", "worktrees"] as const;
+export const FABRIC_WORKTREE_EXCLUDE = ".omp/fabric/worktrees/";
 
 export const fabricWorktreePath = (gitRoot: string, id: string): string =>
   path.join(gitRoot, ...FABRIC_WORKTREE_SEGMENTS, id);
@@ -15,7 +15,7 @@ export const isFabricWorktreePath = (worktree: string, id: string): boolean => {
     parts.at(-1) === id &&
     parts.at(-2) === "worktrees" &&
     parts.at(-3) === "fabric" &&
-    parts.at(-4) === ".pi"
+    parts.at(-4) === ".omp"
   );
 };
 

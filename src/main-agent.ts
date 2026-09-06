@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 import type { MeshIdentity } from "./mesh/store.js";
 
 const MAIN_AGENT_ALIAS = "main";
@@ -10,7 +10,7 @@ export interface FabricMainAgentInfo {
   name: "Main";
   kind: "main";
   status: "idle" | "running" | "remote";
-  runner: "pi";
+  runner: "omp";
   transport: "host";
   cwd?: string;
   sessionId?: string;
@@ -65,24 +65,24 @@ export const resolveFabricIdentity = (
   sessionId: string,
   environment: NodeJS.ProcessEnv = process.env,
 ): FabricIdentityResolution => {
-  const actorId = environment.PI_FABRIC_ACTOR_ID?.trim();
-  const parentAgentId = environment.PI_FABRIC_PARENT_RUN?.trim();
+  const actorId = environment.OMP_FABRIC_ACTOR_ID?.trim();
+  const parentAgentId = environment.OMP_FABRIC_PARENT_RUN?.trim();
   const identity: MeshIdentity = actorId
     ? {
         id: actorId,
-        name: environment.PI_FABRIC_ACTOR_NAME?.trim() || actorId.slice(0, 8),
+        name: environment.OMP_FABRIC_ACTOR_NAME?.trim() || actorId.slice(0, 8),
         kind: "actor",
         sessionId,
       }
     : parentAgentId
       ? {
           id: parentAgentId,
-          name: environment.PI_FABRIC_AGENT_NAME?.trim() || parentAgentId.slice(0, 8),
+          name: environment.OMP_FABRIC_AGENT_NAME?.trim() || parentAgentId.slice(0, 8),
           kind: "agent",
           sessionId,
         }
       : { id: `session:${sessionId}`, name: "main", kind: "main", sessionId };
-  const inheritedMainAgentId = environment.PI_FABRIC_MAIN_AGENT_ID?.trim();
+  const inheritedMainAgentId = environment.OMP_FABRIC_MAIN_AGENT_ID?.trim();
   return {
     identity,
     mainAgentId:
@@ -106,7 +106,7 @@ export class MainAgentController implements FabricMainAgentTarget {
   readonly startedAt = Date.now();
 
   constructor(
-    readonly pi: ExtensionAPI,
+    readonly omp: ExtensionAPI,
     readonly id: string,
     readonly local: boolean,
     readonly cwd: string,
@@ -123,13 +123,13 @@ export class MainAgentController implements FabricMainAgentTarget {
       this.local && context?.model
         ? `${context.model.provider}/${context.model.id}`
         : undefined;
-    const thinking = this.local ? this.pi.getThinkingLevel() : undefined;
+    const thinking = this.local ? this.omp.getThinkingLevel() : undefined;
     return {
       id: this.id,
       name: "Main",
       kind: "main",
       status: this.local ? (context?.isIdle() === false ? "running" : "idle") : "remote",
-      runner: "pi",
+      runner: "omp",
       transport: "host",
       ...(this.local ? { cwd: this.cwd, startedAt: this.startedAt } : {}),
       ...(this.sessionId ? { sessionId: this.sessionId } : {}),
@@ -151,7 +151,7 @@ export class MainAgentController implements FabricMainAgentTarget {
     const key = `${target.provider}/${target.id}`;
     const model = context.modelRegistry.find(target.provider, target.id);
     if (!model) return { ok: false, error: `Model is not available: ${key}` };
-    const switched = await this.pi.setModel(model);
+    const switched = await this.omp.setModel(model);
     if (!switched) return { ok: false, error: `No authentication configured for model: ${key}` };
     return { ok: true };
   }
@@ -161,7 +161,7 @@ export class MainAgentController implements FabricMainAgentTarget {
     const text = message.trim();
     if (!text) throw new Error("Main agent message must not be empty");
     const messageId = randomUUID();
-    this.pi.sendUserMessage(text, { deliverAs: delivery });
+    this.omp.sendUserMessage(text, { deliverAs: delivery });
     return { queued: true, messageId, routed: "main" };
   }
 
@@ -171,9 +171,9 @@ export class MainAgentController implements FabricMainAgentTarget {
     if (!message) throw new Error("Main agent message must not be empty");
     const messageId = randomUUID();
     const data = request.data === undefined ? undefined : serializableData(request.data);
-    this.pi.sendMessage(
+    this.omp.sendMessage(
       {
-        customType: "pi-fabric-agent-message",
+        customType: "omp-fabric-agent-message",
         content: [
           `<fabric-agent-message from_name=${JSON.stringify(request.from.name)} from_id=${JSON.stringify(request.from.id)} from_kind=${JSON.stringify(request.from.kind)}>`,
           escapeXmlText(message),

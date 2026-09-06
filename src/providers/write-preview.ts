@@ -2,12 +2,20 @@
 import { homedir } from "node:os";
 import { dirname, isAbsolute, resolve } from "node:path";
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
-import {
-  createWriteToolDefinition,
-  type ToolDefinition,
-  withFileMutationQueue,
-} from "@earendil-works/pi-coding-agent";
+import type { ToolDefinition } from "@oh-my-pi/pi-coding-agent";
+import { Type } from "@oh-my-pi/pi-coding-agent/extensibility/legacy-typebox";
 import { MAX_WRITE_DIFF_BYTES, writeContentForPreview } from "./write-diff-limits.js";
+
+const mutationQueues = new Map<string, Promise<void>>();
+
+const withFileMutationQueue = async <T>(path: string, operation: () => Promise<T>): Promise<T> => {
+  const previous = mutationQueues.get(path) ?? Promise.resolve();
+  let release!: () => void;
+  const current = new Promise<void>((resolve) => { release = resolve; });
+  mutationQueues.set(path, current);
+  await previous;
+  try { return await operation(); } finally { release(); if (mutationQueues.get(path) === current) mutationQueues.delete(path); }
+};
 
 type ExistingFilePreview =
   | { kind: "content"; content: string }
@@ -75,8 +83,12 @@ const readExistingFileForPreview = async (
 
 export const createPreviewWriteToolDefinition = (
   cwd: string,
-): ToolDefinition<any, any, any> => {
-  const original = createWriteToolDefinition(cwd);
+): ToolDefinition => {
+  const original = {
+    name: "write", label: "Write", description: "Write a file",
+    parameters: Type.Object({ path: Type.String(), content: Type.String() }),
+    execute: async () => ({ content: [{ type: "text" as const, text: "" }] }),
+  } as unknown as ToolDefinition;
   return {
     ...original,
     async execute(
@@ -108,5 +120,5 @@ export const createPreviewWriteToolDefinition = (
         };
       });
     },
-  } as unknown as ToolDefinition<any, any, any>;
+  } as unknown as ToolDefinition;
 };

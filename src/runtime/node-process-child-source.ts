@@ -1,3 +1,4 @@
+import { OMP_GUEST_ENTRYPOINT } from "./type-checker.js";
 export const NODE_PROCESS_CHILD_SOURCE = String.raw`
 import vm from "node:vm";
 
@@ -49,7 +50,7 @@ const run = async (message) => {
     const remaining = message.maxLogChars - logChars;
     if (line.length > remaining) {
       if (remaining > 0) logs.push(line.slice(0, remaining));
-      logs.push("[Pi Fabric log output truncated]");
+      logs.push("[OMP Fabric log output truncated]");
       logsTruncated = true;
       return;
     }
@@ -60,17 +61,17 @@ const run = async (message) => {
     __fabricHostCall: hostCall,
     __fabricTokenBudget: message.tokenBudget ?? Number.POSITIVE_INFINITY,
     print,
-    π: jsonCompatible(message.strings),
+    payloads: jsonCompatible(message.payloads),
   };
   const context = vm.createContext(sandbox, {
-    name: "pi-fabric-node-process",
+    name: "omp-fabric-node-process",
     codeGeneration: { strings: true, wasm: false },
   });
 
   try {
-    vm.runInContext(message.setup, context, { filename: "pi-fabric-setup.js" });
-    const promise = vm.runInContext(message.code + "\n__piFabricMain()", context, {
-      filename: "pi-fabric-guest.js",
+    vm.runInContext(message.setup, context, { filename: "omp-fabric-setup.js" });
+    const promise = vm.runInContext(message.code + "\n" + "${OMP_GUEST_ENTRYPOINT}()", context, {
+      filename: "omp-fabric-guest.js",
     });
     const value = jsonCompatible(await promise);
     send({ type: "result", result: { value, logs, terminationReason: "completed" } });

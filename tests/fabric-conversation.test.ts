@@ -1,6 +1,6 @@
-import type { KeybindingsManager, Theme } from "@earendil-works/pi-coding-agent";
-import type { TUI } from "@earendil-works/pi-tui";
-import { visibleWidth } from "@earendil-works/pi-tui";
+import type { KeybindingsManager, Theme } from "@oh-my-pi/pi-coding-agent";
+import type { TUI } from "@oh-my-pi/pi-tui";
+import { visibleWidth } from "@oh-my-pi/pi-tui";
 import { describe, expect, it, vi } from "vitest";
 import {
   FabricConversationState,
@@ -9,9 +9,9 @@ import {
   type FabricConversationOptions,
   type FabricConversationTarget,
 } from "../src/ui/conversation.js";
-import { initTheme } from "@earendil-works/pi-coding-agent";
+import { initThemeSync } from "@oh-my-pi/pi-coding-agent";
 import { nativeTranscript, userMessage, assistantMessage } from "./fixtures/native-conversation.js";
-initTheme("dark", false);
+initThemeSync(undefined, false, "dark");
 
 const theme = {
   fg: (_color: string, text: string) => text,
@@ -114,7 +114,7 @@ const makeHarness = (overrides: HarnessOverrides = {}): Harness => {
   const state = new FabricConversationState();
   const tui = {
     requestRender: vi.fn(),
-    terminal: { rows: overrides.rows ?? 40 },
+    terminal: { rows: overrides.rows ?? 40, columns: 100, write: vi.fn() },
   } as unknown as TUI;
   const keybindings: Harness["keybindings"] = overrides.keybindings ?? {
     matches: () => false,
@@ -296,7 +296,7 @@ describe("FabricConversationView", () => {
 
   it("pages older and newer via callbacks and follows latest on End", () => {
     const h = makeHarness({ initialTargetId: "a", keybindings: {
-      matches: (data, action) => (action === "tui.altScreen.previousPrompt" && data === "\x1b[1;5A") || (action === "tui.altScreen.nextPrompt" && data === "\x1b[1;5B"),
+      matches: (data, action) => (action === "tui.editor.pageUp" && data === "\x1b[1;5A") || (action === "tui.editor.pageDown" && data === "\x1b[1;5B"),
       getKeys: () => [],
     } });
     h.view.handleInput("\x1b[1;5A");
@@ -415,11 +415,13 @@ describe("FabricConversationView", () => {
         getKeys: (binding) => (binding === "app.tools.expand" ? ["ctrl+o"] : []),
       },
     });
-    const before = renderText(h.view);
+    const plain = (text: string): string => text.replace(/\x1b\[[0-9;]*m/g, "").replace(/\x1b\][^\x07]*\x07/g, "");
+    const before = plain(renderText(h.view));
     expect(before).not.toContain("input:");
+    expect(before).toContain("ls");
     h.view.handleInput("\x0f");
-    const after = renderText(h.view);
-    expect(after).toContain("bash");
+    const after = plain(renderText(h.view));
+    expect(after).toContain("ls");
     expect(after).not.toContain("input:");
     expect(h.state.peek("a")?.toolsExpanded).toBe(true);
   });

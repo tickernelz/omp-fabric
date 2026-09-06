@@ -1,12 +1,12 @@
-import type { Theme } from "@earendil-works/pi-coding-agent";
-import { Container, type Focusable, getKeybindings, Spacer, Text } from "@earendil-works/pi-tui";
+import type { Theme } from "@oh-my-pi/pi-coding-agent";
+import { Container, type Focusable, getKeybindings, Spacer, Text } from "@oh-my-pi/pi-tui";
 import { FABRIC_ACTOR_HOST_EVENTS } from "../actors/types.js";
 import type { FabricActorHostEvent } from "../actors/types.js";
 
 const COMMON_HOST_EVENTS: readonly FabricActorHostEvent[] = [
   "input",
   "turn_end",
-  "agent_settled",
+  "agent_end",
   "tool_error",
   "session_compact",
 ];
@@ -17,42 +17,39 @@ const HOST_EVENT_ORDER: readonly FabricActorHostEvent[] = [
   ...FABRIC_ACTOR_HOST_EVENTS.filter((event) => !commonHostEvents.has(event)),
 ];
 
-const EVENT_LABELS: Record<FabricActorHostEvent, string> = {
+const EVENT_LABELS: Partial<Record<FabricActorHostEvent, string>> = {
   input: "raw user or extension input",
   turn_end: "each completed LLM turn",
-  agent_settled: "host fully idle after a run",
+  agent_end: "a low-level agent run ended",
   tool_error: "synthetic notification for a failed tool",
   session_compact: "context was compacted",
-  session_compact_failed: "context compaction failed or was aborted",
   resources_discover: "skills, prompts, and themes are discovered",
   session_start: "a session starts, reloads, or is restored",
-  session_info_changed: "session metadata or name changed",
+  session_switch: "the active session changed",
   session_before_switch: "before a new or resumed session replaces this one",
-  session_before_fork: "before a session fork or clone",
+  session_before_branch: "before a session branch",
+  session_branch: "after a session branch",
   session_before_compact: "before context compaction",
+  "session.compacting": "context compaction is being prepared",
   session_shutdown: "before this session runtime shuts down",
   session_before_tree: "before session-tree navigation",
   session_tree: "after session-tree navigation",
+  goal_updated: "the active goal changed",
   before_agent_start: "expanded prompt and system context before the agent loop",
   agent_start: "a low-level agent run started",
-  agent_end: "a low-level agent run ended",
+  session_stop: "the main session is settling",
   turn_start: "an LLM turn started",
   message_start: "a user, assistant, or tool message started",
   message_update: "an assistant streaming update",
   message_end: "a user, assistant, or tool message completed",
-  ui_prompt_start: "a blocking user-facing UI prompt opened",
-  ui_prompt_end: "a blocking user-facing UI prompt closed",
   context: "assembled messages before an LLM request",
-  before_provider_headers: "outbound provider headers assembled; secrets redacted",
   before_provider_request: "provider payload assembled before sending",
-  after_provider_response: "provider response status and headers received",
+  after_provider_response: "provider response received",
   tool_execution_start: "tool execution started",
   tool_call: "validated tool call before execution",
   tool_execution_update: "streaming tool progress",
   tool_result: "final tool result before message persistence",
   tool_execution_end: "tool execution completed",
-  model_select: "the active model changed",
-  thinking_level_select: "the active thinking level changed",
   user_bash: "a user ! or !! shell command was submitted",
 };
 
@@ -146,7 +143,7 @@ export class FabricHostEventSelector extends Container implements Focusable {
       const selected = index === this.selectedIndex;
       const checked = this.enabled.has(event);
       const box = checked ? this.theme.fg("success", "[x]") : this.theme.fg("dim", "[ ]");
-      const label = `${box} ${event} · ${this.theme.fg("muted", EVENT_LABELS[event])}`;
+      const label = `${box} ${event} · ${this.theme.fg("muted", EVENT_LABELS[event] ?? event)}`;
       const line = selected
         ? `${this.theme.fg("accent", "→ ")}${this.theme.fg("accent", label)}`
         : `  ${label}`;

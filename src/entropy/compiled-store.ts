@@ -1,5 +1,5 @@
 // Persistence for the compiled entropy surface: <agent dir>/fabric/entropy/
-// compiled.json, locked across Pi processes sharing the agent directory.
+// compiled.json, locked across OMP processes sharing the agent directory.
 // A damaged artifact surfaces as an error and blocks compiles from
 // overwriting it — the same discipline as the repair table. The artifact is
 // clock-free, so saving byte-identical content is a no-op.

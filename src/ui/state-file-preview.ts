@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
-import type { Theme } from "@earendil-works/pi-coding-agent";
-import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import type { Theme } from "@oh-my-pi/pi-coding-agent";
+import { truncateToWidth, visibleWidth } from "@oh-my-pi/pi-tui";
 import { highlightCode, highlightFileLines, languageFromPath } from "./highlight.js";
 import { safeText } from "./format.js";
 import type { FabricUiStateEntry } from "./types.js";

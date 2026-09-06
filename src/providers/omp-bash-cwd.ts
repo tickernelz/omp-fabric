@@ -1,16 +1,12 @@
 import { accessSync, constants, statSync } from "node:fs";
 import path from "node:path";
-import * as PiCodingAgent from "@earendil-works/pi-coding-agent";
-import {
-  createBashToolDefinition,
-  type ToolDefinition,
-} from "@earendil-works/pi-coding-agent";
-import { Type, type TSchema } from "typebox";
-import type { PiShellToolName } from "../core/pi-tools.js";
+import { createBashToolDefinition, type ToolDefinition } from "@oh-my-pi/pi-coding-agent/extensibility/legacy-pi-coding-agent-shim";
+import { Type } from "@oh-my-pi/pi-coding-agent/extensibility/legacy-typebox";
+import type { OmpShellToolName } from "../core/omp-tools.js";
 
-// Per-call execution directory for Pi's shell tools.
+// Per-call execution directory for OMP's shell tools.
 //
-// Pi's shell backend already takes cwd as a first-class parameter
+// OMP's shell backend already takes cwd as a first-class parameter
 // (BashOperations.exec(command, cwd, options)), and pi-agent-core's harness
 // shell goes further with a per-command ShellExecOptions.cwd. The shell tool
 // schemas omit it, so Fabric advertises and honors it instead of silently
@@ -21,7 +17,7 @@ import type { PiShellToolName } from "../core/pi-tools.js";
 // on command names (permission prompts, sandboxing) and hides the target from
 // Fabric's own approval classifier.
 
-export const PI_BASH_CWD_KEY = "cwd";
+export const OMP_BASH_CWD_KEY = "cwd";
 
 /**
  * Resolve and validate a single shell call's execution directory.
@@ -36,17 +32,17 @@ export const PI_BASH_CWD_KEY = "cwd";
  *
  * Containment is intentionally not enforced. Models can already reach any
  * directory by changing directories inside a shell command, which Fabric
- * neither inspects nor contains. Directory containment belongs to pi's
+ * neither inspects nor contains. Directory containment belongs to OMP's
  * project-trust layer or a shell spawn hook.
  */
-const resolvePiShellCwd = (
-  toolName: PiShellToolName,
+const resolveOmpShellCwd = (
+  toolName: OmpShellToolName,
   sessionCwd: string,
   requested: unknown,
 ): string => {
   if (typeof requested !== "string" || requested.trim().length === 0) {
     throw new Error(
-      `Invalid pi.${toolName} cwd ${JSON.stringify(requested)}: path must be a non-empty string`,
+      `Invalid omp.${toolName} cwd ${JSON.stringify(requested)}: path must be a non-empty string`,
     );
   }
   const resolved = path.isAbsolute(requested)
@@ -58,15 +54,15 @@ const resolvePiShellCwd = (
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
     throw new Error(
-      `Invalid pi.${toolName} cwd ${JSON.stringify(requested)} (${resolved}): ${reason}`,
+      `Invalid omp.${toolName} cwd ${JSON.stringify(requested)} (${resolved}): ${reason}`,
     );
   }
   return resolved;
 };
 
 /** Compatibility wrapper retained for existing callers and tests. */
-export const resolvePiBashCwd = (sessionCwd: string, requested: unknown): string =>
-  resolvePiShellCwd("bash", sessionCwd, requested);
+export const resolveOmpBashCwd = (sessionCwd: string, requested: unknown): string =>
+  resolveOmpShellCwd("bash", sessionCwd, requested);
 
 /**
  * Rewrite a shell call's cwd while leaving every other argument untouched.
@@ -76,17 +72,17 @@ export const resolvePiBashCwd = (sessionCwd: string, requested: unknown): string
  * provider is what ultimately passes it to the native shell backend.
  */
 export const resolveShellCwdArgument = (
-  toolName: PiShellToolName,
+  toolName: OmpShellToolName,
   sessionCwd: string,
   args: Record<string, unknown>,
 ): Record<string, unknown> =>
-  Object.hasOwn(args, PI_BASH_CWD_KEY)
+  Object.hasOwn(args, OMP_BASH_CWD_KEY)
     ? {
         ...args,
-        [PI_BASH_CWD_KEY]: resolvePiShellCwd(
+        [OMP_BASH_CWD_KEY]: resolveOmpShellCwd(
           toolName,
           sessionCwd,
-          args[PI_BASH_CWD_KEY],
+          args[OMP_BASH_CWD_KEY],
         ),
       }
     : args;
@@ -107,22 +103,25 @@ const CWD_PROPERTY = Type.Optional(
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
-/**
- * Declare `cwd` on a shell descriptor.
- *
- * Rebuilt as a fresh TObject rather than spread-cloned: TypeBox schemas carry
- * Symbol keys that a spread drops, which would leave Value.Check unable to
- * validate the descriptor. Property values are reused by reference, so they
- * retain their own Symbols.
- */
+const schemaDocument = (schema: unknown): Record<string, unknown> | undefined => {
+  if (isRecord(schema)) return schema;
+  if (typeof schema !== "function" || !("toJsonSchema" in schema)) return undefined;
+  const toJsonSchema = schema.toJsonSchema;
+  if (typeof toJsonSchema !== "function") return undefined;
+  const document = toJsonSchema.call(schema);
+  return isRecord(document) ? document : undefined;
+};
+
 export const withShellCwdSchema = (schema: unknown): unknown => {
-  if (!isRecord(schema) || !isRecord(schema.properties)) return schema;
-  if (Object.hasOwn(schema.properties, PI_BASH_CWD_KEY)) return schema;
-  const { type: _type, properties, required, ...rest } = schema;
-  return Type.Object(
-    { ...properties, [PI_BASH_CWD_KEY]: CWD_PROPERTY } as Record<string, TSchema>,
-    { ...rest, ...(Array.isArray(required) ? { required } : {}) },
-  );
+  const document = schemaDocument(schema);
+  if (!document || !isRecord(document.properties)) return schema;
+  if (Object.hasOwn(document.properties, OMP_BASH_CWD_KEY)) return schema;
+  const cwdSchema = schemaDocument(CWD_PROPERTY);
+  if (!cwdSchema) return schema;
+  return Type.Unsafe({
+    ...document,
+    properties: { ...document.properties, [OMP_BASH_CWD_KEY]: cwdSchema },
+  });
 };
 
 /** Compatibility wrapper retained for existing callers and tests. */
@@ -130,36 +129,15 @@ export const withBashCwdSchema = (schema: unknown): unknown => withShellCwdSchem
 
 const MAX_CACHED_DEFINITIONS = 16;
 
-export type ShellDefinitionFactory = (cwd: string) => ToolDefinition<any, any, any>;
-
-/**
- * PowerShell entered Pi's host API after Fabric's minimum supported version.
- * Namespace lookup is deliberate: a named ESM import would reject the whole
- * Fabric module before an older host could reach this feature gate.
- */
-export const resolvePowerShellToolDefinitionFactory = (
-  moduleExports: unknown,
-): ShellDefinitionFactory | undefined => {
-  if (
-    moduleExports === null ||
-    (typeof moduleExports !== "object" && typeof moduleExports !== "function")
-  ) {
-    return undefined;
-  }
-  const candidate = Reflect.get(moduleExports, "createPowerShellToolDefinition");
-  return typeof candidate === "function" ? candidate as ShellDefinitionFactory : undefined;
-};
-
-export const powerShellToolDefinitionFactory =
-  resolvePowerShellToolDefinitionFactory(PiCodingAgent);
+type ShellDefinitionFactory = (cwd: string) => ToolDefinition<any, any>;
 
 /** Definitions bound to execution directories, with a small LRU cache. */
 class ShellCwdDefinitions {
-  readonly #cache = new Map<string, ToolDefinition<any, any, any>>();
+  readonly #cache = new Map<string, ToolDefinition<any, any>>();
 
   constructor(private readonly createDefinition: ShellDefinitionFactory) {}
 
-  get(cwd: string): ToolDefinition<any, any, any> {
+  get(cwd: string): ToolDefinition<any, any> {
     const cached = this.#cache.get(cwd);
     if (cached) {
       this.#cache.delete(cwd);
@@ -179,11 +157,5 @@ class ShellCwdDefinitions {
 export class BashCwdDefinitions extends ShellCwdDefinitions {
   constructor() {
     super(createBashToolDefinition);
-  }
-}
-
-export class PowerShellCwdDefinitions extends ShellCwdDefinitions {
-  constructor(createDefinition: ShellDefinitionFactory) {
-    super(createDefinition);
   }
 }

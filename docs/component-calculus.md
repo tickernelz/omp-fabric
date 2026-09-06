@@ -1,8 +1,8 @@
 # Component calculus and runtime laws
 
-This mathematical contract governs Pi Fabric's component plane. Component authors define the equivalence of arbitrary programs. The plane applies when `fabric_exec` uses a committed capability view or a supervised component. The [provider component calculus](provider-component-calculus.md) maps these rules to stable namespaces and runtime provider replacement.
+This mathematical contract governs OMP Fabric's component plane. Component authors define the equivalence of arbitrary programs. The plane applies when `fabric_exec` uses a committed capability view or a supervised component. The [provider component calculus](provider-component-calculus.md) maps these rules to stable namespaces and runtime provider replacement.
 
-DeepSeek's dynamic-composition paper supplies the effect and coeffect calculus used here, and Pi Fabric adds explicit provider refs with host policy. Cordis's proxy context API belongs to a separate implementation.
+DeepSeek's dynamic-composition paper supplies the effect and coeffect calculus used here, and OMP Fabric adds explicit provider refs with host policy. Cordis's proxy context API belongs to a separate implementation.
 
 ## Runtime correspondence
 
@@ -12,7 +12,7 @@ $$
 \langle d,\ p,\ e,\ \pi,\ \sigma,\ q,\ \tau,\ \theta,\ \omega \rangle
 $$
 
-| Symbol | Pi Fabric realization |
+| Symbol | OMP Fabric realization |
 |---|---|
 | $d$ | the exact refs from `requires` |
 | $p$ | the disjoint provider names declared in `provides` |
@@ -102,7 +102,7 @@ $$
 
 $K$ is the non-replaceable kernel. A slot chooses its one matching replacement or its host default. Two matching replacements for the same slot make $Q$ undefined and the launch fails; no load-order winner exists. Append entries sort by component identity and label, making equivalent active component sets observationally equal regardless of activation schedule. Model and target predicates filter entries before this algebra.
 
-A direct participant receives only $\operatorname{append}(m,\mathrm{participant})$ because it has no Fabric execution slot. A recursive Pi participant computes all of $Q$ in its own host, so the parent withholds a duplicate projection. A durable owner reads an atomically published snapshot of the committed $q$ set before each launch. The snapshot moves prompt data across a process boundary, but it carries no capability binding and cannot widen $\omega$.
+A direct participant receives only $\operatorname{append}(m,\mathrm{participant})$ because it has no Fabric execution slot. A recursive OMP participant computes all of $Q$ in its own host, so the parent withholds a duplicate projection. A durable owner reads an atomically published snapshot of the committed $q$ set before each launch. The snapshot moves prompt data across a process boundary, but it carries no capability binding and cannot widen $\omega$.
 
 ## Provision disjointness
 
@@ -126,7 +126,7 @@ Parent ownership implies no dependency injection. Requirement edges still determ
 
 Take two effects $a$ and $b$. Safe reordering needs more than non-overlapping concurrent calls. The forwards of both effects, their inverses, and every mixed forward/inverse composition must commute under $\simeq$.
 
-Pi Fabric uses a conservative, declared approximation:
+OMP Fabric uses a conservative, declared approximation:
 
 ```ts
 effect: {
@@ -150,7 +150,7 @@ The effect kind records where an operation stands relative to the recoverable sy
 
 A `revertible` component may use `none`, `scoped`, and `transactional` effects. It rejects emissions, whether they arrive through a provider action or through a custom effect registration. The `transactional` kind stays a claim. Its compensation or rollback semantics remain a provider obligation.
 
-Output withholding, compensation frameworks, and coarser application-specific equivalences stay explicit opt-ins. Each one needs its own protocol. Silent buffering of arbitrary host output would alter existing Pi Fabric behavior and model-visible timing.
+Output withholding, compensation frameworks, and coarser application-specific equivalences stay explicit opt-ins. Each one needs its own protocol. Silent buffering of arbitrary host output would alter existing OMP Fabric behavior and model-visible timing.
 
 ## Enforced invariants
 

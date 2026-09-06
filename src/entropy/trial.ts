@@ -7,7 +7,7 @@
 // projected trace args; audits record executed calls without outcomes, so
 // a compiled rejection of an audited call counts as a cost, never a win.
 
-import { Value } from "typebox/value";
+import { isJsonSchemaValueValid } from "@oh-my-pi/pi-ai/utils/schema";
 import { applyCompiledSurface, type CompiledSurfaceFile } from "./compiled-surface.js";
 import { compareCodeUnits } from "./fingerprint.js";
 import { measureEntropy } from "./meter.js";
@@ -68,7 +68,7 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 
 const accepts = (schema: unknown, args: Record<string, unknown>): boolean => {
   try {
-    return isRecord(schema) && Value.Check(schema, args);
+    return isRecord(schema) && isJsonSchemaValueValid(schema, args);
   } catch {
     return false;
   }

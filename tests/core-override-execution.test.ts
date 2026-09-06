@@ -2,13 +2,12 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import {
-  createSyntheticSourceInfo,
-  defineTool,
   type ExtensionContext,
   type ExtensionRunner,
   type RegisteredTool,
-} from "@earendil-works/pi-coding-agent";
-import { Type, type TSchema } from "typebox";
+  type ToolDefinition,
+} from "@oh-my-pi/pi-coding-agent";
+import { Type, type TSchema } from "@oh-my-pi/omptype/typebox";
 import { describe, expect, it, vi } from "vitest";
 import { CapturedToolCatalog } from "../src/capture/catalog.js";
 import { DEFAULT_FABRIC_CONFIG } from "../src/config.js";
@@ -18,11 +17,12 @@ import {
   type FabricExecutionAuthorizer,
 } from "../src/execution-service.js";
 import { CapturedToolsProvider } from "../src/providers/captured-tools-provider.js";
-import { PiToolsProvider } from "../src/providers/pi-tools-provider.js";
+import { OmpToolsProvider } from "../src/providers/omp-tools-provider.js";
 
 const makeRunner = (): ExtensionRunner => ({
   createContext: () => ({ cwd: process.cwd() }),
   getActiveTools: () => [],
+  getAllRegisteredTools: () => [],
   emit: vi.fn(async () => {}),
   emitToolCall: vi.fn(async () => undefined),
   emitToolResult: vi.fn(async () => undefined),
@@ -43,43 +43,40 @@ const makeOverride = (
   calls: Array<Record<string, unknown>>,
   output = name,
 ): RegisteredTool => ({
-  definition: defineTool({
+  definition: ({
     name,
     label: `${name} override`,
     description: `Compatible ${name} override`,
     parameters: parameters as TSchema,
-    async execute(_id, params) {
+    async execute(_id: string, params: unknown) {
       calls.push(params as Record<string, unknown>);
       return {
         content: [{ type: "text" as const, text: `${output}:${String((params as { path?: unknown }).path ?? "")}` }],
         details: { implementation: output },
       };
     },
-  }),
-  sourceInfo: createSyntheticSourceInfo(`/extensions/${name}-override/index.ts`, { source: "test" }),
+  } as unknown as ToolDefinition),
+  extensionPath: `/extensions/${name}-override/index.ts`,
 });
 
-const setup = (
+const setup = async (
   cwd: string,
   registeredTools: RegisteredTool[],
   authorizer?: FabricExecutionAuthorizer,
-): {
-  catalog: CapturedToolCatalog;
-  service: FabricExecutionService;
-  runner: ExtensionRunner;
-} => {
+): Promise<{ catalog: CapturedToolCatalog; service: FabricExecutionService; runner: ExtensionRunner }> => {
   const runner = makeRunner();
   const catalog = new CapturedToolCatalog();
   catalog.replace(
     registeredTools,
     runner,
-    DEFAULT_FABRIC_CONFIG.capture,
-    "/extensions/pi-fabric/index.ts",
+    { ...DEFAULT_FABRIC_CONFIG.capture, enabled: true },
+    "/extensions/omp-fabric/index.ts",
   );
   const captured = new CapturedToolsProvider(catalog);
   const registry = new ActionRegistry();
-  registry.register(new PiToolsProvider(cwd, catalog, captured));
+  registry.register(await OmpToolsProvider.create(cwd, catalog, captured));
   const config = structuredClone(DEFAULT_FABRIC_CONFIG);
+  config.fullCodeMode = true;
   config.approvals.read = "allow";
   config.approvals.write = "allow";
   config.approvals.execute = "allow";
@@ -97,7 +94,7 @@ const setup = (
 
 describe("captured core overrides through Fabric execution", () => {
   it("fails closed instead of bypassing a bash override that does not support cwd", async () => {
-    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-core-bash-cwd-"));
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-core-bash-cwd-"));
     const calls: Array<Record<string, unknown>> = [];
     const override = makeOverride(
       "bash",
@@ -105,10 +102,10 @@ describe("captured core overrides through Fabric execution", () => {
       calls,
       "bash-override",
     );
-    const { catalog, service } = setup(cwd, [override]);
+    const { catalog, service } = await setup(cwd, [override]);
     try {
       const result = await service.execute({
-        code: 'return pi.bash({ command: "echo TEST", cwd: "." });',
+        code: 'return omp.bash({ command: "echo TEST", cwd: "." });',
         signal: undefined,
         parentToolCallId: "core-bash-cwd-override",
         context: makeContext(cwd),
@@ -116,10 +113,10 @@ describe("captured core overrides through Fabric execution", () => {
       });
 
       expect(result.success).toBe(false);
-      expect(result.error).toContain("Invalid arguments for pi.bash");
+      expect(result.error).toContain("Invalid arguments for omp.bash");
       expect(result.error).toContain("cwd");
       expect(result.trace.operations[0]).toMatchObject({
-        ref: "pi.bash",
+        ref: "omp.bash",
         failureStage: "validate",
       });
       expect(calls).toEqual([]);
@@ -130,7 +127,7 @@ describe("captured core overrides through Fabric execution", () => {
   });
 
   it("type-checks and invokes additive read forms while preserving shorthand and strings", async () => {
-    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-core-read-"));
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-core-read-"));
     const calls: Array<Record<string, unknown>> = [];
     const schema = Type.Object({
       path: Type.String(),
@@ -140,12 +137,12 @@ describe("captured core overrides through Fabric execution", () => {
       symbolId: Type.Optional(Type.String()),
     }, { additionalProperties: false });
     const entry = makeOverride("read", schema, calls, "read-override");
-    const { catalog, service } = setup(cwd, [entry]);
+    const { catalog, service } = await setup(cwd, [entry]);
     try {
       const result = await service.execute({
         code: `
-const shorthand = await pi.read("plain.ts");
-const structure = await pi.read({ file: "tree.ts", structure: "symbols", symbolId: "opaque", offset: "3" });
+const shorthand = await omp.read("plain.ts");
+const structure = await omp.read({ file: "tree.ts", structure: "symbols", symbolId: "opaque", offset: "3" });
 return { shorthand, structure };
 `,
         signal: undefined,
@@ -165,7 +162,7 @@ return { shorthand, structure };
       ]);
 
       const invalid = await service.execute({
-        code: 'await pi.read({ path: "bad.ts", structrue: "symbols" }); return "never";',
+        code: 'await omp.read({ path: "bad.ts", structrue: "symbols" }); return "never";',
         signal: undefined,
         parentToolCallId: "core-read-invalid",
         context: makeContext(cwd),
@@ -176,14 +173,14 @@ return { shorthand, structure };
       expect(calls).toHaveLength(2);
 
       const runtimeInvalid = await service.execute({
-        code: 'const args = { path: "bad.ts", outside: true }; return pi.read(args);',
+        code: 'const args = { path: "bad.ts", outside: true }; return omp.read(args);',
         signal: undefined,
         parentToolCallId: "core-read-runtime-invalid",
         context: makeContext(cwd),
         onPartial() {},
       });
       expect(runtimeInvalid.success).toBe(false);
-      expect(runtimeInvalid.error).toContain("Invalid arguments for pi.read");
+      expect(runtimeInvalid.error).toContain("Invalid arguments for omp.read");
       expect(calls).toHaveLength(2);
     } finally {
       catalog.clear();
@@ -192,15 +189,15 @@ return { shorthand, structure };
   });
 
   it("uses override forms in effective full-code enforce mode without bypassing its host guard", async () => {
-    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-core-enforce-"));
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-core-enforce-"));
     const readCalls: Array<Record<string, unknown>> = [];
     const editCalls: Array<Record<string, unknown>> = [];
     const authorizer: FabricExecutionAuthorizer = {
       authorize: vi.fn(async (ref) => {
-        if (ref === "pi.edit") throw new Error("Schema enforce blocked pi.edit");
+        if (ref === "omp.edit") throw new Error("Schema enforce blocked omp.edit");
       }),
     };
-    const { catalog, service } = setup(cwd, [
+    const { catalog, service } = await setup(cwd, [
       makeOverride("read", Type.Object({
         path: Type.String(),
         structure: Type.Optional(Type.Literal("symbols")),
@@ -214,7 +211,7 @@ return { shorthand, structure };
     service.config.schema.mode = "enforce";
     try {
       const read = await service.execute({
-        code: 'return pi.read({ path: "source.ts", structure: "symbols" });',
+        code: 'return omp.read({ path: "source.ts", structure: "symbols" });',
         signal: undefined,
         parentToolCallId: "core-enforce-read",
         context: makeContext(cwd),
@@ -225,14 +222,14 @@ return { shorthand, structure };
       expect(readCalls).toEqual([{ path: "source.ts", structure: "symbols" }]);
 
       const edit = await service.execute({
-        code: 'return pi.edit({ path: "source.ts", symbolId: "opaque" });',
+        code: 'return omp.edit({ path: "source.ts", symbolId: "opaque" });',
         signal: undefined,
         parentToolCallId: "core-enforce-edit",
         context: makeContext(cwd),
         onPartial() {},
       });
       expect(edit.success).toBe(false);
-      expect(edit.trace.operations[0]).toMatchObject({ ref: "pi.edit", failureStage: "guard" });
+      expect(edit.trace.operations[0]).toMatchObject({ ref: "omp.edit", failureStage: "guard" });
       expect(editCalls).toEqual([]);
     } finally {
       catalog.clear();
@@ -241,7 +238,7 @@ return { shorthand, structure };
   });
 
   it("normalizes edit positional, alias, batch, and symbol forms into the override", async () => {
-    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-core-edit-"));
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-core-edit-"));
     const calls: Array<Record<string, unknown>> = [];
     const schema = Type.Object({
       path: Type.String(),
@@ -255,15 +252,15 @@ return { shorthand, structure };
       symbolId: Type.Optional(Type.String()),
     }, { additionalProperties: false });
     const entry = makeOverride("edit", schema, calls, "edit-override");
-    const { catalog, service } = setup(cwd, [entry]);
+    const { catalog, service } = await setup(cwd, [entry]);
     try {
       const result = await service.execute({
         code: `
-const positional = await pi.edit("file.ts", "one", "two");
-const alias = await pi.edit({ file: "file.ts", old: "three", new: "four" });
-const batch = await pi.edit({ path: "file.ts", edits: [{ old: "five", new: "six", all: true }] });
-const symbol = await pi.edit({ path: "file.ts", symbolId: "opaque", oldText: "seven", newText: "eight" });
-const symbolAlias = await pi.edit({ file: "file.ts", symbolId: "opaque", old: "nine", new: "ten" });
+const positional = await omp.edit("file.ts", "one", "two");
+const alias = await omp.edit({ file: "file.ts", old: "three", new: "four" });
+const batch = await omp.edit({ path: "file.ts", edits: [{ old: "five", new: "six", all: true }] });
+const symbol = await omp.edit({ path: "file.ts", symbolId: "opaque", oldText: "seven", newText: "eight" });
+const symbolAlias = await omp.edit({ file: "file.ts", symbolId: "opaque", old: "nine", new: "ten" });
 return [positional.output, alias.output, batch.output, symbol.output, symbolAlias.output];
 `,
         signal: undefined,
@@ -289,7 +286,7 @@ return [positional.output, alias.output, batch.output, symbol.output, symbolAlia
       ]);
 
       const invalid = await service.execute({
-        code: 'await pi.edit({ path: "file.ts", edits: [{ oldText: "a", newText: "b", alll: true }] }); return "never";',
+        code: 'await omp.edit({ path: "file.ts", edits: [{ oldText: "a", newText: "b", alll: true }] }); return "never";',
         signal: undefined,
         parentToolCallId: "core-edit-invalid",
         context: makeContext(cwd),
@@ -305,7 +302,7 @@ return [positional.output, alias.output, batch.output, symbol.output, symbolAlia
   });
 
   it("refreshes replacement and removal for the next execution without stale declarations", async () => {
-    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-core-refresh-"));
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-core-refresh-"));
     fs.writeFileSync(path.join(cwd, "sample.txt"), "built-in result\n", "utf8");
     const calls: Array<Record<string, unknown>> = [];
     const firstSchema = Type.Object({
@@ -318,7 +315,7 @@ return [positional.output, alias.output, batch.output, symbol.output, symbolAlia
     }, { additionalProperties: false });
     const first = makeOverride("read", firstSchema, calls, "first");
     const second = makeOverride("read", secondSchema, calls, "second");
-    const { catalog, service, runner } = setup(cwd, [first]);
+    const { catalog, service, runner } = await setup(cwd, [first]);
     try {
       const run = (code: string, id: string) => service.execute({
         code,
@@ -327,20 +324,20 @@ return [positional.output, alias.output, batch.output, symbol.output, symbolAlia
         context: makeContext(cwd),
         onPartial() {},
       });
-      await expect(run('return pi.read({ path: "one", firstOnly: true });', "refresh-first"))
+      await expect(run('return omp.read({ path: "one", firstOnly: true });', "refresh-first"))
         .resolves.toMatchObject({ success: true, value: "first:one" });
 
       catalog.replace(
         [second],
         runner,
-        DEFAULT_FABRIC_CONFIG.capture,
-        "/extensions/pi-fabric/index.ts",
+        { ...DEFAULT_FABRIC_CONFIG.capture, enabled: true },
+        "/extensions/omp-fabric/index.ts",
       );
-      await expect(run('return pi.read({ path: "two", secondOnly: true });', "refresh-second"))
+      await expect(run('return omp.read({ path: "two", secondOnly: true });', "refresh-second"))
         .resolves.toMatchObject({ success: true, value: "second:two" });
 
       catalog.clear();
-      await expect(run('return pi.read({ path: "sample.txt" });', "refresh-removed"))
+      await expect(run('return omp.read({ path: "sample.txt" });', "refresh-removed"))
         .resolves.toMatchObject({ success: true, value: "built-in result\n" });
       expect(calls).toEqual([
         { path: "one", firstOnly: true },
@@ -353,7 +350,7 @@ return [positional.output, alias.output, batch.output, symbol.output, symbolAlia
   });
 
   it("keeps unsupported schemas reachable but leaves invalid arguments to registry validation", async () => {
-    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-core-fallback-"));
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-core-fallback-"));
     const calls: Array<Record<string, unknown>> = [];
     const properties: Record<string, unknown> = {
       path: { type: "string" },
@@ -362,17 +359,17 @@ return [positional.output, alias.output, batch.output, symbol.output, symbolAlia
       properties[`field_${index}`] = { type: "string" };
     }
     const overBudget = { type: "object", properties, required: ["path"], additionalProperties: false };
-    const { catalog, service } = setup(cwd, [makeOverride("read", overBudget, calls, "never")]);
+    const { catalog, service } = await setup(cwd, [makeOverride("read", overBudget, calls, "never")]);
     try {
       const result = await service.execute({
-        code: 'const args = { path: "file.ts", outside: true }; return pi.read(args);',
+        code: 'const args = { path: "file.ts", outside: true }; return omp.read(args);',
         signal: undefined,
         parentToolCallId: "core-fallback",
         context: makeContext(cwd),
         onPartial() {},
       });
       expect(result.success).toBe(false);
-      expect(result.error).toContain("Invalid arguments for pi.read");
+      expect(result.error).toContain("Invalid arguments for omp.read");
       expect(calls).toEqual([]);
     } finally {
       catalog.clear();

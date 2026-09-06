@@ -55,12 +55,12 @@ describe("PrewalkController", () => {
     controller.observeTask("session-1", "Implement it now");
     expect(
       controller.claim(
-        [audit("pi.read", true), audit("pi.write", true, 2)],
+        [audit("omp.read", true), audit("omp.write", true, 2)],
         "session-1",
       ),
     ).toMatchObject({
       arm: { model: "anthropic/executor", task: "Implement it now" },
-      mutation: { ref: "pi.write" },
+      mutation: { ref: "omp.write" },
     });
   });
 
@@ -96,18 +96,18 @@ describe("PrewalkController", () => {
 
     expect(
       controller.claim(
-        [audit("pi.read", true), audit("pi.edit", false, 2)],
+        [audit("omp.read", true), audit("omp.edit", false, 2)],
         "session-1",
       ),
     ).toBeUndefined();
     const claim = controller.claim(
-      [audit("pi.read", true), audit("pi.write", true, 2)],
+      [audit("omp.read", true), audit("omp.write", true, 2)],
       "session-1",
     );
 
     expect(claim).toMatchObject({
       arm: { model: "anthropic/executor", task: "Implement" },
-      mutation: { ref: "pi.write", success: true },
+      mutation: { ref: "omp.write", success: true },
     });
     expect(controller.status()).toMatchObject({ state: "handing_off" });
     expect(controller.claim([audit("schema.commit", true)], "session-1")).toBeUndefined();
@@ -117,7 +117,7 @@ describe("PrewalkController", () => {
     const controller = new PrewalkController();
     controller.arm({ model: "anthropic/executor", sessionId: "session-1" });
 
-    expect(controller.claim([audit("pi.edit", true)], "session-2")).toBeUndefined();
+    expect(controller.claim([audit("omp.edit", true)], "session-2")).toBeUndefined();
     expect(controller.isArmed("session-1")).toBe(true);
   });
 
@@ -127,7 +127,7 @@ describe("PrewalkController", () => {
 
     expect(
       controller.claim(
-        [audit("pi.edit", true), audit("agents.handoff", true, 2)],
+        [audit("omp.edit", true), audit("agents.handoff", true, 2)],
         "session-1",
       ),
     ).toBeUndefined();
@@ -142,13 +142,13 @@ describe("PrewalkController", () => {
       alwaysRearm: true,
     });
 
-    expect(controller.claim([audit("pi.edit", true)], "session-1")?.seq).toBe(1);
+    expect(controller.claim([audit("omp.edit", true)], "session-1")?.seq).toBe(1);
     expect(controller.completeTask()).toMatchObject({ state: "armed" });
 
     expect(controller.claimFsDrift("session-1", ["a.ts"])?.seq).toBe(2);
     controller.cancel();
     controller.arm({ model: "anthropic/executor", sessionId: "session-1" });
-    expect(controller.claim([audit("pi.write", true)], "session-1")?.seq).toBe(3);
+    expect(controller.claim([audit("omp.write", true)], "session-1")?.seq).toBe(3);
     // Other sessions start their own sequence.
     controller.arm({ model: "anthropic/executor", sessionId: "session-2" });
     expect(controller.claimFsDrift("session-2", ["b.ts"])?.seq).toBe(1);

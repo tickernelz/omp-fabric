@@ -5,13 +5,13 @@ import {
 
 export const recordedIntegrationTrace = (): FabricExecutionTraceV1 => {
   const recorder = new FabricExecutionTraceRecorder();
-  const read = recorder.issueCall("pi.read", { path: "src/read.ts", offset: 1, limit: 20 });
-  const editFailure = recorder.issueCall("pi.edit", { path: "src/edit.ts", edits: [{ oldText: "a", newText: "b" }] });
-  const editSuccess = recorder.issueCall("pi.edit", { path: "src/edit.ts", edits: [{ oldText: "a", newText: "b" }] });
-  const write = recorder.issueCall("pi.write", { path: "src/write.ts", content: "export {};" });
-  const created = recorder.issueCall("pi.write", { path: "src/created.ts", content: "new" });
-  const bashFailure = recorder.issueCall("pi.bash", { command: "pnpm test", timeout: 30 });
-  const bashSuccess = recorder.issueCall("pi.bash", { command: "pnpm test", timeout: 30 });
+  const read = recorder.issueCall("omp.read", { path: "src/read.ts", offset: 1, limit: 20 });
+  const editFailure = recorder.issueCall("omp.edit", { path: "src/edit.ts", edits: [{ oldText: "a", newText: "b" }] });
+  const editSuccess = recorder.issueCall("omp.edit", { path: "src/edit.ts", edits: [{ oldText: "a", newText: "b" }] });
+  const write = recorder.issueCall("omp.write", { path: "src/write.ts", content: "export {};" });
+  const created = recorder.issueCall("omp.write", { path: "src/created.ts", content: "new" });
+  const bashFailure = recorder.issueCall("omp.bash", { command: "pnpm test", timeout: 30 });
+  const bashSuccess = recorder.issueCall("omp.bash", { command: "pnpm test", timeout: 30 });
   const agent = recorder.issueCall("agents.run", { name: "reviewer", prompt: "inspect" });
   const workflow = recorder.issueCall("workflow.agent", { name: "builder", prompt: "build" });
   const mesh = recorder.issueCall("mesh.query", { topic: "build.status" });
@@ -46,8 +46,8 @@ export const recordedIntegrationTrace = (): FabricExecutionTraceV1 => {
 
 export const recordedParallelTrace = (): FabricExecutionTraceV1 => {
   const recorder = new FabricExecutionTraceRecorder();
-  const first = recorder.issueCall("pi.read", { path: "parallel/first.ts" });
-  const second = recorder.issueCall("pi.read", { path: "parallel/second.ts" });
+  const first = recorder.issueCall("omp.read", { path: "parallel/first.ts" });
+  const second = recorder.issueCall("omp.read", { path: "parallel/second.ts" });
   second.succeed("second");
   first.succeed("first");
   return recorder.seal("succeeded", ["Parallel"]);

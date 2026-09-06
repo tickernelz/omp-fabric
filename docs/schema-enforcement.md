@@ -11,7 +11,7 @@ Schema enforcement adds host authorization and a local-file transaction layer to
     "maxBytes": 10485760,
     "trustedCommands": {
       "focused-tests": {
-        "command": "pnpm",
+        "command": "bun",
         "args": ["exec", "vitest", "run", "tests/focused.test.ts"],
         "shell": false,
         "timeoutMs": 30000
@@ -23,17 +23,17 @@ Schema enforcement adds host authorization and a local-file transaction layer to
 
 `mode` accepts `off`, `audit`, or `enforce`. An invalid value becomes `off`. Fabric clamps the certificate TTL between 1 second and 10 minutes. It limits the file count to 1 through 1,000 and transaction bytes to 1 KiB through 100 MiB. The defaults are `off`, 30 seconds, 100 files, and 10 MiB. The session locks the mode at startup, and a config reload takes effect only in the next session.
 
-Fabric treats its global configuration as trusted host input. Pi reads a project `.pi/fabric.json` only when it marks that project trusted. A model action or an untrusted project configuration can never supply `trustedCommands`.
+Fabric treats its global configuration as trusted host input. OMP reads a project `.omp/fabric.json` only when it marks that project trusted. A model action or an untrusted project configuration can never supply `trustedCommands`.
 
 ## Modes
 
 - **off** leaves action authorization and tool visibility unchanged. The `schema.*` control plane stays available and does not gate other actions.
-- **audit** leaves host behavior unchanged. Fabric publishes a durable `would_block` event to `fabric.schema` for every nested Fabric action or top-level Pi tool call that enforce mode would deny.
+- **audit** leaves host behavior unchanged. Fabric publishes a durable `would_block` event to `fabric.schema` for every nested Fabric action or top-level OMP tool call that enforce mode would deny.
 - **enforce** permits only this extension's exact, source-provenanced `fabric_exec` definition at the top level. A `tool_call` gate blocks every other built-in, external-extension, and SDK `customTools` call before execution. Fabric admits a nested call only while an owned outer invocation is active and only when its id starts with Fabric's generated `NESTED_TOOL_CALL_ID_PREFIX`, because such a call already passed registry authorization. The central resolved-action gate stays authoritative inside Fabric. Direct refs and computed `tools.call` refs share the same decision.
 
 Under enforce mode, discovery and workflow display operations still work, along with these exact host-owned actions:
 
-- `pi.read`, `pi.grep`, `pi.find`, `pi.ls`;
+- `omp.read`, `omp.grep`, `omp.find`, `omp.ls`;
 - `memory.recall`, `memory.expand`, `memory.sessions`;
 - `state.get`, `state.history`, `state.complexity`;
 - `mesh.self`, `mesh.read`, `mesh.members`, `mesh.get`, `mesh.list`;
@@ -41,9 +41,9 @@ Under enforce mode, discovery and workflow display operations still work, along 
 - `components.list`, `components.status`, `components.graph`;
 - `schema.status`, `schema.hypothesize`, `schema.verify`, `schema.commit`, `schema.abort`.
 
-The gate blocks `pi.edit`, `pi.write`, `pi.bash`, `pi.powershell`, all agent/actor actions, mesh and state writes or execution, `compact.request`, `compact.cancel`, `components.reload`, MCP, captured extensions, and every external provider, whatever risk it declares. Enforce sessions keep declarative component entries in configuration without activating them, and registered definitions stay visible to diagnostics. A provider that claims `risk: "read"` still fails this exact-reference policy. Fabric records guard failures in the existing typed execution trace with `failureStage: "guard"`.
+The gate blocks `omp.edit`, `omp.write`, `omp.bash`, all agent/actor actions, mesh and state writes or execution, `compact.request`, `compact.cancel`, `components.reload`, MCP, captured extensions, and every external provider, whatever risk it declares. Enforce sessions keep declarative component entries in configuration without activating them, and registered definitions stay visible to diagnostics. A provider that claims `risk: "read"` still fails this exact-reference policy. Fabric records guard failures in the existing typed execution trace with `failureStage: "guard"`.
 
-An enforce session never restores persistent actors, and host-event actor dispatch stays off. Fabric disables agent execution, so the gate also blocks agent actions. Capture `keepVisible`, descriptor risk, claimed source metadata, or tool visibility cannot authorize a second top-level path. Fabric blocks a colliding external or SDK tool named `fabric_exec` unless Pi's canonical `sourceInfo.path` identifies this extension's entry exactly.
+An enforce session never restores persistent actors, and host-event actor dispatch stays off. Fabric disables agent execution, so the gate also blocks agent actions. Capture `keepVisible`, descriptor risk, claimed source metadata, or tool visibility cannot authorize a second top-level path. Fabric blocks a colliding external or SDK tool named `fabric_exec` unless OMP's canonical `sourceInfo.path` identifies this extension's entry exactly.
 
 ## Transaction protocol
 
@@ -153,13 +153,13 @@ A clean commit advances the Schema generation. It also appends a normal state ou
 
 ## Exact guarantee and limitations
 
-The host process, the filesystem, the trusted Fabric configuration, the configured trusted commands, and Pi's canonical tool lifecycle/provenance all behave as trusted components. Under that assumption, enforce mode guarantees that **only this extension's source-provenanced top-level `fabric_exec`, driving one same-invocation, fresh-certificate `schema.commit` path, can authorize model-originated mutation of regular files under the initialized local workspace**. The guarantee carries explicit preconditions, declared paths, bounded captured before images, nonempty typed postconditions, single-use compare-and-swap consumption, and rollback reporting.
+The host process, the filesystem, the trusted Fabric configuration, the configured trusted commands, and OMP's canonical tool lifecycle/provenance all behave as trusted components. Under that assumption, enforce mode guarantees that **only this extension's source-provenanced top-level `fabric_exec`, driving one same-invocation, fresh-certificate `schema.commit` path, can authorize model-originated mutation of regular files under the initialized local workspace**. The guarantee carries explicit preconditions, declared paths, bounded captured before images, nonempty typed postconditions, single-use compare-and-swap consumption, and rollback reporting.
 
 The guarantee covers this defined scope:
 
 - It excludes remote services, network calls, databases, device files, other processes, and writes performed outside Fabric. Enforce mode blocks model access to those provider channels. Its rollback guarantee covers Fabric-managed workspace files.
 - No kernel sandbox protects you from a malicious extension, SDK host, or host process. Trusted host code can invoke effects without model tool calls, and it can falsify lifecycle/provenance data.
-- Nested-call admission relies on Pi delivering Fabric's reserved generated id prefix unchanged, and on Fabric tracking an active owned outer invocation. Arbitrary top-level ids with that prefix still pass through the gate when no owned outer call is active.
+- Nested-call admission relies on OMP delivering Fabric's reserved generated id prefix unchanged, and on Fabric tracking an active owned outer invocation. Arbitrary top-level ids with that prefix still pass through the gate when no owned outer call is active.
 - Trusted commands form an explicit TCB, and unsafe configuration can give them effects.
 - Filesystem rollback cannot be perfectly atomic across process death or hostile concurrent writers. Journals recover declared regular files, and Fabric quarantines failures.
 - File postconditions and tests supply scoped evidence only, and they do not constitute proof.

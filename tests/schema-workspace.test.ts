@@ -7,7 +7,7 @@ import { snapshotWorkspace } from "../src/schema/workspace.js";
 
 const roots: string[] = [];
 const temporary = (): string => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-schema-snapshot-"));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-schema-snapshot-"));
   roots.push(root);
   return root;
 };
@@ -56,7 +56,7 @@ describe("Schema workspace fingerprints", () => {
 
   it("uses a bounded deterministic project-file fallback outside Git and excludes host metadata", () => {
     const cwd = temporary();
-    const mesh = path.join(cwd, ".pi", "fabric", "mesh");
+    const mesh = path.join(cwd, ".omp", "fabric", "mesh");
     fs.mkdirSync(mesh, { recursive: true });
     fs.writeFileSync(path.join(cwd, "a.txt"), "a");
     fs.writeFileSync(path.join(mesh, "state.json"), "one");

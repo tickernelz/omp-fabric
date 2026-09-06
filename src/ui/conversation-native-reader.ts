@@ -1,24 +1,94 @@
 import fs from "node:fs";
-import {
-  buildContextEntries,
-  sessionEntryToContextMessages,
-  type SessionEntry,
-  type SessionMessageEntry,
-} from "@earendil-works/pi-coding-agent";
-import type { AssistantMessage } from "@earendil-works/pi-ai";
+import type { SessionEntry, SessionMessageEntry } from "@oh-my-pi/pi-coding-agent";
+import type { AssistantMessage } from "@oh-my-pi/pi-ai";
 
-// Native Pi conversation transcript reader.
+const isCustomMessageContent = (content: unknown): boolean =>
+  typeof content === "string" || Array.isArray(content);
+
+const customMessageFromEntry = (entry: Extract<SessionEntry, { type: "custom_message" }>): NativeAgentMessage => ({
+  role: "custom",
+  customType: entry.customType,
+  content: entry.content,
+  display: entry.display,
+  ...(entry.details !== undefined ? { details: entry.details } : {}),
+  ...(entry.attribution !== undefined ? { attribution: entry.attribution } : {}),
+  timestamp: new Date(entry.timestamp).getTime(),
+});
+
+const compactionSummaryMessage = (entry: Extract<SessionEntry, { type: "compaction" }>): NativeAgentMessage => ({
+  role: "compactionSummary",
+  summary: entry.summary,
+  ...(entry.shortSummary !== undefined ? { shortSummary: entry.shortSummary } : {}),
+  tokensBefore: entry.tokensBefore,
+  ...(entry.tokensAfter !== undefined ? { tokensAfter: entry.tokensAfter } : {}),
+  ...(entry.method !== undefined ? { method: entry.method } : {}),
+  ...(entry.warning !== undefined ? { warning: entry.warning } : {}),
+  timestamp: new Date(entry.timestamp).getTime(),
+});
+
+const branchSummaryMessage = (entry: Extract<SessionEntry, { type: "branch_summary" }>): NativeAgentMessage => ({
+  role: "branchSummary",
+  summary: entry.summary,
+  fromId: entry.fromId,
+  timestamp: new Date(entry.timestamp).getTime(),
+});
+
+const buildContextEntries = (entries: SessionEntry[], leafId: string, byId: Map<string, SessionEntry>): SessionEntry[] => {
+  const path: SessionEntry[] = [];
+  const seen = new Set<string>();
+  let current = byId.get(leafId);
+  while (current && !seen.has(current.id)) {
+    seen.add(current.id);
+    path.push(current);
+    current = current.parentId ? byId.get(current.parentId) : undefined;
+  }
+  path.reverse();
+  let compactionIdx = -1;
+  for (let index = 0; index < path.length; index++) {
+    if (path[index]?.type === "compaction") compactionIdx = index;
+  }
+  if (compactionIdx < 0) return path;
+  const compaction = path[compactionIdx] as Extract<SessionEntry, { type: "compaction" }>;
+  const keptStart = path.findIndex((candidate) => candidate.id === compaction.firstKeptEntryId);
+  const kept = keptStart >= 0 ? path.slice(keptStart, compactionIdx) : [];
+  return [compaction, ...kept, ...path.slice(compactionIdx + 1)];
+};
+
+const buildSessionContext = (
+  entries: SessionEntry[],
+  leafId: string,
+  byId: Map<string, SessionEntry>,
+): { messages: NativeAgentMessage[] } => {
+  const messages: NativeAgentMessage[] = [];
+  let activeSummaryEmitted = false;
+  for (const entry of buildContextEntries(entries, leafId, byId)) {
+    if (entry.type === "message") {
+      messages.push(entry.message);
+    } else if (entry.type === "compaction") {
+      if (activeSummaryEmitted) continue;
+      activeSummaryEmitted = true;
+      messages.push(compactionSummaryMessage(entry));
+    } else if (entry.type === "custom_message") {
+      if (isCustomMessageContent(entry.content)) messages.push(customMessageFromEntry(entry));
+    } else if (entry.type === "branch_summary" && entry.summary) {
+      messages.push(branchSummaryMessage(entry));
+    }
+  }
+  return { messages };
+};
+
+// Native OMP conversation transcript reader.
 //
 // Unlike the dashboard's FabricTranscriptEntry pipeline (transcript-reader.ts +
 // transcript-parser.ts), which flattens, clips (500/40k char caps), redacts and
-// drops fields, this reader preserves the native Pi AgentMessage union intact:
+// drops fields, this reader preserves the native OMP AgentMessage union intact:
 //
 //   - user messages with text AND image content blocks
 //   - assistant thinking blocks, tool calls with full arguments
 //   - tool results with full content, details and error flags
 //   - native bashExecution / custom / branchSummary / compactionSummary messages
 //   - session entry tree semantics (branch via leaf→root walk, compaction
-//     checkpoints, branch summaries) using pi's own buildContextEntries +
+//     checkpoints, branch summaries) using OMP's own buildContextEntries +
 //     sessionEntryToContextMessages — the same display projection interactive
 //     mode's renderSessionItems consumes, with native summary roles preserved.
 //   - live streaming from the worker RPC event log (events.jsonl): partial
@@ -27,7 +97,7 @@ import type { AssistantMessage } from "@earendil-works/pi-ai";
 //     partialResult and result details (including nested Fabric tool audits),
 //     and entry_appended folding for extension session entries.
 //
-// Sources: either the native Pi session JSONL (preferred full history), the
+// Sources: either the native OMP session JSONL (preferred full history), the
 // worker run events.jsonl (surfaced by the agents.log API), or both. Retained
 // actor runs work in all shapes: a persistent session file, a retained
 // events.jsonl (--no-session runs keep their whole history in events only), or
@@ -53,10 +123,10 @@ export interface NativeConversationSource {
   /**
    * FabricTranscriptSource-compatible path: the active worker's or latest
    * retained run's events.jsonl (RPC event log) — or, retained-actor fallback,
-   * a native Pi session file.
+   * a native OMP session file.
    */
   logFile?: string;
-  /** Stable native Pi session file, preferred as the full history source. */
+  /** Stable native OMP session file, preferred as the full history source. */
   sessionFile?: string;
   /** Explicit events.jsonl override; wins over logFile when both are given. */
   eventsFile?: string;
@@ -131,6 +201,7 @@ const OLDER_PAGE_BYTES = 256 * 1024;
 const GROWTH_PAGE_BYTES = 1024 * 1024;
 const MAX_PAGE_BYTES = 64 * 1024 * 1024;
 const CLASSIFY_PROBE_BYTES = 4096;
+const SESSION_CLASSIFY_SCAN_LINES = 8;
 const MAX_ERROR_CHARS = 200;
 
 const emptyUsage = (): AssistantMessage["usage"] => ({
@@ -328,11 +399,13 @@ const classifyFile = (filePath: string): FileKind | "unreadable" => {
     const buffer = Buffer.allocUnsafe(Math.max(1, Math.min(CLASSIFY_PROBE_BYTES, stat.size)));
     const bytesRead = fs.readSync(descriptor, buffer, 0, buffer.length, 0);
     const head = buffer.subarray(0, Math.max(0, bytesRead)).toString("utf8");
-    const firstLine = head.split("\n", 1)[0] ?? "";
-    const parsed = parseRecord(firstLine);
-    // Native session files start with a {"type":"session",...} header; worker
-    // events.jsonl streams start with RPC events (agent_start, response, …).
-    return parsed?.type === "session" ? "session" : "events";
+    for (const line of head.split("\n").slice(0, SESSION_CLASSIFY_SCAN_LINES)) {
+      const parsed = parseRecord(line);
+      if (!parsed) continue;
+      if (parsed.type === "session") return "session";
+      if (parsed.type !== "title") break;
+    }
+    return "events";
   } catch {
     return "unreadable";
   } finally {
@@ -708,7 +781,7 @@ export class NativeConversationReader {
             ...message,
             content: message.content.map((part) => ({ ...part })),
             usage: message.usage ?? emptyUsage(),
-            stopReason: message.stopReason && message.stopReason !== "pending" ? message.stopReason : "pending",
+            stopReason: message.stopReason ?? "stop",
           };
         } else {
           this.#foldMessage(message);
@@ -811,7 +884,7 @@ export class NativeConversationReader {
         provider: "",
         model: "",
         usage: emptyUsage(),
-        stopReason: "pending",
+        stopReason: "stop",
         timestamp: Date.now(),
       };
     }
@@ -908,15 +981,12 @@ export class NativeConversationReader {
     // retained runs keep their whole tree in the events stream).
     const leafId = this.#sessionLeafId ?? this.#eventLeafId ?? null;
     const pathComplete = leafId !== null && this.#pathReachesRoot(leafId);
-    const historyComplete =
-      !hasMore && pathComplete && (sessionWindow?.head ?? 0) === 0 && (eventsWindow?.head ?? 0) === 0;
-
-    // Display projection identical to interactive-mode renderSessionItems:
-    // compaction-applied active branch, each native entry projected with
-    // sessionEntryToContextMessages (compaction → compactionSummary,
-    // branch_summary → branchSummary, custom_message → CustomMessage).
+    const historyComplete = !hasMore && pathComplete
+      && (sessionWindow?.head ?? 0) === 0
+      && (eventsWindow?.head ?? 0) === 0;
+    const activeEntries = leafId !== null ? buildContextEntries(this.#entries, leafId, this.#byId) : [];
     const sessionMessages = leafId !== null
-      ? buildContextEntries(this.#entries, leafId, this.#byId).flatMap(sessionEntryToContextMessages)
+      ? buildSessionContext(this.#entries, leafId, this.#byId).messages
       : [];
     // Persisted entries remain authoritative even when compaction or a fork
     // removes them from the active display. Never resurrect their RPC copies.
@@ -930,7 +1000,7 @@ export class NativeConversationReader {
     const messages = [...sessionMessages, ...streamed];
 
     const entries = leafId !== null
-      ? buildContextEntries(this.#entries, leafId, this.#byId).map((entry) => ({
+      ? activeEntries.map((entry) => ({
         entryId: entry.id,
         parentId: entry.parentId,
         entryType: entry.type,

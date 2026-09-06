@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import type {
   ExtensionAPI,
   ExtensionContext,
-} from "@earendil-works/pi-coding-agent";
+} from "@oh-my-pi/pi-coding-agent";
 import type { FabricPrewalkMode, FabricResultFormat } from "../config.js";
 import {
   NESTED_TOOL_CALL_ID_PREFIX,
@@ -62,9 +62,9 @@ const PREWALK_FAILURE_PROMPT = [
   "The task stays re-armed where applicable; wait for the user's direction instead of redoing anything yourself.",
 ].join(" ");
 
-export const PREWALK_ARMED_MESSAGE_TYPE = "pi-fabric-prewalk-armed";
-const PREWALK_FAILURE_MESSAGE_TYPE = "pi-fabric-prewalk-failure";
-const PREWALK_CONTINUE_MESSAGE_TYPE = "pi-fabric-prewalk-continue";
+export const PREWALK_ARMED_MESSAGE_TYPE = "omp-fabric-prewalk-armed";
+const PREWALK_FAILURE_MESSAGE_TYPE = "omp-fabric-prewalk-failure";
+const PREWALK_CONTINUE_MESSAGE_TYPE = "omp-fabric-prewalk-continue";
 
 // Hidden boundary follow-ups queue best-effort after the handoff settles: the
 // persisted boundary result stays authoritative, so a missed turn must never
@@ -135,7 +135,7 @@ export const filterPrewalkContinuationMessages = <Message>(
 // be captured as the next prewalk task and never triggers a turn by itself.
 export const prewalkArmedPrompt = (mode: FabricPrewalkMode, model: string): string =>
   [
-    `Prewalk armed → ${model} (${mode}): the first successful pi.edit / pi.write / schema.commit — or file changes produced by shell commands — inside fabric_exec hands off to the executor automatically; ${
+    `Prewalk armed → ${model} (${mode}): the first successful omp.edit / omp.write / schema.commit — or file changes produced by shell commands — inside fabric_exec hands off to the executor automatically; ${
       mode === "trajectory"
         ? "the executor takes over the implementation there, and a hidden follow-up asks you to verify its work and summarize when it finishes."
         : `this session switches to ${model} and keeps working.`
@@ -205,7 +205,7 @@ export interface PendingFabricHandoff {
 // prewalk.detectShellWrites is enabled (the fs-drift fallback claims them).
 const TRAJECTORY_REARM_DIRECTIVE = [
   "Prewalk handoff completed — the executor's result above is final; don't redo it.",
-  "Prewalk re-armed: on the next request, restate remaining steps (skip if trivial), then make changes via pi.edit / pi.write or shell file changes in fabric_exec to hand off again.",
+  "Prewalk re-armed: on the next request, restate remaining steps (skip if trivial), then make changes via omp.edit / omp.write or shell file changes in fabric_exec to hand off again.",
   "A hidden follow-up turn verifies the executor's work and summarizes; keep any fixes scoped to what verification fails.",
 ].join("\n");
 
@@ -257,8 +257,8 @@ export const claimFabricHandoff = (
 };
 
 // Filesystem-fallback claim path (PREWALK_FS_DRIFT_REF): reached when an armed
-// session ran a successful Pi shell call inside the program but no audited pi.edit /
-// pi.write / schema.commit fired — heredocs, sed -i, formatter binaries. The
+// session ran a successful OMP shell call inside the program but no audited omp.edit /
+// omp.write / schema.commit fired — heredocs, sed -i, formatter binaries. The
 // rest of the boundary pipeline (in-place switch or trajectory fork) is
 // identical; only the trigger evidence differs.
 export const claimFabricFsDriftHandoff = (
@@ -333,7 +333,7 @@ const runInPlacePrewalk = async (
   context.ui.setStatus("fabric-prewalk", `switching Main → ${modelKey}`);
   const model = modelForKey(modelKey, context);
   // Snapshot the pre-switch reasoning channel and branch. In-place handoff
-  // cannot rewrite Pi's ground-truth log, so foreign thinking stays
+  // cannot rewrite OMP's ground-truth log, so foreign thinking stays
   // unreplayable for the new model; bridge continuity with the bounded digest.
   const sourceModel = context.model
     ? {
@@ -556,7 +556,7 @@ export const runFabricHandoffAtBoundary = async (
     );
     const invocation: FabricInvocationContext = {
       cwd: context.cwd,
-      signal: context.signal,
+      signal: undefined,
       parentToolCallId: outerToolResult.toolCallId,
       nestedToolCallId: pending.audit.nestedToolCallId,
       extensionContext: context,

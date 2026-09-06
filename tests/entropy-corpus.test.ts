@@ -12,7 +12,7 @@ import type { FabricExecutionTraceV1 } from "../src/audit/trace.js";
 import type { CatalogRepair } from "../src/repairs/types.js";
 
 const fabricTrace = (phases: string[]): FabricExecutionTraceV1 => ({
-  kind: "pi-fabric.execution",
+  kind: "omp-fabric.execution",
   version: 1,
   outcome: "succeeded",
   phases,
@@ -20,14 +20,14 @@ const fabricTrace = (phases: string[]): FabricExecutionTraceV1 => ({
     {
       type: "call",
       sequence: 0,
-      ref: "pi.read",
+      ref: "omp.read",
       args: { path: "src/a.ts", limit: 10 },
       outcome: "succeeded",
     },
     {
       type: "call",
       sequence: 1,
-      ref: "pi.bash",
+      ref: "omp.bash",
       args: { command: "ls" },
       outcome: "failed",
       failureStage: "invoke",
@@ -43,7 +43,7 @@ describe("entropyTraceFromFabricTrace", () => {
     expect(mapped.taskKey).toBe("build");
     expect(mapped.operations).toHaveLength(2);
     expect(mapped.operations[1]).toMatchObject({
-      ref: "pi.bash",
+      ref: "omp.bash",
       outcome: "failed",
       failureStage: "invoke",
     });
@@ -111,7 +111,7 @@ describe("entropyAuditCallsFromSessionJsonl", () => {
           details: {
             trace: fabricTrace(["build"]),
             audits: [
-              { ref: "pi.read", args: { path: "src/a.ts", limit: 10 } },
+              { ref: "omp.read", args: { path: "src/a.ts", limit: 10 } },
               { ref: "mcp.render", args: { format: "pdf" } },
               "not a record",
               { ref: 5, args: {} },
@@ -122,7 +122,7 @@ describe("entropyAuditCallsFromSessionJsonl", () => {
       }),
     ];
     expect(entropyAuditCallsFromSessionJsonl(lines)).toEqual([
-      { ref: "pi.read", args: { path: "src/a.ts", limit: 10 } },
+      { ref: "omp.read", args: { path: "src/a.ts", limit: 10 } },
       { ref: "mcp.render", args: { format: "pdf" } },
     ]);
   });
@@ -163,7 +163,7 @@ describe("entropyValueObservationsFromSessionJsonl", () => {
   it("extracts verbatim audit values for an explicitly marked enum candidate", () => {
     const formats = ["pdf", "pdf", "pdf", "pdf", "pdf", "pdf", "pdf", "html"];
     const envelope: FabricExecutionTraceV1 = {
-      kind: "pi-fabric.execution",
+      kind: "omp-fabric.execution",
       version: 1,
       outcome: "succeeded",
       phases: ["build"],

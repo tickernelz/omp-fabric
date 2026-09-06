@@ -1,11 +1,11 @@
 import type {
   SessionEntry,
   SessionMessageEntry,
-} from "@earendil-works/pi-coding-agent";
+} from "@oh-my-pi/pi-coding-agent";
 
 // Cross-model thinking transfer for trajectory handoffs.
 //
-// Pi replays stored thinking blocks verbatim per provider: a Codex Responses
+// OMP replays stored thinking blocks verbatim per provider: a Codex Responses
 // reasoning item rides as a provider-shaped `thinkingSignature` blob, and the
 // OpenAI-completions transform (pi-ai) uses that blob as the *request field
 // name* when the history is handed to a different provider — landing prior
@@ -134,7 +134,7 @@ export const translateThinkingForExecutor = (
   return { entries: clone, report: { policy, translated, dropped } };
 };
 
-export const THINKING_DIGEST_CUSTOM_TYPE = "pi-fabric-handoff-thinking";
+export const THINKING_DIGEST_CUSTOM_TYPE = "omp-fabric-handoff-thinking";
 
 const MAX_DIGEST_BLOCKS = 8;
 const MAX_DIGEST_LINE = 80;

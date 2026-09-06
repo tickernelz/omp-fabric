@@ -6,7 +6,7 @@ import { removeTree } from "../src/agents/rm.js";
 
 describe("removeTree", () => {
   it("removes a directory tree", async () => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-rm-"));
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-rm-"));
     fs.mkdirSync(path.join(dir, "nested", "deep"), { recursive: true });
     fs.writeFileSync(path.join(dir, "nested", "deep", "file.txt"), "x");
     await removeTree(dir);
@@ -14,7 +14,7 @@ describe("removeTree", () => {
   });
 
   it("retries on transient ENOTEMPTY and then succeeds", async () => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-rm-"));
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-rm-"));
     fs.mkdirSync(path.join(dir, "nested"), { recursive: true });
     fs.writeFileSync(path.join(dir, "nested", "file.txt"), "x");
     let calls = 0;

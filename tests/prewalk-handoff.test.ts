@@ -2,7 +2,7 @@ import {
   SessionManager,
   type ExtensionAPI,
   type ExtensionContext,
-} from "@earendil-works/pi-coding-agent";
+} from "@oh-my-pi/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
 import type { AgentToolResultMessage } from "../src/agents/types.js";
 import type { FabricExecutionResult } from "../src/execution-service.js";
@@ -25,7 +25,7 @@ const execution = (): FabricExecutionResult => ({
   logs: [],
   audits: [
     {
-      ref: "pi.read",
+      ref: "omp.read",
       nestedToolCallId: "read",
       startedAt: 1,
       endedAt: 2,
@@ -34,7 +34,7 @@ const execution = (): FabricExecutionResult => ({
       result: "source",
     },
     {
-      ref: "pi.edit",
+      ref: "omp.edit",
       nestedToolCallId: "edit-one",
       startedAt: 3,
       endedAt: 4,
@@ -43,7 +43,7 @@ const execution = (): FabricExecutionResult => ({
       result: { ok: true },
     },
     {
-      ref: "pi.write",
+      ref: "omp.write",
       nestedToolCallId: "edit-two",
       startedAt: 5,
       endedAt: 6,
@@ -54,7 +54,7 @@ const execution = (): FabricExecutionResult => ({
   ],
   phases: [],
   trace: {
-    kind: "pi-fabric.execution",
+    kind: "omp-fabric.execution",
     version: 1,
     outcome: "succeeded",
     counts: {
@@ -89,7 +89,7 @@ const context = () => {
       type: "toolCall",
       id: "outer",
       name: "fabric_exec",
-      arguments: { code: "await pi.edit(...); return 'complete outer result';" },
+      arguments: { code: "await omp.edit(...); return 'complete outer result';" },
     }],
     api: "anthropic",
     provider: "anthropic",
@@ -150,7 +150,7 @@ const bashExecution = (): FabricExecutionResult => ({
   ...execution(),
   audits: [
     {
-      ref: "pi.bash",
+      ref: "omp.bash",
       nestedToolCallId: "bash-one",
       startedAt: 1,
       endedAt: 2,
@@ -173,15 +173,15 @@ describe("outer-boundary Prewalk", () => {
     const pending = claimFabricHandoff(controller, run, "session-1", "json");
 
     expect(run.audits.map((audit) => audit.ref)).toEqual([
-      "pi.read",
-      "pi.edit",
-      "pi.write",
+      "omp.read",
+      "omp.edit",
+      "omp.write",
       "fabric.prewalk",
     ]);
     expect(pending).toMatchObject({
       kind: "prewalk-in-place",
       args: { model: "anthropic/executor", task: "Implement the guard" },
-      triggerRef: "pi.edit",
+      triggerRef: "omp.edit",
     });
 
     const ctx = context();
@@ -206,7 +206,7 @@ describe("outer-boundary Prewalk", () => {
     );
     expect(ext.sendMessage).toHaveBeenCalledWith(
       expect.objectContaining({
-        customType: "pi-fabric-prewalk-continue",
+        customType: "omp-fabric-prewalk-continue",
         display: false,
         content: expect.stringContaining("Continue the existing task"),
         details: expect.objectContaining({
@@ -221,7 +221,7 @@ describe("outer-boundary Prewalk", () => {
       mode: "in-place",
       continued: true,
       status: "continued",
-      trigger: { ref: "pi.edit" },
+      trigger: { ref: "omp.edit" },
     });
     expect(activity).toHaveBeenCalledWith(expect.objectContaining({ type: "progress" }));
     expect(controller.status()).toMatchObject({
@@ -258,7 +258,7 @@ describe("outer-boundary Prewalk", () => {
       ctx.value,
     );
     const continuation = ext.sendMessage.mock.calls.find(
-      ([message]) => message.customType === "pi-fabric-prewalk-continue",
+      ([message]) => message.customType === "omp-fabric-prewalk-continue",
     )?.[0] as { details: { continuationId: string } };
 
     expect(controller.acceptContinuation("session-1", "stale-id")).toBe(false);
@@ -307,11 +307,11 @@ describe("outer-boundary Prewalk", () => {
       ctx.value,
     );
     const continuation = ext.sendMessage.mock.calls.find(
-      ([message]) => message.customType === "pi-fabric-prewalk-continue",
+      ([message]) => message.customType === "omp-fabric-prewalk-continue",
     )?.[0] as { details: { continuationId: string } };
     const stale = {
       role: "custom",
-      customType: "pi-fabric-prewalk-continue",
+      customType: "omp-fabric-prewalk-continue",
       content: "stale",
       details: { mode: "in-place", continuationId: "stale-id" },
     };
@@ -330,9 +330,9 @@ describe("outer-boundary Prewalk", () => {
   it("keeps trajectory continuation prompts out of the in-place identity filter", () => {
     const trajectory = {
       role: "custom",
-      customType: "pi-fabric-prewalk-continue",
+      customType: "omp-fabric-prewalk-continue",
       content: "Prewalk trajectory handoff complete: verify and summarize.",
-      details: { mode: "trajectory", model: "anthropic/executor", trigger: "pi.edit" },
+      details: { mode: "trajectory", model: "anthropic/executor", trigger: "omp.edit" },
     };
 
     const result = filterPrewalkContinuationMessages([trajectory], () => {
@@ -362,7 +362,7 @@ describe("outer-boundary Prewalk", () => {
       ctx.value,
     );
     const continuation = ext.sendMessage.mock.calls.find(
-      ([message]) => message.customType === "pi-fabric-prewalk-continue",
+      ([message]) => message.customType === "omp-fabric-prewalk-continue",
     )?.[0] as { details: { continuationId: string } };
     controller.acceptContinuation("session-1", continuation.details.continuationId);
     ctx.value.model = ctx.target as typeof ctx.value.model;
@@ -413,7 +413,7 @@ describe("outer-boundary Prewalk", () => {
       ctx.value,
     );
     const continuation = ext.sendMessage.mock.calls.find(
-      ([message]) => message.customType === "pi-fabric-prewalk-continue",
+      ([message]) => message.customType === "omp-fabric-prewalk-continue",
     )?.[0] as { details: { continuationId: string } };
     controller.acceptContinuation("session-1", continuation.details.continuationId);
     ctx.value.model = ctx.target as typeof ctx.value.model;
@@ -456,7 +456,7 @@ describe("outer-boundary Prewalk", () => {
       ctx.value,
     );
     const continuation = ext.sendMessage.mock.calls.find(
-      ([message]) => message.customType === "pi-fabric-prewalk-continue",
+      ([message]) => message.customType === "omp-fabric-prewalk-continue",
     )?.[0] as { details: { continuationId: string } };
     controller.acceptContinuation("session-1", continuation.details.continuationId);
     ctx.value.model = ctx.target as typeof ctx.value.model;
@@ -488,7 +488,7 @@ describe("outer-boundary Prewalk", () => {
         ctx.value,
       );
       const continuation = ext.sendMessage.mock.calls
-        .filter(([message]) => message.customType === "pi-fabric-prewalk-continue")
+        .filter(([message]) => message.customType === "omp-fabric-prewalk-continue")
         .at(-1)?.[0] as { details: { continuationId: string; returnModel: string } };
       expect(controller.acceptContinuation(
         "session-1",
@@ -518,7 +518,7 @@ describe("outer-boundary Prewalk", () => {
       [ctx.nextMainModel],
     ]);
     expect(ext.sendMessage.mock.calls.filter(
-      ([message]) => message.customType === "pi-fabric-prewalk-continue",
+      ([message]) => message.customType === "omp-fabric-prewalk-continue",
     )).toHaveLength(2);
   });
 
@@ -578,7 +578,7 @@ describe("outer-boundary Prewalk", () => {
       ctx.value,
     );
     const continuation = ext.sendMessage.mock.calls.find(
-      ([message]) => message.customType === "pi-fabric-prewalk-continue",
+      ([message]) => message.customType === "omp-fabric-prewalk-continue",
     )?.[0] as { details: { continuationId: string } };
     controller.acceptContinuation("session-1", continuation.details.continuationId);
     ctx.value.model = ctx.target as typeof ctx.value.model;
@@ -621,18 +621,18 @@ describe("outer-boundary Prewalk", () => {
 
     expect(result).toMatchObject({ status: "failed", continued: false });
     expect(ext.sendMessage).not.toHaveBeenCalledWith(
-      expect.objectContaining({ customType: "pi-fabric-prewalk-continue" }),
+      expect.objectContaining({ customType: "omp-fabric-prewalk-continue" }),
       expect.anything(),
     );
     expect(ext.sendMessage).toHaveBeenCalledTimes(1);
     expect(ext.sendMessage).toHaveBeenCalledWith(
       expect.objectContaining({
-        customType: "pi-fabric-prewalk-failure",
+        customType: "omp-fabric-prewalk-failure",
         display: false,
         content: expect.stringContaining("at this boundary failed"),
         details: expect.objectContaining({
           mode: "in-place",
-          trigger: "pi.edit",
+          trigger: "omp.edit",
           error: expect.stringContaining("No authentication"),
         }),
       }),
@@ -683,7 +683,7 @@ describe("outer-boundary Prewalk", () => {
           type: "toolCall",
           id: "outer",
           name: "fabric_exec",
-          arguments: { code: "await pi.edit(...); return 'complete outer result';" },
+          arguments: { code: "await omp.edit(...); return 'complete outer result';" },
         },
       ],
       api: "openai-responses",
@@ -731,7 +731,7 @@ describe("outer-boundary Prewalk", () => {
     expect(ext.sendMessage).toHaveBeenCalledTimes(2);
     const digestCall = ext.sendMessage.mock.calls[0];
     expect(digestCall?.[0]).toMatchObject({
-      customType: "pi-fabric-handoff-thinking",
+      customType: "omp-fabric-handoff-thinking",
       display: false,
       details: expect.objectContaining({
         mode: "in-place",
@@ -744,10 +744,10 @@ describe("outer-boundary Prewalk", () => {
     expect(String(digestCall?.[0].content)).toContain("Plan the guard");
     expect(digestCall?.[1]).toEqual({ deliverAs: "followUp" });
     expect(ext.sendMessage.mock.calls[1]?.[0]).toMatchObject({
-      customType: "pi-fabric-prewalk-continue",
+      customType: "omp-fabric-prewalk-continue",
     });
     expect(result).toMatchObject({ mode: "in-place", status: "continued" });
-    // The digest is context-only: Pi's ground-truth log above is untouched.
+    // The digest is context-only: OMP's ground-truth log above is untouched.
     expect(
       JSON.stringify(source.getBranch()).includes("reasoning_content"),
     ).toBe(false);
@@ -829,7 +829,7 @@ describe("outer-boundary Prewalk", () => {
     });
     expect(ext.sendMessage).toHaveBeenCalledWith(
       expect.objectContaining({
-        customType: "pi-fabric-prewalk-continue",
+        customType: "omp-fabric-prewalk-continue",
         display: false,
         content: expect.stringContaining("do not redo it"),
         details: expect.objectContaining({ mode: "trajectory" }),
@@ -837,11 +837,11 @@ describe("outer-boundary Prewalk", () => {
       { deliverAs: "followUp", triggerTurn: true },
     );
     const verifyCall = ext.sendMessage.mock.calls.find(
-      ([message]) => message.customType === "pi-fabric-prewalk-continue",
+      ([message]) => message.customType === "omp-fabric-prewalk-continue",
     );
     expect(String(verifyCall?.[0]?.content)).toContain("verbatim");
     expect(ext.sendMessage).not.toHaveBeenCalledWith(
-      expect.objectContaining({ customType: "pi-fabric-prewalk-failure" }),
+      expect.objectContaining({ customType: "omp-fabric-prewalk-failure" }),
       expect.anything(),
     );
     expect(ctx.setStatus).toHaveBeenLastCalledWith(
@@ -880,13 +880,13 @@ describe("outer-boundary Prewalk", () => {
 
     expect(result).toMatchObject({ prewalk: true, mode: "trajectory", completed: false });
     expect(ext.sendMessage).not.toHaveBeenCalledWith(
-      expect.objectContaining({ customType: "pi-fabric-prewalk-continue" }),
+      expect.objectContaining({ customType: "omp-fabric-prewalk-continue" }),
       expect.anything(),
     );
     expect(ext.sendMessage).toHaveBeenCalledTimes(1);
     expect(ext.sendMessage).toHaveBeenCalledWith(
       expect.objectContaining({
-        customType: "pi-fabric-prewalk-failure",
+        customType: "omp-fabric-prewalk-failure",
         display: false,
         content: expect.stringContaining("without completing"),
         details: expect.objectContaining({
@@ -894,7 +894,7 @@ describe("outer-boundary Prewalk", () => {
           model: "anthropic/executor",
           status: "failed",
           error: "child crashed",
-          trigger: "pi.edit",
+          trigger: "omp.edit",
         }),
       }),
       { deliverAs: "followUp", triggerTurn: true },
@@ -935,7 +935,7 @@ describe("outer-boundary Prewalk", () => {
     });
     expect(ext.sendMessage).toHaveBeenCalledWith(
       expect.objectContaining({
-        customType: "pi-fabric-prewalk-failure",
+        customType: "omp-fabric-prewalk-failure",
         content: expect.stringContaining("at this boundary failed"),
         details: expect.objectContaining({
           mode: "trajectory",
@@ -1136,7 +1136,7 @@ describe("prewalkArmedPrompt", () => {
   it("describes the trajectory boundary for Main", () => {
     const text = prewalkArmedPrompt("trajectory", "anthropic/executor");
     expect(text).toContain("anthropic/executor (trajectory)");
-    expect(text).toContain("pi.edit / pi.write / schema.commit");
+    expect(text).toContain("omp.edit / omp.write / schema.commit");
     expect(text).toContain("the executor takes over the implementation there, and a hidden follow-up asks you to verify its work and summarize when it finishes.");
     expect(text).toContain("restate the remaining steps before your first edit");
   });
@@ -1196,7 +1196,7 @@ describe("withTrajectoryRearmDirective", () => {
     const text = withTrajectoryRearmDirective("OUTPUT", pending, { completed: true }, controller, "session-1");
     expect(text.startsWith("OUTPUT\n\n")).toBe(true);
     expect(text).toContain("result above is final");
-    expect(text).toContain("pi.edit / pi.write or shell file changes in fabric_exec to hand off again");
+    expect(text).toContain("omp.edit / omp.write or shell file changes in fabric_exec to hand off again");
     expect(text).toContain("keep any fixes scoped to what verification fails.");
   });
 
@@ -1246,7 +1246,7 @@ describe("filesystem-drift prewalk claims", () => {
       "json",
     );
 
-    expect(run.audits.map((audit) => audit.ref)).toEqual(["pi.bash", "fabric.prewalk"]);
+    expect(run.audits.map((audit) => audit.ref)).toEqual(["omp.bash", "fabric.prewalk"]);
     expect(pending).toMatchObject({
       kind: "prewalk-in-place",
       args: { model: "anthropic/executor", task: "Implement the guard" },

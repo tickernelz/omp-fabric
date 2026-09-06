@@ -6,7 +6,7 @@ import {
   type EntropySurfaceRegistry,
 } from "../src/entropy/index.js";
 import type { FabricInvocationContext } from "../src/protocol.js";
-import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 
 const schemaOf = (kind: "free" | "enum" | "const"): unknown =>
   kind === "free"

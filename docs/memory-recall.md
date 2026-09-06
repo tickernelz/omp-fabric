@@ -1,6 +1,6 @@
 # Memory & Recall
 
-Pi Fabric's `memory` provider searches Pi session JSONL files. Session JSONL
+OMP Fabric's `memory` provider searches OMP session JSONL files. Session JSONL
 forms the source of truth. The memory index holds derived, disposable state.
 
 Structural extraction is the only indexing method. Regexes never classify
@@ -21,7 +21,7 @@ Treat recall as navigation and expansion as reading:
    or traverse complete normalized records.
 
 These calls are the supported session-data API. Consumers should not open,
-scan, or parse Pi session files themselves. Follow calls carry source hashes and
+scan, or parse OMP session files themselves. Follow calls carry source hashes and
 selected lineages without duplicating that integrity metadata on each hit;
 single-session page continuations preserve the same bindings. Coverage explains
 when indexed absence is not authoritative.
@@ -40,7 +40,7 @@ mode; recall follow calls preserve it.
 For the current live session, every memory action calls the extension
 context's live `SessionManager.getBranch()` and `getLeafId()` getters.
 These live reads observe `/tree` navigation even when no new record has
-been appended. For another persisted session, Fabric follows Pi 0.80.6's
+been appended. For another persisted session, Fabric follows the OMP host's
 persisted semantics. The last persisted non-header entry serves as the
 leaf, duplicate IDs resolve to the last record in the ID map, and Fabric
 walks `parentId` links from that leaf to a root. Append order never counts as one transcript. When a parent
@@ -125,8 +125,8 @@ intact.
 
 `memory.recall` accepts exact structural filters:
 
-- `ref`, for example `pi.grep`.
-- `provider`, for example `pi`.
+- `ref`, for example `omp.grep`.
+- `provider`, for example `omp`.
 - `action`, for example `grep`.
 - `outcome`: one of `succeeded | failed | aborted | timed_out`.
 - the existing `role`, `tool`, `since`, and `until` filters.
@@ -284,7 +284,7 @@ or regex limits.
 | Scope | Meaning |
 | --- | --- |
 | `session` | The current session, or the newest session for the current cwd. |
-| `project` | All sessions in the current cwd's Pi session directory. |
+| `project` | All sessions in the current cwd's OMP session directory. |
 | `global` | Sessions under the agent directory. This scope requires an explicit request and can never be the default. |
 | `session:<id-or-path>` | One source session, resolved explicitly without promotion. |
 
@@ -424,7 +424,7 @@ const operation = await memory.expand({
 ```
 
 Expansion results use `entries`. Recall and expansion both call the capability
-field `tool`. Expanded records include Pi's `parentId`, so code can reconstruct
+field `tool`. Expanded records include OMP's `parentId`, so code can reconstruct
 branch relationships under `branches: "all"`; `parentEntryId` remains the
 separate carrier link for extracted Fabric child records.
 
@@ -483,7 +483,7 @@ This is the Python replacement boundary: the host supplies bounded search and
 lossless normalized records; the fabric program supplies callbacks, maps,
 sets, joins, reductions, and the small final `return`. Do not add JSONPath,
 SQL, projection, grouping, or host-evaluated predicate fields, and do not open
-Pi session JSONL directly.
+OMP session JSONL directly.
 
 During recall follow calls and expansion, Fabric compares the expected source
 hash and lineage fingerprint with the selected live or persisted session. A
@@ -533,13 +533,13 @@ part.
 Fabric requests `0700` for cache directories and `0600` for cache files.
 These permissions are best effort and inherit the host filesystem, account,
 backup, and administrative trust model. The cache stays unencrypted. Fabric
-reads project configuration only for a project that Pi has marked trusted.
+reads project configuration only for a project that OMP has marked trusted.
 Otherwise, only global Fabric configuration applies. A `global` memory
 search is an explicit scope, never the default. Under that explicit scope,
 global indexing still creates local derived records for the sessions that
 the call selects.
 
-Deleting a Pi session removes the source of truth. A later memory refresh
+Deleting an OMP session removes the source of truth. A later memory refresh
 removes the orphaned cache records on a best-effort basis. When immediate
 cache removal is required, delete the configured `memory.indexDir` as
 well.
@@ -572,7 +572,7 @@ The synthetic timing corpus covers the measured search paths.
 {
   "memory": {
     "enabled": true,
-    "indexDir": "~/.pi/agent/fabric/memory-index",
+    "indexDir": "<active OMP agent dir>/fabric/memory-index",
     "maxSessions": 500,
     "maxEntryChars": 2000,
     "indexThinking": false,

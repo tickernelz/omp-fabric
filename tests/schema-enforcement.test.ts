@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { CapturedToolCatalog } from "../src/capture/catalog.js";
 import { DEFAULT_FABRIC_CONFIG, type FabricSchemaMode } from "../src/config.js";
@@ -10,7 +10,7 @@ import { ActionRegistry } from "../src/core/action-registry.js";
 import { FabricExecutionService } from "../src/execution-service.js";
 import { FabricState } from "../src/fabric-state.js";
 import { MeshStore, type MeshIdentity } from "../src/mesh/store.js";
-import { PiToolsProvider } from "../src/providers/pi-tools-provider.js";
+import { OmpToolsProvider } from "../src/providers/omp-tools-provider.js";
 import { SchemaProvider } from "../src/providers/schema-provider.js";
 import type { FabricInvocationContext, FabricProvider } from "../src/protocol.js";
 import { SchemaController } from "../src/schema/controller.js";
@@ -24,9 +24,9 @@ const sha = (value: string): string =>
   `sha256:${createHash("sha256").update(value).digest("hex")}`;
 
 const fixture = (mode: FabricSchemaMode = "enforce", ttl = 30_000) => {
-  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-schema-workspace-"));
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-schema-workspace-"));
   roots.push(cwd);
-  const mesh = new MeshStore(path.join(cwd, ".pi", "fabric", "mesh"), 256 * 1024, 500);
+  const mesh = new MeshStore(path.join(cwd, ".omp", "fabric", "mesh"), 256 * 1024, 500);
   const config = { ...structuredClone(DEFAULT_FABRIC_CONFIG.schema), mode, certificateTtlMs: ttl };
   const state = new StateStore(mesh);
   const controller = new SchemaController(cwd, config, mesh, identity, state);
@@ -64,11 +64,12 @@ const hypothesisAndCertificate = async (
 const runService = async (mode: FabricSchemaMode, code: string, provider?: FabricProvider) => {
   const setup = fixture(mode);
   const registry = new ActionRegistry();
-  registry.register(new PiToolsProvider(setup.cwd));
+  registry.register(await OmpToolsProvider.create(setup.cwd));
   registry.register(new SchemaProvider(setup.controller));
   if (provider) registry.register(provider);
   const config = structuredClone(DEFAULT_FABRIC_CONFIG);
   config.schema.mode = mode;
+  config.fullCodeMode = true;
   config.approvals.read = "allow";
   config.approvals.write = "allow";
   config.approvals.execute = "allow";
@@ -355,7 +356,7 @@ describe("Schema transactions", () => {
   it("fails preconditions, rejects path and symlink escapes, and leaves the certificate unconsumed before mutation", async () => {
     const setup = fixture();
     fs.writeFileSync(path.join(setup.cwd, "a.txt"), "alpha\n");
-    const outside = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-schema-outside-"));
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-schema-outside-"));
     roots.push(outside);
     fs.writeFileSync(path.join(outside, "secret.txt"), "secret");
     fs.symlinkSync(path.join(outside, "secret.txt"), path.join(setup.cwd, "link.txt"));
@@ -586,27 +587,27 @@ describe("Schema central gate", () => {
   });
 
   it("preserves direct mutation in off mode and allows with would-block reporting in audit mode", async () => {
-    const off = await runService("off", 'return pi.write({ path: "off.txt", content: "off" });');
+    const off = await runService("off", 'return omp.write({ path: "off.txt", content: "off" });');
     expect(off.result.success).toBe(true);
     expect(fs.readFileSync(path.join(off.setup.cwd, "off.txt"), "utf8")).toBe("off");
 
-    const audit = await runService("audit", 'return pi.write({ path: "audit.txt", content: "audit" });');
+    const audit = await runService("audit", 'return omp.write({ path: "audit.txt", content: "audit" });');
     expect(audit.result.success).toBe(true);
     expect(fs.readFileSync(path.join(audit.setup.cwd, "audit.txt"), "utf8")).toBe("audit");
     expect(audit.setup.mesh.read({ topic: "fabric.schema" }).some((event) => event.kind === "would_block")).toBe(true);
   });
 
   it("blocks direct and computed generic mutation with typed guard failures while allowing exact reads", async () => {
-    const direct = await runService("enforce", 'return pi.write({ path: "blocked.txt", content: "x" });');
+    const direct = await runService("enforce", 'return omp.write({ path: "blocked.txt", content: "x" });');
     expect(direct.result.success).toBe(false);
-    expect(direct.result.trace.operations[0]).toMatchObject({ ref: "pi.write", failureStage: "guard" });
+    expect(direct.result.trace.operations[0]).toMatchObject({ ref: "omp.write", failureStage: "guard" });
     expect(fs.existsSync(path.join(direct.setup.cwd, "blocked.txt"))).toBe(false);
 
-    const generic = await runService("enforce", 'const ref = ["pi", "write"].join("."); return tools.call({ ref, args: { path: "blocked.txt", content: "x" } });');
+    const generic = await runService("enforce", 'const ref = ["omp", "write"].join("."); return tools.call({ ref, args: { path: "blocked.txt", content: "x" } });');
     expect(generic.result.success).toBe(false);
-    expect(generic.result.trace.operations[0]).toMatchObject({ ref: "pi.write", failureStage: "guard" });
+    expect(generic.result.trace.operations[0]).toMatchObject({ ref: "omp.write", failureStage: "guard" });
 
-    const read = await runService("enforce", 'return pi.ls({ path: "." });');
+    const read = await runService("enforce", 'return omp.ls({ path: "." });');
     expect(read.result.success).toBe(true);
   });
 
@@ -631,7 +632,7 @@ describe("Schema central gate", () => {
     expect(fs.existsSync(path.join(setup.cwd, "bypass.txt"))).toBe(false);
   });
 
-  it("retains independent schema.commit grants for the Pi session", async () => {
+  it("retains independent schema.commit grants for the OMP session", async () => {
     const setup = fixture("off");
     const registry = new ActionRegistry();
     registry.register({

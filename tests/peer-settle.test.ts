@@ -15,7 +15,7 @@ const peer = (
   name: `Peer ${id.slice(0, 8)}`,
   kind: "peer",
   status: "idle",
-  runner: "pi",
+  runner: "omp",
   transport: "host",
   cwd: "/repo/project",
   sessionId: id,

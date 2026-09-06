@@ -27,7 +27,7 @@ const participant = (id: string): FabricParticipantInfo => ({
   parentId: identity.id,
   name: id,
   status: "idle",
-  runner: "pi",
+  runner: "omp",
   transport: "host",
   capabilities: ["steer", "followUp", "stop", "fabric"],
   startedAt: 1,
@@ -43,7 +43,7 @@ afterEach(() => {
 
 describe("MeshProvider membership", () => {
   it("reserves topology state and acknowledged control topics for the host", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-mesh-provider-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-mesh-provider-"));
     roots.push(root);
     const source: FabricParticipantSource = {
       list: () => [],
@@ -89,7 +89,7 @@ describe("MeshProvider membership", () => {
   });
 
   it("uses the unified participant source with scope and kind filters", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-mesh-provider-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-mesh-provider-"));
     roots.push(root);
     const list = vi.fn(() => [participant("actor:a"), participant("actor:b")]);
     const source: FabricParticipantSource = {

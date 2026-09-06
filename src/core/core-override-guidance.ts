@@ -1,5 +1,5 @@
 import type { CapturedToolCatalog } from "../capture/catalog.js";
-import { PI_CORE_TOOL_NAMES } from "./pi-tools.js";
+import { OMP_CORE_TOOL_NAMES } from "./omp-tools.js";
 
 /**
  * Append authored guidance from the current exact-name core overrides without
@@ -9,16 +9,18 @@ export const coreOverridePromptGuidance = (
   catalog: CapturedToolCatalog,
 ): string => {
   const sections: string[] = [];
-  for (const name of PI_CORE_TOOL_NAMES) {
+  for (const name of OMP_CORE_TOOL_NAMES) {
     const entry = catalog.get(name);
     if (!entry) continue;
+    const definition = entry.definition;
+    const snippet = Reflect.get(definition, "promptSnippet");
+    const guidelines = Reflect.get(definition, "promptGuidelines");
     const lines: string[] = [];
-    if (entry.definition.promptSnippet) {
-      lines.push(`Additional guidance for \`pi.${name}\`: ${entry.definition.promptSnippet}`);
+    if (typeof snippet === "string" && snippet.length > 0) {
+      lines.push(`Additional guidance for \`omp.${name}\`: ${snippet}`);
     }
-    const guidelines = entry.definition.promptGuidelines ?? [];
-    if (guidelines.length > 0) {
-      lines.push(`Guidelines for \`pi.${name}\`:`);
+    if (Array.isArray(guidelines) && guidelines.every((guideline): guideline is string => typeof guideline === "string")) {
+      lines.push(`Guidelines for \`omp.${name}\`:`);
       lines.push(...guidelines.map((guideline) => `- ${guideline}`));
     }
     if (lines.length > 0) sections.push(lines.join("\n"));

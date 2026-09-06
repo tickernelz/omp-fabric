@@ -6,7 +6,7 @@ import {
   SessionManager,
   type SessionEntry,
   type SessionMessageEntry,
-} from "@earendil-works/pi-coding-agent";
+} from "@oh-my-pi/pi-coding-agent";
 import { compileFabricSummary, rawContextTokens } from "../compaction/hook.js";
 import {
   compactionRequestBoundsError,
@@ -120,7 +120,7 @@ const activeFabricTurn = (
   const toolCalls = content.filter(isToolCall);
   if (!toolCalls.some((call) => call.id === outerToolCallId)) {
     throw new Error(
-      "Trajectory handoff could not find the active fabric_exec assistant turn in the Pi session",
+      "Trajectory handoff could not find the active fabric_exec assistant turn in the OMP session",
     );
   }
   if (toolCalls.length !== 1 || toolCalls[0]?.name !== "fabric_exec") {
@@ -153,10 +153,13 @@ export const snapshotHandoffSession = (
   for (let index = branch.length - 1; index >= 0; index--) {
     const entry = branch[index];
     if (!thinkingLevel && entry?.type === "thinking_level_change") {
-      thinkingLevel = entry.thinkingLevel;
+      thinkingLevel = entry.thinkingLevel ?? undefined;
     }
     if (!model && entry?.type === "model_change") {
-      model = { provider: entry.provider, modelId: entry.modelId };
+      const separator = entry.model.indexOf("/");
+      if (separator > 0 && separator < entry.model.length - 1) {
+        model = { provider: entry.model.slice(0, separator), modelId: entry.model.slice(separator + 1) };
+      }
     }
     if (model && thinkingLevel) break;
   }
@@ -171,11 +174,11 @@ export const snapshotHandoffSession = (
   };
 };
 
-const materializeBranch = (
+const materializeBranch = async (
   seed: AgentSessionSeed,
   cwd: string,
   directory: string,
-): SessionManager => {
+): Promise<SessionManager> => {
   if (!seed.sourceBranch) {
     throw new Error("In-memory trajectory handoff is missing its source branch");
   }
@@ -194,44 +197,45 @@ const materializeBranch = (
     `${[header, ...seed.sourceBranch].map((entry) => JSON.stringify(entry)).join("\n")}\n`,
     { encoding: "utf8", mode: 0o600, flag: "wx" },
   );
-  return SessionManager.open(sessionFile, directory, cwd);
+  return SessionManager.open(sessionFile, directory, undefined, { initialCwd: cwd });
 };
 
-const forkBranch = (
+const forkBranch = async (
   seed: AgentSessionSeed,
   cwd: string,
   directory: string,
-): SessionManager => {
+): Promise<SessionManager> => {
   if (!seed.sourceSessionFile) return materializeBranch(seed, cwd, directory);
-  const fork = SessionManager.open(seed.sourceSessionFile, directory, cwd);
+  const fork = await SessionManager.open(seed.sourceSessionFile, directory, undefined, { initialCwd: cwd });
   if (!fork.getEntry(seed.sourceBranchLeafId)) {
     throw new Error(
-      `Trajectory handoff branch point ${seed.sourceBranchLeafId} is missing from the persisted Pi session`,
+      `Trajectory handoff branch point ${seed.sourceBranchLeafId} is missing from the persisted OMP session`,
     );
   }
-  const sessionFile = fork.createBranchedSession(seed.sourceBranchLeafId);
+  fork.createBranchedSession(seed.sourceBranchLeafId);
+  const sessionFile = fork.getSessionFile();
   if (!sessionFile) {
-    throw new Error("Trajectory handoff could not create a persisted Pi session branch");
+    throw new Error("Trajectory handoff could not create a persisted OMP session branch");
   }
-  return fork;
+  return SessionManager.open(sessionFile, directory, undefined, { initialCwd: cwd });
 };
 
 // File-backed read of the exact branch prefix, cloned so transfer translation
 // never mutates the source session's live entries. Used instead of
 // forkBranch when the executor's reasoning channel differs: createBranchedSession
 // copies raw lines and cannot rewrite foreign thinking signatures.
-const persistedBranch = (
+const persistedBranch = async (
   seed: AgentSessionSeed,
   cwd: string,
   directory: string,
-): SessionEntry[] => {
+): Promise<SessionEntry[]> => {
   if (!seed.sourceSessionFile) {
     throw new Error("Persisted trajectory handoff is missing its source session file");
   }
-  const source = SessionManager.open(seed.sourceSessionFile, directory, cwd);
+  const source = await SessionManager.open(seed.sourceSessionFile, directory, undefined, { initialCwd: cwd });
   if (!source.getEntry(seed.sourceBranchLeafId)) {
     throw new Error(
-      `Trajectory handoff branch point ${seed.sourceBranchLeafId} is missing from the persisted Pi session`,
+      `Trajectory handoff branch point ${seed.sourceBranchLeafId} is missing from the persisted OMP session`,
     );
   }
   return structuredClone(source.getBranch(seed.sourceBranchLeafId));
@@ -242,47 +246,45 @@ const synchronizeSourceSettings = (
   seed: AgentSessionSeed,
 ): void => {
   const context = session.buildSessionContext();
-  if (
-    seed.sourceModel &&
-    (context.model?.provider !== seed.sourceModel.provider ||
-      context.model.modelId !== seed.sourceModel.modelId)
-  ) {
-    session.appendModelChange(seed.sourceModel.provider, seed.sourceModel.modelId);
-  }
+  const currentModel = context.models.default;
+  const sourceModel = seed.sourceModel
+    ? `${seed.sourceModel.provider}/${seed.sourceModel.modelId}`
+    : undefined;
+  if (sourceModel && currentModel !== sourceModel) session.appendModelChange(sourceModel);
   if (seed.sourceThinkingLevel && context.thinkingLevel !== seed.sourceThinkingLevel) {
     session.appendThinkingLevelChange(seed.sourceThinkingLevel);
   }
 };
 
-export const writeHandoffSession = (
+export const writeHandoffSession = async (
   seed: AgentSessionSeed,
   cwd: string,
   directory: string,
   transfer?: ThinkingTransferInput,
   compaction?: HandoffCompactionRequest,
-): string => {
+): Promise<string> => {
   fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
   const policy = transfer ? thinkingTransferPolicy(transfer) : "preserved";
   let session: SessionManager;
   let report: ThinkingTransferReport | undefined;
   let digest: { content: string; citedBlocks: number } | undefined;
   if (!transfer || policy === "preserved") {
-    session = forkBranch(seed, cwd, directory);
+    session = await forkBranch(seed, cwd, directory);
   } else {
     const rawBranch = seed.sourceSessionFile
-      ? persistedBranch(seed, cwd, directory)
+      ? await persistedBranch(seed, cwd, directory)
       : structuredClone(seed.sourceBranch ?? (() => {
           throw new Error("Trajectory handoff transfer is missing its source branch");
         })());
     if (policy === "stripped") digest = buildThinkingDigest(rawBranch, transfer);
     const translated = translateThinkingForExecutor(rawBranch, policy);
     report = translated.report;
-    session = materializeBranch({ ...seed, sourceBranch: translated.entries }, cwd, directory);
+    session = await materializeBranch({ ...seed, sourceBranch: translated.entries }, cwd, directory);
   }
   // Append the compaction entry before settings sync and the outer tool result
   // so the executor's context opens with the deterministic summary, followed
   // by the kept tail, then the boundary artifacts appended afterwards. The
-  // file retains the full raw branch, mirroring Pi's append-only compaction.
+  // file retains the full raw branch, mirroring OMP's append-only compaction.
   let compactionOutcome: HandoffCompactionOutcome | undefined;
   if (compaction) {
     const branchEntries = session.getBranch();
@@ -301,10 +303,12 @@ export const writeHandoffSession = (
     } else {
       session.appendCompaction(
         compiled.compaction.summary,
+        undefined,
         compiled.compaction.firstKeptEntryId,
         tokensBefore,
-        compiled.compaction.details,
-        true,
+        compiled.compaction.details
+          ? { details: compiled.compaction.details, fromExtension: true }
+          : { fromExtension: true },
       );
       compactionOutcome = {
         applied: true,
@@ -322,7 +326,7 @@ export const writeHandoffSession = (
       citedBlocks: digest.citedBlocks,
     });
   }
-  session.appendCustomEntry("pi-fabric-handoff", {
+  session.appendCustomEntry("omp-fabric-handoff", {
     sourceSessionId: seed.sourceSessionId,
     boundary: "fabric_exec_end",
     ...(compactionOutcome
@@ -349,7 +353,7 @@ export const writeHandoffSession = (
       : {}),
   });
   const sessionFile = session.getSessionFile();
-  if (!sessionFile) throw new Error("Trajectory handoff did not produce a Pi session file");
+  if (!sessionFile) throw new Error("Trajectory handoff did not produce an OMP session file");
   fs.chmodSync(sessionFile, 0o600);
   return sessionFile;
 };

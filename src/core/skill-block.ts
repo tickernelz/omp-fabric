@@ -1,6 +1,6 @@
-import type { Skill } from "@earendil-works/pi-coding-agent";
+import type { Skill } from "@oh-my-pi/pi-coding-agent";
 
-// Local mirrors of the host skill helpers (pi 0.84.2, core/skills.js and
+// Local mirrors of the host skill helpers (OMP host, core/skills.js and
 // core/agent-session.js). Kept line-for-line identical so prompt output and
 // skill-block parsing behave exactly as the host's, without importing the
 // host package during extension load.
@@ -14,7 +14,7 @@ const escapeXml = (str: string): string =>
     .replace(/'/g, "&apos;");
 
 export const formatSkillsForPrompt = (skills: readonly Skill[]): string => {
-  const visibleSkills = skills.filter((skill) => !skill.disableModelInvocation);
+  const visibleSkills = skills.filter((skill) => !skill.hide);
   if (visibleSkills.length === 0) {
     return "";
   }

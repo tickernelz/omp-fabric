@@ -1,40 +1,39 @@
-import type { ExtensionAPI, ExtensionContext, ExtensionEvent } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext, ExtensionEvent } from "@oh-my-pi/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
 import { prepareFabricActorHostPayload } from "../src/actors/host-event-payload.js";
 import { registerFabricActorHostEventObservers } from "../src/actors/host-event-observer.js";
 import {
   FABRIC_ACTOR_HOST_EVENTS,
-  FABRIC_ACTOR_PI_HOST_EVENTS,
+  FABRIC_ACTOR_OMP_HOST_EVENTS,
 } from "../src/actors/types.js";
 
 describe("Fabric actor host events", () => {
-  it("covers every session-bound public Pi extension event plus tool_error", () => {
-    expect(FABRIC_ACTOR_PI_HOST_EVENTS).toEqual([
+  it("covers every session-bound public OMP extension event plus tool_error", () => {
+    expect(FABRIC_ACTOR_OMP_HOST_EVENTS).toEqual([
       "resources_discover",
       "session_start",
-      "session_info_changed",
       "session_before_switch",
-      "session_before_fork",
+      "session_switch",
+      "session_before_branch",
+      "session_branch",
       "session_before_compact",
+      "session.compacting",
       "session_compact",
-      "session_compact_failed",
       "session_shutdown",
       "session_before_tree",
       "session_tree",
+      "goal_updated",
       "input",
       "before_agent_start",
       "agent_start",
       "agent_end",
-      "agent_settled",
+      "session_stop",
       "turn_start",
       "turn_end",
       "message_start",
       "message_update",
       "message_end",
-      "ui_prompt_start",
-      "ui_prompt_end",
       "context",
-      "before_provider_headers",
       "before_provider_request",
       "after_provider_response",
       "tool_execution_start",
@@ -42,18 +41,16 @@ describe("Fabric actor host events", () => {
       "tool_execution_update",
       "tool_result",
       "tool_execution_end",
-      "model_select",
-      "thinking_level_select",
       "user_bash",
     ]);
     expect(FABRIC_ACTOR_HOST_EVENTS).toEqual([
-      ...FABRIC_ACTOR_PI_HOST_EVENTS,
+      ...FABRIC_ACTOR_OMP_HOST_EVENTS,
       "tool_error",
     ]);
     expect(FABRIC_ACTOR_HOST_EVENTS).not.toContain("project_trust");
   });
 
-  it("registers one asynchronous observer for every supported Pi event", () => {
+  it("registers one asynchronous observer for every supported OMP event", () => {
     const handlers = new Map<string, (event: ExtensionEvent, context: ExtensionContext) => void>();
     const pi = {
       on: vi.fn((event: string, handler: (event: ExtensionEvent, context: ExtensionContext) => void) => {
@@ -63,7 +60,7 @@ describe("Fabric actor host events", () => {
     const observer = vi.fn();
     registerFabricActorHostEventObservers(pi, observer);
 
-    expect([...handlers.keys()]).toEqual(FABRIC_ACTOR_PI_HOST_EVENTS);
+    expect([...handlers.keys()]).toEqual(FABRIC_ACTOR_OMP_HOST_EVENTS);
     const event = { type: "input", text: "inspect", source: "interactive" } as ExtensionEvent;
     const context = {} as ExtensionContext;
     handlers.get("input")?.(event, context);

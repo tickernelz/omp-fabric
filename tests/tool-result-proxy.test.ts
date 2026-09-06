@@ -1,7 +1,7 @@
 import type {
   ExtensionRunner,
   ToolResultEvent,
-} from "@earendil-works/pi-coding-agent";
+} from "@oh-my-pi/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
 import {
   ActionRegistry,
@@ -17,7 +17,7 @@ import {
   type FabricInvocationContext,
   type FabricProvider,
 } from "../src/protocol.js";
-import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 
 const action = (provider = "demo"): ResolvedFabricAction => ({
   ref: `${provider}.echo`,
@@ -89,7 +89,7 @@ describe("FabricToolResultProxy", () => {
     await expect(proxy.proxy(request(original))).resolves.toBe(original);
   });
 
-  it.each(["pi", "extensions"])(
+  it.each(["omp", "extensions"])(
     "does not duplicate the native %s lifecycle",
     async (provider) => {
       const emitToolResult = vi.fn(async () => undefined);

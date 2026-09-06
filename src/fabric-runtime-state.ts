@@ -1,17 +1,17 @@
-import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 import { resolveAgentDir } from "./core/agent-dir.js";
 import {
-  resolveAvailablePiModel,
+  resolveAvailableOmpModel,
   type FabricModelCandidate,
 } from "./core/model-resolution.js";
 import { loadModelUsage } from "./core/model-usage.js";
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI } from "@oh-my-pi/pi-coding-agent";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { FabricActivityStore } from "./activity/store.js";
 import { ActorDirectory } from "./actors/directory.js";
-import { resolvePiBinary } from "./agents/pi-binary.js";
-import { isPiShellRef } from "./core/pi-tools.js";
+import { resolveOmpBinary } from "./agents/omp-binary.js";
+import { isOmpShellRef } from "./core/omp-tools.js";
 import { GlobalActorRegistry } from "./actors/global-registry.js";
 import { buildActorContext } from "./actors/context.js";
 import { actorDeliveryNotice } from "./actors/delivery-policy.js";
@@ -110,7 +110,7 @@ import { McpDescriptorCacheStore } from "./providers/mcp-descriptor-cache.js";
 import { McpProvider, type McpProviderHooks } from "./providers/mcp-provider.js";
 import { MemoryProvider, type MemoryProviderContext } from "./providers/memory-provider.js";
 import { MeshProvider } from "./providers/mesh-provider.js";
-import { PiToolsProvider } from "./providers/pi-tools-provider.js";
+import { OmpToolsProvider } from "./providers/omp-tools-provider.js";
 import { SchemaProvider } from "./providers/schema-provider.js";
 import { StateProvider } from "./providers/state-provider.js";
 import { SchemaController } from "./schema/controller.js";
@@ -131,15 +131,15 @@ import type { FabricRuntimePaths } from "./runtime-paths.js";
 
 const BACKGROUND_COMPLETION_MAX_CHARS = 8_000;
 const inheritedCapabilityRequirements = (): string[] => {
-  const source = process.env.PI_FABRIC_CAPABILITY_REQUIREMENTS;
+  const source = process.env.OMP_FABRIC_CAPABILITY_REQUIREMENTS;
   if (!source) return [];
   const parsed: unknown = JSON.parse(source);
   if (!Array.isArray(parsed) || parsed.length > 128) {
-    throw new Error("PI_FABRIC_CAPABILITY_REQUIREMENTS must be an array of at most 128 refs");
+    throw new Error("OMP_FABRIC_CAPABILITY_REQUIREMENTS must be an array of at most 128 refs");
   }
   const refs = parsed.filter((value): value is string => typeof value === "string");
   if (refs.length !== parsed.length || refs.some((ref) => ref.length > 256 || !ref.includes("."))) {
-    throw new Error("PI_FABRIC_CAPABILITY_REQUIREMENTS contains an invalid provider.action ref");
+    throw new Error("OMP_FABRIC_CAPABILITY_REQUIREMENTS contains an invalid provider.action ref");
   }
   return [...new Set(refs)];
 };
@@ -196,7 +196,7 @@ export class FabricRuntimeState {
   #suppressResidentGuidanceSync = false;
 
   constructor(
-    readonly pi: ExtensionAPI,
+    readonly omp: ExtensionAPI,
     readonly capturedTools: CapturedToolCatalog,
     options: FabricRuntimeStateOptions = {},
   ) {
@@ -224,7 +224,7 @@ export class FabricRuntimeState {
   }
 
   get config(): FabricConfig {
-    if (!this.#config) throw new Error("Pi Fabric has not initialized");
+    if (!this.#config) throw new Error("OMP Fabric has not initialized");
     return this.#config;
   }
 
@@ -326,42 +326,42 @@ export class FabricRuntimeState {
   }
 
   get registry(): ActionRegistry {
-    if (!this.#registry) throw new Error("Pi Fabric has not initialized");
+    if (!this.#registry) throw new Error("OMP Fabric has not initialized");
     return this.#registry;
   }
 
   get components(): FabricComponentLoader {
-    if (!this.#componentLoader) throw new Error("Pi Fabric has not initialized");
+    if (!this.#componentLoader) throw new Error("OMP Fabric has not initialized");
     return this.#componentLoader;
   }
 
   get execution(): FabricExecutionService {
-    if (!this.#execution) throw new Error("Pi Fabric has not initialized");
+    if (!this.#execution) throw new Error("OMP Fabric has not initialized");
     return this.#execution;
   }
 
   get agents(): AgentManager {
-    if (!this.#agents) throw new Error("Pi Fabric has not initialized");
+    if (!this.#agents) throw new Error("OMP Fabric has not initialized");
     return this.#agents;
   }
 
   get actors(): ActorDirectory {
-    if (!this.#actors) throw new Error("Pi Fabric has not initialized");
+    if (!this.#actors) throw new Error("OMP Fabric has not initialized");
     return this.#actors;
   }
 
   get globalActors(): GlobalActorRegistry {
-    if (!this.#globalActors) throw new Error("Pi Fabric has not initialized");
+    if (!this.#globalActors) throw new Error("OMP Fabric has not initialized");
     return this.#globalActors;
   }
 
   get mesh(): MeshStore {
-    if (!this.#mesh) throw new Error("Pi Fabric has not initialized");
+    if (!this.#mesh) throw new Error("OMP Fabric has not initialized");
     return this.#mesh;
   }
 
   mainAgentInfo(context?: ExtensionContext): FabricMainAgentInfo {
-    if (!this.#mainAgent) throw new Error("Pi Fabric has not initialized");
+    if (!this.#mainAgent) throw new Error("OMP Fabric has not initialized");
     return this.#mainAgent.info(context);
   }
 
@@ -387,7 +387,7 @@ export class FabricRuntimeState {
     delivery: FabricAgentMessageDelivery,
   ): Promise<FabricAgentMessageResult> {
     if (!this.#mainAgent || !this.#agentsProvider) {
-      throw new Error("Pi Fabric has not initialized");
+      throw new Error("OMP Fabric has not initialized");
     }
     if (this.#mainAgent.matches(targetId) && this.#mainAgent.local) {
       return this.#mainAgent.deliverUser(message, delivery);
@@ -396,17 +396,17 @@ export class FabricRuntimeState {
   }
 
   async stopParticipant(targetId: string): Promise<unknown> {
-    if (!this.#agentsProvider) throw new Error("Pi Fabric has not initialized");
+    if (!this.#agentsProvider) throw new Error("OMP Fabric has not initialized");
     return this.#agentsProvider.stopParticipant(targetId);
   }
 
   get compact(): CompactController {
-    if (!this.#compact) throw new Error("Pi Fabric has not initialized");
+    if (!this.#compact) throw new Error("OMP Fabric has not initialized");
     return this.#compact;
   }
 
   get repairs(): RepairCompiler {
-    if (!this.#repairs) throw new Error("Pi Fabric has not initialized");
+    if (!this.#repairs) throw new Error("OMP Fabric has not initialized");
     return this.#repairs;
   }
 
@@ -487,7 +487,7 @@ export class FabricRuntimeState {
     };
     const enforceSchema = this.#config.schema.mode === "enforce";
     const effectiveFullCodeMode = this.#config.fullCodeMode || enforceSchema;
-    // Enforce keeps this provider private to the Pi adapter: core overrides
+    // Enforce keeps this provider private to the OMP adapter: core overrides
     // still resolve through pi.* while the schema authorizer blocks protected
     // mutations and external effects. Do not expose the generic extensions.*
     // namespace in enforce mode.
@@ -497,9 +497,9 @@ export class FabricRuntimeState {
         : undefined;
     if (effectiveFullCodeMode) {
       await installBuiltin(createProviderComponent({
-        provider: "pi",
-        description: "Pi core tools adapter",
-        create: () => new PiToolsProvider(
+        provider: "omp",
+        description: "OMP core tools adapter",
+        create: () => OmpToolsProvider.create(
           context.cwd,
           this.capturedTools,
           capturedToolsProvider,
@@ -514,8 +514,8 @@ export class FabricRuntimeState {
           ? {
               cache: new McpDescriptorCacheStore(
                 path.join(
-                  process.env.PI_FABRIC_PROJECT_ROOT ?? context.cwd,
-                  ".pi",
+                  process.env.OMP_FABRIC_PROJECT_ROOT ?? context.cwd,
+                  ".omp",
                   "fabric",
                   "mcp-cache.json",
                 ),
@@ -543,27 +543,27 @@ export class FabricRuntimeState {
     }
     const sessionId = context.sessionManager.getSessionId();
     const { identity, mainAgentId } = resolveFabricIdentity(sessionId);
-    const fabricSessionId = process.env.PI_FABRIC_SESSION_ID?.trim() || sessionId;
+    const fabricSessionId = process.env.OMP_FABRIC_SESSION_ID?.trim() || sessionId;
     const ownsPersistentActorRegistry =
       identity.kind === "main" &&
       !enforceSchema &&
       projectTrusted &&
       this.#config.mesh.enabled;
     const mainAgent = new MainAgentController(
-      this.pi,
+      this.omp,
       mainAgentId,
       identity.kind === "main" && identity.id === mainAgentId,
       context.cwd,
       identity.kind === "main" ? sessionId : undefined,
     );
     this.#mainAgent = mainAgent;
-    const projectRoot = process.env.PI_FABRIC_PROJECT_ROOT ?? context.cwd;
+    const projectRoot = process.env.OMP_FABRIC_PROJECT_ROOT ?? context.cwd;
     const configuredMeshRoot = this.#config.mesh.root;
     const meshRoot =
-      process.env.PI_FABRIC_MESH_ROOT ??
+      process.env.OMP_FABRIC_MESH_ROOT ??
       (configuredMeshRoot
         ? path.resolve(projectRoot, configuredMeshRoot)
-        : path.join(projectRoot, ".pi", "fabric", "mesh"));
+        : path.join(projectRoot, ".omp", "fabric", "mesh"));
     this.#mesh = new MeshStore(
       meshRoot,
       this.#config.mesh.maxEventBytes,
@@ -575,11 +575,11 @@ export class FabricRuntimeState {
       hostId,
       rootId: mainAgentId,
       identity,
-      ...(process.env.PI_FABRIC_OWNER_HOST_ID
-        ? { selfOwnerHostId: process.env.PI_FABRIC_OWNER_HOST_ID }
+      ...(process.env.OMP_FABRIC_OWNER_HOST_ID
+        ? { selfOwnerHostId: process.env.OMP_FABRIC_OWNER_HOST_ID }
         : {}),
-      ...(process.env.PI_FABRIC_OWNER_IDENTITY_ID
-        ? { selfOwnerIdentityId: process.env.PI_FABRIC_OWNER_IDENTITY_ID }
+      ...(process.env.OMP_FABRIC_OWNER_IDENTITY_ID
+        ? { selfOwnerIdentityId: process.env.OMP_FABRIC_OWNER_IDENTITY_ID }
         : {}),
     });
     this.#control = new FabricControlPlane(this.#mesh, identity, {
@@ -601,7 +601,7 @@ export class FabricRuntimeState {
       }));
     } else {
       const meshDisabled =
-        'disabled by configuration (mesh.enabled=false); set "mesh": { "enabled": true } in .pi/fabric.json or the agent fabric.json';
+        'disabled by configuration (mesh.enabled=false); set "mesh": { "enabled": true } in .omp/fabric.json or the agent fabric.json';
       this.#registry.markUnavailable("mesh", `${meshDisabled} to enable mesh.* actions`);
       this.#registry.markUnavailable("state", `${meshDisabled}; state.* actions run on the mesh`);
     }
@@ -631,14 +631,14 @@ export class FabricRuntimeState {
       ? { ...this.#config.agents, enabled: false }
       : this.#config.agents;
     const modelsConfig = this.#config.models;
-    const visiblePiModels = () => {
+    const visibleOmpModels = () => {
       try {
         return context.modelRegistry.getAvailable();
       } catch {
         return [];
       }
     };
-    const piModelState = (models = visiblePiModels()) => {
+    const ompModelState = (models = visibleOmpModels()) => {
       const available: FabricModelCandidate[] = models.map((model) => ({
         provider: String(model.provider),
         id: String(model.id),
@@ -653,11 +653,11 @@ export class FabricRuntimeState {
         ...(defaultModel ? { defaultModel } : {}),
       };
     };
-    const resolveParticipantPiModel = (selector?: string) => {
-      const models = visiblePiModels();
-      const state = piModelState(models);
+    const resolveParticipantOmpModel = (selector?: string) => {
+      const models = visibleOmpModels();
+      const state = ompModelState(models);
       const query = selector?.trim() || state.defaultModel || "";
-      const resolved = resolveAvailablePiModel(query, {
+      const resolved = resolveAvailableOmpModel(query, {
         aliases: state.aliases,
         available: state.available,
         lastUsed: loadModelUsage(),
@@ -669,8 +669,8 @@ export class FabricRuntimeState {
       );
       if (!model) {
         throw new Error(
-          `Model ${JSON.stringify(query)} is not available to this Pi session. ` +
-            'Use agents.models({ runner: "pi" }) to list the models visible to this session.',
+          `Model ${JSON.stringify(query)} is not available to this OMP session. ` +
+            'Use agents.models({ runner: "omp" }) to list the models visible to this session.',
         );
       }
       return { key: `${resolved.provider}/${resolved.id}`, model };
@@ -691,7 +691,7 @@ export class FabricRuntimeState {
           }
         : {}),
       resolveParticipantGuidance: ({ model, runner }) => {
-        const targetModel = model ?? (runner === "pi" && context.model
+        const targetModel = model ?? (runner === "omp" && context.model
           ? `${context.model.provider}/${context.model.id}`
           : undefined);
         if (!targetModel) return undefined;
@@ -701,8 +701,8 @@ export class FabricRuntimeState {
           includeSlots: false,
         }).appendText || undefined;
       },
-      preparePiModel: async (modelKey) => {
-        const resolved = resolveParticipantPiModel(modelKey);
+      prepareOmpModel: async (modelKey) => {
+        const resolved = resolveParticipantOmpModel(modelKey);
         const auth = await context.modelRegistry.getApiKeyAndHeaders(resolved.model);
         if (!auth.ok) throw new Error(auth.error);
         return resolved.key;
@@ -722,9 +722,9 @@ export class FabricRuntimeState {
           summary.length > BACKGROUND_COMPLETION_MAX_CHARS
             ? `${summary.slice(0, BACKGROUND_COMPLETION_MAX_CHARS)}\n[completion truncated]`
             : summary;
-        this.pi.sendMessage(
+        this.omp.sendMessage(
           {
-            customType: "pi-fabric-agent-complete",
+            customType: "omp-fabric-agent-complete",
             content: `Fabric agent ${result.id.slice(0, 8)} ${result.status} after ${duration}: ${clippedSummary}`,
             display: true,
             details: result,
@@ -764,9 +764,9 @@ export class FabricRuntimeState {
         const text = message.text ?? "";
         if (!text) return;
         const deliveryNotice = actorDeliveryNotice(delivery, triggerTurn);
-        this.pi.sendMessage(
+        this.omp.sendMessage(
           {
-            customType: "pi-fabric-actor",
+            customType: "omp-fabric-actor",
             content: [
               `<fabric-actor name=${JSON.stringify(actor.name)} id=${JSON.stringify(actor.id)}>\n${escapeXmlText(text)}\n</fabric-actor>`,
               deliveryNotice,
@@ -792,7 +792,7 @@ export class FabricRuntimeState {
             claimResidency: "session",
             rootId: mainAgentId,
             retention: this.#config.retention,
-            resolvePiModel: (model) => resolveParticipantPiModel(model).key,
+            resolveOmpModel: (model) => resolveParticipantOmpModel(model).key,
             acquireCapabilityView: acquireActorCapabilityView,
           }
         : {
@@ -803,7 +803,7 @@ export class FabricRuntimeState {
             claimResidency: "session",
             rootId: mainAgentId,
             retention: this.#config.retention,
-            resolvePiModel: (model) => resolveParticipantPiModel(model).key,
+            resolveOmpModel: (model) => resolveParticipantOmpModel(model).key,
             acquireCapabilityView: acquireActorCapabilityView,
           },
     ], actorRoots, this.#config.mesh.actorScope);
@@ -844,18 +844,18 @@ export class FabricRuntimeState {
             retention: structuredClone(this.#config.retention),
             workerPath: this.#paths?.worker ?? fileURLToPath(new URL("./worker.js", import.meta.url)),
             fabricExtensionPath: this.#paths?.extension ?? fileURLToPath(new URL("./index.js", import.meta.url)),
-            piBinary: resolvePiBinary(),
+            ompBinary: resolveOmpBinary(),
             claudeBinary:
-              process.env.PI_FABRIC_CLAUDE_BINARY ?? this.#config.agents.claude.binary,
+              process.env.OMP_FABRIC_CLAUDE_BINARY ?? this.#config.agents.claude.binary,
             vedaBinary:
-              process.env.PI_FABRIC_VEDA_BINARY ?? this.#config.agents.veda.binary,
-            piModels: piModelState(),
+              process.env.OMP_FABRIC_VEDA_BINARY ?? this.#config.agents.veda.binary,
+            models: ompModelState(),
             modelGuidance: [],
           },
           mesh: this.#mesh,
           participants: this.#participants,
           mainAgent,
-          piModelState,
+          ompModelState,
           ...(this.#paths ? { hostPath: this.#paths.residentHost } : {}),
         })
       : undefined;
@@ -903,11 +903,11 @@ export class FabricRuntimeState {
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
       console.warn(
-        `[pi-fabric] Initial mesh publish failed (${detail}); the participant heartbeat will keep retrying.`,
+        `[omp-fabric] Initial mesh publish failed (${detail}); the participant heartbeat will keep retrying.`,
       );
       if (context.hasUI) {
         context.ui.notify(
-          `Pi Fabric could not reach the mesh (${detail}); retrying in the background.`,
+          `OMP Fabric could not reach the mesh (${detail}); retrying in the background.`,
           "warning",
         );
       }
@@ -940,11 +940,11 @@ export class FabricRuntimeState {
     } else {
       this.#registry.markUnavailable(
         "memory",
-        'disabled by configuration (memory.enabled=false); set "memory": { "enabled": true } in .pi/fabric.json or the agent fabric.json to enable memory.* actions',
+        'disabled by configuration (memory.enabled=false); set "memory": { "enabled": true } in .omp/fabric.json or the agent fabric.json to enable memory.* actions',
       );
     }
     const expectedBuiltinProviders = new Set<string>([
-      ...(effectiveFullCodeMode ? ["pi"] : []),
+      ...(effectiveFullCodeMode ? ["omp"] : []),
       ...(capturedToolsProvider ? ["extensions"] : []),
       "mcp",
       ...(this.#config.mesh.enabled ? ["mesh", "state"] : []),
@@ -970,17 +970,17 @@ export class FabricRuntimeState {
       version: 1,
       register: (provider, options) => this.registerExternal(provider, options),
     };
-    this.pi.events.emit(FABRIC_PROVIDER_DISCOVER_EVENT, discovery);
+    this.omp.events.emit(FABRIC_PROVIDER_DISCOVER_EVENT, discovery);
     const componentDiscovery: FabricComponentDiscovery = {
       version: 1,
       register: (component, options) => this.registerExternalComponent(component, options),
     };
-    this.pi.events.emit(FABRIC_COMPONENT_DISCOVER_EVENT, componentDiscovery);
+    this.omp.events.emit(FABRIC_COMPONENT_DISCOVER_EVENT, componentDiscovery);
     await this.#componentLoader.reconcile(enforceSchema ? [] : this.#config.components);
     const inheritedRequirements = inheritedCapabilityRequirements();
-    const inheritedDigest = process.env.PI_FABRIC_CAPABILITY_DIGEST;
+    const inheritedDigest = process.env.OMP_FABRIC_CAPABILITY_DIGEST;
     const hasInheritedCommit =
-      process.env.PI_FABRIC_CAPABILITY_REQUIREMENTS !== undefined && Boolean(inheritedDigest);
+      process.env.OMP_FABRIC_CAPABILITY_REQUIREMENTS !== undefined && Boolean(inheritedDigest);
     if (inheritedRequirements.length > 0 || hasInheritedCommit) {
       const lease = await this.#registry.acquireCapabilityView(inheritedRequirements, {
         cwd: context.cwd,
@@ -1059,7 +1059,7 @@ export class FabricRuntimeState {
     void this.#componentLoader?.reconcile(next.components).catch((error) => {
       if (this.#config) this.#config.components = previousComponents;
       const detail = error instanceof Error ? error.message : String(error);
-      if (context.hasUI) context.ui.notify(`Pi Fabric component reload failed: ${detail}`, "error");
+      if (context.hasUI) context.ui.notify(`OMP Fabric component reload failed: ${detail}`, "error");
     });
   }
 
@@ -1088,7 +1088,7 @@ export class FabricRuntimeState {
   }
 
   // Filesystem fallback for writes audits cannot attribute (shell heredocs,
-  // sed -i, formatter binaries). Gated on a successful Pi shell call in the program
+  // sed -i, formatter binaries). Gated on a successful OMP shell call in the program
   // so read-only scans never pay the stat walk, and external saves can only
   // mis-fire inside a bash-running window. The tracker refreshes its baseline
   // on every evaluation, claimed or not, so one change never fires twice.
@@ -1098,7 +1098,7 @@ export class FabricRuntimeState {
     resultFormat: FabricResultFormat,
   ): Promise<PendingFabricHandoff | undefined> {
     if (!this.prewalk.isArmed(sessionId) || !this.#cwd) return undefined;
-    if (!execution.audits.some((audit) => isPiShellRef(audit.ref) && audit.success === true)) {
+    if (!execution.audits.some((audit) => isOmpShellRef(audit.ref) && audit.success === true)) {
       return undefined;
     }
     const drift = await this.prewalkDrift.evaluate(sessionId, this.#cwd);
@@ -1111,13 +1111,13 @@ export class FabricRuntimeState {
     outerToolResult: AgentToolResultMessage,
     context: ExtensionContext,
   ): Promise<Record<string, unknown>> {
-    if (!this.#agentsProvider) throw new Error("Pi Fabric has not initialized");
+    if (!this.#agentsProvider) throw new Error("OMP Fabric has not initialized");
     const runId = outerToolResult.toolCallId;
     const callId = pending.audit.nestedToolCallId;
     const result = await runFabricHandoffAtBoundary(
       this.prewalk,
       this.#agentsProvider,
-      this.pi,
+      this.omp,
       pending,
       outerToolResult,
       context,
@@ -1448,15 +1448,15 @@ const lifecycleMetadata = (
   payload: unknown,
 ): Record<string, string | number | boolean | null> | undefined => {
   switch (event) {
-    case "pi.input":
+    case "omp.input":
       return scalarMetadata(payload, ["source", "streamingBehavior"]);
-    case "pi.agent_end":
-      return scalarMetadata(payload, ["willRetry"]);
-    case "pi.turn_end":
+    case "omp.agent_end":
+      return scalarMetadata(payload, ["isTerminal"]);
+    case "omp.turn_end":
       return scalarMetadata(payload, ["turnIndex", "timestamp"]);
-    case "pi.tool_error":
+    case "omp.tool_error":
       return scalarMetadata(payload, ["toolCallId", "toolName"]);
-    case "pi.session_compact":
+    case "omp.session_compact":
       return scalarMetadata(payload, ["reason", "willRetry"]);
     case "component.state":
       return scalarMetadata(payload, [

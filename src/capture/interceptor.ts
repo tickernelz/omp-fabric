@@ -5,7 +5,7 @@ import type {
   ExtensionRunner,
   RegisteredTool,
   ToolDefinition,
-} from "@earendil-works/pi-coding-agent";
+} from "@oh-my-pi/pi-coding-agent";
 import { DEFAULT_FABRIC_CONFIG, type FabricToolCaptureConfig } from "../config.js";
 import { CapturedToolCatalog } from "./catalog.js";
 
@@ -21,24 +21,19 @@ export interface RegisteredToolCaptureController {
 }
 
 export interface RegisteredToolCaptureOptions {
-  anchorDefinition: ToolDefinition<any, any, any>;
+  anchorDefinition: ToolDefinition<any, any>;
   catalog: CapturedToolCatalog;
   initialPolicy?: FabricToolCaptureConfig;
-  // Called after each refresh of the captured catalog so callers can re-assert
-  // active-tool ownership. Tools are deliberately left in Pi's registry — the
-  // listener observes rather than filters — because extensions that gate tool
-  // calls against `pi.getAllTools()` (e.g. permission systems) must still see
-  // captured tools as registered; hiding from the model happens exclusively in
-  // the active tool set (see FabricToolOwnership).
+  runner?: ExtensionRunner;
   onCatalogRefresh?: () => void;
 }
 
-const HUB_SYMBOL = Symbol.for("pi-fabric.registered-tool-capture.v1");
-const ANCHOR_SYMBOL = Symbol.for("pi-fabric.registered-tool-anchor.v1");
+const HUB_SYMBOL = Symbol.for("omp-fabric.registered-tool-capture.v1");
+const ANCHOR_SYMBOL = Symbol.for("omp-fabric.registered-tool-anchor.v1");
 
 const definitionDelegatesTo = (
-  definition: ToolDefinition<any, any, any>,
-  target: ToolDefinition<any, any, any>,
+  definition: ToolDefinition<any, any>,
+  target: ToolDefinition<any, any>,
 ): boolean => {
   let current: object | null = definition;
   while (current) {
@@ -52,6 +47,8 @@ const clonePolicy = (config: FabricToolCaptureConfig): FabricToolCaptureConfig =
   enabled: config.enabled,
   hideFromModel: config.hideFromModel,
   keepVisible: [...config.keepVisible],
+  includeTools: [...config.includeTools],
+  excludeTools: [...config.excludeTools],
   defaultRisk: config.defaultRisk,
   risks: { ...config.risks },
 });
@@ -105,7 +102,7 @@ const captureHub = (Runner: ExtensionRunnerConstructor): ToolCaptureHub => {
 
   const original = prototype.getAllRegisteredTools;
   if (typeof original !== "function") {
-    throw new Error("Pi Fabric could not intercept ExtensionRunner.getAllRegisteredTools");
+    throw new Error("OMP Fabric could not intercept ExtensionRunner.getAllRegisteredTools");
   }
 
   const hub: ToolCaptureHub = { listeners: new Set() };
@@ -116,6 +113,21 @@ const captureHub = (Runner: ExtensionRunnerConstructor): ToolCaptureHub => {
     writable: false,
   });
   prototype.getAllRegisteredTools = function getFabricVisibleTools(): RegisteredTool[] {
+    let tools = original.call(this);
+    for (const listener of [...hub.listeners]) tools = listener(tools, this);
+    return tools;
+  };
+  return hub;
+};
+const captureRunner = (runner: ExtensionRunner): ToolCaptureHub => {
+  const target = runner as ExtensionRunner & Record<PropertyKey, unknown>;
+  const existing = target[HUB_SYMBOL] as ToolCaptureHub | undefined;
+  if (existing) return existing;
+  const original = target.getAllRegisteredTools;
+  if (typeof original !== "function") throw new Error("OMP Fabric capture runner is missing getAllRegisteredTools");
+  const hub: ToolCaptureHub = { listeners: new Set() };
+  Object.defineProperty(target, HUB_SYMBOL, { value: hub, configurable: false });
+  target.getAllRegisteredTools = function getFabricVisibleTools(): RegisteredTool[] {
     let tools = original.call(this);
     for (const listener of [...hub.listeners]) tools = listener(tools, this);
     return tools;
@@ -137,7 +149,7 @@ const hostPackageRoot = (): string | undefined => {
     if (existsSync(manifestPath)) {
       try {
         const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as { name?: unknown };
-        if (manifest.name === "@earendil-works/pi-coding-agent") return directory;
+        if (manifest.name === "@oh-my-pi/pi-coding-agent") return directory;
       } catch { /* unreadable or invalid manifest; keep searching */ }
     }
     directory = path.dirname(directory);
@@ -170,7 +182,7 @@ const extensionRunnerConstructors = async (): Promise<ExtensionRunnerConstructor
     // The host does not advertise its package directory (tests, embeds,
     // future layouts): fall back to resolving it in this module realm.
     try {
-      const hostModule = (await import("@earendil-works/pi-coding-agent")) as {
+      const hostModule = (await import("@oh-my-pi/pi-coding-agent/extensibility/extensions/runner")) as {
         ExtensionRunner?: ExtensionRunnerConstructor;
       };
       if (hostModule.ExtensionRunner) constructors.add(hostModule.ExtensionRunner);
@@ -182,7 +194,9 @@ const extensionRunnerConstructors = async (): Promise<ExtensionRunnerConstructor
 export const installRegisteredToolCapture = async (
   options: RegisteredToolCaptureOptions,
 ): Promise<RegisteredToolCaptureController> => {
-  const hubs = (await extensionRunnerConstructors()).map(captureHub);
+  const hubs = options.runner
+    ? [captureRunner(options.runner)]
+    : (await extensionRunnerConstructors()).map(captureHub);
   const anchorToken = {};
   Object.defineProperty(options.anchorDefinition, ANCHOR_SYMBOL, {
     value: anchorToken,
@@ -202,7 +216,7 @@ export const installRegisteredToolCapture = async (
     );
     if (!anchor) return tools;
 
-    options.catalog.replace(tools, runner, policy, anchor.sourceInfo.path);
+    options.catalog.replace(tools, runner, policy, anchor.extensionPath);
     options.onCatalogRefresh?.();
     return tools;
   };

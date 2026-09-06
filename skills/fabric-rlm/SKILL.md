@@ -1,6 +1,6 @@
 ---
 name: fabric-rlm
-description: Recursively decomposes oversized tasks into bounded child Pi agents with fresh context windows. Use for whole-repo audits, massive-context analysis, and multi-file refactors that do not fit one context.
+description: Recursively decomposes oversized tasks into bounded child OMP agents with fresh context windows. Use for whole-repo audits, massive-context analysis, and multi-file refactors that do not fit one context.
 disable-model-invocation: true
 ---
 
@@ -14,7 +14,7 @@ Canonical RLM keeps oversized source context and intermediate products as addres
 
 QuickJS bindings end with the current `fabric_exec` call. When decomposition must continue across turns, persist JSON-serializable bindings under a root-scoped `rlm/<rootId>/bindings/...` key in `mesh`, pass the key rather than the value, and have descendants load it with `mesh.get()`. Use a project-relative file plus a digest for values larger than `mesh.maxEventBytes`. Mesh bindings are project-visible and have no automatic TTL, so do not store secrets and delete them when the work is complete. `state` is for claims, evidence, certification, and goals—not scratch data. This explicit durable environment provides context-as-variable semantics without a persistent executable heap or a new workspace provider.
 
-`rlm.query()` is `agents.run({ runner: "pi", recursive: true })`. Use plain `agent()` for a partition that fits one child context; reserve `rlm.query()` for a partition that remains oversized.
+`rlm.query()` is `agents.run({ runner: "omp", recursive: true })`. Use plain `agent()` for a partition that fits one child context; reserve `rlm.query()` for a partition that remains oversized.
 
 ```ts
 type Partition = { label: string; paths: string[]; recursive: boolean };
@@ -28,7 +28,7 @@ await workflow.configure({
 });
 await phase("Orient", { total: 1 });
 const scope = await agent<{ partitions: Partition[] }>(
-  `Partition only the material relevant to this task into at most 12 non-overlapping, context-sized groups. Set recursive=true only when one group still cannot fit a child context.\n\nTask:\n${π.task}`,
+  `Partition only the material relevant to this task into at most 12 non-overlapping, context-sized groups. Set recursive=true only when one group still cannot fit a child context.\n\nTask:\n${omp.task}`,
   {
     label: "scope",
     tools: ["read", "grep", "find", "ls"],
@@ -163,7 +163,7 @@ for (let offset = 0; offset < runnable.length; offset += batchSize) {
   const batch = runnable.slice(offset, offset + batchSize);
   const settled = await parallel(
     batch.map((partition) => async (): Promise<RecursiveOutcome> => {
-      const task = `Analyze this bounded partition for the objective. Treat the listed paths as external context: inspect them with tools and return one compact, evidence-backed finding.\n\nPartition: ${partition.label}\nPaths:\n${partition.paths.join("\n")}\n\nObjective:\n${π.task}`;
+      const task = `Analyze this bounded partition for the objective. Treat the listed paths as external context: inspect them with tools and return one compact, evidence-backed finding.\n\nPartition: ${partition.label}\nPaths:\n${partition.paths.join("\n")}\n\nObjective:\n${omp.task}`;
       try {
         if (!partition.recursive) {
           const finding = await agent(task, {
@@ -248,7 +248,7 @@ if (completed.length === 1) {
 await phase("Combine", { total: 1 });
 try {
   const result = await agent(
-    `Synthesize only these completed findings. Reconcile duplicates and contradictions, drop unsupported claims, and do not infer anything about failed partitions.\n\nObjective:\n${π.task}\n\nFindings:\n${JSON.stringify(completed)}`,
+    `Synthesize only these completed findings. Reconcile duplicates and contradictions, drop unsupported claims, and do not infer anything about failed partitions.\n\nObjective:\n${omp.task}\n\nFindings:\n${JSON.stringify(completed)}`,
     { label: "combine", tools: ["read", "grep", "find", "ls"] },
   );
   return {

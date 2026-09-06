@@ -1,6 +1,6 @@
 ---
 name: fabric-spec
-description: Starts a persistent Pi Fabric spec supervisor that audits the main session against a feature design spec and steers only when a requirement lacks verified evidence. Use for strict, unblocked spec compliance while the main agent keeps full freedom to orchestrate.
+description: Starts a persistent OMP Fabric spec supervisor that audits the main session against a feature design spec and steers only when a requirement lacks verified evidence. Use for strict, unblocked spec compliance while the main agent keeps full freedom to orchestrate.
 disable-model-invocation: true
 ---
 
@@ -13,7 +13,7 @@ Hold the main agent's freedom constant: it may plan, spawn agents, run phases, o
 Hard pointer: read `<skill-dir>/../fabric-ambient/references/setup.md` completely before setup, then use its program with:
 
 - `strings.name`: `spec-supervisor`
-- `strings.events`: `["agent_settled","tool_error"]`
+- `strings.events`: `["agent_end","tool_error"]`
 - `strings.triggerTurn`: `true`
 - `strings.model`: model key or substring, or an empty string when unset
 - `strings.instructions`: the prompt below with `SPEC` replaced by the full spec text and `SOURCE` replaced by how it was obtained

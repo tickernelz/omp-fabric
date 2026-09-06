@@ -2,7 +2,7 @@
  * Shared thinking (reasoning effort) level type and helpers.
  *
  * Fabric resolves a thinking level per run (explicit call/actor value, else the
- * Fabric default, "medium"). Pi receives it via "--thinking" and clamps it to
+ * Fabric default, "medium"). OMP receives it via "--thinking" and clamps it to
  * the model's supported levels using next-highest fallback (see pi-ai
  * clampThinkingLevel). Claude receives it via "--effort"; off/minimal map to
  * low. Fabric itself only selects the requested/default level.

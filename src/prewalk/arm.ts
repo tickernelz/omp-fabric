@@ -1,4 +1,4 @@
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 import type { FabricState } from "../fabric-state.js";
 import {
   PREWALK_ARMED_MESSAGE_TYPE,
@@ -12,7 +12,7 @@ import {
 export const armFabricPrewalkSession = async (
   state: FabricState,
   context: ExtensionContext,
-  pi: ExtensionAPI,
+  omp: ExtensionAPI,
   input: { model: string; task?: string },
 ): Promise<void> => {
   const { prewalk } = state.config;
@@ -36,7 +36,7 @@ export const armFabricPrewalkSession = async (
   // custom messages never fire `input`, so observeTask ignores it.
   const armedPrompt = prewalkArmedPrompt(prewalk.mode, input.model);
   if (!hasPrewalkArmedPrompt(context.sessionManager.getBranch(), armedPrompt)) {
-    pi.sendMessage(
+    omp.sendMessage(
       {
         customType: PREWALK_ARMED_MESSAGE_TYPE,
         content: armedPrompt,
@@ -60,7 +60,7 @@ export const armFabricPrewalkSession = async (
 export const autoArmFabricPrewalk = async (
   state: FabricState,
   context: ExtensionContext,
-  pi: ExtensionAPI,
+  omp: ExtensionAPI,
 ): Promise<string | undefined> => {
   const { prewalk } = state.config;
   if (prewalk.enabled === false || !prewalk.alwaysRearm) return undefined;
@@ -77,6 +77,6 @@ export const autoArmFabricPrewalk = async (
   if (!model || !model.includes("/")) {
     return "Fabric prewalk auto-arm skipped: set prewalk.model (provider/model) in /fabric settings so sessions arm without the interactive picker.";
   }
-  await armFabricPrewalkSession(state, context, pi, { model });
+  await armFabricPrewalkSession(state, context, omp, { model });
   return undefined;
 };

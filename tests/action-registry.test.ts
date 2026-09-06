@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   ActionRegistry,
@@ -94,7 +94,7 @@ afterEach(() => {
 });
 
 const attachCompiler = (): RepairCompiler => {
-  const agentDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-registry-repairs-"));
+  const agentDir = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-registry-repairs-"));
   repairTmp.push(agentDir);
   const compiler = new RepairCompiler({ agentDir });
   compiler.setCatalogSurface({ providers: ["demo"], capturedTools: [] });
@@ -252,7 +252,7 @@ describe("ActionRegistry", () => {
     const second = await registry.catalog(context);
     expect(second).toEqual(first);
     expect(first).toMatchObject({
-      kind: "pi-fabric.capability-catalog",
+      kind: "omp-fabric.capability-catalog",
       version: 1,
       complete: true,
       totalActions: 1,
@@ -342,8 +342,8 @@ describe("ActionRegistry", () => {
     const audits: FabricCallAudit[] = [];
     const content = "x".repeat(20_000);
     registry.register({
-      name: "pi",
-      description: "Pi tools",
+      name: "omp",
+      description: "OMP tools",
       async list() {
         return [{
           name: "write",
@@ -366,7 +366,7 @@ describe("ActionRegistry", () => {
     });
 
     await registry.invoke(
-      "pi.write",
+      "omp.write",
       { path: "preview.md", content },
       {
         ...context,

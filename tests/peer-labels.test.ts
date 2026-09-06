@@ -18,7 +18,7 @@ const rootRecord = (id: string, sessionId: string, cwd: string): FabricParticipa
   ownerIdentityId: id,
   name: "main",
   status: "idle",
-  runner: "pi",
+  runner: "omp",
   transport: "host",
   capabilities: ["steer", "followUp", "fabric"],
   cwd,
@@ -39,7 +39,7 @@ const agentRecord = (id: string, rootId: string): FabricParticipantRecord => ({
   parentId: rootId,
   name: id,
   status: "running",
-  runner: "pi",
+  runner: "omp",
   transport: "process",
   capabilities: ["steer", "followUp", "stop"],
   startedAt: 3,
@@ -75,7 +75,7 @@ const mainIdentity = (name: string): MeshIdentity => ({
 });
 
 const tmpRoot = (): string => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-peer-labels-"));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-peer-labels-"));
   roots.push(root);
   return path.join(root, "mesh");
 };

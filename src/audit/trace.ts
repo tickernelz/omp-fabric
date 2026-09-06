@@ -1,7 +1,7 @@
-import { isPiShellRef } from "../core/pi-tools.js";
+import { isOmpShellRef } from "../core/omp-tools.js";
 import { projectFabricAuditArgs, projectFabricAuditResult } from "./projection.js";
 
-export const FABRIC_EXECUTION_TRACE_KIND = "pi-fabric.execution" as const;
+export const FABRIC_EXECUTION_TRACE_KIND = "omp-fabric.execution" as const;
 export const FABRIC_EXECUTION_TRACE_VERSION = 1 as const;
 export const FABRIC_EXECUTION_TRACE_MAX_BYTES = 512 * 1024;
 
@@ -438,7 +438,7 @@ export class FabricExecutionTraceOperationHandle {
     const cause =
       outcome === "failed" &&
       (this.operation.causeSafe === true ||
-        (isPiShellRef(this.operation.projectionRef) && stage === "invoke"))
+        (isOmpShellRef(this.operation.projectionRef) && stage === "invoke"))
         ? errorCause(error)
         : undefined;
     this.operation.error = sanitizeString(
@@ -515,7 +515,7 @@ export class FabricExecutionTraceRecorder {
         const preserveCause =
           operation.error !== undefined &&
           (operation.causeSafe === true ||
-            (isPiShellRef(operation.projectionRef) && operation.outcome === "failed"));
+            (isOmpShellRef(operation.projectionRef) && operation.outcome === "failed"));
         if (!preserveCause) {
           operation.error = sanitizeString(
             failureMessage(operation.failureStage ?? "invoke", operation.outcome),

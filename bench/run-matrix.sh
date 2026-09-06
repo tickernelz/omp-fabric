@@ -4,7 +4,7 @@
 # races on the shared codex token.
 #
 # Usage:
-#   run-matrix.sh [--run-id ID] [--tasks slug,slug] [--configs a,b] [--reps N] [--vendor pi-fabric@0.25.6]
+#   run-matrix.sh [--run-id ID] [--tasks slug,slug] [--configs a,b] [--reps N] [--vendor omp-fabric@0.25.6]
 set -u
 BENCH="$(cd "$(dirname "$0")" && pwd)"
 RUN_ID="run-$(date +%Y%m%d-%H%M%S)"
@@ -26,32 +26,47 @@ done
 
 # --- vendored config (e.g. pi-fabric@0.25.6 = the version from the DeepSWE issue) ---
 if [[ -n "$VENDOR_PKG" ]]; then
-  NAME="fabric-${VENDOR_PKG#*@}"
+  PKG_NAME="${VENDOR_PKG%@*}"
+  PKG_VERSION="${VENDOR_PKG##*@}"
+  NAME="fabric-$PKG_VERSION"
   DEST="$BENCH/vendor/$NAME"
-  if [[ ! -d "$DEST/node_modules/pi-fabric" ]]; then
+  if [[ ! -d "$DEST/node_modules/$PKG_NAME" ]]; then
     mkdir -p "$DEST"
-    (cd "$DEST" && npm init -y >/dev/null 2>&1 && npm install --legacy-peer-deps --no-audit --no-fund "$VENDOR_PKG" >/dev/null 2>&1)
+    if ! (cd "$DEST" && npm init -y >/dev/null 2>&1 && npm install --legacy-peer-deps --no-audit --no-fund "$VENDOR_PKG" >/dev/null 2>&1); then
+      echo "vendoring failed: npm install $VENDOR_PKG (is that name published?)" >&2
+      exit 2
+    fi
   fi
-  echo "vendored $VENDOR_PKG at $DEST/node_modules/pi-fabric"
+  if [[ ! -d "$DEST/node_modules/$PKG_NAME" ]]; then
+    echo "vendoring failed: $VENDOR_PKG installed but $DEST/node_modules/$PKG_NAME is absent" >&2
+    exit 2
+  fi
+  printf '%s\n' "$DEST/node_modules/$PKG_NAME" > "$DEST/extension-path"
+  echo "vendored $VENDOR_PKG at $DEST/node_modules/$PKG_NAME"
 fi
 
-# --- isolated agent dir: copy ONLY the openai-codex auth entry ---
+# --- isolated agent dir ---
 AGENT_DIR="$BENCH/results/$RUN_ID/agent"
 mkdir -p "$AGENT_DIR"
 python3 - "$AGENT_DIR" <<'PYEOF'
 import json, os, sys
 dst = sys.argv[1]
-src = os.path.expanduser("~/.pi/agent/auth.json")
-d = json.load(open(src)) if os.path.exists(src) else {}
-out = {}
-for key in ("openai-codex",):
-    if key in d:
-        out[key] = d[key]
-json.dump(out, open(os.path.join(dst, "auth.json"), "w"), indent=2)
-json.dump({"defaultModel": "gpt-5.6-sol", "defaultProvider": "openai-codex",
-           "defaultThinkingLevel": "low"},
+source_dir = os.path.expanduser(os.environ.get("PI_CODING_AGENT_DIR", "~/.omp/agent"))
+store = os.path.join(source_dir, "agent.db")
+if not os.path.exists(store):
+    raise SystemExit(f"no OMP credential store at {store}")
+if not os.path.exists(os.path.join(dst, "agent.db")):
+    raise SystemExit(
+        "this harness has no credential-isolation strategy yet.\n"
+        + """OMP stores credentials in agent.db, not auth.json (removed upstream), so the
+Pi-era single-entry extraction is impossible. Choose one and wire it here:
+  1. omp --profile <name>  (host-native isolation for auth/sessions/settings/caches)
+  2. copy the whole credential store with 'sqlite3 <src> "VACUUM INTO <dst>"'
+     (consistent single file, no -wal/-shm siblings; copies every provider)"""
+    )
+json.dump({"defaultModel": "gpt-5.6-sol", "defaultThinkingLevel": "low"},
           open(os.path.join(dst, "settings.json"), "w"), indent=2)
-print("agent dir prepared with providers:", list(out))
+print("agent dir prepared:", dst)
 PYEOF
 
 # --- task list ---

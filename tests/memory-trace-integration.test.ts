@@ -20,7 +20,7 @@ import { recordedIntegrationTrace } from "./fixtures/fabric-execution-trace.js";
 
 const temporary: string[] = [];
 const temp = (name: string): string => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), `pi-fabric-${name}-`));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), `omp-fabric-${name}-`));
   temporary.push(dir);
   return dir;
 };
@@ -32,7 +32,7 @@ afterEach(() => {
 const timestamp = (second: number): string => `2025-02-01T00:00:${String(second).padStart(2, "0")}.000Z`;
 
 const traceToolResult = (details: unknown): Record<string, unknown> => ({
-  ...toolResult("fabric-call", "fabric_exec", "fake prose pi.write path=prose-only.ts Error", false),
+  ...toolResult("fabric-call", "fabric_exec", "fake prose omp.write path=prose-only.ts Error", false),
   details,
 });
 
@@ -42,7 +42,7 @@ const fixture = (agentDir: string, cwd: string, details: unknown): string =>
     messageEntry("e1", null, timestamp(1), assistantToolCall(
       "fabric-call",
       "fabric_exec",
-      { code: "pi.edit({path:'source-only.ts'}); throw new Error('source prose')" },
+      { code: "omp.edit({path:'source-only.ts'}); throw new Error('source prose')" },
     )),
     messageEntry("e2", "e1", timestamp(2), traceToolResult(details)),
     {
@@ -82,8 +82,8 @@ describe("memory Fabric trace records", () => {
       entryId: "e2/0",
       parentEntryId: "e2",
       toolName: "read",
-      ref: "pi.read",
-      provider: "pi",
+      ref: "omp.read",
+      provider: "omp",
       action: "read",
       outcome: "succeeded",
       filesTouched: ["src/read.ts"],
@@ -124,7 +124,7 @@ describe("memory Fabric trace records", () => {
       entryId: "e2/5",
       operationAddress: "e2/5",
       parentEntryId: "e2",
-      ref: "pi.bash",
+      ref: "omp.bash",
       outcome: "failed",
     });
     expect(expanded[0]!.operation?.args).toEqual({ command: "pnpm test", timeout: 30 });
@@ -175,18 +175,18 @@ describe("memory Fabric trace records", () => {
     const ref = { id: "trace-session", file, cwd, mtime: fs.statSync(file).mtimeMs };
     const hot = loadShard(ref, { indexDir, maxEntryChars: 20_000, hotSessions: 1 });
 
-    const structural = await searchShards([hot], { filters: { ref: "pi.edit" } });
+    const structural = await searchShards([hot], { filters: { ref: "omp.edit" } });
     expect(structural.matchMode).toBe("structural");
     expect(structural.matchedCount).toBe(2);
     expect(structural.segments.flatMap((segment) => segment.exactMatches)
       .map((match) => match.operationAddress)).toEqual(["e2/1", "e2/2"]);
     expect(structural.segments.flatMap((segment) => segment.entries)
       .filter((entry) => entry.marker === ">")
-      .every((entry) => entry.entry.ref === "pi.edit")).toBe(true);
+      .every((entry) => entry.entry.ref === "omp.edit")).toBe(true);
 
     const combined = await searchShards([hot], {
       query: "failure",
-      filters: { provider: "pi", action: "edit", outcome: "failed" },
+      filters: { provider: "omp", action: "edit", outcome: "failed" },
     });
     expect(combined.matchMode).toBe("combined");
     expect(combined.matchedCount).toBe(1);
@@ -237,7 +237,7 @@ describe("memory Fabric trace records", () => {
 
     const absent = await provider.invoke(
       "recall",
-      { scope: "project", branches: "all", ref: "pi.grep" },
+      { scope: "project", branches: "all", ref: "omp.grep" },
       invocation(cwd),
     ) as { total: number; hits: unknown[] };
     expect(absent.total).toBe(0);
@@ -249,7 +249,7 @@ describe("memory Fabric trace records", () => {
     const cwd = "/project/invalid";
     const file = fixture(agentDir, cwd, {
       trace: { ...recordedIntegrationTrace(), version: 9 },
-      audits: [{ ref: "pi.read", args: { path: "legacy-must-not-appear.ts" }, success: true }],
+      audits: [{ ref: "omp.read", args: { path: "legacy-must-not-appear.ts" }, success: true }],
     });
     expect(normalizeSession(file, 2_000).entries.filter((entry) => entry.type === "fabric_operation")).toEqual([]);
   });

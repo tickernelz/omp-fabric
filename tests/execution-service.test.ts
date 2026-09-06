@@ -1,14 +1,14 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
 import type { FabricAutoApprovalClassifier } from "../src/core/auto-approval-classifier.js";
 import { FabricActivityStore } from "../src/activity/store.js";
 import { DEFAULT_FABRIC_CONFIG } from "../src/config.js";
 import { ActionRegistry } from "../src/core/action-registry.js";
 import { FabricExecutionService } from "../src/execution-service.js";
-import { PiToolsProvider } from "../src/providers/pi-tools-provider.js";
+import { OmpToolsProvider } from "../src/providers/omp-tools-provider.js";
 import type { FabricActionDescriptor, FabricProvider } from "../src/protocol.js";
 
 describe("FabricExecutionService", () => {
@@ -146,11 +146,12 @@ return { scheduled, tail: "still ran" };
   it.each(["quickjs", "node-process"] as const)(
     "finishes every nested call in the %s fabric_exec before handoff can be claimed",
     async (runtime) => {
-      const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-prewalk-"));
+      const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-prewalk-"));
       try {
         const registry = new ActionRegistry();
-        registry.register(new PiToolsProvider(cwd, undefined, undefined));
+        registry.register(await OmpToolsProvider.create(cwd, undefined, undefined));
         const config = structuredClone(DEFAULT_FABRIC_CONFIG);
+        config.fullCodeMode = true;
         config.executor.runtime = runtime;
         if (runtime === "node-process") {
           config.executor.memoryLimitBytes = 128 * 1024 * 1024;
@@ -159,10 +160,10 @@ return { scheduled, tail: "still ran" };
         const service = new FabricExecutionService(registry, config);
         const result = await service.execute({
           code: `
-await pi.write({ path: "first.txt", content: "first" });
+await omp.write({ path: "first.txt", content: "first" });
 await Promise.all([
-  pi.write({ path: "second.txt", content: "second" }),
-  pi.write({ path: "third.txt", content: "third" }),
+  omp.write({ path: "second.txt", content: "second" }),
+  omp.write({ path: "third.txt", content: "third" }),
 ]);
 return "complete outer result";
 `,
@@ -175,9 +176,9 @@ return "complete outer result";
         expect(result.success).toBe(true);
         expect(result.value).toBe("complete outer result");
         expect(result.audits.map((audit) => audit.ref)).toEqual([
-          "pi.write",
-          "pi.write",
-          "pi.write",
+          "omp.write",
+          "omp.write",
+          "omp.write",
         ]);
         expect(fs.readdirSync(cwd).sort()).toEqual([
           "first.txt",
@@ -190,13 +191,14 @@ return "complete outer result";
     },
   );
 
-  it("calls a Pi built-in from sandboxed TypeScript", async () => {
-    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-execution-"));
+  it("calls an OMP built-in from sandboxed TypeScript", async () => {
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-execution-"));
     try {
       fs.writeFileSync(path.join(cwd, "sample.txt"), "fabric works\n", "utf8");
       const registry = new ActionRegistry();
-      registry.register(new PiToolsProvider(cwd, undefined, undefined));
+      registry.register(await OmpToolsProvider.create(cwd, undefined, undefined));
       const config = structuredClone(DEFAULT_FABRIC_CONFIG);
+      config.fullCodeMode = true;
       config.approvals.read = "allow";
       const service = new FabricExecutionService(registry, config);
       const context = {
@@ -204,7 +206,7 @@ return "complete outer result";
         hasUI: false,
       } as ExtensionContext;
       const result = await service.execute({
-        code: 'const content = await pi.read({ path: "sample.txt" });\nreturn content.trim();',
+        code: 'const content = await omp.read({ path: "sample.txt" });\nreturn content.trim();',
         signal: undefined,
         parentToolCallId: "test",
         context,
@@ -213,7 +215,7 @@ return "complete outer result";
       expect(result.success).toBe(true);
       expect(result.value).toBe("fabric works");
       expect(result.audits).toMatchObject([
-        { ref: "pi.read", success: true, tool: "read", provider: "pi" },
+        { ref: "omp.read", success: true, tool: "read", provider: "omp" },
       ]);
       expect(result.audits[0]?.args).toMatchObject({ path: "sample.txt" });
       expect(result.audits[0]?.result).toBe("fabric works\n");
@@ -424,13 +426,14 @@ return "done";
   it("attaches image blocks to the audit for a single nested image read", async () => {
     const cwd = process.cwd();
     const registry = new ActionRegistry();
-    registry.register(new PiToolsProvider(cwd, undefined, undefined));
+    registry.register(await OmpToolsProvider.create(cwd, undefined, undefined));
     const config = structuredClone(DEFAULT_FABRIC_CONFIG);
+    config.fullCodeMode = true;
     config.approvals.read = "allow";
     const service = new FabricExecutionService(registry, config);
     const context = { cwd, hasUI: false } as ExtensionContext;
     const result = await service.execute({
-      code: 'return pi.read({ path: "tests/fixtures/images/sample.jpg" });',
+      code: 'return omp.read({ path: "tests/fixtures/images/sample.jpg" });',
       signal: undefined,
       parentToolCallId: "img-read",
       context,
@@ -447,12 +450,12 @@ return "done";
     expect(media![0]?.data!.length).toBeGreaterThan(0);
   }, 15_000);
 
-  it("keeps Pi core tools outside Fabric in orchestration-only mode", async () => {
-    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-native-tools-"));
+  it("keeps OMP core tools outside Fabric in orchestration-only mode", async () => {
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-native-tools-"));
     try {
       fs.writeFileSync(path.join(cwd, "sample.txt"), "native\n", "utf8");
       const registry = new ActionRegistry();
-      registry.register(new PiToolsProvider(cwd, undefined, undefined));
+      registry.register(await OmpToolsProvider.create(cwd, undefined, undefined));
       const config = structuredClone(DEFAULT_FABRIC_CONFIG);
       config.fullCodeMode = false;
       config.approvals.read = "allow";
@@ -476,7 +479,7 @@ return {
       expect(metadata.value).toMatchObject({
         providers: [],
         catalog: {
-          kind: "pi-fabric.capability-catalog",
+          kind: "omp-fabric.capability-catalog",
           complete: true,
           totalActions: 0,
           indexedActions: 0,
@@ -490,18 +493,18 @@ return {
       });
 
       const direct = await service.execute({
-        code: 'return pi.read({ path: "sample.txt" });',
+        code: 'return omp.read({ path: "sample.txt" });',
         signal: undefined,
         parentToolCallId: "native-direct",
         context,
         onPartial() {},
       });
       expect(direct.typeErrors?.map((error) => error.message).join(" ")).toContain(
-        "Cannot find name 'pi'",
+        "Cannot find name 'omp'",
       );
 
       const indirect = await service.execute({
-        code: 'return tools.call({ ref: "pi.read", args: { path: "sample.txt" } });',
+        code: 'return tools.call({ ref: "omp.read", args: { path: "sample.txt" } });',
         signal: undefined,
         parentToolCallId: "native-indirect",
         context,
@@ -527,12 +530,13 @@ return {
   });
 
   it("publishes declarative workflow activity for the dynamic TUI", async () => {
-    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-activity-"));
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-activity-"));
     try {
       fs.writeFileSync(path.join(cwd, "sample.txt"), "dashboard\n", "utf8");
       const registry = new ActionRegistry();
-      registry.register(new PiToolsProvider(cwd, undefined, undefined));
+      registry.register(await OmpToolsProvider.create(cwd, undefined, undefined));
       const config = structuredClone(DEFAULT_FABRIC_CONFIG);
+      config.fullCodeMode = true;
       config.approvals.read = "allow";
       const activity = new FabricActivityStore();
       const service = new FabricExecutionService(registry, config, activity);
@@ -543,7 +547,7 @@ return {
 await workflow.configure({ name: "File audit", description: "Read one fixture" });
 await phase("Inspect", { id: "inspect", total: 1 });
 await workflow.item({ id: "fixture", label: "Read fixture", status: "running" });
-const text = await pi.read({ path: "sample.txt" });
+const text = await omp.read({ path: "sample.txt" });
 await workflow.item({ id: "fixture", label: "Read fixture", status: "completed", completed: 1, total: 1 });
 await workflow.event({ message: "Fixture inspected", level: "success" });
 return text.trim();
@@ -563,7 +567,7 @@ return text.trim();
         description: "Read one fixture",
         status: "completed",
         phases: [{ id: "inspect", name: "Inspect", status: "completed", total: 1 }],
-        calls: [{ ref: "pi.read", status: "completed", phaseId: "inspect" }],
+        calls: [{ ref: "omp.read", status: "completed", phaseId: "inspect" }],
         items: [{ id: "fixture", status: "completed", completed: 1, total: 1 }],
         events: [{ message: "Fixture inspected", level: "success" }],
       });
@@ -798,7 +802,7 @@ return "unreachable";
     expect(other.error).toContain("timed out");
   });
 
-  it("extends the outer deadline from an explicit pi.bash timeout", async () => {
+  it("extends the outer deadline from an explicit omp.bash timeout", async () => {
     const registry = new ActionRegistry();
     const descriptor = {
       name: "bash",
@@ -815,8 +819,8 @@ return "unreachable";
       risk: "read" as const,
     };
     registry.register({
-      name: "pi",
-      description: "fake pi",
+      name: "omp",
+      description: "fake OMP",
       async list() { return [descriptor]; },
       async describe(name) { return name === "bash" ? descriptor : undefined; },
       async invoke(_name, _args, context) {
@@ -832,7 +836,7 @@ return "unreachable";
     config.executor.timeoutMs = 100;
     const service = new FabricExecutionService(registry, config);
     const result = await service.execute({
-      code: 'await pi.bash({ command: "slow", timeout: 1 }); return "ok";',
+      code: 'await omp.bash({ command: "slow", timeout: 1 }); return "ok";',
       signal: undefined,
       parentToolCallId: "bash-timeout-floor",
       context: { cwd: process.cwd(), hasUI: false } as ExtensionContext,
@@ -1087,7 +1091,9 @@ describe("FabricExecutionService dynamic guest typing", () => {
   const setup = (providers: FabricProvider[]) => {
     const registry = new ActionRegistry();
     for (const provider of providers) registry.register(provider);
-    const service = new FabricExecutionService(registry, structuredClone(DEFAULT_FABRIC_CONFIG));
+    const config = structuredClone(DEFAULT_FABRIC_CONFIG);
+    config.fullCodeMode = true;
+    const service = new FabricExecutionService(registry, config);
     const context = { cwd: process.cwd(), hasUI: false } as ExtensionContext;
     const run = (code: string, parentToolCallId: string) =>
       service.execute({ code, signal: undefined, parentToolCallId, context, onPartial() {} });

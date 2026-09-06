@@ -4,17 +4,17 @@ import * as path from "node:path";
 export const fabricExecutionKernelGuidance = (fullCodeMode: boolean): string =>
   [
     fullCodeMode
-      ? "Pi Fabric full code mode: `fabric_exec` is the only way to call Pi core tools — use them as `pi.*` inside `code`."
-      : "Pi Fabric is in orchestration-only mode. Pi core and registered extension tools stay on their native direct execution path; inside fabric_exec, `pi.*` and `extensions.*` are unavailable.",
+      ? "OMP Fabric full code mode: `fabric_exec` is the only way to call OMP core tools — use them as `omp.*` inside `code`."
+      : "OMP Fabric is in orchestration-only mode. OMP core and registered extension tools stay on their native direct execution path; inside fabric_exec, `omp.*` and `extensions.*` are unavailable.",
     // Files the model has not opened (images in particular) must be read before
     // use; this line rides the turn-stable kernel guidance so provider prefix
     // caches stay warm.
-    `Read every file the user provides (images, screenshots, code, text) with the ${fullCodeMode ? "`pi.read`" : "`read`"} tool before responding — never assume its contents.`,
+    `Read every file the user provides (images, screenshots, code, text) with the ${fullCodeMode ? "`omp.read`" : "`read`"} tool before responding — never assume its contents.`,
   ].join(" ");
 
 export const defaultFabricExecutionGuidance = (fullCodeMode: boolean): string =>
   fullCodeMode
-    ? "Examples and returns: `pi.read('/x')`, `pi.grep('TODO','src')` / `pi.grep({pattern:'TODO', path:'src', ignoreCase:true, context:2})`, `pi.find({pattern:'*.ts', path:'src', limit:20})`, and `pi.ls('src')` return strings; `pi.bash({cmd:'ls'})` (or `pi.powershell` on Windows), `pi.edit({path:'/x', old:'a', new:'b'})`, and `pi.write({path:'/y', text:'z'})` return `{ok, output, details}` (read `.output`); failed core calls reject, including shell tools on an ordinary nonzero exit; pass `settle: true` to `pi.bash` or `pi.powershell` to get `{ ok: false, exitCode, output, error }` instead. Timeout, cancellation, approval, and security failures still reject.\n`tools` is discovery + generic calls only (`providers`/`catalog`/`list`/`search`/`describe`/`call`/`models`). Call known MCP tools as `mcp.<sanitized_server>.<sanitized_tool>(args)`, captured tools as `extensions.<tool>(args)`, and stable providers as `memory.*`, `state.*`, `schema.*`, or `compact.*`. Use `tools.call({ref,args})` for computed refs. `pi` is the core tools; `π.<key>` reads named `strings` (not a tool)."
+    ? "Examples and returns: `omp.read('/x')`, `omp.grep('TODO','src')` / `omp.grep({pattern:'TODO', path:'src', ignoreCase:true, context:2})`, `omp.find({pattern:'*.ts', path:'src', limit:20})`, and `omp.ls('src')` return strings; `omp.bash({cmd:'ls'})`, `omp.edit({path:'/x', old:'a', new:'b'})`, and `omp.write({path:'/y', text:'z'})` return `{ok, output, details}` (read `.output`); failed core calls reject, including shell tools on an ordinary nonzero exit; pass `settle: true` to `omp.bash` to get `{ ok: false, exitCode, output, error }` instead. Timeout, cancellation, approval, and security failures still reject.\n`tools` is discovery + generic calls only (`providers`/`catalog`/`list`/`search`/`describe`/`call`/`models`). Call known MCP tools as `mcp.<sanitized_server>.<sanitized_tool>(args)`, captured tools as `extensions.<tool>(args)`, and stable providers as `memory.*`, `state.*`, `schema.*`, or `compact.*`. Use `tools.call({ref,args})` for computed refs. `pi` is the core tools; `omp.<key>` reads named `strings` (not a tool)."
     : "Call known actions through `mcp.<sanitized_server>.<sanitized_tool>(args)`, `memory.*`, `state.*`, `schema.*`, `components.*`, `compact.*`, `agents.*`, or `mesh.*`; use `tools.catalog`/`search`/`describe`/`list` for discovery and `tools.call({ref,args})` for computed refs. Other surfaces are opt-in via user-loaded skills.";
 
 // Shape of CapturedToolCatalog entries this renderer needs (kept structural to avoid a runtime dependency on the capture layer from a guidance module).
@@ -86,7 +86,7 @@ export const extensionToolRosterGuidance = (
     else groups.set(label, [tool.name]);
   }
   return [
-    "Registered extension tools are callable inside fabric_exec as `extensions.<name>(args)`; run `tools.list` for full descriptions and schemas before re-implementing an effect with pi.bash.",
+    "Registered extension tools are callable inside fabric_exec as `extensions.<name>(args)`; run `tools.list` for full descriptions and schemas before re-implementing an effect with omp.bash.",
     ...[...groups.entries()]
       .sort(([left], [right]) => left.localeCompare(right))
       .map(([label, names]) => "- " + label + ": " + names.join(", ")),
@@ -95,7 +95,7 @@ export const extensionToolRosterGuidance = (
 
 export const fabricSchemaGuidance = (mode: "off" | "audit" | "enforce"): string | undefined => {
   if (mode === "enforce") {
-    return "Schema enforce mode is fixed for this session. Reads remain available, but protected-workspace changes must use schema.hypothesize → schema.verify → schema.commit in the same fabric_exec invocation. Direct pi.edit/write/bash/powershell, agents, state/mesh writes, compaction requests, MCP, extensions, and external providers are blocked by the host gate.";
+    return "Schema enforce mode is fixed for this session. Reads remain available, but protected-workspace changes must use schema.hypothesize → schema.verify → schema.commit in the same fabric_exec invocation. Direct omp.edit/write/bash, agents, state/mesh writes, compaction requests, MCP, extensions, and external providers are blocked by the host gate.";
   }
   if (mode === "audit") {
     return "Schema audit mode reports actions that enforce mode would block, but preserves their current behavior.";

@@ -34,21 +34,20 @@ describe("real benchmark safety gate", () => {
   it("is disabled by default and identifies every required opt-in", () => {
     const gate = benchmarkGate({});
     expect(gate.enabled).toBe(false);
-    expect(gate.reasons).toContain("PI_FABRIC_REAL_RESUME must equal 1");
+    expect(gate.reasons).toContain("OMP_FABRIC_REAL_RESUME must equal 1");
     expect(gate.config.repeats).toBe(0);
     expect(gate.config.maxUsd).toBe(0);
   });
 
-  it("enables only with opt-in, model/provider, credential, repeats, budget, and pi-vcc", () => {
+  it("enables only with opt-in, model/provider, credential, repeats, and budget", () => {
     const gate = benchmarkGate({
-      PI_FABRIC_REAL_RESUME: "1",
-      PI_FABRIC_BENCH_MODEL: "model-id",
-      PI_FABRIC_BENCH_PROVIDER: "provider-id",
-      PI_FABRIC_BENCH_KEY_ENV: "TEST_MODEL_KEY",
+      OMP_FABRIC_REAL_RESUME: "1",
+      OMP_FABRIC_BENCH_MODEL: "model-id",
+      OMP_FABRIC_BENCH_PROVIDER: "provider-id",
+      OMP_FABRIC_BENCH_KEY_ENV: "TEST_MODEL_KEY",
       TEST_MODEL_KEY: "not-reported",
-      PI_FABRIC_BENCH_REPEATS: "2",
-      PI_FABRIC_BENCH_MAX_USD: "1.25",
-      PI_VCC_EXTENSION: "/tmp/pi-vcc.ts",
+      OMP_FABRIC_BENCH_REPEATS: "2",
+      OMP_FABRIC_BENCH_MAX_USD: "1.25",
     });
     expect(gate).toMatchObject({ enabled: true, config: { repeats: 2, maxUsd: 1.25 } });
     expect(JSON.stringify(gate)).not.toContain("not-reported");
@@ -57,7 +56,7 @@ describe("real benchmark safety gate", () => {
   it("default benchmark command exits successfully with a skip report", () => {
     const env = { ...process.env };
     for (const key of Object.keys(env)) {
-      if (key.startsWith("PI_FABRIC_BENCH") || key === "PI_FABRIC_REAL_RESUME" || key === "PI_VCC_EXTENSION") delete env[key];
+      if (key.startsWith("OMP_FABRIC_BENCH") || key === "OMP_FABRIC_REAL_RESUME") delete env[key];
     }
     const result = spawnSync(process.execPath, [path.resolve("scripts/benchmark-real-resume.mjs")], {
       encoding: "utf8",
@@ -65,7 +64,7 @@ describe("real benchmark safety gate", () => {
       timeout: 10_000,
     });
     expect(result.status).toBe(0);
-    expect(result.stdout).toContain("Real Pi resume benchmark: SKIP");
+    expect(result.stdout).toContain("Real OMP resume benchmark: SKIP");
     expect(result.stdout).toContain('"skipped": true');
   });
 });

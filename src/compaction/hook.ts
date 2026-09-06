@@ -1,11 +1,11 @@
+import type { CompactionResult } from "@oh-my-pi/pi-agent-core/compaction";
 import {
-  type CompactionResult,
   type ExtensionAPI,
   type ExtensionContext,
   type SessionBeforeCompactEvent,
   type SessionBeforeTreeEvent,
   type SessionEntry,
-} from "@earendil-works/pi-coding-agent";
+} from "@oh-my-pi/pi-coding-agent";
 import { calculateContextTokens, DEFAULT_COMPACTION_SETTINGS, estimateTokens } from "../core/token-math.js";
 import { buildSessionContext, sessionEntryToContextMessages } from "../core/session-context.js";
 import { clipUtf8, MAX_SUMMARY_BYTES } from "./bounds.js";
@@ -17,7 +17,7 @@ import {
   type CompactionInstructionDecodeError,
   type CompactionInstructionPolicy,
 } from "./instructions.js";
-import { countErasedThinkingBlocks, isPiCustomMessageEntry, normalizeEntries } from "./normalize.js";
+import { countErasedThinkingBlocks, isOmpCustomMessageEntry, normalizeEntries } from "./normalize.js";
 import {
   projectWithMetadata,
   type ProjectionOmittedCounts,
@@ -25,7 +25,7 @@ import {
 } from "./projections.js";
 import { renderSummary } from "./render.js";
 
-type CompactionEngine = "pi" | "fabric";
+type CompactionEngine = "omp" | "fabric";
 
 interface LiveEntry {
   entry: SessionEntry;
@@ -152,7 +152,7 @@ const collectContextEntries = (entries: SessionEntry[], startIndex: number): Liv
   for (let index = Math.max(0, startIndex); index < entries.length; index++) {
     const entry = entries[index]!;
     if (entry.type === "compaction") continue;
-    if (entry.type === "custom_message" && !isPiCustomMessageEntry(entry)) continue;
+    if (entry.type === "custom_message" && !isOmpCustomMessageEntry(entry)) continue;
     if (isMessageEntry(entry) && isHiddenEmptyCustom(entry.message)) continue;
     const messages = contextMessages(entry);
     if (messages.length === 0) continue;
@@ -430,7 +430,7 @@ const computeContinuityCut = (
     suffixTokens[index] = suffixTokens[index + 1]! + live[index]!.estimatedTokens;
   }
   const spans = callResultSpans(branchEntries);
-  // Pi replays entries contiguously from firstKeptEntryId, including compaction markers.
+  // OMP replays entries contiguously from firstKeptEntryId, including compaction markers.
   const previousCompactionIndex = findLastCompaction(branchEntries)?.index ?? -1;
   let cutIndex = live.length;
   for (let index = 1; index < live.length; index++) {
@@ -800,8 +800,6 @@ const SECTION_HEADERS: { key: keyof Sections; header: string }[] = [
 export interface CompactionHookOptions {
   getEngine: () => CompactionEngine;
   getTargetContextRatio?: () => number;
-  getThresholdContextRatio?: (modelKey: string) => number | undefined;
-  getThresholdTokens?: (modelKey: string) => number | undefined;
   enrichers?: readonly CompactionEnricher[];
 }
 
@@ -813,77 +811,22 @@ const notifyInstructionError = (
   context.ui.notify(clipUtf8(`Fabric compaction rejected: ${error.code}: ${error.message}`, 512), "error");
 };
 
-export const registerCompactionHook = (pi: ExtensionAPI, options: CompactionHookOptions): void => {
-  pi.on("session_before_compact", (event: SessionBeforeCompactEvent, context: ExtensionContext) => {
-    if (event.customInstructions === "__pi_vcc__") return;
+export const registerCompactionHook = (omp: ExtensionAPI, options: CompactionHookOptions): void => {
+  omp.on("session_before_compact", (event: SessionBeforeCompactEvent, context: ExtensionContext) => {
+    if (options.getEngine() !== "fabric") return;
     const { preparation, branchEntries } = event;
     const contextWindow = context?.model?.contextWindow;
-    const modelKey = modelCompactionKey(context?.model);
-    const thresholdTokens = modelKey === undefined
-      ? undefined
-      : options.getThresholdTokens?.(modelKey);
-    if (
-      event.reason === "threshold"
-      && typeof thresholdTokens === "number"
-      && preparation.tokensBefore < thresholdTokens
-    ) {
-      return { cancel: true };
-    }
-    const threshold = modelKey === undefined || typeof thresholdTokens === "number"
-      ? undefined
-      : options.getThresholdContextRatio?.(modelKey);
-    if (
-      event.reason === "threshold"
-      && typeof threshold === "number"
-      && typeof contextWindow === "number"
-      && preparation.tokensBefore / contextWindow < threshold
-    ) {
-      return { cancel: true };
-    }
-    if (options.getEngine() !== "fabric") return;
     const targetContextRatio = options.getTargetContextRatio?.();
     const settings = preparation.settings ?? DEFAULT_COMPACTION_SETTINGS;
-    const tokensBefore = preparation.tokensBefore;
-    const evidenceWindow = event.reason === "overflow"
-      && typeof tokensBefore === "number"
-      && Number.isFinite(tokensBefore)
-      && tokensBefore > 0
-      ? Math.max(1, Math.floor(tokensBefore * OVERFLOW_WINDOW_EVIDENCE_RATIO))
+    const budget = typeof contextWindow === "number" && Number.isFinite(contextWindow) && contextWindow > 0
+      && typeof targetContextRatio === "number" && Number.isFinite(targetContextRatio)
+      ? { contextWindow, targetContextRatio, reserveTokens: settings.reserveTokens ?? DEFAULT_COMPACTION_SETTINGS.reserveTokens, keepRecentTokens: settings.keepRecentTokens }
       : undefined;
-    const advertisedWindow = typeof contextWindow === "number"
-      && Number.isFinite(contextWindow)
-      && contextWindow > 0
-      ? contextWindow
-      : undefined;
-    const effectiveWindow = evidenceWindow === undefined
-      ? advertisedWindow
-      : advertisedWindow === undefined
-        ? evidenceWindow
-        : Math.min(advertisedWindow, evidenceWindow);
-    const budget = effectiveWindow !== undefined
-      && typeof targetContextRatio === "number"
-      && Number.isFinite(targetContextRatio)
-      ? {
-          contextWindow: effectiveWindow,
-          targetContextRatio,
-          reserveTokens: settings.reserveTokens,
-          keepRecentTokens: settings.keepRecentTokens,
-        }
-      : undefined;
-    const result = compileFabricSummary(
-      branchEntries ?? [],
-      preparation.tokensBefore,
-      options.enrichers,
-      event.customInstructions,
-      budget,
-    );
+    const result = compileFabricSummary(branchEntries ?? [], preparation.tokensBefore, options.enrichers, event.customInstructions, budget);
     if ("cancel" in result) {
       if (result.instructionError) {
         notifyInstructionError(context, result.instructionError);
         return { cancel: true };
-      }
-      if ((event as SessionBeforeCompactEvent & { _piVccOverriding?: unknown })._piVccOverriding) {
-        return;
       }
       return { cancel: true };
     }
@@ -891,26 +834,13 @@ export const registerCompactionHook = (pi: ExtensionAPI, options: CompactionHook
     return { compaction: result.compaction };
   });
 
-  pi.on("session_before_tree", (event: SessionBeforeTreeEvent, context: ExtensionContext) => {
+  omp.on("session_before_tree", (event: SessionBeforeTreeEvent, context: ExtensionContext) => {
     if (options.getEngine() !== "fabric") return;
     const { preparation } = event;
     if (!preparation.userWantsSummary) return;
-    // Pi's replacement mode delegates an arbitrary summarizer prompt. Fabric's
-    // deterministic projections cannot execute it without pretending that it
-    // is append-only context, so leave this explicit mode to the next/default handler.
-    if (preparation.replaceInstructions === true) return;
-    const instructions = decodeCompactionInstructions(preparation.customInstructions);
-    if (!instructions.ok) {
-      notifyInstructionError(context, instructions.error);
-      return { cancel: true };
-    }
-    const compiled = compileFabricBranchSummary(
-      preparation.entriesToSummarize,
-      preparation.customInstructions,
-      options.enrichers,
-      preparation.oldLeafId,
-    );
+    const compiled = compileFabricBranchSummary(preparation.entriesToSummarize, undefined, options.enrichers, preparation.oldLeafId);
     if (!compiled) return;
     return { summary: compiled };
   });
 };
+

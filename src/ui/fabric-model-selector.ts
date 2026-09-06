@@ -1,4 +1,4 @@
-import type { Theme } from "@earendil-works/pi-coding-agent";
+import type { Theme } from "@oh-my-pi/pi-coding-agent";
 import {
   Container,
   type Focusable,
@@ -7,7 +7,7 @@ import {
   Input,
   Spacer,
   Text,
-} from "@earendil-works/pi-tui";
+} from "@oh-my-pi/pi-tui";
 import { INHERIT_VALUE, modelKey, sortByLastUsed, type ModelLike, type ModelSource } from "./model-picker.js";
 
 /** A single pickable row in the Fabric model selector. */
@@ -208,7 +208,7 @@ export class FabricModelSelector extends Container implements Focusable {
     this.updateList();
   }
 
-  /** Mirrors getModelSelectorSearchText from pi's /model selector. */
+  /** Mirrors getModelSelectorSearchText from OMP's /model selector. */
   private searchText(entry: ModelEntry): string {
     if (!entry.isModel) return `${entry.id} ${entry.name}`;
     return `${entry.provider} ${entry.provider}/${entry.id} ${entry.provider} ${entry.id} ${entry.name}`;

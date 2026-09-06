@@ -143,7 +143,7 @@ reviewable, evidence-carrying proposals with fixed thresholds:
 - `sequence-fuse`: a contiguous sequence of 3–6 successful high-level
   action refs, all distinct, that recurs in at least three independent
   `fabric_exec` executions can become a composite action or skill. Core
-  `pi.*` primitives are excluded because they are implementation steps to
+  `omp.*` primitives are excluded because they are implementation steps to
   batch, not domain actions to fuse; failed and excluded operations break
   contiguity.
 - `noise-quarantine`: a ref with ≥ 3 calls, more failures than successes,
@@ -192,7 +192,7 @@ The reducer is autonomous, mirroring the repair loop: no command, no
 approval, machine-checked bounds replace review. Every turn that invoked
 `fabric_exec` may have produced new action evidence, so at `turn_end` Fabric
 enqueues a background compile and returns the hook immediately. A 250 ms grace
-period lets Pi finish appending the turn; triggers that arrive during a compile
+period lets OMP finish appending the turn; triggers that arrive during a compile
 coalesce into one follow-up using the newest context. The worker reads the live
 session window, snapshots the declared surface through the discovery path, and
 runs measure → propose → apply → gate against it. Directory discovery, stat,
@@ -203,7 +203,7 @@ cache reuses unchanged evidence; when the active JSONL grows, the scanner reads
 only the appended byte range and carries its model-attribution cursor forward.
 Replacement, truncation, or an incomplete trailing record falls back safely.
 Large logs therefore no longer impose one whole-window synchronous read/parse
-stall on every turn, and a lock held by another Pi
+stall on every turn, and a lock held by another OMP
 process no longer blocks TUI timers while compilation proceeds.
 
 The window is machine-wide, covering the newest sessions across every project

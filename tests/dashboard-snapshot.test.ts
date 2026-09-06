@@ -12,7 +12,7 @@ const record = (id: string, nestedAgents?: AgentRunRecord[]): AgentRunRecord => 
   name: id,
   task: `Inspect ${id}`,
   status: "running",
-  runner: "pi",
+  runner: "omp",
   transport: "process",
   cwd: "/tmp/project",
   startedAt: 100,
@@ -73,7 +73,7 @@ const fakeState = (
       name: "Main",
       kind: "main",
       status: "idle",
-      runner: "pi",
+      runner: "omp",
       transport: "host",
       cwd: "/tmp/project",
       sessionId: "test",
@@ -90,7 +90,7 @@ const fakeState = (
   }) as unknown as FabricState;
 
 describe("dashboard snapshot agent ownership", () => {
-  it("always includes the user-facing Main Pi agent", () => {
+  it("always includes the user-facing Main OMP agent", () => {
     const snapshot = createDashboardSnapshot(fakeState([], []), []);
 
     expect(snapshot.main).toMatchObject({
@@ -110,7 +110,7 @@ describe("dashboard snapshot agent ownership", () => {
       name: "Peer peer-ses",
       kind: "peer",
       status: "running",
-      runner: "pi",
+      runner: "omp",
       transport: "host",
       cwd: "/tmp/project",
       sessionId: "peer-session",
@@ -190,7 +190,7 @@ describe("dashboard snapshot agent ownership", () => {
       get ref(): string {
         throw new Error("unrelated tool call entered agent-link sorting");
       },
-      label: "pi.read",
+      label: "omp.read",
       kind: "tool" as const,
       status: "completed" as const,
       startedAt: index,
@@ -255,7 +255,7 @@ describe("dashboard snapshot agent ownership", () => {
       parentId: "session:peer",
       name: `remote-${index}`,
       status: "running",
-      runner: "pi",
+      runner: "omp",
       transport: "process",
       capabilities: ["steer", "followUp", "stop"],
       startedAt: 1_000 + index,
@@ -298,7 +298,7 @@ describe("dashboard snapshot agent ownership", () => {
       parentId: "session:peer",
       name: actor.name,
       status: "idle",
-      runner: "pi",
+      runner: "omp",
       transport: "host",
       capabilities: ["steer", "followUp", "stop", "fabric"],
       startedAt: 100,

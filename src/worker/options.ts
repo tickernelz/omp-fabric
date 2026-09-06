@@ -62,7 +62,7 @@ export const parseWorkerOptions = (
   const mainAgentId = optional(args, "main-agent-id");
   const fabricSessionId = optional(args, "fabric-session-id");
   const runner = required(args, "runner");
-  if (runner !== "pi" && runner !== "claude" && runner !== "veda") {
+  if (runner !== "omp" && runner !== "claude" && runner !== "veda") {
     throw new Error(`Unsupported Fabric agent runner: ${runner}`);
   }
   return {
@@ -76,7 +76,7 @@ export const parseWorkerOptions = (
     logFile: required(args, "log-file"),
     ...(schemaFile ? { schemaFile } : {}),
     cwd: required(args, "cwd"),
-    piBinary: required(args, "pi-binary"),
+    ompBinary: required(args, "omp-binary"),
     claudeBinary: required(args, "claude-binary"),
     vedaBinary: required(args, "veda-binary"),
     vedaBackend: required(args, "veda-backend"),

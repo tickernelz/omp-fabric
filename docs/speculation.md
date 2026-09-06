@@ -10,7 +10,7 @@ call having executed at its natural program point.
 ## Pipeline
 
 ```
-message_update (pi extension event)
+message_update (OMP extension event)
   │  toolcall_start / toolcall_delta / toolcall_end for fabric_exec
   ▼
 PartialCodeFieldExtractor        src/speculation/partial-json.ts
@@ -38,7 +38,7 @@ ActionRegistry.invoke()          serve-or-reexecute at the real call site
 
 1. **Eligibility is read-only by construction.** Tier A is a closed set of
    refs that are `risk: "read"` with `effect.kind: "none"`, never prompt for
-   approval, and cost nothing when wasted (`pi.read`/`grep`/`find`/`ls`,
+   approval, and cost nothing when wasted (`omp.read`/`grep`/`find`/`ls`,
    `memory.recall`/`expand`/`sessions`, `state.get`/`history`/`complexity`,
    `schema.status`, `compact.status`, `components.list`/`status`/`graph`).
    The gate re-runs against the resolved descriptor at launch, so a provider
@@ -50,7 +50,7 @@ ActionRegistry.invoke()          serve-or-reexecute at the real call site
      epoch after the provider call completes (success and failure alike; a
      failed `bash` may still have written), invalidating all older
      speculation.
-   - The entry's **freshness checker** still holds. `pi.read` snapshots
+   - The entry's **freshness checker** still holds. `omp.read` snapshots
      `{mtimeMs, size}` of the resolved path at launch and re-stats at serve,
      which also catches external edits. Other Tier-A refs rely on the epoch
      plus the fact that their stores cannot be written by this guest surface.
@@ -111,7 +111,7 @@ read; keep the allowlist to stable, idempotent reads.
 
 ## Deliberately excluded
 
-- `pi.edit`/`write`/`bash`, `state.transition`/`goal`/`verify`/`checkGoal`,
+- `omp.edit`/`write`/`bash`, `state.transition`/`goal`/`verify`/`checkGoal`,
   every `write`/`execute`/`agent` risk class, and `compact.cancel`
   (reclassified from a historic mislabeled `"read"` to `"write"`).
 - Calls with non-literal arguments, positional or multi-argument calls (their
@@ -128,5 +128,5 @@ read; keep the allowlist to stable, idempotent reads.
 Worst case per turn: a handful of wasted local reads (or allowlisted MCP
 reads when the model rewrites mid-stream), one TS reparse per `)`-carrying
 delta debounced to 20 per second, and a bounded stream buffer. Steady state:
-Tier-A hits make `pi.read` effectively free against generation time, which is
+Tier-A hits make `omp.read` effectively free against generation time, which is
 where fabric programs on thinking models spend wall clock.

@@ -15,7 +15,7 @@ const savedEnv = process.env[SESSION_EXPORT_ENV];
 const tempRoots: string[] = [];
 
 const makeTempRoot = (): string => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-export-test-"));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-export-test-"));
   tempRoots.push(root);
   return root;
 };
@@ -56,10 +56,10 @@ describe("resolveSessionExportDir", () => {
     expect(resolveSessionExportDir(config(false, "/tmp/config-root"))).toBeUndefined();
   });
 
-  it("defaults to pi's agent dir so trackers pick subagent usage up unconfigured", () => {
+  it("defaults to the OMP Fabric agent directory", () => {
     delete process.env[SESSION_EXPORT_ENV];
     expect(resolveSessionExportDir(config(true))).toBe(
-      path.join(os.homedir(), ".pi", "agent"),
+      path.join(os.homedir(), ".omp", "agent", "fabric"),
     );
   });
 
@@ -82,7 +82,7 @@ describe("resolveSessionExportDir", () => {
 });
 
 describe("encodeSessionExportCwd", () => {
-  it("matches pi's `--<dash-encoded-abs-cwd>--` session directory shape", () => {
+  it("uses the OMP encoded absolute cwd session directory shape", () => {
     expect(encodeSessionExportCwd("/Users/dev/project")).toBe("--Users-dev-project--");
     expect(encodeSessionExportCwd("/")).toBe("----");
   });
@@ -107,7 +107,7 @@ describe("sessionExportFileFor", () => {
     );
   });
 
-  it("produces filenames pi tooling can sort and parse", () => {
+  it("produces filenames OMP tooling can sort and parse", () => {
     const file = sessionExportFileFor("/tmp/root", "/tmp", "run", new Date());
     const base = path.basename(file, ".jsonl");
     expect(base).not.toMatch(/[:.]/);

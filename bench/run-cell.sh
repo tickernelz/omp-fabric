@@ -41,7 +41,7 @@ git -C "$WORKDIR" branch -f main "$BASE_REF" 2>/dev/null || true
 git -C "$WORKDIR" checkout --quiet "$BASE_REF"
 
 # --- config flags ---
-COMMON_FLAGS=(--print --thinking low --model openai-codex/gpt-5.6-sol --session-dir "$CELL/session-store" --no-prompt-templates --no-context-files --no-themes)
+COMMON_FLAGS=(--print --thinking low --model openai-codex/gpt-5.6-sol --session-dir "$CELL/session-store" --no-rules)
 case "$CONFIG" in
   baseline)
     CFG_FLAGS=(--no-skills --no-extensions)
@@ -50,7 +50,12 @@ case "$CONFIG" in
     CFG_FLAGS=(-e "$REPO_ROOT")
     ;;
   fabric-*)
-    VENDOR="$BENCH/vendor/$CONFIG/node_modules/pi-fabric"
+    VENDOR_MARKER="$BENCH/vendor/$CONFIG/extension-path"
+    if [[ -f "$VENDOR_MARKER" ]]; then
+      VENDOR="$(cat "$VENDOR_MARKER")"
+    else
+      VENDOR="$BENCH/vendor/$CONFIG/node_modules/omp-fabric"
+    fi
     if [[ ! -d "$VENDOR" ]]; then
       echo "missing vendored extension: $VENDOR (see bench/run-matrix.sh vendor step)" >&2
       exit 2
@@ -65,8 +70,8 @@ cd "$WORKDIR"
 START=$(python3 -c 'import time;print(time.time())')
 PROMPT="$(cat "$TASK_DIR/prompt.txt")"
 (
-  PI_CODING_AGENT_DIR="$AGENT_DIR" pi "${COMMON_FLAGS[@]}" "${CFG_FLAGS[@]}" "$PROMPT" \
-    >"$CELL/logs/pi.stdout.txt" 2>"$CELL/logs/pi.stderr.txt" &
+  PI_CODING_AGENT_DIR="$AGENT_DIR" omp "${COMMON_FLAGS[@]}" "${CFG_FLAGS[@]}" "$PROMPT" \
+    >"$CELL/logs/omp.stdout.txt" 2>"$CELL/logs/omp.stderr.txt" &
   AGENT_PID=$!
   ( sleep "$AGENT_TIMEOUT"; kill -TERM $AGENT_PID 2>/dev/null; sleep 20; kill -KILL $AGENT_PID 2>/dev/null ) &
   WATCHDOG=$!

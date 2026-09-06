@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { writeJsonAtomic } from "../core/atomic-write.js";
 
-export const FABRIC_RUN_ROOT_PREFIX = "pi-fabric-runs-";
+export const FABRIC_RUN_ROOT_PREFIX = "omp-fabric-runs-";
 const RUN_ROOT_OWNER_FILE = ".fabric-owner.json";
 const TERMINAL_STATUSES = new Set(["completed", "failed", "stopped", "timed_out"]);
 

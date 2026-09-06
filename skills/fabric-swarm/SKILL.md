@@ -1,6 +1,6 @@
 ---
 name: fabric-swarm
-description: Creates a self-organizing team of persistent Pi Fabric actors with durable topics, mailboxes, and compare-and-swap tasks. Use for messenger-like collaboration and long-lived delegated work.
+description: Creates a self-organizing team of persistent OMP Fabric actors with durable topics, mailboxes, and compare-and-swap tasks. Use for messenger-like collaboration and long-lived delegated work.
 disable-model-invocation: true
 ---
 
@@ -17,15 +17,15 @@ Choose a short run key and topic such as `team.auth-migration`. Store tasks unde
 Actor instructions must require workers to verify every dependency task is complete, claim only `ready` work with `ifVersion` equal to the observed version, stop after a failed claim, publish progress, update blocked/completed state with the version returned by the preceding successful read/write, CAS-unblock dependents only after all their dependencies complete, direct questions with `mesh.publish({ topic, to, ... })`, respect path ownership, and emit directives only for blockers or final results.
 
 ```ts
-const run = π.run;
+const run = omp.run;
 const topic = `team.${run}`;
-const tasks = JSON.parse(π.tasks) as Array<{
+const tasks = JSON.parse(omp.tasks) as Array<{
   id: string;
   title: string;
   detail: string;
   dependencies?: string[];
 }>;
-const roles = JSON.parse(π.roles) as Array<{ name: string; instructions: string }>;
+const roles = JSON.parse(omp.roles) as Array<{ name: string; instructions: string }>;
 
 await workflow.configure({
   name: `Swarm · ${run}`,
@@ -52,7 +52,7 @@ const actors = await Promise.all(
   roles.map((role) =>
     agents.create({
       name: role.name,
-      runner: "pi",
+      runner: "omp",
       instructions: role.instructions,
       topics: [topic],
       responseMode: "directive",

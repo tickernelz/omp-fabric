@@ -1,6 +1,6 @@
 # Components, effects, and committed capabilities
 
-Pi Fabric adds a supervised component plane above the registry, where a **provider** exposes actions and a **component** declares exact requirements. Components can mount providers inside an effect scope that Fabric can unwind. Before each model run, an **actor** may commit the same type of capability view. The [component calculus](component-calculus.md) defines the lifecycle laws and author duties, with a [provider specialization](provider-component-calculus.md) for first-party namespaces and rolling replacement.
+OMP Fabric adds a supervised component plane above the registry, where a **provider** exposes actions and a **component** declares exact requirements. Components can mount providers inside an effect scope that Fabric can unwind. Before each model run, an **actor** may commit the same type of capability view. The [component calculus](component-calculus.md) defines the lifecycle laws and author duties, with a [provider specialization](provider-component-calculus.md) for first-party namespaces and rolling replacement.
 
 ## Architectural fit
 
@@ -38,7 +38,7 @@ These parts add the missing control plane above `ActionRegistry`. The existing d
 The component loader pins each enabled first-party action surface:
 
 ```text
-fabric.provider.pi
+fabric.provider.omp
 fabric.provider.extensions
 fabric.provider.mcp
 fabric.provider.mesh
@@ -51,7 +51,7 @@ fabric.provider.memory
 
 Each component preserves its existing provider namespace, including calls such as `memory.recall` and `schema.commit`. Calls through `agents.run` or `mcp.$servers` retain the same descriptors and policy path. The kernel keeps `components.*` as the service that controls the graph.
 
-User configuration reconciliation retains pinned entries whose IDs stay reserved, and the host reserves the `fabric.provider.*` definition prefix across eager registration and discovery. Configuration gates select `pi`, `extensions`, `mesh`, `state`, and `memory`.
+User configuration reconciliation retains pinned entries whose IDs stay reserved, and the host reserves the `fabric.provider.*` definition prefix across eager registration and discovery. Configuration gates select `omp`, `extensions`, `mesh`, `state`, and `memory`.
 
 `components.reload({ id: "fabric.provider.memory" })` follows this replacement order:
 
@@ -69,15 +69,15 @@ Catalog replacement uses the same path. A newer definition revision rolls every 
 Registration is versioned. Like an external provider, a component may arrive through an eager event or answer a discovery handshake:
 
 ```ts
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI } from "@oh-my-pi/pi-coding-agent";
 import {
   FABRIC_COMPONENT_DISCOVER_EVENT,
   FABRIC_COMPONENT_REGISTER_EVENT,
   type FabricComponentDefinition,
   type FabricComponentDiscovery,
-} from "pi-fabric/protocol";
+} from "omp-fabric/protocol";
 
-export default function extension(pi: ExtensionAPI) {
+export default function extension(omp: ExtensionAPI) {
   const component: FabricComponentDefinition<{ prefix?: string }> = {
     name: "issue-observer",
     description: "Maintains an issue observation service",
@@ -102,13 +102,13 @@ export default function extension(pi: ExtensionAPI) {
     },
   };
 
-  pi.events.emit(FABRIC_COMPONENT_REGISTER_EVENT, {
+  omp.events.emit(FABRIC_COMPONENT_REGISTER_EVENT, {
     version: 1,
     component,
     overwrite: true,
   });
 
-  pi.events.on(FABRIC_COMPONENT_DISCOVER_EVENT, (discovery: FabricComponentDiscovery) => {
+  omp.events.on(FABRIC_COMPONENT_DISCOVER_EVENT, (discovery: FabricComponentDiscovery) => {
     discovery.register(component, { overwrite: true });
   });
 }
@@ -141,7 +141,7 @@ A definition may arrive after the configuration that references it. The unresolv
 
 ## Model-facing guidance components
 
-A component can contribute bounded system guidance without adding model-specific prose to Pi Fabric itself. The component repository remains an ordinary Pi extension package: its small extension entry registers the definition through `FABRIC_COMPONENT_REGISTER_EVENT` and the discovery handshake shown above. Install that entry through Pi's normal package mechanism, place it in `~/.pi/agent/extensions/` for all projects, or place it in `.pi/extensions/` for one project. Put only the declarative instance in that project's `fabric.json`:
+A component can contribute bounded system guidance without adding model-specific prose to OMP Fabric itself. The component repository remains an ordinary OMP extension package: its small extension entry registers the definition through `FABRIC_COMPONENT_REGISTER_EVENT` and the discovery handshake shown above. Install that entry through OMP's normal package mechanism, place it in `<active OMP agent dir>/extensions/` for all projects, or place it in `.omp/extensions/` for one project. Put only the declarative instance in that project's `fabric.json`:
 
 ```json
 {
@@ -157,14 +157,14 @@ A component can contribute bounded system guidance without adding model-specific
 Configured components activate eagerly, before the first model turn. A standalone package can therefore contain only its registration bridge and component definition:
 
 ```ts
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI } from "@oh-my-pi/pi-coding-agent";
 import {
   FABRIC_COMPONENT_DISCOVER_EVENT,
   FABRIC_COMPONENT_REGISTER_EVENT,
   FABRIC_EXECUTION_GUIDANCE_SLOT,
   type FabricComponentDefinition,
   type FabricComponentDiscovery,
-} from "pi-fabric/protocol";
+} from "omp-fabric/protocol";
 
 const component: FabricComponentDefinition = {
   name: "deepseek-guidance",
@@ -190,13 +190,13 @@ Inspect a failed nested result before retrying with changed arguments.`,
   },
 };
 
-export default function extension(pi: ExtensionAPI) {
-  pi.events.emit(FABRIC_COMPONENT_REGISTER_EVENT, {
+export default function extension(omp: ExtensionAPI) {
+  omp.events.emit(FABRIC_COMPONENT_REGISTER_EVENT, {
     version: 1,
     component,
     overwrite: true,
   });
-  pi.events.on(FABRIC_COMPONENT_DISCOVER_EVENT, (discovery: FabricComponentDiscovery) => {
+  omp.events.on(FABRIC_COMPONENT_DISCOVER_EVENT, (discovery: FabricComponentDiscovery) => {
     discovery.register(component, { overwrite: true });
   });
 }
@@ -211,7 +211,7 @@ export default function extension(pi: ExtensionAPI) {
 - `placement`: `append` by default, or `replace` for a named slot.
 - `slot`: required for `replace` and forbidden for `append`.
 
-`FABRIC_EXECUTION_GUIDANCE_SLOT` (`fabric.execution`) is Pi Fabric's replaceable execution profile. Replacing it removes the built-in examples, provider-navigation hints, and other tunable execution prose for matching model turns. It does **not** replace the small Fabric kernel, active Schema gate, selected-skill references, or live core-override contracts. This lets users swap the upstream profile without weakening the host invariants that describe the actual tool surface. Two active components may not win by load order: if both replace the same slot for one model and target, that model launch fails with a conflict naming both registrations.
+`FABRIC_EXECUTION_GUIDANCE_SLOT` (`fabric.execution`) is OMP Fabric's replaceable execution profile. Replacing it removes the built-in examples, provider-navigation hints, and other tunable execution prose for matching model turns. It does **not** replace the small Fabric kernel, active Schema gate, selected-skill references, or live core-override contracts. This lets users swap the upstream profile without weakening the host invariants that describe the actual tool surface. Two active components may not win by load order: if both replace the same slot for one model and target, that model launch fails with a conflict naming both registrations.
 
 Append contributions are ordered by component ID and label, not activation timing. Each registration is a transactional, commutative component effect. It becomes visible only when activation commits, disappears immediately when unload begins, rolls back on activation failure, and can be removed early through the disposer returned by `context.guide()`. A component may register at most 64 entries, each entry is capped at 32,000 characters, and its combined guidance is capped at 64,000 characters. One supervisor accepts at most 1,024 registrations and 1,000,000 stored guidance characters; one resolved prompt projection is capped at 64,000 characters. Status reports selectors, placement, character count, and a content hash. It omits the prompt text.
 
@@ -232,9 +232,9 @@ A provider may still choose not to cache, may impose a minimum cacheable token c
 
 Propagation depends on the participant kind:
 
-- The main Pi process resolves the complete execution slot and appends matching additions on every turn, so model switches take effect without reloading the component.
-- A non-recursive agent or actor keeps its role/instructions and receives matching `participant` append guidance after them. Slot replacements are ignored because that child has no Pi Fabric execution profile to replace. Role routers that dispatch through `agents.run`, `agents.spawn`, or `agents.create` already supply the selected canonical model on those requests, so matching occurs after route selection and leaves the routed role text first.
-- A recursive Pi agent loads Pi Fabric and the same project/package components. It resolves the complete `participant` slot in its own `before_agent_start` hook; the parent deliberately does not append guidance again.
+- The main OMP process resolves the complete execution slot and appends matching additions on every turn, so model switches take effect without reloading the component.
+- A non-recursive agent or actor keeps its role/instructions and receives matching `participant` append guidance after them. Slot replacements are ignored because that child has no OMP Fabric execution profile to replace. Role routers that dispatch through `agents.run`, `agents.spawn`, or `agents.create` already supply the selected canonical model on those requests, so matching occurs after route selection and leaves the routed role text first.
+- A recursive OMP agent loads OMP Fabric and the same project/package components. It resolves the complete `participant` slot in its own `before_agent_start` hook; the parent deliberately does not append guidance again.
 - A durable agent or actor resolves append guidance in its resident owner. The main process writes each committed projection atomically, and an already-running resident host rereads the latest snapshot before every launch.
 
 This propagation is a prompt projection, not an authority grant. Guidance components gain no provider access unless they declare it through `requires`, and their model text cannot widen a participant's tools, committed capability view, Schema policy, or approval boundary. Component extension code itself remains trusted host code.
@@ -313,7 +313,7 @@ await agents.create({
 });
 ```
 
-Before each run, the host acquires a committed view and retains it. It sends the resolved refs and the portable semantic digest to the Pi child. The child resolves the refs on its own. It rejects a digest mismatch, and it pins every `fabric_exec` call to that closed-world view. Actor status and run metadata record the requirements and the digest. When a requirement is unavailable at run time, that mailbox activation stays queued and the actor reports `missingCapabilities`. Provider or catalog changes retry the activation. The retry never widens authority silently. Non-Pi runners still receive host-side commitment checks. Only recursive Pi actors have a Fabric guest surface that enforces the commitment inside the child.
+Before each run, the host acquires a committed view and retains it. It sends the resolved refs and the portable semantic digest to the OMP child. The child resolves the refs on its own. It rejects a digest mismatch, and it pins every `fabric_exec` call to that closed-world view. Actor status and run metadata record the requirements and the digest. When a requirement is unavailable at run time, that mailbox activation stays queued and the actor reports `missingCapabilities`. Provider or catalog changes retry the activation. The retry never widens authority silently. Non-OMP runners still receive host-side commitment checks. Only recursive OMP actors have a Fabric guest surface that enforces the commitment inside the child.
 
 ## Diagnostics
 

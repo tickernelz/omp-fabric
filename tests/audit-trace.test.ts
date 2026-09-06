@@ -1,4 +1,4 @@
-import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 import { describe, expect, it } from "vitest";
 import {
   FABRIC_EXECUTION_DETAILS_MAX_BYTES,
@@ -96,7 +96,7 @@ describe("Fabric execution trace V1", () => {
     );
 
     expect(result.trace).toEqual({
-      kind: "pi-fabric.execution",
+      kind: "omp-fabric.execution",
       version: 1,
       outcome: "succeeded",
       phases: ["Inspect"],
@@ -305,7 +305,7 @@ return true;
     const guardedResult = await execute(
       guarded.service,
       guarded.context,
-      'return tools.describe({ ref: "pi.read" });',
+      'return tools.describe({ ref: "omp.read" });',
     );
     expect(guardedResult.trace.operations[0]).toMatchObject({
       ref: "fabric.discovery.describe",
@@ -572,9 +572,8 @@ return true;
       provider: demoProvider(),
       code: 'return tools.call({ ref: "demo.echo", args: { value: 42 } });',
       stage: "validate",
-      // TypeBox messages describe only schema expectations and never echo
-      // argument values, so they are safe to surface.
-      expectedError: "Call failed during validate: Invalid arguments for demo.echo: must be string",
+      expectedError:
+        "Call failed during validate: Invalid arguments for demo.echo: /value: expected string, received integer",
     },
     {
       name: "provider invocation",
@@ -610,7 +609,7 @@ return true;
     registry.register(demoProvider());
     registry.markUnavailable(
       "memory",
-      'disabled by configuration (memory.enabled=false); set "memory": { "enabled": true } in .pi/fabric.json',
+      'disabled by configuration (memory.enabled=false); set "memory": { "enabled": true } in .omp/fabric.json',
     );
     const { service, context } = serviceForRegistry(registry);
 
@@ -633,7 +632,7 @@ return true;
     expect(dynamic.trace.operations[0]).toMatchObject({
       failureStage: "resolve",
       error:
-        'Call failed during resolve: Fabric provider "memory" is unavailable: disabled by configuration (memory.enabled=false); set "memory": { "enabled": true } in .pi/fabric.json',
+        'Call failed during resolve: Fabric provider "memory" is unavailable: disabled by configuration (memory.enabled=false); set "memory": { "enabled": true } in .omp/fabric.json',
     });
   });
 
@@ -642,14 +641,14 @@ return true;
     const result = await execute(
       service,
       context,
-      'return tools.call({ ref: "pi.write", args: { path: "safe.txt", content: "guard-content-secret" } });',
+      'return tools.call({ ref: "omp.write", args: { path: "safe.txt", content: "guard-content-secret" } });',
     );
 
     expect(result.trace.operations[0]).toMatchObject({
-      ref: "pi.write",
+      ref: "omp.write",
       outcome: "failed",
       failureStage: "guard",
-      error: "Call failed during guard: Fabric full code mode is disabled; call Pi core tools directly outside fabric_exec",
+      error: "Call failed during guard: Fabric full code mode is disabled; call OMP core tools directly outside fabric_exec",
       args: { path: "safe.txt" },
     });
     expect(JSON.stringify(createFabricPersistedExecutionDetails(result))).toContain(
@@ -780,7 +779,7 @@ return true;
     expect(JSON.stringify(details)).not.toContain("rawCodeSecretIdentifier");
   });
 
-  it("fails closed when a TypeBox validator throws", async () => {
+  it("fails closed when a schema validator is defective", async () => {
     const provider = demoProvider({
       async describe(name) {
         return name === "echo"
@@ -868,20 +867,20 @@ return true;
 
   it("reconstructs current render audits from trace and preserves legacy audit rendering", () => {
     const recorder = new FabricExecutionTraceRecorder();
-    const operation = recorder.issueCall("pi.read", { path: "src/index.ts", offset: 4, limit: 8 });
+    const operation = recorder.issueCall("omp.read", { path: "src/index.ts", offset: 4, limit: 8 });
     operation.succeed("omitted content");
     const trace = recorder.seal("succeeded", ["Inspect"]);
 
     expect(readFabricExecutionRenderDetails({ success: true, trace })).toMatchObject({
       phases: ["Inspect"],
-      audits: [{ ref: "pi.read", provider: "pi", tool: "read", success: true, args: { path: "src/index.ts", offset: 4, limit: 8 } }],
+      audits: [{ ref: "omp.read", provider: "omp", tool: "read", success: true, args: { path: "src/index.ts", offset: 4, limit: 8 } }],
     });
     const legacy = {
       success: true,
       phases: ["Legacy"],
       audits: [
         {
-          ref: "pi.read",
+          ref: "omp.read",
           tool: "read",
           args: { path: "old.txt" },
           result: "old body",
@@ -896,12 +895,12 @@ return true;
 
   it("retains bash commands in the trace while omitting arbitrary argument and result content", () => {
     const recorder = new FabricExecutionTraceRecorder();
-    const bash = recorder.issueCall("pi.bash", {
+    const bash = recorder.issueCall("omp.bash", {
       command: "pnpm vitest run tests/audit-trace.test.ts",
       authorizationValue: "authorization-secret",
     });
     bash.succeed({ secretValue: "result-secret" });
-    const write = recorder.issueCall("pi.write", {
+    const write = recorder.issueCall("omp.write", {
       path: "/tmp/safe.txt",
       content: "write-content-secret",
     });
@@ -917,7 +916,7 @@ return true;
       arbitrary: { secretValue: "nested-secret" },
     });
     external.succeed({ authorizationValue: "external-result-secret" });
-    const unsafePath = recorder.issueCall("pi.read", {
+    const unsafePath = recorder.issueCall("omp.read", {
       path: "https://user:path-password@example.test/file?token=path-query-secret",
       offset: 2,
       limit: 4,
@@ -935,11 +934,11 @@ return true;
       text: "memory-result-secret",
     });
     recorder.issueCall("fabric.approval.auto", {
-      action: "pi.bash",
+      action: "omp.bash",
       risk: "execute",
       rawArguments: "classifier-argument-secret",
     }).succeed({
-      action: "pi.bash",
+      action: "omp.bash",
       risk: "execute",
       decision: "escalate",
       model: "anthropic/classifier",
@@ -961,7 +960,7 @@ return true;
       { key: "build.status" },
       {},
       {},
-      { action: "pi.bash", risk: "execute" },
+      { action: "omp.bash", risk: "execute" },
     ]);
     expect(trace.operations.map((operation) => operation.result)).toEqual([
       undefined,
@@ -973,7 +972,7 @@ return true;
       undefined,
       undefined,
       {
-        action: "pi.bash",
+        action: "omp.bash",
         risk: "execute",
         decision: "escalate",
         model: "anthropic/classifier",
@@ -1015,14 +1014,14 @@ return true;
   it("persists rich render audits verbatim alongside the projected trace", () => {
     const recorder = new FabricExecutionTraceRecorder();
     recorder
-      .issueCall("pi.write", { path: "/tmp/safe.txt", content: "write-content-secret" })
+      .issueCall("omp.write", { path: "/tmp/safe.txt", content: "write-content-secret" })
       .succeed({ created: true, details: { secretValue: "write-result-secret" } });
     const trace = recorder.seal("succeeded", ["Ship"]);
     const audits = [
       {
-        ref: "pi.write",
+        ref: "omp.write",
         tool: "write",
-        provider: "pi",
+        provider: "omp",
         success: true,
         args: { path: "/tmp/safe.txt", content: "verbatim-argument" },
         result: { details: { codePreviewAfterWrite: { kind: "content", content: "verbatim-result" } } },
@@ -1050,7 +1049,7 @@ return true;
     expect(parsed.phases).toEqual(["Ship"]);
     expect(parsed.audits).toHaveLength(1);
     expect(parsed.audits[0]).toMatchObject({
-      ref: "pi.write",
+      ref: "omp.write",
       tool: "write",
       result: { details: { codePreviewAfterWrite: { content: "verbatim-result" } } },
     });
@@ -1103,12 +1102,12 @@ return true;
 
   it("retains a bounded underlying cause for Bash invocation failures", () => {
     const recorder = new FabricExecutionTraceRecorder();
-    const bash = recorder.issueCall("pi.bash", { command: "exit 7" });
+    const bash = recorder.issueCall("omp.bash", { command: "exit 7" });
     bash.fail("invoke", new Error(`${"x".repeat(20_000)}\n\nCommand exited with code 7`));
 
     const operation = recorder.seal("failed", []).operations[0];
     expect(operation).toMatchObject({
-      ref: "pi.bash",
+      ref: "omp.bash",
       outcome: "failed",
       failureStage: "invoke",
     });
@@ -1121,7 +1120,7 @@ return true;
     const recorder = new FabricExecutionTraceRecorder();
     for (let index = 0; index < 500; index++) {
       recorder
-        .issueCall("pi.bash", { command: `${index}:${"x".repeat(16_000)}` })
+        .issueCall("omp.bash", { command: `${index}:${"x".repeat(16_000)}` })
         .succeed(undefined);
     }
 
@@ -1175,7 +1174,7 @@ return true;
     expect(readFabricExecutionTraceV1(trace)).toBe(trace);
     expect(readFabricExecutionTraceV1({ ...trace, version: 2 })).toBeUndefined();
     expect(readFabricExecutionTraceV1({ ...trace, unexpected: true })).toBeUndefined();
-    expect(readFabricExecutionTraceV1({ kind: "pi-fabric.execution", version: 1 })).toBeUndefined();
+    expect(readFabricExecutionTraceV1({ kind: "omp-fabric.execution", version: 1 })).toBeUndefined();
     const circular: Record<string, unknown> = {};
     circular.self = circular;
     expect(readFabricExecutionTraceV1(circular)).toBeUndefined();
@@ -1187,7 +1186,7 @@ return true;
 describe("result truncation persistence", () => {
   it("stamps resultTruncated into trace operations and reconstructed audits", () => {
     const recorder = new FabricExecutionTraceRecorder();
-    const operation = recorder.issueCall("pi.bash", { cmd: "yes | head -c 200000" });
+    const operation = recorder.issueCall("omp.bash", { cmd: "yes | head -c 200000" });
     operation.succeed({ ok: true, output: "tail slice" }, { resultTruncated: true });
     const trace = recorder.seal("succeeded", []);
 
@@ -1200,7 +1199,7 @@ describe("result truncation persistence", () => {
 
   it("stamps resultTruncated on failed invocations carrying a truncated result", () => {
     const recorder = new FabricExecutionTraceRecorder();
-    const operation = recorder.issueCall("pi.bash", { cmd: "big && false" });
+    const operation = recorder.issueCall("omp.bash", { cmd: "big && false" });
     operation.fail("invoke", new Error("exit 1"), "failed", { ok: false, output: "tail" }, {
       resultTruncated: true,
     });
@@ -1211,7 +1210,7 @@ describe("result truncation persistence", () => {
 
   it("omits the flag for untruncated results", () => {
     const recorder = new FabricExecutionTraceRecorder();
-    recorder.issueCall("pi.read", { path: "x" }).succeed("small body");
+    recorder.issueCall("omp.read", { path: "x" }).succeed("small body");
     const trace = recorder.seal("succeeded", []);
 
     expect(trace.operations[0]?.resultTruncated).toBeUndefined();

@@ -43,7 +43,7 @@ const participant = (
   ownerIdentityId: identity.id,
   name: identity.name,
   status: "idle",
-  runner: "pi",
+  runner: "omp",
   transport: "host",
   capabilities: ["steer", "followUp", "fabric"],
   ...(identity.sessionId ? { sessionId: identity.sessionId } : {}),
@@ -74,7 +74,7 @@ const source = {
   name: sourceIdentity.name,
   kind: "root" as const,
   rootId: sourceIdentity.id,
-  runner: "pi" as const,
+  runner: "omp" as const,
   ownerHostId: sourceIdentity.id,
   ownerIdentityId: sourceIdentity.id,
 };
@@ -94,7 +94,7 @@ afterEach(async () => {
 
 describe("LifecycleBroker", () => {
   it("delivers only new matching source events and removes one-shot subscriptions", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-lifecycle-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-lifecycle-"));
     roots.push(root);
     const mesh = new MeshStore(path.join(root, "mesh"), 64 * 1024, 100);
     const directory = participants(targetIdentity.id);
@@ -122,18 +122,18 @@ describe("LifecycleBroker", () => {
 
     await mesh.publish({
       topic: FABRIC_PARTICIPANT_LIFECYCLE_TOPIC,
-      kind: "pi.agent_settled",
+      kind: "omp.agent_end",
       from: sourceIdentity,
       data: {
         version: 1,
-        event: "pi.agent_settled",
+        event: "omp.agent_end",
         source,
         occurredAt: 1,
       },
     });
     const subscription = await target.subscribe({
       from: source.id,
-      events: ["pi.agent_settled"],
+      events: ["omp.agent_end"],
       to: targetIdentity.id,
       delivery: "followUp",
       triggerTurn: false,
@@ -143,17 +143,17 @@ describe("LifecycleBroker", () => {
     await new Promise((resolve) => setTimeout(resolve, 60));
     expect(deliveries).toEqual([]);
 
-    await publisher.publish({ source, event: "pi.turn_end", data: { turnIndex: 1 } });
+    await publisher.publish({ source, event: "omp.turn_end", data: { turnIndex: 1 } });
     await publisher.publish({
       source: { ...source, ownerHostId: "host:forged" },
-      event: "pi.agent_settled",
+      event: "omp.agent_end",
     });
     await new Promise((resolve) => setTimeout(resolve, 60));
     expect(deliveries).toEqual([]);
 
     await publisher.publish({
       source,
-      event: "pi.agent_settled",
+      event: "omp.agent_end",
       occurredAt: 42,
       data: { privateTranscript: undefined, idle: true },
     });
@@ -167,7 +167,7 @@ describe("LifecycleBroker", () => {
         triggerTurn: false,
       },
       event: {
-        event: "pi.agent_settled",
+        event: "omp.agent_end",
         source: { id: source.id, kind: "root" },
         occurredAt: 42,
         data: { idle: true },
@@ -177,7 +177,7 @@ describe("LifecycleBroker", () => {
   });
 
   it("delivers attributed component state transitions", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-lifecycle-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-lifecycle-"));
     roots.push(root);
     const mesh = new MeshStore(path.join(root, "mesh"), 64 * 1024, 100);
     const deliveries: FabricLifecycleEvent[] = [];
@@ -217,7 +217,7 @@ describe("LifecycleBroker", () => {
   });
 
   it("persists cursors across broker restarts without redelivering old events", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-lifecycle-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-lifecycle-"));
     roots.push(root);
     const mesh = new MeshStore(path.join(root, "mesh"), 64 * 1024, 100);
     const directory = participants(targetIdentity.id);
@@ -241,13 +241,13 @@ describe("LifecycleBroker", () => {
     brokers.push(publisher, first);
     const subscription = await first.subscribe({
       from: source.id,
-      events: ["pi.agent_settled"],
+      events: ["omp.agent_end"],
       to: targetIdentity.id,
       delivery: "followUp",
       triggerTurn: true,
     });
     first.start();
-    await publisher.publish({ source, event: "pi.agent_settled" });
+    await publisher.publish({ source, event: "omp.agent_end" });
     await waitFor(() => delivered.length === 1);
     await first.close();
 
@@ -265,7 +265,7 @@ describe("LifecycleBroker", () => {
     await new Promise((resolve) => setTimeout(resolve, 60));
     expect(delivered).toHaveLength(1);
 
-    await publisher.publish({ source, event: "pi.agent_settled" });
+    await publisher.publish({ source, event: "omp.agent_end" });
     await waitFor(() => delivered.length === 2);
     await expect(replacement.unsubscribe(subscription.id)).resolves.toEqual({ removed: true });
   });

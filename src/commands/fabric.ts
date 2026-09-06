@@ -1,5 +1,5 @@
-import { type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
-import type { AutocompleteItem } from "@earendil-works/pi-tui";
+import { type ExtensionAPI, type ExtensionContext } from "@oh-my-pi/pi-coding-agent";
+import type { AutocompleteItem } from "@oh-my-pi/pi-tui";
 import type { CapturedToolCatalog } from "../capture/catalog.js";
 import type { FabricActorHostEvent } from "../actors/types.js";
 import type { FabricState } from "../fabric-state.js";
@@ -84,7 +84,7 @@ const summarizeLogLine = (entry: unknown): string => {
   const record = entry as Record<string, unknown>;
   const type = typeof record.type === "string" ? record.type : undefined;
   const tool = typeof record.toolName === "string" ? record.toolName : undefined;
-  // Pi session lines and worker message_end both wrap a { role, content } message.
+  // OMP session lines and worker message_end both wrap a { role, content } message.
   const msg = record.message;
   if (typeof msg === "object" && msg !== null && !Array.isArray(msg)) {
     const m = msg as Record<string, unknown>;
@@ -130,7 +130,7 @@ const resolvePrewalkModel = async (
     .sort((left, right) => left.localeCompare(right));
   if (keys.length === 0) {
     context.ui.notify(
-      "Prewalk needs an explicit Pi executor model. Configure prewalk.model in /fabric settings.",
+      "Prewalk needs an explicit OMP executor model. Configure prewalk.model in /fabric settings.",
       "error",
     );
     return undefined;
@@ -148,7 +148,7 @@ const resolvePrewalkModel = async (
 const armPrewalk = async (
   state: FabricState,
   context: ExtensionContext,
-  pi: ExtensionAPI,
+  omp: ExtensionAPI,
   task = "",
 ): Promise<FabricPrewalkRequestResultV1> => {
   if (state.config.prewalk.enabled === false) {
@@ -169,7 +169,7 @@ const armPrewalk = async (
   const model = await resolvePrewalkModel(state, context);
   if (!model) return { ok: false, error: "Fabric prewalk was not armed." };
 
-  await armFabricPrewalkSession(state, context, pi, {
+  await armFabricPrewalkSession(state, context, omp, {
     model,
     ...(task ? { task } : {}),
   });
@@ -183,19 +183,19 @@ const armPrewalk = async (
       : `Fabric prewalk armed for the next task; ${modeLabel} with ${model}${state.config.prewalk.alwaysRearm ? "; always re-arm enabled" : ""}`,
     "info",
   );
-  if (task) pi.sendUserMessage(task);
+  if (task) omp.sendUserMessage(task);
   return { ok: true };
 };
 
-export function registerFabricCommand(pi: ExtensionAPI, deps: FabricCommandDeps): void {
+export function registerFabricCommand(omp: ExtensionAPI, deps: FabricCommandDeps): void {
   const { state, fabricUi, capturedTools, applyFabricMode, suspendToolCapture } = deps;
-  const unsubscribePrewalkRequests = pi.events?.on?.(FABRIC_PREWALK_REQUEST_EVENT, (value) => {
+  const unsubscribePrewalkRequests = omp.events?.on?.(FABRIC_PREWALK_REQUEST_EVENT, (value) => {
     const request = readFabricPrewalkRequestV1(value);
     if (!request || !request.claim()) return;
     void (async () => {
       try {
         await state.ensure(request.context);
-        request.respond(await armPrewalk(state, request.context, pi));
+        request.respond(await armPrewalk(state, request.context, omp));
       } catch (error) {
         request.respond({
           ok: false,
@@ -205,12 +205,12 @@ export function registerFabricCommand(pi: ExtensionAPI, deps: FabricCommandDeps)
     })();
   });
   if (unsubscribePrewalkRequests) {
-    pi.on("session_shutdown", () => unsubscribePrewalkRequests());
+    omp.on("session_shutdown", () => unsubscribePrewalkRequests());
   }
 
-  // Peer queuing protocol (used by pi-queue-steer): enumerate live peer root
+  // Peer queuing protocol (used by omp-queue-steer): enumerate live peer root
   // sessions and hold dispatch until they settle on the project mesh.
-  const unsubscribePeerCards = pi.events?.on?.(FABRIC_PEER_CARDS_EVENT, (value) => {
+  const unsubscribePeerCards = omp.events?.on?.(FABRIC_PEER_CARDS_EVENT, (value) => {
     const request = readFabricPeerCardsRequestV1(value);
     if (!request || !request.claim()) return;
     void (async () => {
@@ -225,7 +225,7 @@ export function registerFabricCommand(pi: ExtensionAPI, deps: FabricCommandDeps)
       }
     })();
   });
-  const unsubscribePeerAwait = pi.events?.on?.(FABRIC_PEER_AWAIT_SETTLE_EVENT, (value) => {
+  const unsubscribePeerAwait = omp.events?.on?.(FABRIC_PEER_AWAIT_SETTLE_EVENT, (value) => {
     const request = readFabricPeerAwaitSettleRequestV1(value);
     if (!request || !request.claim()) return;
     void (async () => {
@@ -251,7 +251,7 @@ export function registerFabricCommand(pi: ExtensionAPI, deps: FabricCommandDeps)
     })();
   });
   if (unsubscribePeerCards || unsubscribePeerAwait) {
-    pi.on("session_shutdown", () => {
+    omp.on("session_shutdown", () => {
       unsubscribePeerCards?.();
       unsubscribePeerAwait?.();
     });
@@ -279,7 +279,7 @@ export function registerFabricCommand(pi: ExtensionAPI, deps: FabricCommandDeps)
     ].join("\n");
   };
 
-  pi.registerShortcut?.(FABRIC_CONVERSATION_SHORTCUT, {
+  omp.registerShortcut?.(FABRIC_CONVERSATION_SHORTCUT, {
     description: "Open Fabric conversation or return to Main",
     handler: async (context) => {
       if (context.mode !== "tui") return;
@@ -292,7 +292,7 @@ export function registerFabricCommand(pi: ExtensionAPI, deps: FabricCommandDeps)
     },
   });
 
-  pi.registerCommand("fabric", {
+  omp.registerCommand("fabric", {
     description: "Open Fabric dashboard or chat, arm prewalk, reload, or manage agents and actors",
     getArgumentCompletions: (argumentPrefix: string): AutocompleteItem[] | null => {
       const subcommands = [
@@ -437,7 +437,7 @@ export function registerFabricCommand(pi: ExtensionAPI, deps: FabricCommandDeps)
           suspendToolCapture();
           throw error;
         }
-        context.ui.notify("Pi Fabric reloaded", "info");
+        context.ui.notify("OMP Fabric reloaded", "info");
         // initialize() reloads configuration, so an externally edited
         // ui.toolDisplay must re-render existing transcript cards too.
         deps.refreshToolDisplay?.();
@@ -547,7 +547,7 @@ export function registerFabricCommand(pi: ExtensionAPI, deps: FabricCommandDeps)
           return;
         }
         const task = argumentsText.trim().slice(command.length).trim();
-        await armPrewalk(state, context, pi, task);
+        await armPrewalk(state, context, omp, task);
         return;
       }
       if (command === "chat") {
@@ -1152,7 +1152,7 @@ export function registerFabricCommand(pi: ExtensionAPI, deps: FabricCommandDeps)
       context.ui.notify(
         [
           `cwd: ${state.cwd}`,
-          `mode: ${config.fullCodeMode ? "full code (Fabric-owned core tools)" : "orchestration-only (native Pi tools)"}`,
+          `mode: ${config.fullCodeMode ? "full code (Fabric-owned core tools)" : "orchestration-only (native OMP tools)"}`,
           `providers: ${state.registry
             .providers()
             .map((provider) => provider.name)

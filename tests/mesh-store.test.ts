@@ -18,7 +18,7 @@ const identity: MeshIdentity = {
 };
 
 const createStore = (options?: MeshStoreOptions): MeshStore => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-mesh-"));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-mesh-"));
   roots.push(root);
   return new MeshStore(root, 64 * 1024, 100, options);
 };
@@ -106,7 +106,7 @@ describe("MeshStore", () => {
   });
 
   it("supports complete internal prefix scans independently of public read limits", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-mesh-scan-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-mesh-scan-"));
     roots.push(root);
     const store = new MeshStore(root, 64 * 1024, 1);
     await store.put({ key: "topology/a", value: 1, identity });
@@ -167,7 +167,7 @@ describe("MeshStore", () => {
   });
 
   it("compacts oversized event logs and resets stale tail cursors", async () => {
-    const meshRoot = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-mesh-bounded-"));
+    const meshRoot = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-mesh-bounded-"));
     roots.push(meshRoot);
     const maxEventLogBytes = 2_000;
     const store = new MeshStore(meshRoot, 512, 100, {
@@ -194,7 +194,7 @@ describe("MeshStore", () => {
   });
 
   it("caps deleted-key version tombstones", async () => {
-    const meshRoot = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-mesh-state-"));
+    const meshRoot = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-mesh-state-"));
     roots.push(meshRoot);
     const store = new MeshStore(meshRoot, 64 * 1024, 100, { maxStateTombstones: 2 });
     for (const key of ["state/a", "state/b", "state/c"]) {

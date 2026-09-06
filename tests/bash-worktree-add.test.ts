@@ -3,9 +3,9 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 import { parseGitWorktreeAdd, tryExecuteGitWorktreeAdd } from "../src/agents/bash-worktree-add.js";
-import { PiToolsProvider } from "../src/providers/pi-tools-provider.js";
+import { OmpToolsProvider } from "../src/providers/omp-tools-provider.js";
 
 const roots: string[] = [];
 const worktrees: Array<{ repository: string; path: string }> = [];
@@ -14,11 +14,11 @@ const git = (cwd: string, ...args: string[]): string =>
   execFileSync("git", args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
 
 const initRepository = (): string => {
-  const repository = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-bash-wt-"));
+  const repository = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-bash-wt-"));
   roots.push(repository);
   git(repository, "init", "-q");
-  git(repository, "config", "user.email", "pi-fabric-tests@example.invalid");
-  git(repository, "config", "user.name", "Pi Fabric tests");
+  git(repository, "config", "user.email", "omp-fabric-tests@example.invalid");
+  git(repository, "config", "user.name", "OMP Fabric tests");
   fs.writeFileSync(path.join(repository, "README.md"), "ok\n");
   git(repository, "add", ".");
   git(repository, "commit", "-qm", "initial");
@@ -75,11 +75,11 @@ describe("tryExecuteGitWorktreeAdd", () => {
   });
 });
 
-describe("PiToolsProvider bash intercept", () => {
-  it("hijacks git worktree add through pi.bash", async () => {
+describe("OmpToolsProvider bash intercept", () => {
+  it("hijacks git worktree add through omp.bash", async () => {
     const repository = initRepository();
     const dest = path.join(repository, "from-bash");
-    const provider = new PiToolsProvider(repository);
+    const provider = await OmpToolsProvider.create(repository);
     const result = await provider.invoke(
       "bash",
       { command: "git worktree add -b from-bash from-bash HEAD" },

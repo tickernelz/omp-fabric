@@ -23,9 +23,17 @@ async function runProgram(file: string, context: Context): Promise<Record<string
   const javascript = transpileModule(markdownProgram(file), {
     compilerOptions: { target: ScriptTarget.ES2022, module: ModuleKind.None },
   }).outputText;
-  const keys = Object.keys(context);
+  // Guest skills read their call surface through `omp`; payload values are
+  // exposed on that surface the same way the real sandbox wires them.
+  const runtimeContext: Context = {
+    ...context,
+    ...(context.omp === undefined && context.payloads !== undefined
+      ? { omp: { ...(context.payloads as Record<string, unknown>) } }
+      : {}),
+  };
+  const keys = Object.keys(runtimeContext);
   const fn = new AsyncFunction(...keys, javascript);
-  return await fn(...keys.map((key) => context[key])) as Record<string, unknown>;
+  return await fn(...keys.map((key) => runtimeContext[key])) as Record<string, unknown>;
 }
 
 function runSkill(name: string, context: Context): Promise<Record<string, unknown>> {
@@ -50,7 +58,7 @@ describe("expensive skill program behavior", () => {
   it("keeps successful council roles without returning raw reports after synthesis", async () => {
     const calls: string[] = [];
     const result = await runSkill("fabric-council", {
-      π: { task: "decide", roles: JSON.stringify(["correctness", "security", "operations"]) },
+      payloads: { task: "decide", roles: JSON.stringify(["correctness", "security", "operations"]) },
       workflow,
       phase,
       parallel,
@@ -76,7 +84,7 @@ describe("expensive skill program behavior", () => {
 
   it("returns compact council reports only when synthesis fails", async () => {
     const result = await runSkill("fabric-council", {
-      π: { task: "decide", roles: JSON.stringify(["a", "b", "c"]) },
+      payloads: { task: "decide", roles: JSON.stringify(["a", "b", "c"]) },
       workflow,
       phase,
       parallel,
@@ -97,7 +105,7 @@ describe("expensive skill program behavior", () => {
   it("keeps RLM coverage compact and uses recursion only for oversized partitions", async () => {
     const recursive: string[] = [];
     const result = await runSkill("fabric-rlm", {
-      π: { task: "map repository" },
+      payloads: { task: "map repository" },
       workflow,
       phase,
       parallel,
@@ -135,7 +143,7 @@ describe("expensive skill program behavior", () => {
 
   it("preserves compact RLM findings when combination fails", async () => {
     const result = await runSkill("fabric-rlm", {
-      π: { task: "map repository" },
+      payloads: { task: "map repository" },
       workflow,
       phase,
       parallel,
@@ -161,7 +169,7 @@ describe("expensive skill program behavior", () => {
 
   it("judges available Fusion responses without returning them twice", async () => {
     const result = await runSkill("fabric-fusion", {
-      π: {
+      payloads: {
         task: "compare",
         panel: JSON.stringify([{ model: "one" }, { model: "two" }, { model: "three" }]),
         judge: "",
@@ -202,7 +210,7 @@ describe("expensive skill program behavior", () => {
   it("preserves successful Workflow items and carries the objective through every phase", async () => {
     const prompts: string[] = [];
     const result = await runSkill("fabric-workflow", {
-      π: { task: "audit authentication" },
+      payloads: { task: "audit authentication" },
       workflow,
       phase,
       parallel,
@@ -227,7 +235,7 @@ describe("expensive skill program behavior", () => {
   it("verifies even a single Workflow finding", async () => {
     const calls: string[] = [];
     const result = await runSkill("fabric-workflow", {
-      π: { task: "audit one module" }, workflow, phase, parallel,
+      payloads: { task: "audit one module" }, workflow, phase, parallel,
       agent: async (_prompt: string, options: { label: string }) => {
         calls.push(options.label);
         if (options.label === "inventory") return { items: ["one"] };
@@ -242,7 +250,7 @@ describe("expensive skill program behavior", () => {
   it("normalizes RLM overlaps and caps recursive roots", async () => {
     const recursive: string[] = [];
     const result = await runSkill("fabric-rlm", {
-      π: { task: "map" }, workflow, phase, parallel,
+      payloads: { task: "map" }, workflow, phase, parallel,
       agent: async (_prompt: string, options: { label: string }) => {
         if (options.label === "scope") return { partitions: [
           { label: "parent", paths: ["src"], recursive: false },
@@ -279,7 +287,7 @@ describe("expensive skill program behavior", () => {
   it("returns one surviving Fusion response without spending a judge", async () => {
     const calls: string[] = [];
     const result = await runSkill("fabric-fusion", {
-      π: {
+      payloads: {
         task: "compare", panel: JSON.stringify([{ model: "one" }, { model: "two" }]),
         judge: "", tools: "", thinking: "",
       },
@@ -303,7 +311,7 @@ describe("expensive skill program behavior", () => {
   it("rejects duplicate Fusion models before spending panel calls", async () => {
     let agentCalls = 0;
     await expect(runSkill("fabric-fusion", {
-      π: {
+      payloads: {
         task: "compare", panel: JSON.stringify([{ model: "one" }, { model: "p/one" }]),
         judge: "", tools: "", thinking: "",
       },
@@ -318,13 +326,13 @@ describe("expensive skill program behavior", () => {
   it("preflights Council roles and skips synthesis for one survivor", async () => {
     let calls = 0;
     await expect(runSkill("fabric-council", {
-      π: { task: "decide", roles: JSON.stringify(["a", "b"]) }, workflow, phase, parallel,
+      payloads: { task: "decide", roles: JSON.stringify(["a", "b"]) }, workflow, phase, parallel,
       agent: async () => { calls += 1; return "unexpected"; },
     })).rejects.toThrow("3–5 distinct");
     expect(calls).toBe(0);
 
     const result = await runSkill("fabric-council", {
-      π: { task: "decide", roles: JSON.stringify(["a", "b", "c"]) }, workflow, phase, parallel,
+      payloads: { task: "decide", roles: JSON.stringify(["a", "b", "c"]) }, workflow, phase, parallel,
       agent: async (_prompt: string, options: { label: string }) => {
         calls += 1;
         if (options.label !== "a") throw new Error("failed");
@@ -338,7 +346,7 @@ describe("expensive skill program behavior", () => {
 
   it("returns Fusion responses only when judging fails", async () => {
     const result = await runSkill("fabric-fusion", {
-      π: {
+      payloads: {
         task: "compare", panel: JSON.stringify([{ model: "one" }, { model: "two" }]),
         judge: "", tools: "", thinking: "",
       },
@@ -359,7 +367,7 @@ describe("expensive skill program behavior", () => {
 
   it("returns failed RLM coverage when no partition completes", async () => {
     const result = await runSkill("fabric-rlm", {
-      π: { task: "map" }, workflow, phase, parallel,
+      payloads: { task: "map" }, workflow, phase, parallel,
       agent: async (_prompt: string, options: { label: string }) => {
         if (options.label === "scope") return { partitions: [
           { label: "a", paths: ["a"], recursive: false },
@@ -376,7 +384,7 @@ describe("expensive skill program behavior", () => {
   it("circuit-breaks Workflow after an all-failed batch", async () => {
     const called: string[] = [];
     const result = await runSkill("fabric-workflow", {
-      π: { task: "audit" }, workflow, phase, parallel,
+      payloads: { task: "audit" }, workflow, phase, parallel,
       agent: async (_prompt: string, options: { label: string }) => {
         called.push(options.label);
         if (options.label === "inventory") {
@@ -395,7 +403,7 @@ describe("expensive skill program behavior", () => {
   it("uses the first completed Fusion member as the implicit judge", async () => {
     let judgeModel: string | undefined;
     const result = await runSkill("fabric-fusion", {
-      π: {
+      payloads: {
         task: "compare", panel: JSON.stringify([
           { model: "one", label: "first" },
           { model: "two", label: "second" },
@@ -422,7 +430,7 @@ describe("expensive skill program behavior", () => {
     expect(result).toMatchObject({ status: "partial", analysis: {} });
     expect(judgeModel).toBe("p/two");
     expect(result.failures).toContainEqual({
-      label: "first", model: "p/one", runner: "pi", status: "failed",
+      label: "first", model: "p/one", runner: "omp", status: "failed",
       error: "first provider failed",
     });
   });
@@ -432,7 +440,7 @@ describe("expensive skill program behavior", () => {
     const actorOptions: Array<Record<string, unknown>> = [];
     const calls: string[] = [];
     const result = await runSkill("fabric-fusion", {
-      π: {
+      payloads: {
         mode: "act",
         task: "fix the parser",
         panel: JSON.stringify([{ model: "one", label: "ref" }]),
@@ -491,12 +499,12 @@ describe("expensive skill program behavior", () => {
     expect(calls).not.toContain("fusion judge");
   });
 
-  it("runs the actor after a partial act reference failure and honors strings.actorTools", async () => {
+  it("runs the actor after a partial act reference failure and honors payloads.actorTools", async () => {
     const calls: string[] = [];
     let actorPrompt = "";
     let actorTools: string[] | undefined;
     const result = await runSkill("fabric-fusion", {
-      π: {
+      payloads: {
         mode: "act",
         task: "harden the login flow",
         panel: JSON.stringify([{ model: "one" }, { model: "two" }]),
@@ -534,7 +542,7 @@ describe("expensive skill program behavior", () => {
       result: "fusion actor outcome",
     });
     expect(result.failures).toEqual([
-      { label: "two", model: "p/two", runner: "pi", status: "failed", error: "reference unavailable" },
+      { label: "two", model: "p/two", runner: "omp", status: "failed", error: "reference unavailable" },
     ]);
     expect(actorTools).toEqual(["read", "bash"]);
     expect(actorPrompt).toContain("reference · one plan");
@@ -545,7 +553,7 @@ describe("expensive skill program behavior", () => {
   it("fails act mode without spending an actor when no reference completes", async () => {
     const calls: string[] = [];
     const result = await runSkill("fabric-fusion", {
-      π: {
+      payloads: {
         mode: "act",
         task: "migrate the store",
         panel: JSON.stringify([{ model: "one" }, { model: "two" }]),
@@ -577,7 +585,7 @@ describe("expensive skill program behavior", () => {
   it("returns compact reference advice when the act actor fails, without rerunning references", async () => {
     const calls: string[] = [];
     const result = await runSkill("fabric-fusion", {
-      π: {
+      payloads: {
         mode: "act",
         task: "refactor auth",
         panel: JSON.stringify([{ model: "one" }]),
@@ -612,7 +620,7 @@ describe("expensive skill program behavior", () => {
       {
         label: "one",
         model: "p/one",
-        runner: "pi",
+        runner: "omp",
         status: "completed",
         advice: {
           approach: "extract middleware",
@@ -627,7 +635,7 @@ describe("expensive skill program behavior", () => {
   it("preflights act mode before spending calls", async () => {
     let agentCalls = 0;
     await expect(runSkill("fabric-fusion", {
-      π: {
+      payloads: {
         mode: "merge", task: "x", panel: JSON.stringify([{ model: "one" }]),
         actor: "one", tools: "", thinking: "",
       },
@@ -638,7 +646,7 @@ describe("expensive skill program behavior", () => {
     })).rejects.toThrow('"compare" or "act"');
 
     await expect(runSkill("fabric-fusion", {
-      π: {
+      payloads: {
         mode: "act", task: "x", panel: JSON.stringify([{ model: "one" }]),
         actor: "", tools: "", thinking: "",
       },
@@ -646,10 +654,10 @@ describe("expensive skill program behavior", () => {
       tools: { models: async () => [{ key: "p/one", id: "one", name: "One" }] },
       agents: { models: async () => { throw new Error("no claude"); } },
       agent: async () => { agentCalls += 1; return "unexpected"; },
-    })).rejects.toThrow("strings.actor");
+    })).rejects.toThrow("requires an explicit strings.actor model");
 
     await expect(runSkill("fabric-fusion", {
-      π: {
+      payloads: {
         mode: "act", task: "x",
         panel: JSON.stringify([
           { model: "one" }, { model: "two" }, { model: "three" },
@@ -668,7 +676,7 @@ describe("expensive skill program behavior", () => {
     })).rejects.toThrow("1–4");
 
     await expect(runSkill("fabric-fusion", {
-      π: {
+      payloads: {
         mode: "act", task: "x", panel: JSON.stringify([{ model: "one" }]),
         actor: "two", actorTools: JSON.stringify({ read: true }), tools: "", thinking: "",
       },
@@ -679,14 +687,14 @@ describe("expensive skill program behavior", () => {
       ] },
       agents: { models: async () => { throw new Error("no claude"); } },
       agent: async () => { agentCalls += 1; return "unexpected"; },
-    })).rejects.toThrow("strings.actorTools");
+    })).rejects.toThrow("strings.actorTools must be a JSON array of non-empty tool names");
     expect(agentCalls).toBe(0);
   });
 
   it("rejects unsafe RLM paths before delegation", async () => {
     let delegated = 0;
     const result = await runSkill("fabric-rlm", {
-      π: { task: "map" }, workflow, phase, parallel,
+      payloads: { task: "map" }, workflow, phase, parallel,
       agent: async (_prompt: string, options: { label: string }) => {
         if (options.label === "scope") {
           return { partitions: [{ label: "escape", paths: ["../secret"], recursive: false }] };
@@ -706,7 +714,7 @@ describe("expensive skill program behavior", () => {
 
   it("continues valid RLM partitions while accounting for invalid ones", async () => {
     const result = await runSkill("fabric-rlm", {
-      π: { task: "map" }, workflow, phase, parallel,
+      payloads: { task: "map" }, workflow, phase, parallel,
       agent: async (_prompt: string, options: { label: string }) => {
         if (options.label === "scope") return { partitions: [
           { label: "invalid", paths: [], recursive: false },
@@ -732,13 +740,13 @@ describe("expensive skill program behavior", () => {
   it("preserves an ambient actor's extension policy on reuse", async () => {
     const calls: string[] = [];
     const existing = {
-      id: "actor-1", name: "advisor", status: "idle", runner: "pi",
+      id: "actor-1", name: "advisor", status: "idle", runner: "omp",
       events: ["turn_end"], topics: [], delivery: "steer",
       responseMode: "directive", triggerTurn: false, coalesce: true,
       tools: [], extensions: false,
     };
     const result = await runProgram("skills/fabric-ambient/references/setup.md", {
-      π: {
+      payloads: {
         name: "advisor", instructions: "observe", events: JSON.stringify(["turn_end"]),
         triggerTurn: "false", model: "",
       },
@@ -761,7 +769,7 @@ describe("expensive skill program behavior", () => {
     let request: Record<string, unknown> | undefined;
     const actor = { id: "actor-2", name: "advisor", status: "idle" };
     const result = await runProgram("skills/fabric-ambient/references/setup.md", {
-      π: {
+      payloads: {
         name: "advisor", instructions: "observe", events: JSON.stringify(["turn_end"]),
         triggerTurn: "false", model: "",
       },
@@ -782,12 +790,12 @@ describe("expensive skill program behavior", () => {
   it("does not mutate a running ambient actor", async () => {
     let setterCalls = 0;
     const existing = {
-      id: "actor-running", name: "advisor", status: "running", runner: "pi",
+      id: "actor-running", name: "advisor", status: "running", runner: "omp",
       events: ["turn_end"], topics: [], delivery: "steer", responseMode: "directive",
       triggerTurn: false, coalesce: true, tools: ["read", "grep", "find", "ls"],
     };
     const result = await runProgram("skills/fabric-ambient/references/setup.md", {
-      π: {
+      payloads: {
         name: "advisor", instructions: "observe", events: JSON.stringify(["turn_end"]),
         triggerTurn: "false", model: "",
       },
@@ -807,7 +815,7 @@ describe("expensive skill program behavior", () => {
 
   it("normalizes Schema verification and rollback outcomes", async () => {
     const failedVerification = await runSkill("fabric-schema", {
-      pi: { read: async () => "source" },
+      omp: { read: async () => "source" },
       schema: {
         hypothesize: async () => ({ hypothesisId: "h1" }),
         verify: async () => ({ verified: false, certificate: null, results: [] }),
@@ -818,7 +826,7 @@ describe("expensive skill program behavior", () => {
 
     let aborted = 0;
     const missingSha = await runSkill("fabric-schema", {
-      pi: { read: async () => "source" },
+      omp: { read: async () => "source" },
       schema: {
         hypothesize: async () => ({ hypothesisId: "h-missing" }),
         verify: async () => ({ verified: true, certificate: "live-cert", results: [] }),
@@ -834,7 +842,7 @@ describe("expensive skill program behavior", () => {
     expect(aborted).toBe(1);
 
     const rolledBack = await runSkill("fabric-schema", {
-      pi: { read: async () => "source" },
+      omp: { read: async () => "source" },
       schema: {
         hypothesize: async () => ({ hypothesisId: "h2" }),
         verify: async () => ({

@@ -30,7 +30,7 @@ const timestamp = (offset: number): string =>
   new Date(1_700_000_000_000 + offset * 1_000).toISOString();
 
 const makeTempDir = (name: string): string => {
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), `pi-fabric-decay-${name}-`));
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), `omp-fabric-decay-${name}-`));
   temporaryDirectories.push(directory);
   return directory;
 };

@@ -6,11 +6,11 @@ import {
   resolveShikiTheme,
 } from "../src/ui/code-preview.js";
 import {
-  classifyPiTheme,
+  classifyOmpTheme,
   configureHighlighting,
   effectiveShikiTheme,
   effectiveShikiThemeIsLight,
-  observePiTheme,
+  observeOmpTheme,
   observedThemeVariant,
 } from "../src/ui/highlight.js";
 import { createDiffBackgroundResolver } from "../src/ui/diff-background.js";
@@ -51,26 +51,26 @@ describe("shiki theme preference parsing", () => {
   });
 });
 
-describe("classifyPiTheme", () => {
+describe("classifyOmpTheme", () => {
   it("classifies the built-in themes by name", () => {
-    expect(classifyPiTheme({ name: "light" })).toBe("light");
-    expect(classifyPiTheme({ name: "dark" })).toBe("dark");
+    expect(classifyOmpTheme({ name: "light" })).toBe("light");
+    expect(classifyOmpTheme({ name: "dark" })).toBe("dark");
   });
 
   it("classifies custom themes from message background luminance", () => {
     expect(
-      classifyPiTheme({ name: "mine", getBgAnsi: () => "\x1b[48;2;240;240;235m" }),
+      classifyOmpTheme({ name: "mine", getBgAnsi: () => "\x1b[48;2;240;240;235m" }),
     ).toBe("light");
     expect(
-      classifyPiTheme({ name: "mine", getBgAnsi: () => "\x1b[48;2;30;30;34m" }),
+      classifyOmpTheme({ name: "mine", getBgAnsi: () => "\x1b[48;2;30;30;34m" }),
     ).toBe("dark");
-    expect(classifyPiTheme({ name: "mine", getBgAnsi: () => "\x1b[48;5;255m" })).toBe("light");
+    expect(classifyOmpTheme({ name: "mine", getBgAnsi: () => "\x1b[48;5;255m" })).toBe("light");
   });
 
   it("falls back to COLORFGBG when the theme carries no hint", () => {
-    expect(classifyPiTheme(undefined, { COLORFGBG: "0;15" })).toBe("light");
-    expect(classifyPiTheme(undefined, { COLORFGBG: "15;0" })).toBe("dark");
-    expect(classifyPiTheme(undefined, {})).toBeUndefined();
+    expect(classifyOmpTheme(undefined, { COLORFGBG: "0;15" })).toBe("light");
+    expect(classifyOmpTheme(undefined, { COLORFGBG: "15;0" })).toBe("dark");
+    expect(classifyOmpTheme(undefined, {})).toBeUndefined();
   });
 });
 
@@ -111,48 +111,48 @@ describe("code preview settings", () => {
 });
 
 describe("effective shiki theme", () => {
-  it("tracks Pi's resolved variant under auto", () => {
+  it("tracks OMP's resolved variant under auto", () => {
     configureHighlighting("auto", true);
-    observePiTheme({ name: "light" });
+    observeOmpTheme({ name: "light" });
     expect(effectiveShikiTheme()).toBe("github-light");
     expect(effectiveShikiThemeIsLight()).toBe(true);
-    observePiTheme({ name: "dark" });
+    observeOmpTheme({ name: "dark" });
     expect(effectiveShikiTheme()).toBe("dark-plus");
     expect(effectiveShikiThemeIsLight()).toBe(false);
   });
 
   it("classifies unnamed custom themes by luminance", () => {
     configureHighlighting("auto", true);
-    observePiTheme({ getBgAnsi: () => "\x1b[48;2;236;236;229m" });
+    observeOmpTheme({ getBgAnsi: () => "\x1b[48;2;236;236;229m" });
     expect(observedThemeVariant()).toBe("light");
     expect(effectiveShikiTheme()).toBe("github-light");
   });
 
   it("keeps a fixed theme regardless of variant", () => {
     configureHighlighting("solarized-dark", true);
-    observePiTheme({ name: "light" });
+    observeOmpTheme({ name: "light" });
     expect(effectiveShikiTheme()).toBe("solarized-dark");
   });
 
   it("resolves explicit light/dark pairs against the variant", () => {
     configureHighlighting("light-plus/dark-plus", true);
-    observePiTheme({ name: "light" });
+    observeOmpTheme({ name: "light" });
     expect(effectiveShikiTheme()).toBe("light-plus");
-    observePiTheme({ name: "dark" });
+    observeOmpTheme({ name: "dark" });
     expect(effectiveShikiTheme()).toBe("dark-plus");
   });
 });
 
 describe("variant-aware diff backgrounds", () => {
   it("uses light fallbacks after observing a light pi theme", () => {
-    observePiTheme({ name: "light" });
+    observeOmpTheme({ name: "light" });
     const resolve = createDiffBackgroundResolver(undefined, "subtle");
     expect(resolve("add")).toBe("\x1b[48;2;198;230;206m");
     expect(resolve("remove")).toBe("\x1b[48;2;242;206;210m");
   });
 
   it("uses dark fallbacks after observing a dark pi theme", () => {
-    observePiTheme({ name: "dark" });
+    observeOmpTheme({ name: "dark" });
     const resolve = createDiffBackgroundResolver(undefined, "medium");
     expect(resolve("add")).toBe("\x1b[48;2;22;68;40m");
     expect(resolve("remove")).toBe("\x1b[48;2;78;36;40m");

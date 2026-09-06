@@ -9,8 +9,8 @@ export interface FixtureEntry {
   [key: string]: unknown;
 }
 
-// Plain message records shaped like pi's AgentMessage union, without importing
-// pi-ai (which is not a direct dependency of pi-fabric). The shapes below are
+// Plain message records shaped like OMP's AgentMessage union, without importing
+// pi-ai (which is not a direct dependency of omp-fabric). The shapes below are
 // structural matches for what normalize.ts reads.
 type FixtureMessage = Record<string, unknown>;
 
@@ -27,6 +27,18 @@ export const sessionHeader = (
   cwd,
 });
 
+export const titleSlot = (
+  title = "",
+  updatedAt = "2024-12-03T14:00:00.000Z",
+): Record<string, unknown> => ({
+  type: "title",
+  v: 1,
+  title,
+  source: "auto",
+  updatedAt,
+  pad: " ".repeat(134),
+})
+
 export const messageEntry = (
   id: string,
   parentId: string | null,
@@ -41,9 +53,15 @@ export const writeSessionFile = (
 ): string => {
   fs.mkdirSync(dir, { recursive: true });
   const file = path.join(dir, name);
+  const first = entries[0];
+  const headerFirst = first !== undefined && typeof first === "object" && first !== null
+    && "type" in first && first.type === "session";
+  const withTitleSlot: Array<FixtureEntry | Record<string, unknown>> = headerFirst
+    ? [titleSlot(), ...entries]
+    : [...entries];
   fs.writeFileSync(
     file,
-    entries.map((entry) => JSON.stringify(entry)).join("\n") + "\n",
+    withTitleSlot.map((entry) => JSON.stringify(entry)).join("\n") + "\n",
     "utf8",
   );
   return file;

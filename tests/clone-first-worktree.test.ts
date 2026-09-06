@@ -14,11 +14,11 @@ const git = (cwd: string, ...args: string[]): string =>
   execFileSync("git", args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
 
 const initRepository = (): string => {
-  const repository = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-cow-wt-"));
+  const repository = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-cow-wt-"));
   roots.push(repository);
   git(repository, "init", "-q");
-  git(repository, "config", "user.email", "pi-fabric-tests@example.invalid");
-  git(repository, "config", "user.name", "Pi Fabric tests");
+  git(repository, "config", "user.email", "omp-fabric-tests@example.invalid");
+  git(repository, "config", "user.name", "OMP Fabric tests");
   git(repository, "config", "core.autocrlf", "false");
   fs.writeFileSync(path.join(repository, "README.md"), "tracked head\n");
   fs.writeFileSync(path.join(repository, ".gitignore"), "node_modules/\n");
@@ -42,19 +42,19 @@ afterEach(() => {
 });
 
 describe("clone-first worktrees", () => {
-  it("creates a managed worktree under .pi/fabric/worktrees and keeps ignored artifacts", async () => {
+  it("creates a managed worktree under .omp/fabric/worktrees and keeps ignored artifacts", async () => {
     const repository = initRepository();
     const dest = fabricWorktreePath(repository, "agentid0123456789abcdef012345");
     const result = await addCloneFirstWorktree({
       gitRoot: repository,
       dest,
-      branch: { flag: "-b", name: "pi-fabric/clone-test-agentid01" },
+      branch: { flag: "-b", name: "omp-fabric/clone-test-agentid01" },
       startPoint: "HEAD",
       quiet: true,
     });
     worktrees.push({ repository, path: dest });
 
-    expect(fs.realpathSync(dest)).toBe(fs.realpathSync(path.join(repository, ".pi", "fabric", "worktrees", "agentid0123456789abcdef012345")));
+    expect(fs.realpathSync(dest)).toBe(fs.realpathSync(path.join(repository, ".omp", "fabric", "worktrees", "agentid0123456789abcdef012345")));
     expect(fs.readFileSync(path.join(dest, "README.md"), "utf8")).toBe("tracked head\n");
     const exclude = git(repository, "rev-parse", "--git-path", "info/exclude").trim();
     expect(fs.readFileSync(path.resolve(repository, exclude), "utf8")).toContain(FABRIC_WORKTREE_EXCLUDE);

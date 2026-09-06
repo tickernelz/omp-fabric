@@ -142,7 +142,7 @@ export type FabricModelUsage = Record<string, number>;
  * first; equal-closeness ties fall to the most recently used model (recency
  * timestamps such as pi-model-sort's extensions/pi-model-sort.json under the
  * agent dir, keyed by provider/id), then to the highest-sorting key, mirroring
- * pi's convention that the newest alias/versioned id sorts last.
+ * OMP's convention that the newest alias/versioned id sorts last.
  */
 const pickClosestCandidate = (
   query: string,
@@ -195,7 +195,7 @@ const pickClosestCandidate = (
  * returned directly; broader candidate pools are ranked by closeness, with
  * equal-closeness ties falling to the most recently used model (when usage
  * timestamps are supplied, e.g. from pi-model-sort) and then to the
- * highest-sorting key, mirroring pi's newest-alias convention. Only a pool
+ * highest-sorting key, mirroring OMP's newest-alias convention. Only a pool
  * with no resemblance at all stays not-found; `ambiguous` is retained for
  * defensive completeness but the ranker always produces a deterministic pick.
  */
@@ -274,7 +274,7 @@ export const resolveFabricModel = (
   return { kind: "not-found", query };
 };
 
-const unavailablePiModelError = (
+const unavailableOmpModelError = (
   query: string,
   resolution?: Extract<FabricModelResolution, { kind: "ambiguous" | "not-found" }>,
 ): Error => {
@@ -284,17 +284,17 @@ const unavailablePiModelError = (
       ? ` Visible matches: ${resolution.candidates.map(modelKey).join(", ")}.`
       : "";
   return new Error(
-    `Model ${JSON.stringify(query)} is not available to this Pi session.${detail} ` +
-      'Use agents.models({ runner: "pi" }) to list the models visible to this session.',
+    `Model ${JSON.stringify(query)} is not available to this OMP session.${detail} ` +
+      'Use agents.models({ runner: "omp" }) to list the models visible to this session.',
   );
 };
 
 /**
- * Resolve a Pi participant selector strictly within the execution owner's
+ * Resolve an OMP participant selector strictly within the execution owner's
  * visible registry. Exact provider/id keys never fall back to fuzzy matching;
  * aliases and inexact selectors retain the normal Fabric resolution policy.
  */
-export const resolveAvailablePiModel = (
+export const resolveAvailableOmpModel = (
   selector: string,
   options: {
     aliases: Record<string, string[]>;
@@ -311,12 +311,12 @@ export const resolveAvailablePiModel = (
       (model) => modelKey(model).toLowerCase() === query.toLowerCase(),
     );
     if (exact) return exact;
-    throw unavailablePiModelError(query);
+    throw unavailableOmpModelError(query);
   }
 
   const resolution = resolveFabricModel(query, options);
   if (resolution.kind === "resolved" || resolution.kind === "already-active") {
     return resolution.model;
   }
-  throw unavailablePiModelError(query, resolution);
+  throw unavailableOmpModelError(query, resolution);
 };

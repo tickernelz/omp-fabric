@@ -1,19 +1,15 @@
-import type { Theme } from "@earendil-works/pi-coding-agent";
-import type { TUI } from "@earendil-works/pi-tui";
-import {
-  Markdown,
-  truncateToWidth,
-  wrapTextWithAnsi,
-  type MarkdownTheme,
-  visibleWidth,
-} from "@earendil-works/pi-tui";
+import type { Theme } from "@oh-my-pi/pi-coding-agent";
+import { Ellipsis, Markdown, truncateToWidth, wrapTextWithAnsi, visibleWidth } from "@oh-my-pi/pi-tui";
+import type { MarkdownTheme, SymbolTheme, TUI } from "@oh-my-pi/pi-tui";
+import type { ThemeColor } from "@oh-my-pi/pi-coding-agent/modes/theme/theme";
 import type { FabricActivityCall } from "../activity/types.js";
 import { formatFabricEffectConflict } from "../core/effect-conflict.js";
 import type { CodePreviewSettings } from "./code-preview.js";
 import { coreToolTitle, renderCoreToolBody } from "./core-tool-render.js";
 import type { Entity } from "./dashboard-model.js";
-import { colorStatus, statusGlyph } from "./dashboard-presentation.js";
+import { ompSymbolTheme } from "./symbol-theme.js";
 import { nestedEditDiff, renderBoundedLines } from "./fabric-render.js";
+import { colorStatus, statusGlyph } from "./dashboard-presentation.js";
 import {
   formatActorDataPreview,
   formatClock,
@@ -30,25 +26,36 @@ import type { FabricAgentTranscript, FabricTranscriptEntry } from "./transcript.
 import type { FabricDashboardSnapshot, FabricUiActor, FabricUiAgent } from "./types.js";
 import { isActiveStatus } from "./types.js";
 
-const transcriptMarkdownTheme = (theme: Theme, invalidate: () => void): MarkdownTheme => ({
-  heading: (text) => theme.fg("mdHeading", text),
-  link: (text) => theme.fg("mdLink", text),
-  linkUrl: (text) => theme.fg("mdLinkUrl", text),
-  code: (text) => theme.fg("mdCode", text),
-  codeBlock: (text) => theme.fg("mdCodeBlock", text),
-  codeBlockBorder: (text) => theme.fg("mdCodeBlockBorder", text),
-  quote: (text) => theme.fg("mdQuote", text),
-  quoteBorder: (text) => theme.fg("mdQuoteBorder", text),
-  hr: (text) => theme.fg("mdHr", text),
-  listBullet: (text) => theme.fg("mdListBullet", text),
-  bold: (text) => theme.bold(text),
-  italic: (text) => theme.italic(text),
-  underline: (text) => theme.underline(text),
-  strikethrough: (text) => theme.strikethrough(text),
-  highlightCode: (code, lang) =>
-    highlightCode(code, lang ?? "", invalidate) ??
-    code.split("\n").map((line) => theme.fg("mdCodeBlock", line)),
-});
+const isSymbolTheme = (value: unknown): value is SymbolTheme =>
+  value !== null && typeof value === "object";
+
+const transcriptMarkdownTheme = (theme: Theme, invalidate: () => void): MarkdownTheme => {
+  const rawSymbols = Reflect.get(theme, "symbols");
+  const symbols = isSymbolTheme(rawSymbols) ? rawSymbols : ompSymbolTheme;
+  const format = (color: ThemeColor, text: string): string => theme.fg(color, text);
+  const style = (name: "bold" | "italic" | "underline" | "strikethrough", text: string): string => {
+    const fn = Reflect.get(theme, name);
+    return typeof fn === "function" ? fn.call(theme, text) : text;
+  };
+  return {
+    symbols,
+    heading: (text) => format("mdHeading", text),
+    link: (text) => format("mdLink", text),
+    linkUrl: (text) => format("mdLinkUrl", text),
+    code: (text) => format("mdCode", text),
+    codeBlock: (text) => format("mdCodeBlock", text),
+    codeBlockBorder: (text) => format("mdCodeBlockBorder", text),
+    quote: (text) => format("mdQuote", text),
+    quoteBorder: (text) => format("mdQuoteBorder", text),
+    hr: (text) => format("mdHr", text),
+    listBullet: (text) => format("mdListBullet", text),
+    bold: (text) => style("bold", text),
+    italic: (text) => style("italic", text),
+    underline: (text) => style("underline", text),
+    strikethrough: (text) => style("strikethrough", text),
+    highlightCode: (code, lang) => highlightCode(code, lang ?? "", invalidate) ?? code.split("\n").map((line) => format("mdCodeBlock", line)),
+  };
+};
 
 const TRANSCRIPT_EXPANDED_TOOL_LINES = 40;
 const TRANSCRIPT_STRUCTURED_LINES = 40;
@@ -400,7 +407,7 @@ export class DashboardDetailRenderer {
     const tool =
       normalizedName === "glob"
         ? "find"
-        : ["read", "write", "edit", "bash", "powershell", "grep", "find", "ls"].includes(normalizedName)
+        : ["read", "write", "edit", "bash", "grep", "find", "ls"].includes(normalizedName)
           ? normalizedName
           : rawName;
     const rawArgs = entry.args ?? {};
@@ -414,8 +421,8 @@ export class DashboardDetailRenderer {
       if (oldText !== undefined && newText !== undefined) args.edits = [{ oldText, newText }];
     }
     return {
-      ref: typeof tool === "string" ? `pi.${tool}` : `tool.${rawName}`,
-      provider: "pi",
+      ref: typeof tool === "string" ? `omp.${tool}` : `tool.${rawName}`,
+      provider: "omp",
       tool,
       ...(Object.keys(args).length > 0 ? { args } : {}),
       ...(entry.result !== undefined ? { result: entry.result } : {}),
@@ -551,8 +558,8 @@ export class DashboardDetailRenderer {
     };
     const coreCallPreview = (call: FabricActivityCall): boolean => {
       const settings = this.codePreviewSettings;
-      const tool = call.ref.startsWith("pi.") ? call.ref.slice(3) : "";
-      if (!settings || !["bash", "powershell", "read", "write", "edit", "grep", "find", "ls"].includes(tool)) {
+      const tool = call.ref.startsWith("omp.") ? call.ref.slice(4) : "";
+      if (!settings || !["bash", "read", "write", "edit", "grep", "find", "ls"].includes(tool)) {
         return false;
       }
       const success = call.status === "completed"
@@ -562,7 +569,7 @@ export class DashboardDetailRenderer {
           : undefined;
       const audit = {
         ref: call.ref,
-        provider: "pi",
+        provider: "omp",
         tool,
         ...(call.args !== undefined ? { args: call.args } : {}),
         ...(call.result !== undefined ? { result: call.result } : {}),
@@ -600,15 +607,14 @@ export class DashboardDetailRenderer {
       if (!args || Object.keys(args).length === 0) return;
       const stringValue = (key: string): string | undefined =>
         typeof args[key] === "string" ? args[key] : undefined;
-      if (call.ref === "pi.bash" || call.ref === "pi.powershell") {
+      if (call.ref === "omp.bash") {
         const command = stringValue("command");
-        const language = call.ref === "pi.powershell" ? "powershell" : "bash";
         if (command) {
-          markdownField("Command", `\`\`\`${language}\n${command}\n\`\`\``, "command");
+          markdownField("Command", `\`\`\`bash\n${command}\n\`\`\``, "command");
         }
       }
       const edits = Array.isArray(args.edits) ? args.edits : [];
-      if (call.ref === "pi.edit" && edits.length > 0) {
+      if (call.ref === "omp.edit" && edits.length > 0) {
         lines.push(this.theme.fg("dim", "Edits:"));
         const diff = nestedEditDiff(
           {
@@ -626,7 +632,7 @@ export class DashboardDetailRenderer {
         }
       }
       const content = stringValue("content");
-      if (call.ref === "pi.write" && content !== undefined) {
+      if (call.ref === "omp.write" && content !== undefined) {
         const path = stringValue("path") ?? "";
         const extension = path.includes(".") ? path.split(".").at(-1) : "";
         markdownField("Content", "```" + (extension || "text") + "\n" + content + "\n```", "content");
@@ -642,7 +648,7 @@ export class DashboardDetailRenderer {
     if (entity.kind === "main") {
       const main = entity.value;
       field("ID", main.id);
-      field("Scope", "user-facing Pi session");
+      field("Scope", "user-facing OMP session");
       field("Runner", main.runner);
       field("Model", main.model);
       field("Thinking", main.thinking);
@@ -658,7 +664,7 @@ export class DashboardDetailRenderer {
     } else if (entity.kind === "peer") {
       const peer = entity.value;
       field("ID", peer.id);
-      field("Scope", "concurrent root Pi session");
+      field("Scope", "concurrent root OMP session");
       field("Runner", peer.runner);
       field("Model", peer.model);
       field("Thinking", peer.thinking);

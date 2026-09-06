@@ -24,9 +24,18 @@ const makeWorkspace = (): string => {
 
 const jsonl = (lines: unknown[]): string => lines.map((line) => `${JSON.stringify(line)}\n`).join("");
 
+const titleSlot = {
+  type: "title",
+  v: 1,
+  title: "",
+  source: "auto",
+  updatedAt: "2026-01-01T00:00:00.000Z",
+  pad: " ".repeat(134),
+};
+
 const writeSession = (directory: string, entries: unknown[]): string => {
   const file = path.join(directory, "session.jsonl");
-  fs.writeFileSync(file, jsonl(entries), "utf8");
+  fs.writeFileSync(file, jsonl([titleSlot, ...entries]), "utf8");
   return file;
 };
 
@@ -233,7 +242,7 @@ describe("native conversation reader — RPC event streaming", () => {
           type: "tool_execution_start",
           toolCallId: "call_9",
           toolName: "fabric_exec",
-          args: { code: "await pi.read()" },
+          args: { code: "await omp.read()" },
         },
         {
           type: "tool_execution_update",
@@ -281,7 +290,7 @@ describe("native conversation reader — RPC event streaming", () => {
       argsComplete: true,
       isError: false,
     });
-    expect(tool?.args).toEqual({ code: "await pi.read()" });
+    expect(tool?.args).toEqual({ code: "await omp.read()" });
     expect(JSON.stringify(tool?.result)).toContain("fabric_1");
     expect(JSON.stringify(tool?.partial)).toContain("nestedToolCallId");
     expect(transcript.streaming.active).toBe(false);

@@ -22,14 +22,14 @@ describe("script runtime resolution", () => {
     }
   });
 
-  it("falls back to PI_FABRIC_NODE_BINARY when execPath is the bundled pi binary", async () => {
-    const execPath = "/usr/local/bin/pi";
+  it("falls back to OMP_FABRIC_NODE_BINARY when execPath is the compiled OMP binary", async () => {
+    const execPath = "/usr/local/bin/omp";
     const override = "/opt/node-v22/bin/node";
     expect(
-      resolveScriptRuntimeSync({ execPath, env: { PI_FABRIC_NODE_BINARY: override } }),
+      resolveScriptRuntimeSync({ execPath, env: { OMP_FABRIC_NODE_BINARY: override } }),
     ).toBe(override);
     expect(
-      await resolveScriptRuntime({ execPath, env: { PI_FABRIC_NODE_BINARY: override } }),
+      await resolveScriptRuntime({ execPath, env: { OMP_FABRIC_NODE_BINARY: override } }),
     ).toBe(override);
   });
 
@@ -37,7 +37,7 @@ describe("script runtime resolution", () => {
     const args = await scriptSpawnArgs(
       "/fabric/worker.js",
       ["--task-file", "/tmp/task.txt"],
-      { execPath: "/usr/local/bin/pi", env: { PI_FABRIC_NODE_BINARY: "/opt/node" } },
+      { execPath: "/usr/local/bin/omp", env: { OMP_FABRIC_NODE_BINARY: "/opt/node" } },
     );
     expect(args).toEqual(["/opt/node", "/fabric/worker.js", "--task-file", "/tmp/task.txt"]);
   });
@@ -54,13 +54,13 @@ describe("script runtime resolution", () => {
     const node = await commandAvailable("node");
     const bun = await commandAvailable("bun");
     if (!node && !bun) return; // neither runtime discoverable in this environment
-    const runtime = await resolveScriptRuntime({ execPath: "/usr/local/bin/pi", env: {} });
+    const runtime = await resolveScriptRuntime({ execPath: "/usr/local/bin/omp", env: {} });
     expect(["node", "bun"]).toContain(path.basename(runtime).replace(/\.exe$/, ""));
   });
 
   it("throws a clear error when the bundled binary has no runtime and no override", () => {
-    expect(() => resolveScriptRuntimeSync({ execPath: "/usr/local/bin/pi", env: {} })).toThrow(
-      /requires a Node\.js or Bun runtime|PI_FABRIC_NODE_BINARY/,
+    expect(() => resolveScriptRuntimeSync({ execPath: "/usr/local/bin/omp", env: {} })).toThrow(
+      /requires a Node\.js or Bun runtime|OMP_FABRIC_NODE_BINARY/,
     );
   });
 

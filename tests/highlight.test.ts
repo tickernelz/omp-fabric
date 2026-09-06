@@ -5,7 +5,7 @@ import {
   highlightCode,
   initHighlighting,
   languageFromPath,
-  observePiTheme,
+  observeOmpTheme,
 } from "../src/ui/highlight.js";
 
 describe("fabric highlight", () => {
@@ -58,12 +58,12 @@ describe("fabric highlight", () => {
 
   it("re-highlights with the new variant after a pi theme flip", async () => {
     configureHighlighting("auto", true);
-    observePiTheme({ name: "dark" });
+    observeOmpTheme({ name: "dark" });
     await initHighlighting("dark-plus", true);
     const dark = highlightCode("const x = 1;", "typescript");
     expect(dark).not.toBeNull();
 
-    observePiTheme({ name: "light" });
+    observeOmpTheme({ name: "light" });
     expect(effectiveShikiTheme()).toBe("github-light");
     const invalidate = vi.fn();
     // The swap initializes asynchronously; the gate must report not-ready and
@@ -73,7 +73,7 @@ describe("fabric highlight", () => {
     const light = highlightCode("const x = 1;", "typescript");
     expect(light).not.toBeNull();
     expect(light![0]).not.toBe(dark![0]);
-    observePiTheme({ name: "dark" });
+    observeOmpTheme({ name: "dark" });
   }, 20_000);
 
   it("returns null when highlighting is disabled", async () => {

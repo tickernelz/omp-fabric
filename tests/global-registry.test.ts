@@ -8,7 +8,7 @@ import type { FabricActorRequest } from "../src/actors/types.js";
 const dirs: string[] = [];
 
 const setup = () => {
-  const agentDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-global-actors-"));
+  const agentDir = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-global-actors-"));
   dirs.push(agentDir);
   const registry = new GlobalActorRegistry(agentDir, 64 * 1024);
   return { agentDir, registry };
@@ -39,7 +39,7 @@ describe("GlobalActorRegistry", () => {
     expect(created.name).toBe("reviewer");
     expect(created.events).toEqual(["turn_end"]);
     expect(created.delivery).toBe("steer");
-    expect(created.runner).toBe("pi");
+    expect(created.runner).toBe("omp");
     expect(created.model).toBeUndefined();
 
     expect(registry.list()).toHaveLength(1);

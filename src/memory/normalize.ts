@@ -182,10 +182,11 @@ const extractFilesTouched = (raw: Record<string, unknown>): string[] => {
 };
 
 const TRACE_OPERATION_MAX_BYTES = 96 * 1024;
-const PI_FILE_REFS = new Set(["pi.read", "pi.grep", "pi.find", "pi.ls", "pi.edit", "pi.write"]);
+const SESSION_HEADER_SCAN_LINES = 8;
+const OMP_FILE_REFS = new Set(["omp.read", "omp.grep", "omp.find", "omp.ls", "omp.edit", "omp.write"]);
 
 const traceFilesTouched = (ref: string, tool: string, args: Record<string, FabricTraceJsonValue>): string[] => {
-  if (!PI_FILE_REFS.has(ref) || ref !== `pi.${tool}`) return [];
+  if (!OMP_FILE_REFS.has(ref) || ref !== `omp.${tool}`) return [];
   const path = args.path ?? args.file ?? args.dir;
   return typeof path === "string" && path.trim() ? [path.trim()] : [];
 };
@@ -682,24 +683,33 @@ export const normalizeSession = (
   };
 };
 
-/** Read only the session header (first JSONL line). */
+/** Read the session header record, which OMP writes after its line-0 title slot. */
 export const readSessionHeader = (sessionFile: string): SessionHeaderInfo | null => {
   try {
     const fd = fs.openSync(sessionFile, "r");
-    const buffer = Buffer.alloc(8_192);
+    const buffer = Buffer.alloc(65_536);
     const bytesRead = fs.readSync(fd, buffer, 0, buffer.length, 0);
     fs.closeSync(fd);
     const slice = buffer.subarray(0, bytesRead).toString("utf8");
-    const newline = slice.indexOf("\n");
-    const firstLine = (newline === -1 ? slice : slice.slice(0, newline)).trim();
-    if (!firstLine) return null;
-    const raw = JSON.parse(firstLine) as Record<string, unknown>;
-    if (asString(raw.type) !== "session") return null;
-    return {
-      sessionId: asString(raw.id),
-      cwd: asString(raw.cwd),
-      ...(typeof raw.parentSession === "string" ? { parentSession: raw.parentSession } : {}),
-    };
+    const lines = slice.split("\n");
+    const complete = slice.endsWith("\n") ? lines.length : lines.length - 1;
+    for (let index = 0; index < Math.min(complete, SESSION_HEADER_SCAN_LINES); index++) {
+      const line = lines[index]?.trim();
+      if (!line) continue;
+      let raw: Record<string, unknown>;
+      try {
+        raw = JSON.parse(line) as Record<string, unknown>;
+      } catch {
+        continue;
+      }
+      if (asString(raw.type) !== "session") continue;
+      return {
+        sessionId: asString(raw.id),
+        cwd: asString(raw.cwd),
+        ...(typeof raw.parentSession === "string" ? { parentSession: raw.parentSession } : {}),
+      };
+    }
+    return null;
   } catch {
     return null;
   }

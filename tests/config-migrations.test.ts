@@ -11,17 +11,17 @@ import { loadFabricConfig, saveFabricConfig } from "../src/config.js";
 const roots: string[] = [];
 
 const fixture = () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-migration-"));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-migration-"));
   roots.push(root);
   const cwd = path.join(root, "project");
   const agentDir = path.join(root, "agent");
-  fs.mkdirSync(path.join(cwd, ".pi"), { recursive: true });
+  fs.mkdirSync(path.join(cwd, ".omp"), { recursive: true });
   fs.mkdirSync(agentDir, { recursive: true });
   return {
     cwd,
     agentDir,
     globalPath: path.join(agentDir, "fabric.json"),
-    projectPath: path.join(cwd, ".pi", "fabric.json"),
+    projectPath: path.join(cwd, ".omp", "fabric.json"),
   };
 };
 
@@ -51,7 +51,7 @@ describe("Fabric configuration migrations", () => {
 
   it("merges both section names with the canonical section taking precedence", () => {
     const result = migrateFabricConfigDocument({
-      subagents: { runner: "pi", claude: { binary: "old", model: "claude/old" }, defaultTools: ["bash"] },
+      subagents: { runner: "omp", claude: { binary: "old", model: "claude/old" }, defaultTools: ["bash"] },
       agents: { runner: "claude", claude: { binary: "new" }, defaultTools: ["read"] },
     });
 
@@ -92,14 +92,14 @@ describe("Fabric configuration migrations", () => {
   it("migrates each config layer before applying project precedence", () => {
     const paths = fixture();
     fs.writeFileSync(paths.globalPath, JSON.stringify({ agents: { runner: "claude", maxConcurrent: 2 } }));
-    fs.writeFileSync(paths.projectPath, JSON.stringify({ subagents: { runner: "pi", transport: "tmux" } }));
+    fs.writeFileSync(paths.projectPath, JSON.stringify({ subagents: { runner: "omp", transport: "tmux" } }));
 
     const config = loadFabricConfig({ cwd: paths.cwd, agentDir: paths.agentDir, projectTrusted: true });
-    expect(config.agents).toMatchObject({ runner: "pi", transport: "tmux", maxConcurrent: 2 });
+    expect(config.agents).toMatchObject({ runner: "omp", transport: "tmux", maxConcurrent: 2 });
     expect(JSON.parse(fs.readFileSync(paths.globalPath, "utf8"))).toMatchObject({ configVersion: 4, agents: { runner: "claude" } });
     expect(JSON.parse(fs.readFileSync(paths.projectPath, "utf8"))).toEqual({
       configVersion: 4,
-      agents: { runner: "pi", transport: "tmux" },
+      agents: { runner: "omp", transport: "tmux" },
     });
   });
 

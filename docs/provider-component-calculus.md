@@ -107,7 +107,7 @@ $\Sigma_\gamma$ contains current active bindings. A retained committed view can 
 The public projection is
 
 $$
-\Pi(\gamma) = \{ n.a \mapsto \langle D_b(a), H(D_b(a)) \rangle \mid \Sigma_\gamma(n) = b \}
+\OMP(\gamma) = \{ n.a \mapsto \langle D_b(a), H(D_b(a)) \rangle \mid \Sigma_\gamma(n) = b \}
 $$
 
 The public projection omits binding IDs, generations, component IDs, and lifecycle states. The `components.*` surface can expose component state as a control-plane value.
@@ -168,7 +168,7 @@ $$
 \frac{\mathrm{allDeclaredMounted} \qquad \mathrm{target}(\mathrm{id}, \gamma) = \omega}{b.\mathrm{state} \mapsto \mathrm{active} \qquad \Sigma_\gamma(\mathrm{name}(b)) \mapsto b} \quad \text{P-Commit}
 $$
 
-$\Pi(\gamma)$ contains active provider actions.
+$\OMP(\gamma)$ contains active provider actions.
 
 ### Rule P-Leave
 
@@ -235,9 +235,9 @@ Let $\gamma_d$ be a quiet runtime that directly registers provider family $(P_i)
 
 $$
 \begin{aligned}
-\mathrm{dom}(\Pi(\gamma_d)) &= \mathrm{dom}(\Pi(\gamma_c)) \\
-\forall r \in \mathrm{dom}(\Pi).\ \mathrm{descriptor}_d(r) &= \mathrm{descriptor}_c(r) \\
-\forall r \in \mathrm{dom}(\Pi).\ \mathrm{hash}_d(r) &= \mathrm{hash}_c(r)
+\mathrm{dom}(\OMP(\gamma_d)) &= \mathrm{dom}(\OMP(\gamma_c)) \\
+\forall r \in \mathrm{dom}(\OMP).\ \mathrm{descriptor}_d(r) &= \mathrm{descriptor}_c(r) \\
+\forall r \in \mathrm{dom}(\OMP).\ \mathrm{hash}_d(r) &= \mathrm{hash}_c(r)
 \end{aligned}
 $$
 
@@ -257,7 +257,7 @@ $$
 \end{aligned}
 $$
 
-Proof sketch: discovery and invocation read `ActionRegistry` through $\Pi$ and the provider descriptions $\delta$. Component fields belong to the control plane. After binding resolution, each call uses the same registry pipeline and host policy.
+Proof sketch: discovery and invocation read `ActionRegistry` through $\OMP$ and the provider descriptions $\delta$. Component fields belong to the control plane. After binding resolution, each call uses the same registry pipeline and host policy.
 
 ### Theorem 3. Committed-view continuity
 
@@ -310,7 +310,7 @@ Proof sketch: independent activation steps commute under the stated premise, and
 | $\rho$ | `FabricComponentCatalog` revision |
 | $b$ | `FabricProviderBinding` |
 | $\Sigma_\gamma$ | `FabricProviderBindings.#current` |
-| $\Pi(\gamma)$ | ActionRegistry providers, descriptors, and hashes |
+| $\OMP(\gamma)$ | ActionRegistry providers, descriptors, and hashes |
 | $\omega$ | `FabricCommittedCapabilityView` |
 | P-Commit | `activateProviderBindings()` |
 | P-Revise | catalog event followed by `supervisor.replace()` |
@@ -329,10 +329,10 @@ The component system depends on a finite kernel:
 The pinned first-party provider set is
 
 $$
-\{ \text{pi},\ \text{extensions},\ \text{mcp},\ \text{mesh},\ \text{state},\ \text{schema},\ \text{compact},\ \text{agents},\ \text{memory} \}
+\{ \text{omp},\ \text{extensions},\ \text{mcp},\ \text{mesh},\ \text{state},\ \text{schema},\ \text{compact},\ \text{agents},\ \text{memory} \}
 $$
 
-Configuration gates can omit `pi`, `extensions`, `mesh`, `state`, or `memory`. The registry keeps explicit unavailable-provider messages for gated `mesh`, `state`, and `memory` namespaces. Full-code gating controls the guest visibility of `pi` and `extensions`.
+Configuration gates can omit `omp`, `extensions`, `mesh`, `state`, or `memory`. The registry keeps explicit unavailable-provider messages for gated `mesh`, `state`, and `memory` namespaces. Full-code gating controls the guest visibility of `omp` and `extensions`.
 
 Fabric treats host managers for mesh storage and participant control as trusted kernel services. Actor scheduling and schema state use the same boundary. Each provider component controls its public action surface and its provider's resource lifetime.
 
@@ -342,7 +342,7 @@ The model-visible compatibility condition is
 
 $$
 \begin{aligned}
-\Pi_{\mathrm{before}} &= \Pi_{\mathrm{after}} \\
+\OMP_{\mathrm{before}} &= \OMP_{\mathrm{after}} \\
 \delta_{\mathrm{before}} &= \delta_{\mathrm{after}}
 \end{aligned}
 $$
@@ -375,4 +375,4 @@ After startup, ordinary action calls use the direct `ActionRegistry` branch. Com
 | `components.reload` reaches pinned fibers | loader `#loaded` map | `components-provider.test.ts` |
 | `components.reload` reports rollback and preserves the namespace | loader reload diagnostics | `components-provider.test.ts` |
 | Default descriptors and hashes stay fixed | `actionDescriptorHash()` | `default-path-compatibility.test.ts` |
-| Full runtime behavior stays green | package quality gate | `pnpm run check` |
+| Full runtime behavior stays green | package quality gate | `bun run check` |

@@ -1,5 +1,6 @@
-import type { Theme } from "@earendil-works/pi-coding-agent";
-import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import type { Theme } from "@oh-my-pi/pi-coding-agent";
+import { Ellipsis } from "@oh-my-pi/pi-tui";
+import { truncateToWidth, visibleWidth } from "@oh-my-pi/pi-tui";
 import type { FabricActivityRun } from "../activity/types.js";
 import type { Entity, StatusFilter } from "./dashboard-model.js";
 import { colorStatus, entityTail, statusGlyph } from "./dashboard-presentation.js";
@@ -772,7 +773,7 @@ const renderCanvas = (
 };
 const wrapInspector = (theme: Theme, label: string, value: string, width: number): string[] => {
   const clean = safeText(value);
-  const first = truncateToWidth(clean, Math.max(1, width - label.length - 1), "…");
+  const first = truncateToWidth(clean, Math.max(1, width - label.length - 1), Ellipsis.Unicode);
   return [theme.fg("muted", `${label} ${first}`)];
 };
 
@@ -789,10 +790,10 @@ const inspectorLines = (
   const border = (value: string): string => theme.fg("borderMuted", value);
   const content: string[] = [];
   if (entity) {
-    content.push(theme.fg("accent", theme.bold(truncateToWidth(safeText(entity.label), inner - 2, "…"))));
+    content.push(theme.fg("accent", theme.bold(truncateToWidth(safeText(entity.label), inner - 2, Ellipsis.Unicode))));
     content.push(colorStatus(theme, entity.status, `${statusGlyph(entity.status)} ${entity.kind} · ${entity.status}`));
     content.push("");
-    content.push(theme.fg("dim", truncateToWidth(safeText(entityTail(entity, snapshot.now)), inner - 2, "…")));
+    content.push(theme.fg("dim", truncateToWidth(safeText(entityTail(entity, snapshot.now)), inner - 2, Ellipsis.Unicode)));
     if (entity.kind === "agent") {
       const agentRun = snapshot.runs.find((candidate) => candidate.id === entity.value.runId) ?? run;
       const phase = agentRun?.phases.find((candidate) => candidate.id === entity.value.phaseId);

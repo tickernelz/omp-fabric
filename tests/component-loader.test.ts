@@ -1,4 +1,4 @@
-import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 import { describe, expect, it } from "vitest";
 import { FabricComponentCatalog } from "../src/components/catalog.js";
 import { FabricComponentLoader } from "../src/components/loader.js";

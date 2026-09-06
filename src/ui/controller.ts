@@ -1,7 +1,6 @@
 import path from "node:path";
-import { resolveAgentDir } from "../core/agent-dir.js";
-import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import type { TUI } from "@earendil-works/pi-tui";
+import type { ExtensionContext } from "@oh-my-pi/pi-coding-agent";
+import type { TUI } from "@oh-my-pi/pi-tui";
 import type { CodePreviewSettings } from "./code-preview.js";
 import type { FabricConversationState, FabricConversationView } from "./conversation.js";
 import type { NativeConversationReader, NativeConversationSource } from "./conversation-native-reader.js";
@@ -23,7 +22,7 @@ import { isActiveStatus, type FabricDashboardSnapshot, type FabricUiActor, type 
 import { FabricWidget, shouldShowFabricWidget } from "./widget.js";
 import { AgentTranscriptReader, type FabricTranscriptSource } from "./transcript.js";
 
-const WIDGET_ID = "pi-fabric";
+const WIDGET_ID = "omp-fabric";
 const ACTIVITY_REFRESH_MS = 100;
 
 const emptySnapshot = (): FabricDashboardSnapshot => {
@@ -36,7 +35,7 @@ const emptySnapshot = (): FabricDashboardSnapshot => {
       name: "Main",
       kind: "main",
       status: "idle",
-      runner: "pi",
+      runner: "omp",
       transport: "host",
       cwd: process.cwd(),
       startedAt: now,
@@ -214,6 +213,8 @@ export class FabricUiController {
           throw new Error(target?.readOnlyReason ?? `Participant ${id} cannot receive ${action}`);
         }
       };
+      const { getAgentDir } = await import("@oh-my-pi/pi-utils");
+      const appearance = await readConversationAppearance(context.cwd, getAgentDir(), context.isProjectTrusted?.() ?? false);
       this.#schedulePoll(true);
       await context.ui.custom<void>((tui, theme, keybindings, done) => {
         if (epoch !== this.#epoch) {
@@ -227,14 +228,14 @@ export class FabricUiController {
             const split = target.model?.indexOf("/") ?? -1;
             if (split < 1 || !target.model) return target;
             const model = context.modelRegistry?.find?.(target.model.slice(0, split), target.model.slice(split + 1));
-            return model ? { ...target, contextWindow: model.contextWindow } : target;
+            return model && typeof model.contextWindow === "number" ? { ...target, contextWindow: model.contextWindow } : target;
           }),
-          appearance: readConversationAppearance(context.cwd, resolveAgentDir(), context.isProjectTrusted?.() ?? false),
+          appearance,
           ...(initialTarget ? { initialTargetId: initialTarget.id } : {}),
           state: this.#conversationState!,
           keybindings,
           rendererOptions: this.conversationRenderers,
-          queueEvents: this.state.pi?.events,
+          queueEvents: this.state.omp?.events,
           ...(this.codePreviewSettings ? { codePreviewSettings: this.codePreviewSettings } : {}),
           transcript: (id, followLatest) => readerFor(id).read(source(id), followLatest),
           loadOlder: (id) => {
@@ -308,7 +309,8 @@ export class FabricUiController {
     this.#refresh();
     const [{ FabricDashboard }, { buildClaudeModelSource, buildModelSource }] =
       await Promise.all([import("./dashboard.js"), import("./model-picker.js")]);
-    const modelSource = buildModelSource(context.modelRegistry, resolveAgentDir());
+    const { getAgentDir } = await import("@oh-my-pi/pi-utils");
+    const modelSource = buildModelSource(context.modelRegistry, getAgentDir());
     let claudeModelSource: ModelSource | undefined;
     if (this.#snapshot.actors.some((actor) => actor.runner === "claude")) {
       try {

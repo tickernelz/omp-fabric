@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { Value } from "typebox/value";
+import { isValidJsonSchema, validateJsonSchemaValue } from "@oh-my-pi/pi-ai/utils/schema";
 import { runAbortable, settleWithin } from "../async-settlement.js";
 import type {
   FabricCapabilityRequirement,
@@ -134,7 +134,7 @@ export interface FabricRegistryInvocationContext extends FabricInvocationContext
 }
 
 /**
- * Prefix pi-fabric prepends to every nested tool-call id it generates inside a
+ * Prefix omp-fabric prepends to every nested tool-call id it generates inside a
  * fabric_exec run (one per pi., mcp., or agents. invocation). Extensions can
  * detect that a tool_call/tool_result event came from a nested fabric call —
  * rather than a top-level call the LLM made directly — by checking
@@ -178,7 +178,7 @@ const previewArgs = (ref: string, args: Record<string, unknown>): Record<string,
   for (const [key, value] of Object.entries(args)) {
     if (count++ >= PREVIEW_ARG_KEYS) break;
     const maxChars =
-      ref === "pi.write" && key === "content"
+      ref === "omp.write" && key === "content"
         ? WRITE_PREVIEW_CONTENT_CHARS
         : PREVIEW_ARG_CHARS;
     out[key] =
@@ -323,15 +323,17 @@ const validationMessage = (
   value: Record<string, unknown>,
 ): string | undefined => {
   try {
-    if (Value.Check(schema, value)) return undefined;
-    const messages = [...Value.Errors(schema, value)]
+    const validation = validateJsonSchemaValue(schema, value);
+    if (validation.success) return undefined;
+    if (!isValidJsonSchema(schema)) return "Schema validator failed";
+    const messages = validation.issues
       .slice(0, 5)
       .map((error) => {
-        // Prefix nested failures with their property path.
-        const at = (error as { path?: unknown }).path;
-        return typeof at === "string" && at !== "" && at !== "/"
-          ? `${at}: ${error.message}`
-          : error.message;
+        const raw = (error as { path?: unknown }).path;
+        const at = Array.isArray(raw) && raw.length > 0
+          ? `/${raw.map(String).join("/")}`
+          : typeof raw === "string" ? raw : "";
+        return at !== "" && at !== "/" ? `${at}: ${error.message}` : error.message;
       });
     for (const key of unexpectedKeys(schema, value).slice(0, 5)) {
       messages.push(`/${key}: must not have additional properties`);
@@ -717,7 +719,7 @@ export class ActionRegistry {
     const indexedActions = providerHeads.reduce((total, provider) => total + provider.actions.length, 0);
     const rootHash = descriptorHash(providerHeads.map((provider) => provider.descriptorHash));
     return {
-      kind: "pi-fabric.capability-catalog",
+      kind: "omp-fabric.capability-catalog",
       version: 1,
       root: {
         key: "capability:fabric",

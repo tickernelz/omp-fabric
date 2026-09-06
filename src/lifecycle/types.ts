@@ -6,13 +6,12 @@ export const FABRIC_PARTICIPANT_LIFECYCLE_TOPIC = "fabric.participant.lifecycle"
 export const FABRIC_LIFECYCLE_SUBSCRIPTION_PREFIX = "topology/subscriptions/";
 
 export const FABRIC_LIFECYCLE_EVENTS = [
-  "pi.input",
-  "pi.agent_start",
-  "pi.agent_end",
-  "pi.turn_end",
-  "pi.agent_settled",
-  "pi.tool_error",
-  "pi.session_compact",
+  "omp.input",
+  "omp.agent_start",
+  "omp.agent_end",
+  "omp.turn_end",
+  "omp.tool_error",
+  "omp.session_compact",
   "run.completed",
   "run.failed",
   "run.stopped",
@@ -59,7 +58,7 @@ export interface FabricLifecycleEvent {
 /**
  * Attributed token usage for one token-bearing child event.
  *
- * The worker emits one of these per assistant message (Pi) or per usage-bearing
+ * The worker emits one of these per assistant message (OMP) or per usage-bearing
  * assistant/result frame (Claude), tagged with the run/runner/depth identity the
  * manager passes in. Cumulative tokens mirror in + cacheRead + cacheWrite at
  * the moment the event fired; cost is micro-USD from the runner's own report.
@@ -84,7 +83,7 @@ export const tokenUsagePayloadFromValue = (
 ): FabricTokenUsagePayload | undefined => {
   if (!isObject(value)) return undefined;
   const runner =
-    value.runner === "pi" || value.runner === "claude" || value.runner === "veda"
+    value.runner === "omp" || value.runner === "claude" || value.runner === "veda"
       ? value.runner
       : undefined;
   if (
@@ -166,7 +165,7 @@ export const lifecycleEventFromMesh = (
   const source = event.data.source;
   const kind = participantKind(source.kind);
   const runner =
-    source.runner === "pi" || source.runner === "claude" || source.runner === "veda"
+    source.runner === "omp" || source.runner === "claude" || source.runner === "veda"
       ? source.runner
       : undefined;
   if (

@@ -1,5 +1,5 @@
-import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
-import type { TUI } from "@earendil-works/pi-tui";
+import type { ExtensionContext, Theme } from "@oh-my-pi/pi-coding-agent";
+import type { TUI } from "@oh-my-pi/pi-tui";
 import { describe, expect, it, vi } from "vitest";
 import type { FabricActivityRun } from "../src/activity/types.js";
 import type { FabricState } from "../src/fabric-state.js";
@@ -43,7 +43,7 @@ const stubState = () =>
       name: "Main",
       kind: "main",
       status: "idle",
-      runner: "pi",
+      runner: "omp",
       transport: "host",
       cwd: "/tmp/project",
       sessionId: "test",
@@ -174,8 +174,8 @@ describe("FabricUiController dashboard wiring", () => {
       phases: [],
       calls: Array.from({ length: 1_000 }, (_, index) => ({
         id: `call-${index}`,
-        ref: "pi.read",
-        label: "pi.read",
+        ref: "omp.read",
+        label: "omp.read",
         kind: "tool",
         status: "completed",
         startedAt: index,

@@ -5,8 +5,8 @@ import path from "node:path";
 import type { ChildProcess, SpawnOptions } from "node:child_process";
 import crossSpawn from "cross-spawn";
 import { StringDecoder } from "node:string_decoder";
-import { Value } from "typebox/value";
-import type { ImageContent } from "@earendil-works/pi-ai";
+import { validateJsonSchemaValue } from "@oh-my-pi/pi-ai/utils/schema";
+import type { ImageContent } from "@oh-my-pi/pi-ai";
 import type {
   AgentRunRecord,
   AgentRunStatus,
@@ -140,12 +140,12 @@ const assistantError = (message: Record<string, unknown>): string => {
   const provider = stringField(message.provider);
   const model = stringField(message.model);
   const source = [provider, model].filter((value): value is string => Boolean(value)).join("/");
-  const summary = unique.join(" · ") || "Pi agent reported an error";
+  const summary = unique.join(" · ") || "OMP agent reported an error";
   return `${source ? `${source}: ` : ""}${summary}`.slice(0, MAX_STDERR_CHARS);
 };
 
 const runnerLabel = (runner: string): string =>
-  runner === "claude" ? "Claude" : runner === "veda" ? "Veda" : "Pi";
+  runner === "claude" ? "Claude" : runner === "veda" ? "Veda" : "OMP";
 
 const terminateChild = (child: ChildProcess, signal: NodeJS.Signals): void => {
   if (!child.pid) return;
@@ -280,7 +280,7 @@ const main = async (): Promise<void> => {
     }
   };
   crashContext = { statusFile: options.statusFile, record };
-  process.stdout.write(`[pi-fabric] ${options.name}\n${task}\n\n`);
+  process.stdout.write(`[omp-fabric] ${options.name}\n${task}\n\n`);
   fs.mkdirSync(path.dirname(options.logFile), { recursive: true });
   // Other processes tail this file while the run is live (transcript reader,
   // dashboards, preview trees). The previous buffered createWriteStream visibly
@@ -301,18 +301,18 @@ const main = async (): Promise<void> => {
   const schema = options.schemaFile
     ? fs.readFileSync(options.schemaFile, "utf8")
     : undefined;
-  const piArguments = ["--mode", "rpc"];
-  if (options.sessionFile) piArguments.push("--session", options.sessionFile);
-  else piArguments.push("--no-session");
-  if (!options.extensions) piArguments.push("--no-extensions");
-  if (options.fabricExtensionPath) piArguments.push("-e", options.fabricExtensionPath);
-  if (options.tools.length > 0) piArguments.push("--tools", options.tools.join(","));
-  else piArguments.push("--no-tools"); // explicit empty allowlist => no tools, not Pi defaults
-  if (options.model) piArguments.push("--model", options.model);
-  if (thinking) piArguments.push("--thinking", thinking);
-  if (options.systemPrompt) piArguments.push("--append-system-prompt", options.systemPrompt);
+  const ompArguments = ["--mode", "rpc"];
+  if (options.sessionFile) ompArguments.push("--session", options.sessionFile);
+  else ompArguments.push("--no-session");
+  if (!options.extensions) ompArguments.push("--no-extensions");
+  if (options.fabricExtensionPath) ompArguments.push("-e", options.fabricExtensionPath);
+  if (options.tools.length > 0) ompArguments.push("--tools", options.tools.join(","));
+  else ompArguments.push("--no-tools");
+  if (options.model) ompArguments.push("--model", options.model);
+  if (thinking) ompArguments.push("--thinking", thinking);
+  if (options.systemPrompt) ompArguments.push("--append-system-prompt", options.systemPrompt);
   if (schema) {
-    piArguments.push(
+    ompArguments.push(
       "--append-system-prompt",
       `Your final response must contain only JSON matching this schema, without Markdown fences:\n${schema}`,
     );
@@ -343,44 +343,44 @@ const main = async (): Promise<void> => {
             // parallel Fabric agents never share Veda session state.
             session: `fabric-${options.id}`,
           })
-        : piArguments;
+        : ompArguments;
   const childBinary =
     options.runner === "claude"
       ? options.claudeBinary
       : options.runner === "veda"
         ? options.vedaBinary
-        : options.piBinary;
+        : options.ompBinary;
 
   const child = spawnCli(childBinary, childArguments, {
     cwd: options.cwd,
     detached: process.platform !== "win32",
     env: {
       ...process.env,
-      PI_FABRIC_DEPTH: String(options.depth),
-      PI_FABRIC_PARENT_RUN: options.id,
-      PI_FABRIC_AGENT_NAME: options.name,
-      ...(options.mainAgentId ? { PI_FABRIC_MAIN_AGENT_ID: options.mainAgentId } : {}),
-      ...(options.fabricSessionId ? { PI_FABRIC_SESSION_ID: options.fabricSessionId } : {}),
-      PI_FABRIC_GRANTED_RISKS: options.grantedRisks.join(","),
-      PI_FABRIC_FULL_CODE_MODE: String(options.fullCodeMode),
+      OMP_FABRIC_DEPTH: String(options.depth),
+      OMP_FABRIC_PARENT_RUN: options.id,
+      OMP_FABRIC_AGENT_NAME: options.name,
+      ...(options.mainAgentId ? { OMP_FABRIC_MAIN_AGENT_ID: options.mainAgentId } : {}),
+      ...(options.fabricSessionId ? { OMP_FABRIC_SESSION_ID: options.fabricSessionId } : {}),
+      OMP_FABRIC_GRANTED_RISKS: options.grantedRisks.join(","),
+      OMP_FABRIC_FULL_CODE_MODE: String(options.fullCodeMode),
       // Native tool allowlist for nested-call enforcement: full-code children
-      // reach pi.* through fabric_exec, which is not gated by the --tools
-      // allowlist, so both Pi and captured-tool providers enforce this
+      // reach omp.* through fabric_exec, which is not gated by the --tools
+      // allowlist, so both OMP and captured-tool providers enforce this
       // child-side allowlist before preparation, discovery, and invocation.
-      PI_FABRIC_TOOL_ALLOWLIST: JSON.stringify(options.tools),
-      ...(options.actorId ? { PI_FABRIC_ACTOR_ID: options.actorId } : {}),
-      ...(options.actorName ? { PI_FABRIC_ACTOR_NAME: options.actorName } : {}),
-      PI_FABRIC_CAPABILITY_REQUIREMENTS: JSON.stringify(
+      OMP_FABRIC_TOOL_ALLOWLIST: JSON.stringify(options.tools),
+      ...(options.actorId ? { OMP_FABRIC_ACTOR_ID: options.actorId } : {}),
+      ...(options.actorName ? { OMP_FABRIC_ACTOR_NAME: options.actorName } : {}),
+      OMP_FABRIC_CAPABILITY_REQUIREMENTS: JSON.stringify(
         options.capabilityRequirements ?? [],
       ),
-      PI_FABRIC_CAPABILITY_DIGEST: options.capabilityDigest ?? "",
-      ...(options.meshRoot ? { PI_FABRIC_MESH_ROOT: options.meshRoot } : {}),
-      ...(options.projectRoot ? { PI_FABRIC_PROJECT_ROOT: options.projectRoot } : {}),
-      ...(options.ownerHostId ? { PI_FABRIC_OWNER_HOST_ID: options.ownerHostId } : {}),
+      OMP_FABRIC_CAPABILITY_DIGEST: options.capabilityDigest ?? "",
+      ...(options.meshRoot ? { OMP_FABRIC_MESH_ROOT: options.meshRoot } : {}),
+      ...(options.projectRoot ? { OMP_FABRIC_PROJECT_ROOT: options.projectRoot } : {}),
+      ...(options.ownerHostId ? { OMP_FABRIC_OWNER_HOST_ID: options.ownerHostId } : {}),
       ...(options.ownerIdentityId
-        ? { PI_FABRIC_OWNER_IDENTITY_ID: options.ownerIdentityId }
+        ? { OMP_FABRIC_OWNER_IDENTITY_ID: options.ownerIdentityId }
         : {}),
-      ...(options.runRoot ? { PI_FABRIC_RUN_ROOT: options.runRoot } : {}),
+      ...(options.runRoot ? { OMP_FABRIC_RUN_ROOT: options.runRoot } : {}),
     },
     stdio: ["pipe", "pipe", "pipe"],
   });
@@ -397,12 +397,13 @@ const main = async (): Promise<void> => {
   let terminalError: string | undefined;
   let sawAgentError = false;
   let retryPending = false;
+  let lastCompactionReason: string | undefined;
 
   const update = (): void => updateRunRecord(options.statusFile, record);
 
   // Attributed token telemetry. Every usage-bearing child event emits one
   // tokens.usage lifecycle entry identified by this run/actor/runner/depth.
-  // The manager drains these alongside the pi.* lifecycle stream and appends
+  // The manager drains these alongside the omp.* lifecycle stream and appends
   // them to the budget ledger, replacing the old per-settle flat attribution.
   const lastEmittedUsage = emptyUsage();
   const emitTokenUsage = (
@@ -440,7 +441,7 @@ const main = async (): Promise<void> => {
       cacheWrite: delta?.cacheWrite ?? 0,
       cost: delta?.cost ?? snapshot.cost,
     });
-    // Mirror the emitted payload into the pi-format usage export (when the
+    // Mirror the emitted payload into the OMP-format usage export (when the
     // host enabled agents.sessionExport) so tokscale/ccusage can attribute
     // subagent tokens and cost. Export intentionally never writes content.
     sessionExporter?.push(
@@ -465,7 +466,7 @@ const main = async (): Promise<void> => {
   const compactControl = new ChildCompactControl(options.id, {
     send(frame) {
       if (!child.stdin || child.stdin.writableEnded || child.stdin.destroyed) {
-        throw new Error("Child Pi stdin closed before compaction could start");
+        throw new Error("Child OMP stdin closed before compaction could start");
       }
       child.stdin.write(`${JSON.stringify(frame)}\n`);
     },
@@ -480,7 +481,7 @@ const main = async (): Promise<void> => {
 
   // Preemptive per-child token guard. timeoutMs bounds wall time and budgetUsd
   // bounds cost, but a single runaway child can still blow its own context
-  // before Pi core compacts. When maxTokens is set and the child's cumulative
+  // before OMP core compacts. When maxTokens is set and the child's cumulative
   // token usage crosses it, terminate the child like a timeout so the run
   // settles with a terminal status instead of burning to the hour deadline.
   // The error string is model-facing: the parent agent reads it verbatim, so it
@@ -776,7 +777,7 @@ const main = async (): Promise<void> => {
   };
 
   const processEvent = (line: string): void => {
-    if (process.env.PI_FABRIC_INJECT_CRASH === "stream") throw new Error("simulated stream crash");
+    if (process.env.OMP_FABRIC_INJECT_CRASH === "stream") throw new Error("simulated stream crash");
     if (!line.trim()) return;
     appendLog(`${line}\n`);
     sessionStream?.write(`${line}\n`);
@@ -794,7 +795,7 @@ const main = async (): Promise<void> => {
     }
     compactControl.observe(event);
     if (event.type === "agent_start") {
-      emitLifecycle("pi.agent_start");
+      emitLifecycle("omp.agent_start");
       retryPending = false;
       sawAgentError = false;
       terminalError = undefined;
@@ -802,7 +803,7 @@ const main = async (): Promise<void> => {
     }
     if (event.type === "response" && event.command === "prompt" && event.success === false) {
       sawAgentError = true;
-      terminalError = typeof event.error === "string" ? event.error : "Pi rejected the prompt";
+      terminalError = typeof event.error === "string" ? event.error : "OMP rejected the prompt";
       child.stdin?.end();
       return;
     }
@@ -829,7 +830,7 @@ const main = async (): Promise<void> => {
     }
     if (event.type === "tool_execution_end") {
       if (event.isError === true) {
-        emitLifecycle("pi.tool_error", {
+        emitLifecycle("omp.tool_error", {
           ...(typeof event.toolCallId === "string" ? { toolCallId: event.toolCallId } : {}),
           ...(typeof event.toolName === "string" ? { toolName: event.toolName } : {}),
         });
@@ -839,7 +840,7 @@ const main = async (): Promise<void> => {
       return;
     }
     if (event.type === "turn_end") {
-      emitLifecycle("pi.turn_end", {
+      emitLifecycle("omp.turn_end", {
         ...(typeof event.turnIndex === "number" ? { turnIndex: event.turnIndex } : {}),
       });
       record.turns++;
@@ -888,26 +889,25 @@ const main = async (): Promise<void> => {
       return;
     }
     if (event.type === "agent_end") {
-      emitLifecycle("pi.agent_end", { willRetry: event.willRetry === true });
-      retryPending = event.willRetry === true;
-      return;
-    }
-    if (event.type === "agent_settled") {
-      emitLifecycle("pi.agent_settled");
+      retryPending = event.isTerminal === false;
+      emitLifecycle("omp.agent_end", { isTerminal: !retryPending });
       if (!retryPending) {
-        // Pull controls that landed with the final stream events before deciding
-        // whether this one-shot child can close. A queued compact keeps stdin
-        // open until its correlated response and compaction_end are observed.
         pollSteer();
         compactControl.childSettled();
       }
       return;
     }
-    if (event.type === "compaction_end") {
-      emitLifecycle("pi.session_compact", {
-        ...(typeof event.reason === "string" ? { reason: event.reason } : {}),
+    if (event.type === "auto_compaction_start") {
+      lastCompactionReason = typeof event.reason === "string" ? event.reason : undefined;
+      return;
+    }
+    if (event.type === "auto_compaction_end") {
+      emitLifecycle("omp.session_compact", {
+        ...(lastCompactionReason !== undefined ? { reason: lastCompactionReason } : {}),
         ...(typeof event.willRetry === "boolean" ? { willRetry: event.willRetry } : {}),
+        ...(typeof event.aborted === "boolean" ? { aborted: event.aborted } : {}),
       });
+      lastCompactionReason = undefined;
       return;
     }
     if (event.type === "extension_error") {
@@ -1146,7 +1146,7 @@ const main = async (): Promise<void> => {
   if (steerTimer) clearInterval(steerTimer);
   if (claudeCloseTimer) clearTimeout(claudeCloseTimer);
   clearTimeout(timeout);
-  if (process.env.PI_FABRIC_INJECT_CRASH === "close") throw new Error("simulated close crash");
+  if (process.env.OMP_FABRIC_INJECT_CRASH === "close") throw new Error("simulated close crash");
   if (options.runner === "veda") {
     vedaOutput += outputDecoder.end();
   } else {
@@ -1215,7 +1215,7 @@ const main = async (): Promise<void> => {
     record.compaction?.status === "queued" ||
     record.compaction?.status === "in_flight"
   ) {
-    const error = terminalError ?? "Child Pi exited before the queued compaction completed";
+    const error = terminalError ?? "Child OMP exited before the queued compaction completed";
     record.compaction = {
       ...record.compaction,
       status: "failed",
@@ -1233,7 +1233,7 @@ const main = async (): Promise<void> => {
   const childCompleted =
     exitCode === 0 &&
     !sawAgentError &&
-    (options.runner === "pi" ||
+    (options.runner === "omp" ||
       (options.runner === "claude" &&
         claudeResultSeen &&
         claudeSentInputs.length === 0 &&
@@ -1256,8 +1256,9 @@ const main = async (): Promise<void> => {
         unknown
       >;
       const value = record.value ?? parseStructuredValue(record.text);
-      if (!Value.Check(schema, value)) {
-        const errors = [...Value.Errors(schema, value)]
+      const validation = validateJsonSchemaValue(schema, value);
+      if (!validation.success) {
+        const errors = validation.issues
           .slice(0, 5)
           .map((error) => error.message)
           .join("; ");
@@ -1275,7 +1276,7 @@ const main = async (): Promise<void> => {
   delete record.currentTool;
   writeRunRecord(options.statusFile, record);
   terminalWritten = true;
-  process.stdout.write(`\n[pi-fabric] ${record.status}\n`);
+  process.stdout.write(`\n[omp-fabric] ${record.status}\n`);
   await new Promise<void>((resolve) =>
     sessionStream ? sessionStream.end(resolve) : resolve(),
   );

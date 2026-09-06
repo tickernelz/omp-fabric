@@ -524,7 +524,7 @@ export class McpProvider implements FabricProvider {
           }
         }
         console.warn(
-          "[pi-fabric] MCP config could not be parsed; serving last-known cached MCP tools.",
+          "[omp-fabric] MCP config could not be parsed; serving last-known cached MCP tools.",
         );
       }
     }
@@ -746,7 +746,7 @@ export class McpProvider implements FabricProvider {
       .then(({ createRuntime }) => createRuntime({
         rootDir: this.cwd,
         ...(this.config.configPath ? { configPath: this.config.configPath } : {}),
-        clientInfo: { name: "pi-fabric", version: "0.1.0" },
+        clientInfo: { name: "omp-fabric", version: "0.1.0" },
       }))
       .then(async (runtime) => {
         if (this.#closed || generation !== this.#generation) {

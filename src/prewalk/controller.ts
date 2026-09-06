@@ -3,13 +3,13 @@ import type { FabricCallAudit } from "../core/action-registry.js";
 import { isFabricThinking, type FabricThinking } from "../thinking.js";
 
 const PREWALK_TRIGGER_REFS = new Set([
-  "pi.edit",
-  "pi.write",
+  "omp.edit",
+  "omp.write",
   "schema.commit",
 ]);
 
 // Synthesized audit ref for filesystem-drift claims: writes made through
-// Pi shell calls (or any call whose file effects audits cannot see) detected by the
+// OMP shell calls (or any call whose file effects audits cannot see) detected by the
 // stat-manifest fallback while armed. Never a real call; trigger ref only.
 const PREWALK_FS_DRIFT_REF = "fs.drift";
 

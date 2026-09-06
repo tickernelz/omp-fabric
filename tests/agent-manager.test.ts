@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { SessionManager } from "@earendil-works/pi-coding-agent";
+import { SessionManager } from "@oh-my-pi/pi-coding-agent";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { DEFAULT_FABRIC_CONFIG } from "../src/config.js";
 import type { FabricLifecyclePublishRequest } from "../src/lifecycle/types.js";
@@ -72,10 +72,10 @@ const handoffSeed = (fact = "Rare handoff fact 43117") => {
   );
 };
 const fabricEnvKeys = [
-  "PI_FABRIC_DEPTH",
-  "PI_FABRIC_BUDGET",
-  "PI_FABRIC_BUDGET_FILE",
-  "PI_FABRIC_BUDGET_ID",
+  "OMP_FABRIC_DEPTH",
+  "OMP_FABRIC_BUDGET",
+  "OMP_FABRIC_BUDGET_FILE",
+  "OMP_FABRIC_BUDGET_ID",
 ] as const;
 const inheritedFabricEnv = new Map(
   fabricEnvKeys.map((key) => [key, process.env[key]]),
@@ -92,16 +92,16 @@ afterAll(() => {
   }
 });
 
-describe("effectiveAgentTimeoutMs", () => {
-  it("ignores per-call timeouts below the configured default", () => {
+describe("effectiveAgentTimeoutMs", async () => {
+  it("ignores per-call timeouts below the configured default", async () => {
     expect(effectiveAgentTimeoutMs(3_600_000, 240_000)).toBe(3_600_000);
   });
 
-  it("accepts per-call timeouts above the configured default", () => {
+  it("accepts per-call timeouts above the configured default", async () => {
     expect(effectiveAgentTimeoutMs(3_600_000, 7_200_000)).toBe(7_200_000);
   });
 
-  it("respects a configured default below 60 minutes", () => {
+  it("respects a configured default below 60 minutes", async () => {
     expect(effectiveAgentTimeoutMs(1_800_000, 900_000)).toBe(1_800_000);
     expect(effectiveAgentTimeoutMs(1_800_000, 2_400_000)).toBe(2_400_000);
   });
@@ -112,9 +112,9 @@ afterEach(async () => {
   for (const root of roots.splice(0)) fs.rmSync(root, { recursive: true, force: true });
 });
 
-describe("AgentManager", () => {
+describe("AgentManager", async () => {
   it("notifies and releases UI subscribers", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-manager-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-manager-"));
     roots.push(root);
     const manager = new AgentManager(process.cwd(), DEFAULT_FABRIC_CONFIG.agents, {
       workerPath: path.resolve("tests/fixtures/fake-worker.mjs"),
@@ -134,7 +134,7 @@ describe("AgentManager", () => {
   });
 
   it("runs a worker through the direct process transport", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-manager-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-manager-"));
     roots.push(root);
     const manager = new AgentManager(process.cwd(), DEFAULT_FABRIC_CONFIG.agents, {
       workerPath: path.resolve("tests/fixtures/fake-worker.mjs"),
@@ -153,7 +153,7 @@ describe("AgentManager", () => {
   });
 
   it("adds component guidance to direct participants without duplicating recursive guidance", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-manager-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-manager-"));
     roots.push(root);
     const resolveParticipantGuidance = vi.fn(({ model }: { model?: string }) =>
       model === "deepseek/deepseek-chat" ? "DeepSeek participant guidance" : undefined);
@@ -175,7 +175,7 @@ describe("AgentManager", () => {
     );
     expect(resolveParticipantGuidance).toHaveBeenCalledWith({
       model: "deepseek/deepseek-chat",
-      runner: "pi",
+      runner: "omp",
     });
 
     const secondDirect = await manager.run({
@@ -202,8 +202,8 @@ describe("AgentManager", () => {
     expect(resolveParticipantGuidance).not.toHaveBeenCalled();
   });
 
-  it("relays child Pi lifecycle records and a normalized terminal event", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-manager-"));
+  it("relays child OMP lifecycle records and a normalized terminal event", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-manager-"));
     roots.push(root);
     const lifecycle: FabricLifecyclePublishRequest[] = [];
     const manager = new AgentManager(process.cwd(), DEFAULT_FABRIC_CONFIG.agents, {
@@ -219,10 +219,10 @@ describe("AgentManager", () => {
     const result = await manager.run({ task: "Observe lifecycle", transport: "process" });
 
     expect(lifecycle.map((event) => event.event)).toEqual([
-      "pi.agent_start",
-      "pi.turn_end",
-      "pi.agent_end",
-      "pi.agent_settled",
+      "omp.agent_start",
+      "omp.turn_end",
+      "omp.agent_end",
+      "omp.agent_end",
       "run.completed",
     ]);
     expect(lifecycle.at(-1)).toMatchObject({
@@ -236,13 +236,13 @@ describe("AgentManager", () => {
       runId: result.id,
       status: "completed",
     });
-    expect(lifecycle.find((event) => event.event === "pi.turn_end")?.data).toEqual({
+    expect(lifecycle.find((event) => event.event === "omp.turn_end")?.data).toEqual({
       turnIndex: 0,
     });
   });
 
-  it("materializes a private Pi session for a trajectory handoff seed", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-manager-"));
+  it("materializes a private OMP session for a trajectory handoff seed", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-manager-"));
     roots.push(root);
     const manager = new AgentManager(process.cwd(), DEFAULT_FABRIC_CONFIG.agents, {
       workerPath: path.resolve("tests/fixtures/fake-worker.mjs"),
@@ -251,7 +251,7 @@ describe("AgentManager", () => {
     managers.push(manager);
     const handle = await manager.spawn({
       task: "HANG while the handoff session is inspected",
-      runner: "pi",
+      runner: "omp",
       transport: "process",
       model: "anthropic/executor",
       sessionSeed: handoffSeed(),
@@ -259,7 +259,7 @@ describe("AgentManager", () => {
     const handoffDirectory = path.join(manager.runDirectory(handle.id)!, "handoff-session");
     const [sessionName] = fs.readdirSync(handoffDirectory);
     expect(sessionName).toBeDefined();
-    const session = SessionManager.open(path.join(handoffDirectory, sessionName!));
+    const session = await SessionManager.open(path.join(handoffDirectory, sessionName!));
     expect(session.buildSessionContext()).toMatchObject({
       messages: [
         { role: "user", content: "Rare handoff fact 43117" },
@@ -277,14 +277,14 @@ describe("AgentManager", () => {
           content: [{ type: "text", text: "Manager boundary complete" }],
         },
       ],
-      model: { provider: "anthropic", modelId: "frontier" },
+      models: { default: "anthropic/frontier" },
       thinkingLevel: "high",
     });
     await manager.stop(handle.id);
   });
 
   it("rejects trajectory seeds for the Claude runner and conflicting session files", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-manager-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-manager-"));
     roots.push(root);
     const manager = new AgentManager(process.cwd(), DEFAULT_FABRIC_CONFIG.agents, {
       workerPath: path.resolve("tests/fixtures/fake-worker.mjs"),
@@ -294,11 +294,11 @@ describe("AgentManager", () => {
     const sessionSeed = handoffSeed("Invalid seed");
     await expect(
       manager.spawn({ task: "invalid", runner: "claude", sessionSeed }),
-    ).rejects.toThrow(/only supported by the Pi runner/);
+    ).rejects.toThrow(/only supported by the OMP runner/);
     await expect(
       manager.spawn({
         task: "invalid",
-        runner: "pi",
+        runner: "omp",
         sessionSeed,
         sessionFile: path.join(root, "existing.jsonl"),
       }),
@@ -306,19 +306,19 @@ describe("AgentManager", () => {
   });
 
   it("does not let same-provider preparation authorize a different model", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-manager-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-manager-"));
     roots.push(root);
-    const preparePiModel = vi.fn(async (model: string | undefined) => {
+    const prepareOmpModel = vi.fn(async (model: string | undefined) => {
       await new Promise((resolve) => setTimeout(resolve, 50));
       if (model === "openai-codex/gpt-hidden") {
-        throw new Error(`Model ${JSON.stringify(model)} is not available to this Pi session`);
+        throw new Error(`Model ${JSON.stringify(model)} is not available to this OMP session`);
       }
       return model;
     });
     const manager = new AgentManager(process.cwd(), DEFAULT_FABRIC_CONFIG.agents, {
       workerPath: path.resolve("tests/fixtures/fake-worker.mjs"),
       runRoot: root,
-      preparePiModel,
+      prepareOmpModel,
     });
     managers.push(manager);
 
@@ -338,17 +338,17 @@ describe("AgentManager", () => {
     expect(visible).toMatchObject({ status: "fulfilled", value: { status: "completed" } });
     expect(hidden).toMatchObject({
       status: "rejected",
-      reason: expect.objectContaining({ message: expect.stringContaining("not available to this Pi session") }),
+      reason: expect.objectContaining({ message: expect.stringContaining("not available to this OMP session") }),
     });
-    expect(preparePiModel).toHaveBeenCalledTimes(2);
-    expect(preparePiModel.mock.calls.map(([model]) => model).sort()).toEqual([
+    expect(prepareOmpModel).toHaveBeenCalledTimes(2);
+    expect(prepareOmpModel.mock.calls.map(([model]) => model).sort()).toEqual([
       "openai-codex/gpt-hidden",
       "openai-codex/gpt-visible",
     ]);
   });
 
-  it("validates the configured Pi model default before launching", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-manager-"));
+  it("validates the configured OMP model default before launching", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-manager-"));
     roots.push(root);
     const manager = new AgentManager(
       process.cwd(),
@@ -356,21 +356,21 @@ describe("AgentManager", () => {
       {
         workerPath: path.resolve("tests/fixtures/fake-worker.mjs"),
         runRoot: root,
-        preparePiModel: async (model) => {
-          throw new Error(`Model ${JSON.stringify(model)} is not available to this Pi session`);
+        prepareOmpModel: async (model) => {
+          throw new Error(`Model ${JSON.stringify(model)} is not available to this OMP session`);
         },
       },
     );
     managers.push(manager);
 
-    await expect(manager.spawn({ task: "Do not launch", runner: "pi" })).rejects.toThrow(
-      /not available to this Pi session/,
+    await expect(manager.spawn({ task: "Do not launch", runner: "omp" })).rejects.toThrow(
+      /not available to this OMP session/,
     );
     expect(fs.readdirSync(root)).toEqual([]);
   });
 
-  it("retries a Pi child that fails before its first turn", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-manager-"));
+  it("retries an OMP child that fails before its first turn", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-manager-"));
     roots.push(root);
     const manager = new AgentManager(process.cwd(), DEFAULT_FABRIC_CONFIG.agents, {
       workerPath: path.resolve("tests/fixtures/fake-worker-startup-retry.mjs"),
@@ -388,7 +388,7 @@ describe("AgentManager", () => {
   });
 
   it("does not retry deterministic failures before the first turn", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-manager-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-manager-"));
     roots.push(root);
     const manager = new AgentManager(process.cwd(), DEFAULT_FABRIC_CONFIG.agents, {
       workerPath: path.resolve("tests/fixtures/fake-worker-startup-retry.mjs"),
@@ -406,7 +406,7 @@ describe("AgentManager", () => {
   });
 
   it("retries a child whose transport exits before producing a result", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-manager-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-manager-"));
     roots.push(root);
     const manager = new AgentManager(process.cwd(), DEFAULT_FABRIC_CONFIG.agents, {
       workerPath: path.resolve("tests/fixtures/fake-worker-transport-death.mjs"),
@@ -425,7 +425,7 @@ describe("AgentManager", () => {
   30_000);
 
   it("gives up retrying a child whose transport always exits before producing a result", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-manager-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-manager-"));
     roots.push(root);
     const manager = new AgentManager(process.cwd(), DEFAULT_FABRIC_CONFIG.agents, {
       workerPath: path.resolve("tests/fixtures/fake-worker-transport-death.mjs"),
@@ -445,7 +445,7 @@ describe("AgentManager", () => {
   30_000);
 
   it("keeps full results in the API and compact projections for the dashboard", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-manager-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-manager-"));
     roots.push(root);
     const manager = new AgentManager(process.cwd(), DEFAULT_FABRIC_CONFIG.agents, {
       workerPath: path.resolve("tests/fixtures/fake-worker.mjs"),
@@ -467,7 +467,7 @@ describe("AgentManager", () => {
   });
 
   it("readLog returns the run's event stream and status", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-manager-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-manager-"));
     roots.push(root);
     const manager = new AgentManager(process.cwd(), DEFAULT_FABRIC_CONFIG.agents, {
       workerPath: path.resolve("tests/fixtures/fake-worker.mjs"),
@@ -485,11 +485,11 @@ describe("AgentManager", () => {
     const types = log.events.map((line) => (line.parsed as { type?: string } | undefined)?.type);
     expect(types).toContain("agent_start");
     expect(types).toContain("message_end");
-    expect(types).toContain("agent_settled");
+    expect(types).toContain("agent_end");
   });
 
   it("derives trusted log paths and recursively discovers bounded nested runs", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-manager-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-manager-"));
     roots.push(root);
     const manager = new AgentManager(process.cwd(), DEFAULT_FABRIC_CONFIG.agents, {
       workerPath: path.resolve("tests/fixtures/fake-worker.mjs"),
@@ -530,7 +530,7 @@ describe("AgentManager", () => {
   });
 
   it("captures recursive leaves before the child process removes their directories", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-manager-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-manager-"));
     roots.push(root);
     const manager = new AgentManager(process.cwd(), DEFAULT_FABRIC_CONFIG.agents, {
       workerPath: path.resolve("tests/fixtures/fake-worker.mjs"),
@@ -574,7 +574,7 @@ describe("AgentManager", () => {
   });
 
   it("inherits full code mode for ordinary extension-enabled children", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-manager-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-manager-"));
     roots.push(root);
     const manager = new AgentManager(process.cwd(), DEFAULT_FABRIC_CONFIG.agents, {
       workerPath: path.resolve("tests/fixtures/fake-worker.mjs"),
@@ -608,7 +608,7 @@ describe("AgentManager", () => {
   });
 
   it("keeps explicit extensions:false children native in a full-code parent", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-manager-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-manager-"));
     roots.push(root);
     const manager = new AgentManager(process.cwd(), DEFAULT_FABRIC_CONFIG.agents, {
       workerPath: path.resolve("tests/fixtures/fake-worker.mjs"),
@@ -629,7 +629,7 @@ describe("AgentManager", () => {
   });
 
   it("keeps ordinary children native when the parent is not full-code", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-manager-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-manager-"));
     roots.push(root);
     const manager = new AgentManager(process.cwd(), DEFAULT_FABRIC_CONFIG.agents, {
       workerPath: path.resolve("tests/fixtures/fake-worker.mjs"),
@@ -660,9 +660,9 @@ describe("AgentManager", () => {
   });
 
   it("allows a cwd leaf agent to inherit the Fabric surface", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-manager-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-manager-"));
     roots.push(root);
-    const leafCwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-leaf-cwd-"));
+    const leafCwd = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-leaf-cwd-"));
     roots.push(leafCwd);
     const manager = new AgentManager(process.cwd(), DEFAULT_FABRIC_CONFIG.agents, {
       workerPath: path.resolve("tests/fixtures/fake-worker.mjs"),
@@ -684,13 +684,13 @@ describe("AgentManager", () => {
   });
 
   it("launches inherited children with the full-code surface through the real worker", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-manager-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-manager-"));
     roots.push(root);
-    const fakePi = path.resolve("tests/fixtures/fake-pi-launch-probe.mjs");
+    const fakePi = path.resolve("tests/fixtures/fake-omp-launch-probe.mjs");
     fs.chmodSync(fakePi, 0o755);
     const manager = new AgentManager(process.cwd(), DEFAULT_FABRIC_CONFIG.agents, {
       workerPath: path.resolve("src/worker.ts"),
-      piBinary: fakePi,
+      ompBinary: fakePi,
       runRoot: root,
       fullCodeMode: true,
     });
@@ -731,13 +731,13 @@ describe("AgentManager", () => {
   });
 
   it("validates structured output through the real Fabric worker", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-manager-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-manager-"));
     roots.push(root);
-    const fakePi = path.resolve("tests/fixtures/fake-pi-rpc.mjs");
+    const fakePi = path.resolve("tests/fixtures/fake-omp-rpc.mjs");
     fs.chmodSync(fakePi, 0o755);
     const manager = new AgentManager(process.cwd(), DEFAULT_FABRIC_CONFIG.agents, {
       workerPath: path.resolve("src/worker.ts"),
-      piBinary: fakePi,
+      ompBinary: fakePi,
       runRoot: root,
       fullCodeMode: false,
     });
@@ -768,14 +768,14 @@ describe("AgentManager", () => {
     expect(result.usage).toMatchObject({ input: 3, output: 4 });
   });
 
-  it("propagates the exact root Main identity into recursive child Pi", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-manager-"));
+  it("propagates the exact root Main identity into recursive child OMP", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-manager-"));
     roots.push(root);
-    const fakePi = path.resolve("tests/fixtures/fake-pi-rpc.mjs");
+    const fakePi = path.resolve("tests/fixtures/fake-omp-rpc.mjs");
     fs.chmodSync(fakePi, 0o755);
     const manager = new AgentManager(process.cwd(), DEFAULT_FABRIC_CONFIG.agents, {
       workerPath: path.resolve("src/worker.ts"),
-      piBinary: fakePi,
+      ompBinary: fakePi,
       runRoot: root,
       fullCodeMode: true,
       mainAgentId: "session:root-main",
@@ -798,14 +798,14 @@ describe("AgentManager", () => {
     });
   });
 
-  it("keeps the RPC worker alive when Pi announces a retry", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-manager-"));
+  it("keeps the RPC worker alive when OMP announces a retry", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-manager-"));
     roots.push(root);
-    const fakePi = path.resolve("tests/fixtures/fake-pi-rpc.mjs");
+    const fakePi = path.resolve("tests/fixtures/fake-omp-rpc.mjs");
     fs.chmodSync(fakePi, 0o755);
     const manager = new AgentManager(process.cwd(), DEFAULT_FABRIC_CONFIG.agents, {
       workerPath: path.resolve("src/worker.ts"),
-      piBinary: fakePi,
+      ompBinary: fakePi,
       runRoot: root,
       fullCodeMode: true,
     });
@@ -824,13 +824,13 @@ describe("AgentManager", () => {
   });
 
   it("preserves provider diagnostics when the final agent attempt fails", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-manager-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-manager-"));
     roots.push(root);
-    const fakePi = path.resolve("tests/fixtures/fake-pi-rpc.mjs");
+    const fakePi = path.resolve("tests/fixtures/fake-omp-rpc.mjs");
     fs.chmodSync(fakePi, 0o755);
     const manager = new AgentManager(process.cwd(), DEFAULT_FABRIC_CONFIG.agents, {
       workerPath: path.resolve("src/worker.ts"),
-      piBinary: fakePi,
+      ompBinary: fakePi,
       runRoot: root,
       fullCodeMode: true,
     });
@@ -849,7 +849,7 @@ describe("AgentManager", () => {
   });
 
   it("forwards the configured default model when a call omits one", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-manager-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-manager-"));
     roots.push(root);
     const config = { ...DEFAULT_FABRIC_CONFIG.agents, model: "claude-sonnet-4-5" };
     const manager = new AgentManager(process.cwd(), config, {
@@ -864,7 +864,7 @@ describe("AgentManager", () => {
   });
 
   it("lets a per-call model override the configured default", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-manager-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-manager-"));
     roots.push(root);
     const config = { ...DEFAULT_FABRIC_CONFIG.agents, model: "claude-sonnet-4-5" };
     const manager = new AgentManager(process.cwd(), config, {
@@ -883,7 +883,7 @@ describe("AgentManager", () => {
   });
 
   it("forwards the configured default thinking when a call omits one", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-manager-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-manager-"));
     roots.push(root);
     const config = { ...DEFAULT_FABRIC_CONFIG.agents, thinking: "high" as const };
     const manager = new AgentManager(process.cwd(), config, {
@@ -898,7 +898,7 @@ describe("AgentManager", () => {
   });
 
   it("lets a per-call thinking override the configured default", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-manager-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-manager-"));
     roots.push(root);
     const config = { ...DEFAULT_FABRIC_CONFIG.agents, thinking: "high" as const };
     const manager = new AgentManager(process.cwd(), config, {
@@ -917,7 +917,7 @@ describe("AgentManager", () => {
   });
 
   it("forwards the medium default when neither config nor call set a thinking level", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-manager-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-manager-"));
     roots.push(root);
     const manager = new AgentManager(process.cwd(), DEFAULT_FABRIC_CONFIG.agents, {
       workerPath: path.resolve("tests/fixtures/fake-worker.mjs"),
@@ -931,7 +931,7 @@ describe("AgentManager", () => {
   });
 
   it("inherits the host model when neither config nor call set one", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-manager-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-manager-"));
     roots.push(root);
     const manager = new AgentManager(process.cwd(), DEFAULT_FABRIC_CONFIG.agents, {
       workerPath: path.resolve("tests/fixtures/fake-worker.mjs"),
@@ -945,7 +945,7 @@ describe("AgentManager", () => {
   });
 
   it("notifies when a detached background agent completes", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-manager-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-manager-"));
     roots.push(root);
     let resolveCompletion: ((text: string) => void) | undefined;
     const completion = new Promise<string>((resolve) => {
@@ -963,7 +963,7 @@ describe("AgentManager", () => {
   });
 
   it("surfaces the run-log tail when a worker exits without a terminal result", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-manager-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-manager-"));
     roots.push(root);
     const manager = new AgentManager(process.cwd(), DEFAULT_FABRIC_CONFIG.agents, {
       workerPath: path.resolve("tests/fixtures/fake-worker-crash.mjs"),
@@ -979,7 +979,7 @@ describe("AgentManager", () => {
   30_000);
 
   it("rejects empty tasks", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-manager-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-manager-"));
     roots.push(root);
     const manager = new AgentManager(process.cwd(), DEFAULT_FABRIC_CONFIG.agents, {
       workerPath: path.resolve("tests/fixtures/fake-worker.mjs"),
@@ -990,7 +990,7 @@ describe("AgentManager", () => {
   });
 
   it("enforces a cross-process cost budget across spawned agents", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-budget-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-budget-"));
     roots.push(root);
     const config = { ...DEFAULT_FABRIC_CONFIG.agents, budgetUsd: 0.1 };
     const manager = new AgentManager(process.cwd(), config, {
@@ -1021,12 +1021,12 @@ describe("AgentManager", () => {
   });
 
   it("inherits a budget ledger from the environment for recursive children", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-budget-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-budget-"));
     roots.push(root);
-    process.env.PI_FABRIC_BUDGET = "0.05";
-    process.env.PI_FABRIC_BUDGET_FILE = path.join(root, "tree-cost.jsonl");
-    process.env.PI_FABRIC_BUDGET_ID = "inherited-tree";
-    fs.writeFileSync(process.env.PI_FABRIC_BUDGET_FILE, "", { mode: 0o600 });
+    process.env.OMP_FABRIC_BUDGET = "0.05";
+    process.env.OMP_FABRIC_BUDGET_FILE = path.join(root, "tree-cost.jsonl");
+    process.env.OMP_FABRIC_BUDGET_ID = "inherited-tree";
+    fs.writeFileSync(process.env.OMP_FABRIC_BUDGET_FILE, "", { mode: 0o600 });
     try {
       const manager = new AgentManager(process.cwd(), DEFAULT_FABRIC_CONFIG.agents, {
         workerPath: path.resolve("tests/fixtures/fake-worker-budget.mjs"),
@@ -1039,22 +1039,22 @@ describe("AgentManager", () => {
       expect(result.budget?.spent).toBeCloseTo(0.02);
       expect(result.budget?.remaining).toBeCloseTo(0.03);
 
-      const ledger = fs.readFileSync(process.env.PI_FABRIC_BUDGET_FILE, "utf8");
+      const ledger = fs.readFileSync(process.env.OMP_FABRIC_BUDGET_FILE, "utf8");
       expect(ledger).toContain("\"cost\":0.02");
     } finally {
-      delete process.env.PI_FABRIC_BUDGET;
-      delete process.env.PI_FABRIC_BUDGET_FILE;
-      delete process.env.PI_FABRIC_BUDGET_ID;
+      delete process.env.OMP_FABRIC_BUDGET;
+      delete process.env.OMP_FABRIC_BUDGET_FILE;
+      delete process.env.OMP_FABRIC_BUDGET_ID;
     }
   });
 
   it("attributes token usage per tokens.usage events and closes the settle gap", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-budget-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-budget-"));
     roots.push(root);
-    process.env.PI_FABRIC_BUDGET = "0.05";
-    process.env.PI_FABRIC_BUDGET_FILE = path.join(root, "tree-cost.jsonl");
-    process.env.PI_FABRIC_BUDGET_ID = "attributed-tree";
-    fs.writeFileSync(process.env.PI_FABRIC_BUDGET_FILE, "", { mode: 0o600 });
+    process.env.OMP_FABRIC_BUDGET = "0.05";
+    process.env.OMP_FABRIC_BUDGET_FILE = path.join(root, "tree-cost.jsonl");
+    process.env.OMP_FABRIC_BUDGET_ID = "attributed-tree";
+    fs.writeFileSync(process.env.OMP_FABRIC_BUDGET_FILE, "", { mode: 0o600 });
     try {
       const life: Array<{ event: string; data?: unknown }> = [];
       const manager = new AgentManager(process.cwd(), DEFAULT_FABRIC_CONFIG.agents, {
@@ -1078,7 +1078,7 @@ describe("AgentManager", () => {
         runId: string; runner: string; depth: number; actorId?: string; cumulativeTokens: number;
         input: number; output: number; cost: number;
       };
-      expect(payload.runner).toBe("pi");
+      expect(payload.runner).toBe("omp");
       expect(payload.depth).toBe(1);
       expect(payload.actorId).toBe("actor-test");
       expect(payload.cumulativeTokens).toBe(13);
@@ -1087,13 +1087,13 @@ describe("AgentManager", () => {
 
       // Live-delta path recorded 13 tokens; settle closes the remaining 10
       // from the status file (input 8 + output 10 + cacheRead 3 + cacheWrite 2).
-      const detail = readBudgetLedgerDetailed(process.env.PI_FABRIC_BUDGET_FILE);
+      const detail = readBudgetLedgerDetailed(process.env.OMP_FABRIC_BUDGET_FILE);
       const totalCost = detail.entries.reduce((sum, entry) => sum + entry.cost, 0);
       const totalTokens = detail.entries.reduce((sum, entry) => sum + entry.tokens, 0);
       expect(totalTokens).toBe(23);
       expect(totalCost).toBeCloseTo(0.0015);
-      expect(detail.byRunner.pi?.tokens).toBe(23);
-      expect(detail.byRunner.pi?.cost).toBeCloseTo(0.0015);
+      expect(detail.byRunner.omp?.tokens).toBe(23);
+      expect(detail.byRunner.omp?.cost).toBeCloseTo(0.0015);
       expect(detail.byActor["actor-test"]?.tokens).toBe(23);
     } finally {
       clearOwnedBudgetEnv();
@@ -1101,16 +1101,16 @@ describe("AgentManager", () => {
   });
 
   it("terminates a child that exceeds the per-child token limit", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-tokens-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-tokens-"));
     roots.push(root);
-    const fakePi = path.resolve("tests/fixtures/fake-pi-rpc.mjs");
+    const fakePi = path.resolve("tests/fixtures/fake-omp-rpc.mjs");
     fs.chmodSync(fakePi, 0o755);
-    // The fake pi emits one assistant turn with 7 tokens (input 3 + output 4);
+    // The fake OMP emits one assistant turn with 7 tokens (input 3 + output 4);
     // a 5-token ceiling trips the guard after the first message_end.
     const config = { ...DEFAULT_FABRIC_CONFIG.agents, maxTokensPerChild: 5 };
     const manager = new AgentManager(process.cwd(), config, {
       workerPath: path.resolve("src/worker.ts"),
-      piBinary: fakePi,
+      ompBinary: fakePi,
       runRoot: root,
       fullCodeMode: false,
     });
@@ -1130,17 +1130,17 @@ describe("AgentManager", () => {
   });
 });
 
-describe("AgentManager multimodal prompts", () => {
-  it("forwards image blocks to the Pi worker RPC prompt", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-images-"));
+describe("AgentManager multimodal prompts", async () => {
+  it("forwards image blocks to the OMP worker RPC prompt", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-images-"));
     roots.push(root);
     const promptLog = path.join(root, "prompt.json");
-    process.env.FAKE_PI_BEHAVIOR = "capture-prompt";
-    process.env.FAKE_PI_PROMPT_LOG = promptLog;
+    process.env.FAKE_OMP_BEHAVIOR = "capture-prompt";
+    process.env.FAKE_OMP_PROMPT_LOG = promptLog;
     try {
       const manager = new AgentManager(process.cwd(), DEFAULT_FABRIC_CONFIG.agents, {
         workerPath: path.resolve("src/worker.ts"),
-        piBinary: path.resolve("tests/fixtures/fake-pi.mjs"),
+        ompBinary: path.resolve("tests/fixtures/fake-omp.mjs"),
         runRoot: path.join(root, "runs"),
       });
       managers.push(manager);
@@ -1159,17 +1159,17 @@ describe("AgentManager multimodal prompts", () => {
       });
       expect(fs.existsSync(path.join(manager.runDirectory(result.id)!, "images.json"))).toBe(false);
     } finally {
-      delete process.env.FAKE_PI_BEHAVIOR;
-      delete process.env.FAKE_PI_PROMPT_LOG;
+      delete process.env.FAKE_OMP_BEHAVIOR;
+      delete process.env.FAKE_OMP_PROMPT_LOG;
     }
   });
 });
 
-describe("AgentManager Claude runner", () => {
+describe("AgentManager Claude runner", async () => {
   const fakeClaude = path.resolve("tests/fixtures/fake-claude.mjs");
 
   it("uses the independent configured Claude runner and model defaults", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-claude-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-claude-"));
     roots.push(root);
     const config = {
       ...DEFAULT_FABRIC_CONFIG.agents,
@@ -1192,7 +1192,7 @@ describe("AgentManager Claude runner", () => {
   });
 
   it("runs Claude stream-json with mapped tools, native schema output, and usage", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-claude-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-claude-"));
     roots.push(root);
     const invocationLog = path.join(root, "claude-args.jsonl");
     process.env.FAKE_CLAUDE_LOG = invocationLog;
@@ -1252,7 +1252,7 @@ describe("AgentManager Claude runner", () => {
   });
 
   it("preserves Claude result diagnostics on a failed run", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-claude-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-claude-"));
     roots.push(root);
     const manager = new AgentManager(process.cwd(), DEFAULT_FABRIC_CONFIG.agents, {
       workerPath: path.resolve("src/worker.ts"),
@@ -1276,7 +1276,7 @@ describe("AgentManager Claude runner", () => {
   });
 
   it("delivers Claude steering and follow-up messages on later turns", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-claude-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-claude-"));
     roots.push(root);
     const manager = new AgentManager(process.cwd(), DEFAULT_FABRIC_CONFIG.agents, {
       workerPath: path.resolve("src/worker.ts"),
@@ -1306,7 +1306,7 @@ describe("AgentManager Claude runner", () => {
   });
 
   it("enumerates models from the Claude runtime control handshake", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-claude-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-claude-"));
     roots.push(root);
     const manager = new AgentManager(process.cwd(), DEFAULT_FABRIC_CONFIG.agents, {
       claudeBinary: fakeClaude,
@@ -1324,7 +1324,7 @@ describe("AgentManager Claude runner", () => {
   });
 
   it("rejects recursive Fabric and unsupported tools before launching Claude", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-claude-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-claude-"));
     roots.push(root);
     const manager = new AgentManager(process.cwd(), DEFAULT_FABRIC_CONFIG.agents, {
       claudeBinary: fakeClaude,
@@ -1347,9 +1347,9 @@ describe("AgentManager Claude runner", () => {
   });
 });
 
-describe("AgentManager steering", () => {
+describe("AgentManager steering", async () => {
   const fakeWorker = path.resolve("tests/fixtures/fake-worker.mjs");
-  const fakePiSteer = path.resolve("tests/fixtures/fake-pi-rpc-steer.mjs");
+  const fakePiSteer = path.resolve("tests/fixtures/fake-omp-rpc-steer.mjs");
 
   const waitFor = async (predicate: () => boolean, timeoutMs = 2_000): Promise<void> => {
     const deadline = Date.now() + timeoutMs;
@@ -1369,10 +1369,10 @@ describe("AgentManager steering", () => {
       .map((line) => JSON.parse(line) as Record<string, unknown>);
   };
 
-  const hangManager = (root: string, workerPath = fakeWorker, piBinary?: string) => {
+  const hangManager = (root: string, workerPath = fakeWorker, ompBinary?: string) => {
     const manager = new AgentManager(process.cwd(), DEFAULT_FABRIC_CONFIG.agents, {
       workerPath,
-      ...(piBinary ? { piBinary } : {}),
+      ...(ompBinary ? { ompBinary } : {}),
       runRoot: root,
       fullCodeMode: false,
     });
@@ -1381,7 +1381,7 @@ describe("AgentManager steering", () => {
   };
 
   it("steer appends a queued steer command for a running agent", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-steer-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-steer-"));
     roots.push(root);
     const manager = hangManager(root);
     const handle = await manager.spawn({ task: "HANG", transport: "process" });
@@ -1394,7 +1394,7 @@ describe("AgentManager steering", () => {
   });
 
   it("steer throws for a finished agent", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-steer-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-steer-"));
     roots.push(root);
     const manager = hangManager(root);
     const result = await manager.run({ task: "done", transport: "process" });
@@ -1402,7 +1402,7 @@ describe("AgentManager steering", () => {
   });
 
   it("followUp appends a follow_up command", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-steer-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-steer-"));
     roots.push(root);
     const manager = hangManager(root);
     const handle = await manager.spawn({ task: "HANG", transport: "process" });
@@ -1413,7 +1413,7 @@ describe("AgentManager steering", () => {
   });
 
   it("setSteeringMode and setFollowUpMode append mode commands", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-steer-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-steer-"));
     roots.push(root);
     const manager = hangManager(root);
     const handle = await manager.spawn({ task: "HANG", transport: "process" });
@@ -1425,16 +1425,16 @@ describe("AgentManager steering", () => {
     await manager.stop(handle.id);
   });
 
-  it("forwards a steer to the child pi over RPC and surfaces pendingMessages", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-steer-"));
+  it("forwards a steer to the child OMP over RPC and surfaces pendingMessages", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-steer-"));
     roots.push(root);
     fs.chmodSync(fakePiSteer, 0o755);
     const received = path.join(root, "received.jsonl");
-    process.env.FAKE_PI_STEER_LOG = received;
+    process.env.FAKE_OMP_STEER_LOG = received;
     try {
       const manager = new AgentManager(process.cwd(), DEFAULT_FABRIC_CONFIG.agents, {
         workerPath: path.resolve("src/worker.ts"),
-        piBinary: fakePiSteer,
+        ompBinary: fakePiSteer,
         runRoot: root,
         fullCodeMode: false,
       });
@@ -1462,20 +1462,20 @@ describe("AgentManager steering", () => {
       }, 3_000);
       await manager.stop(handle.id);
     } finally {
-      delete process.env.FAKE_PI_STEER_LOG;
+      delete process.env.FAKE_OMP_STEER_LOG;
     }
   });
 
   it("preserves a partial UTF-8 steering record across worker polls", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-steer-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-steer-"));
     roots.push(root);
     fs.chmodSync(fakePiSteer, 0o755);
     const received = path.join(root, "received.jsonl");
-    process.env.FAKE_PI_STEER_LOG = received;
+    process.env.FAKE_OMP_STEER_LOG = received;
     try {
       const manager = new AgentManager(process.cwd(), DEFAULT_FABRIC_CONFIG.agents, {
         workerPath: path.resolve("src/worker.ts"),
-        piBinary: fakePiSteer,
+        ompBinary: fakePiSteer,
         runRoot: root,
       });
       managers.push(manager);
@@ -1493,20 +1493,20 @@ describe("AgentManager steering", () => {
       );
       await manager.stop(handle.id);
     } finally {
-      delete process.env.FAKE_PI_STEER_LOG;
+      delete process.env.FAKE_OMP_STEER_LOG;
     }
   });
 
-  it("forwards a follow_up and a queue mode to the child pi over RPC", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-steer-"));
+  it("forwards a follow_up and a queue mode to the child OMP over RPC", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-steer-"));
     roots.push(root);
     fs.chmodSync(fakePiSteer, 0o755);
     const received = path.join(root, "received.jsonl");
-    process.env.FAKE_PI_STEER_LOG = received;
+    process.env.FAKE_OMP_STEER_LOG = received;
     try {
       const manager = new AgentManager(process.cwd(), DEFAULT_FABRIC_CONFIG.agents, {
         workerPath: path.resolve("src/worker.ts"),
-        piBinary: fakePiSteer,
+        ompBinary: fakePiSteer,
         runRoot: root,
         fullCodeMode: false,
       });
@@ -1534,12 +1534,12 @@ describe("AgentManager steering", () => {
       ).toBe(true);
       await manager.stop(handle.id);
     } finally {
-      delete process.env.FAKE_PI_STEER_LOG;
+      delete process.env.FAKE_OMP_STEER_LOG;
     }
   });
 
-  it("compact appends a compact entry to the steer channel for a running pi child", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-compact-"));
+  it("compact appends a compact entry to the steer channel for a running OMP child", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-compact-"));
     roots.push(root);
     const manager = hangManager(root);
     const handle = await manager.spawn({ task: "HANG", transport: "process" });
@@ -1552,7 +1552,7 @@ describe("AgentManager steering", () => {
   });
 
   it("compact appends a compact entry without instructions when omitted", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-compact-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-compact-"));
     roots.push(root);
     const manager = hangManager(root);
     const handle = await manager.spawn({ task: "HANG", transport: "process" });
@@ -1564,7 +1564,7 @@ describe("AgentManager steering", () => {
   });
 
   it("compact throws for a finished agent", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-compact-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-compact-"));
     roots.push(root);
     const manager = hangManager(root);
     const result = await manager.run({ task: "done", transport: "process" });
@@ -1572,7 +1572,7 @@ describe("AgentManager steering", () => {
   });
 
   it("compact rejects claude-runner children with a clear error", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-compact-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-compact-"));
     roots.push(root);
     const fakeClaude = path.resolve("tests/fixtures/fake-claude.mjs");
     const manager = new AgentManager(process.cwd(), DEFAULT_FABRIC_CONFIG.agents, {
@@ -1587,20 +1587,20 @@ describe("AgentManager steering", () => {
       transport: "process",
       tools: ["read"],
     });
-    expect(() => manager.compact(handle.id)).toThrow(/only supported for Pi-runner children/);
+    expect(() => manager.compact(handle.id)).toThrow(/only supported for OMP-runner children/);
     await manager.stop(handle.id);
   });
 
-  it("forwards a correlated compact frame only after child agent_settled", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-compact-"));
+  it("forwards a correlated compact frame only after child agent_end", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-compact-"));
     roots.push(root);
     fs.chmodSync(fakePiSteer, 0o755);
     const received = path.join(root, "received.jsonl");
-    process.env.FAKE_PI_STEER_LOG = received;
+    process.env.FAKE_OMP_STEER_LOG = received;
     try {
       const manager = new AgentManager(process.cwd(), DEFAULT_FABRIC_CONFIG.agents, {
         workerPath: path.resolve("src/worker.ts"),
-        piBinary: fakePiSteer,
+        ompBinary: fakePiSteer,
         runRoot: root,
         fullCodeMode: false,
       });
@@ -1629,7 +1629,7 @@ describe("AgentManager steering", () => {
       expect(result.status).toBe("completed");
       expect(result.compaction?.status).toBe("completed");
     } finally {
-      delete process.env.FAKE_PI_STEER_LOG;
+      delete process.env.FAKE_OMP_STEER_LOG;
     }
   });
 });

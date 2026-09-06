@@ -1,21 +1,21 @@
-import {
-  createBashToolDefinition,
-  createSyntheticSourceInfo,
+import { createBashToolDefinition } from "@oh-my-pi/pi-coding-agent/extensibility/legacy-pi-coding-agent-shim";
+import type {
+  ExtensionContext,
   ExtensionRunner,
-  type ExtensionContext,
-  type RegisteredTool,
-} from "@earendil-works/pi-coding-agent";
+  RegisteredTool,
+  ToolResultEvent,
+} from "@oh-my-pi/pi-coding-agent";
 import { describe, expect, it } from "vitest";
 import { CapturedToolCatalog } from "../src/capture/catalog.js";
 import { DEFAULT_FABRIC_CONFIG } from "../src/config.js";
 import { ActionRegistry } from "../src/core/action-registry.js";
 import { FabricExecutionService } from "../src/execution-service.js";
-import { PiToolsProvider } from "../src/providers/pi-tools-provider.js";
+import { OmpToolsProvider } from "../src/providers/omp-tools-provider.js";
 import { CapturedToolsProvider } from "../src/providers/captured-tools-provider.js";
 
 type Patch = "none" | "prefix" | "suffix" | "replace" | "deny" | "recover";
-type ResultEvent = Parameters<ExtensionRunner["emitToolResult"]>[0];
-type ResultPatch = Awaited<ReturnType<ExtensionRunner["emitToolResult"]>>;
+type ResultEvent = ToolResultEvent;
+type ResultPatch = { content?: ResultEvent["content"]; isError?: boolean } | undefined;
 const annotation = "✓ middleware annotation";
 const command = "printf 'probe-output\\n'; exit 7";
 const cwd = process.cwd();
@@ -23,7 +23,7 @@ const cwd = process.cwd();
 async function run(
   runtime: "quickjs" | "node-process",
   patch: Patch,
-  options: { command?: string; captured?: boolean; tool?: "bash" | "powershell"; preflight?: boolean; noRunner?: boolean; settle?: boolean; timeout?: number; signal?: AbortSignal; approvalDenied?: boolean; middleware?: (event: ResultEvent) => ResultPatch } = {},
+  options: { command?: string; captured?: boolean; preflight?: boolean; noRunner?: boolean; settle?: boolean; timeout?: number; signal?: AbortSignal; approvalDenied?: boolean; middleware?: (event: ResultEvent) => ResultPatch } = {},
 ) {
   const runner = {
     createContext: () => ({ cwd, sessionManager: { getSessionId: () => "settle-regression", getSessionFile: () => undefined } }),
@@ -45,35 +45,30 @@ async function run(
     },
   } as unknown as ExtensionRunner;
   if (options.middleware) {
-    // Exercise Pi's real merge semantics: even a content-only handler returns
-    // the inherited isError, not a signal that the handler added a new failure.
     const handler = options.middleware;
-    const middlewareRunner = {
-      createContext: () => runner.createContext(),
-      extensions: [{
-        path: "/extensions/settle-test/index.ts",
-        handlers: new Map([["tool_result", [handler]]]),
-      }],
-    } as unknown as ExtensionRunner;
-    runner.emitToolResult = (event) => ExtensionRunner.prototype.emitToolResult.call(middlewareRunner, event);
+    runner.emitToolResult = async (event) => {
+      const patch = await handler(event as ResultEvent);
+      return patch
+        ? { ...patch, content: patch.content ?? event.content, isError: patch.isError ?? event.isError }
+        : undefined;
+    };
   }
   const catalog = new CapturedToolCatalog();
   const shellDefinition = createBashToolDefinition(cwd);
-  const capturedDefinition = options.tool === "powershell"
-    ? { ...shellDefinition, name: "powershell", label: "powershell" }
-    : shellDefinition;
+  const capturedDefinition = shellDefinition;
   catalog.replace(options.captured ? [{
     definition: capturedDefinition as RegisteredTool["definition"],
-    sourceInfo: createSyntheticSourceInfo("/extensions/bash-override/index.ts", { source: "test" }),
+    extensionPath: "/extensions/bash-override/index.ts",
   }] : [], runner, DEFAULT_FABRIC_CONFIG.capture, "/extensions/pi-fabric/index.ts");
   const registry = new ActionRegistry();
-  registry.register(new PiToolsProvider(cwd, options.noRunner ? undefined : catalog, new CapturedToolsProvider(catalog)));
+  registry.register(new OmpToolsProvider(cwd, options.noRunner ? undefined : catalog, new CapturedToolsProvider(catalog)));
   const config = structuredClone(DEFAULT_FABRIC_CONFIG);
+  config.fullCodeMode = true;
   config.executor.runtime = runtime;
   config.approvals.execute = options.approvalDenied ? "deny" : "allow";
   return new FabricExecutionService(registry, config).execute({
-    code: `return await pi.${options.tool ?? "bash"}({command: π.command, settle: π.settle === 'true', ...(π.timeout ? {timeout: Number(π.timeout)} : {})});`,
-    strings: { command: options.command ?? command, settle: String(options.settle ?? true), timeout: options.timeout === undefined ? "" : String(options.timeout) },
+    payloads: { command: options.command ?? command, settle: String(options.settle ?? true), timeout: options.timeout === undefined ? "" : String(options.timeout) },
+    code: `return await omp.bash({command: payloads.command, settle: payloads.settle === 'true', ...(payloads.timeout ? {timeout: Number(payloads.timeout)} : {})});`,
     signal: options.signal,
     parentToolCallId: "settle-regression",
     context: {
@@ -84,7 +79,7 @@ async function run(
   });
 }
 
-describe.each(["quickjs", "node-process"] as const)("pi.bash settle via %s", (runtime) => {
+describe.each(["quickjs", "node-process"] as const)("omp.bash settle via %s", (runtime) => {
   it.each(["none", "prefix", "suffix"] as const)("settles native exit with %s middleware", async (patch) => {
     const result = await run(runtime, patch);
     expect(result.error).toBeUndefined();
@@ -105,11 +100,6 @@ describe.each(["quickjs", "node-process"] as const)("pi.bash settle via %s", (ru
     expect(result.value).toMatchObject({ ok: false, exitCode: 7 });
   });
 
-  it("settles a captured PowerShell override with suffix middleware", async () => {
-    const result = await run(runtime, "suffix", { captured: true, tool: "powershell" });
-    expect(result.error).toBeUndefined();
-    expect(result.value).toMatchObject({ ok: false, exitCode: 7 });
-  });
 
   describe.each([false, true])("processed results (captured=%s)", (captured) => {
     it.each([

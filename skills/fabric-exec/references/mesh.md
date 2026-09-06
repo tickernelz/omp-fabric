@@ -2,7 +2,7 @@
 
 `mesh` is a project-scoped, event-sourced coordination substrate. With persistent actors (see `agents.md`) it is sufficient to express messenger-style swarms without a daemon or fixed planner/worker roles. For the sandbox model, see the parent `fabric-exec` skill.
 
-Every method takes a single options object. Mesh data defaults to `<project>/.pi/fabric/mesh`; relocate it with `mesh.root` in config, and add `.pi/fabric/mesh/` to your ignore file unless you intentionally version the coordination log.
+Every method takes a single options object. Mesh data defaults to `<project>/.omp/fabric/mesh`; relocate it with `mesh.root` in config, and add `.omp/fabric/mesh/` to your ignore file unless you intentionally version the coordination log.
 
 ## Identity and presence
 

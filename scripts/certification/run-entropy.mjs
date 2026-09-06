@@ -7,6 +7,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { resolveAgentDir } from "../../src/core/agent-dir.ts";
 import {
   ENTROPY_METRIC_VERSION,
   applyCompiledSurface,
@@ -45,10 +46,10 @@ const surfaceOf = (actions) => ({ version: 1, actions });
 const convergedTraces = () => [
   trace(
     [
-      op("pi.read", { path: "src/a.ts", limit: 50 }),
-      op("pi.read", { path: "src/b.ts", limit: 50 }),
-      op("pi.edit", { path: "src/a.ts" }),
-      op("pi.bash", { command: "bun test" }),
+      op("omp.read", { path: "src/a.ts", limit: 50 }),
+      op("omp.read", { path: "src/b.ts", limit: 50 }),
+      op("omp.edit", { path: "src/a.ts" }),
+      op("omp.bash", { command: "bun test" }),
     ],
     "converged",
   ),
@@ -57,7 +58,7 @@ const convergedTraces = () => [
 const convergedSurface = () =>
   surfaceOf([
     {
-      ref: "pi.read",
+      ref: "omp.read",
       inputSchema: {
         type: "object",
         additionalProperties: false,
@@ -66,7 +67,7 @@ const convergedSurface = () =>
       },
     },
     {
-      ref: "pi.edit",
+      ref: "omp.edit",
       inputSchema: {
         type: "object",
         additionalProperties: false,
@@ -75,7 +76,7 @@ const convergedSurface = () =>
       },
     },
     {
-      ref: "pi.bash",
+      ref: "omp.bash",
       inputSchema: {
         type: "object",
         additionalProperties: false,
@@ -88,17 +89,17 @@ const convergedSurface = () =>
 const wobbleTraces = () => [
   trace(
     [
-      op("pi.read", { path: "src/x.ts", limit: 50 }),
-      op("pi.grep", { path: "src", limit: 20 }),
-      op("pi.edit", { path: "src/x.ts" }),
+      op("omp.read", { path: "src/x.ts", limit: 50 }),
+      op("omp.grep", { path: "src", limit: 20 }),
+      op("omp.edit", { path: "src/x.ts" }),
     ],
     "flaky-edit",
   ),
   trace(
     [
-      op("pi.grep", { path: "src", limit: 20 }),
-      op("pi.read", { path: "src/x.ts", limit: 50 }),
-      op("pi.edit", { path: "src/x.ts" }),
+      op("omp.grep", { path: "src", limit: 20 }),
+      op("omp.read", { path: "src/x.ts", limit: 50 }),
+      op("omp.edit", { path: "src/x.ts" }),
     ],
     "flaky-edit",
   ),
@@ -110,8 +111,8 @@ const wobbleTraces = () => [
       op("memory.expand", { session: "s1" }),
       op("fabric.discovery.search", { limit: 5 }),
       op("fabric.workflow.phase", { name: "verify", id: "p1", total: 1 }),
-      op("pi.bash", { command: "vitest run" }, "failed", "invoke"),
-      op("pi.bash", { command: "vitest run" }),
+      op("omp.bash", { command: "vitest run" }, "failed", "invoke"),
+      op("omp.bash", { command: "vitest run" }),
     ],
     "wobble",
   ),
@@ -226,7 +227,7 @@ const structureTraces = () => [
 
 const ingestionJsonl = () => {
   const envelope = {
-    kind: "pi-fabric.execution",
+    kind: "omp-fabric.execution",
     version: 1,
     outcome: "succeeded",
     phases: ["build"],
@@ -234,14 +235,14 @@ const ingestionJsonl = () => {
       {
         type: "call",
         sequence: 0,
-        ref: "pi.read",
+        ref: "omp.read",
         args: { path: "src/a.ts", limit: 10 },
         outcome: "succeeded",
       },
       {
         type: "call",
         sequence: 1,
-        ref: "pi.bash",
+        ref: "omp.bash",
         args: { command: "ls" },
         outcome: "failed",
         failureStage: "invoke",
@@ -268,7 +269,7 @@ const ingestionJsonl = () => {
     "html",
   ];
   const renderEnvelope = {
-    kind: "pi-fabric.execution",
+    kind: "omp-fabric.execution",
     version: 1,
     outcome: "succeeded",
     phases: ["build"],
@@ -319,8 +320,8 @@ const ingestionJsonl = () => {
       "entry-1",
       envelope,
       [
-        { ref: "pi.read", args: { path: "src/a.ts", limit: 10 } },
-        { ref: "pi.bash", args: { command: "ls" } },
+        { ref: "omp.read", args: { path: "src/a.ts", limit: 10 } },
+        { ref: "omp.bash", args: { command: "ls" } },
       ],
     ),
     JSON.stringify({
@@ -517,7 +518,7 @@ export const runEntropyCertification = async (options = {}) => {
       divergent.artifact === undefined,
     `status ${divergent.status} reasons ${divergent.gate?.reasons.join("; ")}`,
   );
-  const storeDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-entropy-store-"));
+  const storeDir = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-entropy-store-"));
   const saved = saveCompiledSurface(storeDir, compiledOutcome.artifact);
   const reloaded = loadCompiledSurface(storeDir);
   const noopSave = saveCompiledSurface(storeDir, compiledOutcome.artifact);
@@ -889,15 +890,14 @@ export const runEntropyCertification = async (options = {}) => {
               check("trial-mode", false, `artifact is invalid: ${options.artifactPath}`);
             }
           } else {
-            const agentDir =
-              process.env.PI_CODING_AGENT_DIR || path.join(os.homedir(), ".pi", "agent");
+            const agentDir = resolveAgentDir();
             const loaded = loadCompiledSurface(agentDir);
             artifact = loaded.file;
             if (!artifact) {
               check(
                 "trial-mode",
                 false,
-                loaded.error ?? "no compiled surface in the agent dir (pass --artifact <path>)",
+                loaded.error ?? `no compiled surface in the agent dir ${agentDir} (pass --artifact <path>)`,
               );
             }
           }
@@ -933,7 +933,7 @@ export const runEntropyCertification = async (options = {}) => {
     failed: checks.filter((entry) => !entry.passed).map((entry) => entry.id),
   };
   return {
-    kind: "pi-fabric.entropy-certification",
+    kind: "omp-fabric.entropy-certification",
     version: 1,
     metricVersion: ENTROPY_METRIC_VERSION,
     fixtures: {

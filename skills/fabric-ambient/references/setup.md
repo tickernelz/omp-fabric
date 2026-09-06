@@ -3,22 +3,22 @@
 Pass `strings.name`, `strings.instructions`, JSON `strings.events`, `strings.triggerTurn` (`"true"`/`"false"`), and `strings.model` (key/substring; empty when unset).
 
 ```ts
-const events = JSON.parse(π.events) as FabricActorHostEvent[];
-const triggerTurn = π.triggerTurn === "true";
+const events = JSON.parse(omp.events) as FabricActorHostEvent[];
+const triggerTurn = omp.triggerTurn === "true";
 const desiredTools = ["read", "grep", "find", "ls"];
 let model: string | undefined;
 let runner: FabricAgentRunner | undefined;
-if (π.model) {
+if (omp.model) {
   const models: Array<FabricModelInfo & { runner: FabricAgentRunner }> = (
     await tools.models()
-  ).map((entry) => ({ ...entry, runner: "pi" as const }));
+  ).map((entry) => ({ ...entry, runner: "omp" as const }));
   try {
     models.push(...(await agents.models({ runner: "claude" })).map((entry) => ({
       ...entry,
       runner: "claude" as const,
     })));
   } catch {}
-  const needle = π.model.toLowerCase();
+  const needle = omp.model.toLowerCase();
   const exact = models.filter((entry) => entry.key.toLowerCase() === needle);
   const fuzzy = exact.length === 0
     ? models.filter((entry) =>
@@ -29,8 +29,8 @@ if (π.model) {
   if (fuzzy.length !== 1) {
     throw new Error(
       fuzzy.length === 0
-        ? `Model "${π.model}" not found: ${models.map((entry) => entry.key).join(", ")}`
-        : `Model "${π.model}" is ambiguous: ${fuzzy.map((entry) => entry.key).join(", ")}`,
+        ? `Model "${omp.model}" not found: ${models.map((entry) => entry.key).join(", ")}`
+        : `Model "${omp.model}" is ambiguous: ${fuzzy.map((entry) => entry.key).join(", ")}`,
     );
   }
   model = fuzzy[0].key;
@@ -38,7 +38,7 @@ if (π.model) {
 }
 
 const existing = (await agents.actors()).find(
-  (actor) => actor.name === π.name && actor.status !== "stopped",
+  (actor) => actor.name === omp.name && actor.status !== "stopped",
 );
 if (existing) {
   const runnerMatches = !runner || existing.runner === runner;
@@ -52,7 +52,7 @@ if (existing) {
   ];
   if (warnings.length) return { reused: false, actor: existing, warnings };
 
-  await agents.setInstructions({ id: existing.id, instructions: π.instructions });
+  await agents.setInstructions({ id: existing.id, instructions: omp.instructions });
   if (
     existing.tools?.length !== desiredTools.length ||
     desiredTools.some((tool) => !existing.tools?.includes(tool))
@@ -73,8 +73,8 @@ if (existing) {
 }
 
 const actor = await agents.create({
-  name: π.name,
-  instructions: π.instructions,
+  name: omp.name,
+  instructions: omp.instructions,
   events,
   responseMode: "directive",
   delivery: "steer",

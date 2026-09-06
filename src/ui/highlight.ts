@@ -229,19 +229,19 @@ const parseAnsiBgColor = (sequence: string): Rgb | undefined => {
 const relativeLuminance = ({ r, g, b }: Rgb): number =>
   (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
 
-/** Minimal structural view of Pi's active theme, as handed to renderers. */
-export interface PiThemeLike {
+/** Minimal structural view of OMP's active theme, as handed to renderers. */
+export interface OmpThemeLike {
   name?: string;
   getBgAnsi?(color: "userMessageBg"): string;
 }
 
 /**
- * Classify Pi's active theme as a light or dark variant. Named built-ins are
- * matched directly, custom themes fall back to the luminance of Pi's message
+ * Classify OMP's active theme as a light or dark variant. Named built-ins are
+ * matched directly, custom themes fall back to the luminance of OMP's message
  * background color, and as a last resort COLORFGBG provides a terminal hint.
  */
-export const classifyPiTheme = (
-  theme: PiThemeLike | undefined,
+export const classifyOmpTheme = (
+  theme: OmpThemeLike | undefined,
   env: NodeJS.ProcessEnv = process.env,
 ): ShikiThemeVariant | undefined => {
   const name = theme?.name?.trim().toLowerCase();
@@ -283,10 +283,10 @@ const syncEffectiveTheme = (preference: string, variant: ShikiThemeVariant): boo
 /**
  * Adopt the variant of the pi theme instance handed to a renderer. When the
  * configured preference follows the variant ("auto" or a "light/dark" pair),
- * the effective shiki theme swaps as Pi auto-switches.
+ * the effective shiki theme swaps as OMP auto-switches.
  */
-export function observePiTheme(theme: PiThemeLike | undefined): void {
-  const variant = classifyPiTheme(theme);
+export function observeOmpTheme(theme: OmpThemeLike | undefined): void {
+  const variant = classifyOmpTheme(theme);
   if (variant) syncEffectiveTheme(themePreference, variant);
 }
 
@@ -297,7 +297,7 @@ export const effectiveShikiTheme = (): string => currentTheme;
 export const effectiveShikiThemeIsLight = (): boolean =>
   THEME_TYPE.get(currentTheme) === "light";
 
-/** Pi's most recently observed theme variant. */
+/** OMP's most recently observed theme variant. */
 export const observedThemeVariant = (): ShikiThemeVariant => observedVariant;
 
 /** Resolve a shiki language id from a file path, or undefined if unsupported. */
@@ -361,10 +361,10 @@ export async function initHighlighting(theme: string, syntaxEnabled = true): Pro
   initializingTheme = theme;
   try {
     const { createHighlighter } = await import("shiki");
-    // Resolve the theme object from pi-fabric's own module graph and hand
+    // Resolve the theme object from omp-fabric's own module graph and hand
     // createHighlighter the *object*, not a bare id string. Shiki's internal
     // lazy `import("@shikijs/themes/<id>)` for string ids cannot be resolved
-    // inside Pi's extension host (issue #46); passing the object sidesteps it.
+    // inside OMP's extension host (issue #46); passing the object sidesteps it.
     const themeObject = await resolveShikiThemeObject(theme);
     if (!themeObject) {
       throw new Error(`Unknown shiki theme: ${theme}`);
@@ -389,7 +389,7 @@ export async function initHighlighting(theme: string, syntaxEnabled = true): Pro
   } catch (error) {
     if (version !== initVersion) return;
     initializingTheme = undefined;
-    console.warn("[pi-fabric] Shiki failed to initialize; previews will be plain text.", error);
+    console.warn("[omp-fabric] Shiki failed to initialize; previews will be plain text.", error);
     highlighter?.dispose();
     highlighter = undefined;
     readyTheme = undefined;

@@ -22,7 +22,7 @@ const rootRecord = (
   ownerIdentityId: hostId,
   name: "main",
   status: "idle",
-  runner: "pi",
+  runner: "omp",
   transport: "host",
   capabilities: ["steer", "followUp", "fabric"],
   cwd: "/tmp/project",
@@ -48,7 +48,7 @@ const agentRecord = (
   parentId,
   name: id,
   status: "running",
-  runner: "pi",
+  runner: "omp",
   transport: "process",
   capabilities: ["steer", "followUp", "stop"],
   cwd: "/tmp/project",
@@ -80,7 +80,7 @@ afterEach(async () => {
 
 describe("ParticipantDirectory", () => {
   it("builds one project topology while preserving local ownership and lineage", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-topology-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-topology-"));
     roots.push(root);
     const meshRoot = path.join(root, "mesh");
     const alphaIdentity: MeshIdentity = {
@@ -151,7 +151,7 @@ describe("ParticipantDirectory", () => {
   });
 
   it("withdraws control capabilities before releasing its live host lease", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-topology-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-topology-"));
     roots.push(root);
     const identity: MeshIdentity = {
       id: "session:quiesce",
@@ -176,7 +176,7 @@ describe("ParticipantDirectory", () => {
   });
 
   it("does not claim an actor still owned by a live legacy root", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-topology-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-topology-"));
     roots.push(root);
     const meshRoot = path.join(root, "mesh");
     const mesh = new MeshStore(meshRoot, 64 * 1024, 1_000);
@@ -193,7 +193,7 @@ describe("ParticipantDirectory", () => {
         name: "Peer old-sess",
         kind: "peer",
         status: "idle",
-        runner: "pi",
+        runner: "omp",
         transport: "host",
         cwd: "/tmp/project",
         sessionId: "old-session",
@@ -210,7 +210,7 @@ describe("ParticipantDirectory", () => {
         id: "actor:legacy",
         name: "legacy actor",
         status: "idle",
-        runner: "pi",
+        runner: "omp",
         createdAt: 1,
       },
       identity: oldIdentity,
@@ -247,7 +247,7 @@ describe("ParticipantDirectory", () => {
   });
 
   it("never shares agent prompts, results, or errors in participant state", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-topology-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-topology-"));
     roots.push(root);
     const identity: MeshIdentity = {
       id: "session:private",
@@ -304,7 +304,7 @@ describe("ParticipantDirectory", () => {
   });
 
   it("keeps one live execution owner for a colliding participant id", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-topology-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-topology-"));
     roots.push(root);
     const meshRoot = path.join(root, "mesh");
     const alphaIdentity: MeshIdentity = {
@@ -361,7 +361,7 @@ describe("ParticipantDirectory", () => {
   });
 
   it("hides every participant owned by an expired host lease", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-topology-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-topology-"));
     roots.push(root);
     const meshRoot = path.join(root, "mesh");
     const identity: MeshIdentity = {
@@ -392,7 +392,7 @@ describe("ParticipantDirectory", () => {
   });
 
   it("keeps the same topology API in local-only mode", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-topology-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-topology-"));
     roots.push(root);
     const identity: MeshIdentity = {
       id: "session:local",
@@ -418,7 +418,7 @@ describe("ParticipantDirectory", () => {
   });
 
   it("recovers via heartbeat when the initial publish fails at startup", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-topology-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-topology-"));
     roots.push(root);
     const meshRoot = path.join(root, "mesh");
     const identity: MeshIdentity = {

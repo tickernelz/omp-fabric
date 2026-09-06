@@ -28,8 +28,8 @@ const initRepository = (prefix: string, relativeDirectory?: string): string => {
   const repository = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
   roots.push(repository);
   git(repository, "init", "-q");
-  git(repository, "config", "user.email", "pi-fabric-tests@example.invalid");
-  git(repository, "config", "user.name", "Pi Fabric tests");
+  git(repository, "config", "user.email", "omp-fabric-tests@example.invalid");
+  git(repository, "config", "user.name", "OMP Fabric tests");
   fs.writeFileSync(path.join(repository, "README.md"), "test repository\n");
   if (relativeDirectory) {
     const directory = path.join(repository, relativeDirectory);
@@ -59,7 +59,7 @@ const record = {
   name: args.get("name"),
   task,
   status: "completed",
-  runner: args.get("runner") || "pi",
+  runner: args.get("runner") || "omp",
   transport: args.get("transport"),
   cwd: process.cwd(),
   projectRoot: args.get("project-root"),
@@ -76,7 +76,7 @@ const record = {
 fs.mkdirSync(path.dirname(statusFile), { recursive: true });
 fs.writeFileSync(statusFile, JSON.stringify(record));
 fs.writeFileSync(logFile, JSON.stringify({ type: "agent_start" }) + "\\n");
-fs.writeFileSync(lifecycleFile, JSON.stringify({ version: 1, event: "pi.agent_settled", occurredAt: now }) + "\\n");
+fs.writeFileSync(lifecycleFile, JSON.stringify({ version: 1, event: "omp.agent_end", occurredAt: now }) + "\\n");
 `;
 
 const createWorker = (root: string): string => {
@@ -120,7 +120,7 @@ afterEach(async () => {
 
 describe("one-shot agent cwd", () => {
   it("canonicalizes absolute, relative, and symlink paths through launch and reporting", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-cwd-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-cwd-"));
     roots.push(root);
     const target = path.join(root, "target");
     fs.mkdirSync(target);
@@ -164,7 +164,7 @@ describe("one-shot agent cwd", () => {
   });
 
   it("keeps a symlinked parent cwd when the request omits cwd", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-cwd-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-cwd-"));
     roots.push(root);
     const target = path.join(root, "target");
     fs.mkdirSync(target);
@@ -181,7 +181,7 @@ describe("one-shot agent cwd", () => {
   });
 
   it("rejects cwd on recursive requests before creating a run directory", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-cwd-recursive-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-cwd-recursive-"));
     roots.push(root);
     const runRoot = path.join(root, "runs");
     const manager = createManager(root, runRoot, createWorker(root));
@@ -193,13 +193,13 @@ describe("one-shot agent cwd", () => {
   });
 
   it("rejects invalid cwd values before creating a run directory", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-cwd-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-cwd-"));
     roots.push(root);
     const runRoot = path.join(root, "runs");
     const worker = createWorker(root);
     let prepared = false;
     const manager = createManager(root, runRoot, worker, {
-      preparePiModel: async () => {
+      prepareOmpModel: async () => {
         prepared = true;
       },
     });
@@ -219,7 +219,7 @@ describe("one-shot agent cwd", () => {
   it.skipIf(process.platform === "win32" || process.getuid?.() === 0)(
     "rejects an inaccessible cwd before creating a run directory",
     async () => {
-      const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-cwd-inaccessible-"));
+      const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-cwd-inaccessible-"));
       roots.push(root);
       const inaccessible = path.join(root, "inaccessible");
       fs.mkdirSync(inaccessible);
@@ -238,9 +238,9 @@ describe("one-shot agent cwd", () => {
   );
 
   it("reuses the selected repository and subdirectory for worktree launches", async () => {
-    const parent = initRepository("pi-fabric-parent-repo-");
-    const target = initRepository("pi-fabric-target-repo-", path.join("packages", "app"));
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-cwd-worktree-"));
+    const parent = initRepository("omp-fabric-parent-repo-");
+    const target = initRepository("omp-fabric-target-repo-", path.join("packages", "app"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-cwd-worktree-"));
     roots.push(root);
     const manager = createManager(parent, path.join(root, "runs"), createWorker(root), {
       projectRoot: parent,
@@ -265,7 +265,7 @@ describe("one-shot agent cwd", () => {
         branch: result.branch!,
       });
       expect(fs.realpathSync(worktree!)).toBe(
-        fs.realpathSync(path.join(target, ".pi", "fabric", "worktrees", result.id)),
+        fs.realpathSync(path.join(target, ".omp", "fabric", "worktrees", result.id)),
       );
       expect(result.cwd).toBe(fs.realpathSync(path.join(worktree!, "packages", "app")));
       expect(fs.existsSync(result.cwd)).toBe(true);
@@ -279,8 +279,8 @@ describe("one-shot agent cwd", () => {
   });
 
   it("keeps the generated worktree root when cwd is omitted from a subdirectory manager", async () => {
-    const repository = initRepository("pi-fabric-default-worktree-repo-", path.join("packages", "app"));
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-default-worktree-"));
+    const repository = initRepository("omp-fabric-default-worktree-repo-", path.join("packages", "app"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-default-worktree-"));
     roots.push(root);
     const manager = createManager(
       path.join(repository, "packages", "app"),
@@ -299,8 +299,8 @@ describe("one-shot agent cwd", () => {
   });
 
   it("does not create a worktree from the parent repository for a non-Git cwd", async () => {
-    const parent = initRepository("pi-fabric-parent-repo-");
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-cwd-nongit-"));
+    const parent = initRepository("omp-fabric-parent-repo-");
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-cwd-nongit-"));
     roots.push(root);
     const selected = path.join(root, "not-a-repository");
     fs.mkdirSync(selected);
@@ -314,7 +314,7 @@ describe("one-shot agent cwd", () => {
   });
 
   it("retains the selected cwd across startup retries", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-cwd-retry-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-cwd-retry-"));
     roots.push(root);
     const target = path.join(root, "target");
     fs.mkdirSync(target);

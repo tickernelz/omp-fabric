@@ -1,6 +1,5 @@
-import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
-import { initTheme } from "@earendil-works/pi-coding-agent";
-import { Editor, Text, TuiAltScreen, TuiMainScreen, visibleWidth, type OverlayHandle, type Terminal } from "@earendil-works/pi-tui";
+import { getSymbolTheme, initThemeSync, type ExtensionContext, type Theme } from "@oh-my-pi/pi-coding-agent";
+import { Editor, Text, TUI, visibleWidth, type OverlayHandle, type Terminal } from "@oh-my-pi/pi-tui";
 import { describe, expect, it, vi } from "vitest";
 import { FabricConversationState, FabricConversationView } from "../src/ui/conversation.js";
 import { nativeTranscript, userMessage, assistantMessage } from "./fixtures/native-conversation.js";
@@ -12,7 +11,8 @@ class ProbeTerminal implements Terminal {
   kittyProtocolActive = false;
   output = "";
   input: (data: string) => void = () => {};
-  start(onInput: (data: string) => void): void { this.input = onInput; }
+  appearance: "dark" | "light" | undefined = undefined;
+  start(onInput: (data: string) => void, _onResize: () => void, _onDisconnect?: () => void): void { this.input = onInput; }
   stop(): void { this.input = () => {}; }
   async drainInput(): Promise<void> {}
   write(data: string): void { this.output += data; }
@@ -24,8 +24,9 @@ class ProbeTerminal implements Terminal {
   clearScreen(): void {}
   setTitle(): void {}
   setProgress(): void {}
+  kittyEnableSequence = "";
+  onAppearanceChange(_callback: (appearance: "dark" | "light", requestToken?: number) => void): void {}
 }
-
 const theme = {
   fg: (_color: string, text: string) => text,
   bg: (_color: string, text: string) => text,
@@ -33,19 +34,26 @@ const theme = {
   italic: (text: string) => text,
   underline: (text: string) => text,
   strikethrough: (text: string) => text,
+  symbols: {
+    pointer: "",
+    bullet: "",
+    checkboxOn: "",
+    checkboxOff: "",
+  },
 } as unknown as Theme;
 
-describe("conversation through the real Pi TUI", () => {
-  it.each([["main screen", TuiMainScreen], ["alternate screen", TuiAltScreen]] as const)(
-    "routes child input and restores Main without interruption (%s)", async (_name, Renderer) => {
-    initTheme("dark", false);
+describe("conversation through the real OMP TUI", () => {
+  it("routes child input and restores Main without interruption", async () => {
+    initThemeSync(undefined, false, "dark");
     const terminal = new ProbeTerminal();
-    const tui = new Renderer(terminal);
-    const main = new Editor(tui, {
-      borderColor: (text) => text,
+    const tui = new TUI(terminal);
+    const main = new Editor({
+      borderColor: (text: string) => text,
+      symbols: getSymbolTheme(),
       selectList: {
-        selectedPrefix: (text) => text, selectedText: (text) => text,
-        description: (text) => text, scrollInfo: (text) => text, noMatch: (text) => text,
+        symbols: getSymbolTheme(),
+        selectedPrefix: (text: string) => text, selectedText: (text: string) => text,
+        description: (text: string) => text, scrollInfo: (text: string) => text, noMatch: (text: string) => text,
       },
     });
     main.setText("untouched Main draft");
@@ -103,7 +111,7 @@ describe("conversation through the real Pi TUI", () => {
       expect(mainSubmit).not.toHaveBeenCalled();
     } finally {
       unsubscribe();
-      handle.hide();
+      handle!.hide();
       view.dispose();
       tui.stop();
     }

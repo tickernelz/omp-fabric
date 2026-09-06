@@ -7,10 +7,10 @@ import type { FabricRisk } from "../protocol.js";
 // wasted. `compact.cancel` is deliberately absent: it is a control action
 // mislabeled "read" until it was reclassified "write" — keep it out forever.
 export const TIER_A_SPECULATION_REFS: ReadonlySet<string> = new Set([
-  "pi.read",
-  "pi.grep",
-  "pi.find",
-  "pi.ls",
+  "omp.read",
+  "omp.grep",
+  "omp.find",
+  "omp.ls",
   "memory.recall",
   "memory.expand",
   "memory.sessions",

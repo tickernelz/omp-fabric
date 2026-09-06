@@ -6,11 +6,11 @@ import path from "node:path";
 /**
  * Cross-process cost budget ledger for a Fabric recursion tree.
  *
- * A recursion tree spans one Pi process per node. Each node's AgentManager
+ * A recursion tree spans one OMP process per node. Each node's AgentManager
  * records the cost of the children it spawns into a single append-only JSONL
  * file, and checks the accumulated spend before spawning another child. The
- * ledger path and budget travel to descendants through PI_FABRIC_BUDGET*
- * environment variables, which the worker forwards to child Pi processes via
+ * ledger path and budget travel to descendants through OMP_FABRIC_BUDGET*
+ * environment variables, which the worker forwards to child OMP processes via
  * `{ ...process.env }`.
  *
  * This mirrors ypi's RLM_BUDGET / RLM_COST_FILE model: the check is best-effort
@@ -54,9 +54,9 @@ export interface BudgetLedgerState {
   id: string;
 }
 
-const ENV_BUDGET = "PI_FABRIC_BUDGET";
-const ENV_BUDGET_FILE = "PI_FABRIC_BUDGET_FILE";
-const ENV_BUDGET_ID = "PI_FABRIC_BUDGET_ID";
+const ENV_BUDGET = "OMP_FABRIC_BUDGET";
+const ENV_BUDGET_FILE = "OMP_FABRIC_BUDGET_FILE";
+const ENV_BUDGET_ID = "OMP_FABRIC_BUDGET_ID";
 
 const parseFloatFinite = (value: string | undefined): number | undefined => {
   if (!value) return undefined;
@@ -81,7 +81,7 @@ export function activeBudgetState(): BudgetLedgerState | undefined {
  * when no budget has been inherited and a positive budget is configured.
  */
 export function initBudgetLedger(budget: number): BudgetLedgerState {
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-budget-"));
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-budget-"));
   const file = path.join(directory, "cost.jsonl");
   fs.writeFileSync(file, "", { mode: 0o600 });
   const id = randomUUID().replaceAll("-", "").slice(0, 16);

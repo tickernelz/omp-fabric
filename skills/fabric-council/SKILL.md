@@ -1,6 +1,6 @@
 ---
 name: fabric-council
-description: Runs a bounded multi-perspective Pi Fabric council with independent reviewers and best-effort synthesis. Use for architecture choices, plans, reviews, and adversarial cross-checking.
+description: Runs a bounded multi-perspective OMP Fabric council with independent reviewers and best-effort synthesis. Use for architecture choices, plans, reviews, and adversarial cross-checking.
 disable-model-invocation: true
 ---
 
@@ -14,7 +14,7 @@ type CouncilOutcome =
   | { role: string; status: "failed"; error: string };
 
 const roles = [...new Set(
-  (JSON.parse(π.roles) as string[]).map((role) => role.trim()).filter(Boolean),
+  (JSON.parse(omp.roles) as string[]).map((role) => role.trim()).filter(Boolean),
 )];
 if (roles.length < 3 || roles.length > 5) {
   throw new Error("Council requires 3–5 distinct non-empty roles.");
@@ -28,7 +28,7 @@ const outcomes = await parallel(
   roles.map((role) => async (): Promise<CouncilOutcome> => {
     try {
       const report = await agent(
-        `Act as the ${role} council member. Independently analyze this task:\n\n${π.task}`,
+        `Act as the ${role} council member. Independently analyze this task:\n\n${omp.task}`,
         { label: role, tools: ["read", "grep", "find", "ls"] },
       );
       return { role, status: "completed", report };
@@ -66,7 +66,7 @@ if (completed.length === 1) {
 
 try {
   const result = await agent(
-    `Synthesize these completed reports into one decision. Reject unsupported claims, preserve material disagreements, attribute each concern to its role. Do not infer the views of failed roles.\n\nTask:\n${π.task}\n\nReports:\n${JSON.stringify(completed)}`,
+    `Synthesize these completed reports into one decision. Reject unsupported claims, preserve material disagreements, attribute each concern to its role. Do not infer the views of failed roles.\n\nTask:\n${omp.task}\n\nReports:\n${JSON.stringify(completed)}`,
     { label: "council synthesis", tools: ["read", "grep", "find", "ls"] },
   );
   return {

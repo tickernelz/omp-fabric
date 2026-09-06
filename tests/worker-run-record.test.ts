@@ -7,7 +7,7 @@ const baseRecord = (): AgentRunRecord => ({
   name: "name",
   task: "task",
   status: "running",
-  runner: "pi",
+  runner: "omp",
   transport: "process",
   cwd: "/tmp",
   startedAt: 0,

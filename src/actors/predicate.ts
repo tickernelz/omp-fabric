@@ -29,7 +29,7 @@ const predicateProgram = (source: string, invoke: boolean): string => [
         '  }',
         '  return value;',
         '};',
-        'const decision = predicate(freeze(JSON.parse(π.facts)));',
+        'const decision = predicate(freeze(JSON.parse(payloads.facts)));',
         'if (decision && typeof decision.then === "function") throw new TypeError("validWhile must return synchronously");',
         'return decision;',
       ].join("\n")
@@ -46,7 +46,7 @@ const execute = async (source: FabricActorValidWhileSource, facts?: FabricActorV
       timeoutMs: PREDICATE_TIMEOUT_MS,
       memoryLimitBytes: PREDICATE_MEMORY_BYTES,
       maxLogChars: 0,
-      strings: facts === undefined ? {} : { facts: JSON.stringify(facts) },
+      payloads: facts === undefined ? {} : { facts: JSON.stringify(facts) },
     },
   );
   if (result.terminationReason !== "completed") {

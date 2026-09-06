@@ -1,4 +1,4 @@
-import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { installFabricEscapeHalt } from "../src/ui/escape-halt.js";
 
@@ -41,7 +41,7 @@ describe("Fabric Escape ownership", () => {
     const h = harness();
     h.options.ownsInput.mockReturnValue(true);
     h.input("\x1b");
-    // Pi now delivers this same key to the focused view, which closes it.
+    // OMP now delivers this same key to the focused view, which closes it.
     h.options.ownsInput.mockReturnValue(false);
     vi.advanceTimersByTime(100);
     expect(h.options.halt).not.toHaveBeenCalled();

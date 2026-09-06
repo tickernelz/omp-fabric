@@ -24,7 +24,7 @@ const fakeBus = () => {
   };
 };
 
-import type { Theme } from "@earendil-works/pi-coding-agent";
+import type { Theme } from "@oh-my-pi/pi-coding-agent";
 
 const theme = {
   fg: (color: string, text: string) => `[${color}]${text}`,
@@ -53,7 +53,7 @@ const keybindings = () => ({
 } as unknown as NonNullable<ConversationQueueOptions["keybindings"]>);
 
 const baseOptions = (overrides: Partial<ConversationQueueOptions> = {}): ConversationQueueOptions => ({
-  piEvents: fakeBus(),
+  ompEvents: fakeBus(),
   targetId: "agent-1",
   targetName: "Builder",
   send: vi.fn(async () => undefined),
@@ -244,7 +244,7 @@ describe("conversation queue handshake", () => {
     const bus = fakeBus();
     const unsubscribe = stubBridgeListener(bus);
     try {
-      const queue = createConversationQueue(baseOptions({ piEvents: bus }));
+      const queue = createConversationQueue(baseOptions({ ompEvents: bus }));
       expect(queue.mode).toBe("extension");
       queue.stage("mid-run nudge", "steer");
       queue.stage("run after this", "followUp");
@@ -261,13 +261,13 @@ describe("conversation queue handshake", () => {
     const bus = fakeBus();
     const unsubscribe = stubBridgeListener(bus);
     try {
-      const first = createConversationQueue(baseOptions({ piEvents: bus }));
+      const first = createConversationQueue(baseOptions({ ompEvents: bus }));
       first.stage("parked work", "steer");
       first.dispose({ retain: true });
-      const second = createConversationQueue(baseOptions({ piEvents: bus }));
+      const second = createConversationQueue(baseOptions({ ompEvents: bus }));
       expect(second.pendingCount()).toBe(1);
       second.dispose();
-      const third = createConversationQueue(baseOptions({ piEvents: bus }));
+      const third = createConversationQueue(baseOptions({ ompEvents: bus }));
       expect(third.pendingCount()).toBe(0);
     } finally {
       unsubscribe();
@@ -280,7 +280,7 @@ describe("conversation queue staging restrictions", () => {
     const bus = fakeBus();
     const unsubscribe = stubBridgeListener(bus);
     try {
-      const queue = createConversationQueue(baseOptions({ piEvents: bus }));
+      const queue = createConversationQueue(baseOptions({ ompEvents: bus }));
       expect(queue.stage("/compact", "steer").ok).toBe(false);
       expect(queue.stage("!ls", "steer").ok).toBe(false);
       expect(queue.stage("   ", "steer").ok).toBe(false);
@@ -297,7 +297,7 @@ describe("conversation queue dispatch and restoration", () => {
     const bus = fakeBus();
     const unsubscribe = stubBridgeListener(bus);
     try {
-      const queue = createConversationQueue(baseOptions({ piEvents: bus, send }));
+      const queue = createConversationQueue(baseOptions({ ompEvents: bus, send }));
       queue.stage("one", "steer");
       queue.stage("two", "steer");
       queue.stage("run next", "followUp");
@@ -318,7 +318,7 @@ describe("conversation queue dispatch and restoration", () => {
     const bus = fakeBus();
     const unsubscribe = stubBridgeListener(bus);
     try {
-      const queue = createConversationQueue(baseOptions({ piEvents: bus, send }));
+      const queue = createConversationQueue(baseOptions({ ompEvents: bus, send }));
       queue.stage("run next", "followUp");
       expect(await queue.submit("steer")).toBe(false);
       expect(send).not.toHaveBeenCalled();
@@ -332,7 +332,7 @@ describe("conversation queue dispatch and restoration", () => {
     const bus = fakeBus();
     const unsubscribe = stubBridgeListener(bus);
     try {
-      const queue = createConversationQueue(baseOptions({ piEvents: bus }));
+      const queue = createConversationQueue(baseOptions({ ompEvents: bus }));
       queue.stage("editable", "steer");
       expect(queue.handleInput("UP")).toBe(true);
       expect(queue.editingActive).toBe(true);
@@ -350,7 +350,7 @@ describe("conversation queue dispatch and restoration", () => {
     const bus = fakeBus();
     const unsubscribe = stubBridgeListener(bus);
     try {
-      const queue = createConversationQueue(baseOptions({ piEvents: bus, send }));
+      const queue = createConversationQueue(baseOptions({ ompEvents: bus, send }));
       queue.stage("first", "steer");
       queue.stage("second", "steer");
       queue.stage("third", "steer");
@@ -376,7 +376,7 @@ describe("snapshot reconciliation", () => {
     const bus = fakeBus();
     const unsubscribe = stubBridgeListener(bus);
     try {
-      const queue = createConversationQueue(baseOptions({ piEvents: bus, send }));
+      const queue = createConversationQueue(baseOptions({ ompEvents: bus, send }));
       queue.stage("nudge", "steer");
       await queue.submit("steer");
       expect(queue.pendingCount()).toBe(1);
@@ -393,7 +393,7 @@ describe("snapshot reconciliation", () => {
     const bus = fakeBus();
     const unsubscribe = stubBridgeListener(bus);
     try {
-      const queue = createConversationQueue(baseOptions({ piEvents: bus, send }));
+      const queue = createConversationQueue(baseOptions({ ompEvents: bus, send }));
       // Initial pre-dispatch snapshot: the same text is already in history.
       expect(queue.syncSnapshot([
         snapshotEntry("hist-1", "nudge", true),
@@ -417,7 +417,7 @@ describe("snapshot reconciliation", () => {
     const bus = fakeBus();
     const unsubscribe = stubBridgeListener(bus);
     try {
-      const queue = createConversationQueue(baseOptions({ piEvents: bus, send }));
+      const queue = createConversationQueue(baseOptions({ ompEvents: bus, send }));
       queue.stage("same text", "steer");
       queue.stage("same text", "steer");
       await queue.submit("steer");
@@ -435,7 +435,7 @@ describe("snapshot reconciliation", () => {
     const bus = fakeBus();
     const unsubscribe = stubBridgeListener(bus);
     try {
-      const queue = createConversationQueue(baseOptions({ piEvents: bus, send }));
+      const queue = createConversationQueue(baseOptions({ ompEvents: bus, send }));
       queue.stage("next run work", "followUp");
       await queue.submit("followUp");
       // Run-ended lifecycle events are not retirement events: Main never
@@ -456,7 +456,7 @@ describe("row editing", () => {
     try {
       const editor = fakeEditor();
       editor.setText("composer draft");
-      const queue = createConversationQueue(baseOptions({ piEvents: bus, editor }));
+      const queue = createConversationQueue(baseOptions({ ompEvents: bus, editor }));
       queue.stage("original", "steer");
       expect(queue.handleInput("UP")).toBe(true);
       expect(editor.getText()).toBe("original");
@@ -476,7 +476,7 @@ describe("row editing", () => {
     try {
       const editor = fakeEditor();
       editor.setText("composer draft");
-      const queue = createConversationQueue(baseOptions({ piEvents: bus, editor }));
+      const queue = createConversationQueue(baseOptions({ ompEvents: bus, editor }));
       queue.stage("original", "steer");
       queue.handleInput("UP");
       editor.handleInput(" drifted");
@@ -492,7 +492,7 @@ describe("row editing", () => {
     const bus = fakeBus();
     const unsubscribe = stubBridgeListener(bus);
     try {
-      const queue = createConversationQueue(baseOptions({ piEvents: bus }));
+      const queue = createConversationQueue(baseOptions({ ompEvents: bus }));
       expect(queue.handleInput("x")).toBe(false);
     } finally {
       unsubscribe();
@@ -524,7 +524,7 @@ describe("rendering", () => {
     expect(queue.rows()).toHaveLength(1);
   });
 
-  it("uses native Pi labels and colors in native fallback mode", () => {
+  it("uses native OMP labels and colors in native fallback mode", () => {
     const queue = createConversationQueue(baseOptions());
     queue.stage("nudge", "steer");
     const lines = queue.render(80).join("\n");
@@ -536,7 +536,7 @@ describe("rendering", () => {
     const bus = fakeBus();
     const unsubscribe = stubBridgeListener(bus);
     try {
-      const queue = createConversationQueue(baseOptions({ piEvents: bus }));
+      const queue = createConversationQueue(baseOptions({ ompEvents: bus }));
       queue.stage("nudge", "steer");
       const lines = queue.render(80).join("\n");
       expect(lines).toContain("[accent]steer: nudge");
@@ -550,7 +550,7 @@ describe("rendering", () => {
     const bus = fakeBus();
     const unsubscribe = stubBridgeListener(bus);
     try {
-      const queue = createConversationQueue(baseOptions({ piEvents: bus, send }));
+      const queue = createConversationQueue(baseOptions({ ompEvents: bus, send }));
       queue.stage("nudge", "steer");
       await queue.submit("steer");
       const lines = queue.render(120).join("\n");

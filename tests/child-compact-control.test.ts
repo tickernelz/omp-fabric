@@ -17,7 +17,7 @@ const setup = () => {
 };
 
 describe("ChildCompactControl", () => {
-  it("queues a mid-turn request and starts compaction only after agent_settled", () => {
+  it("queues a mid-turn request and starts compaction only after agent_end", () => {
     const state = setup();
     state.control.queue("Keep findings");
     expect(state.frames).toEqual([]);
@@ -34,27 +34,40 @@ describe("ChildCompactControl", () => {
     expect(state.close).not.toHaveBeenCalled();
   });
 
-  it("waits for both the correlated response and compaction_end before shutdown", () => {
+  it("completes on the correlated compact response alone", () => {
     const state = setup();
     state.control.queue();
     state.control.childSettled();
+    expect(state.close).not.toHaveBeenCalled();
     state.control.observe({
       type: "response",
       command: "compact",
       id: "fabric-compact-run-1-1",
       success: true,
     });
-    expect(state.close).not.toHaveBeenCalled();
-    state.control.observe({ type: "compaction_end", aborted: false });
     expect(state.statuses.at(-1)?.status).toBe("completed");
     expect(state.close).toHaveBeenCalledOnce();
   });
 
-  it("accepts compaction_end before the correlated response", () => {
+  it("ignores a response correlated to another request", () => {
     const state = setup();
     state.control.queue();
     state.control.childSettled();
-    state.control.observe({ type: "compaction_end", aborted: false });
+    state.control.observe({
+      type: "response",
+      command: "compact",
+      id: "fabric-compact-run-1-9",
+      success: true,
+    });
+    expect(state.statuses.at(-1)?.status).toBe("in_flight");
+    expect(state.close).not.toHaveBeenCalled();
+  });
+
+  it("carries an automatic auto_compaction_end abort into the outcome", () => {
+    const state = setup();
+    state.control.queue();
+    state.control.childSettled();
+    state.control.observe({ type: "auto_compaction_end", aborted: true });
     expect(state.close).not.toHaveBeenCalled();
     state.control.observe({
       type: "response",
@@ -62,7 +75,10 @@ describe("ChildCompactControl", () => {
       id: "fabric-compact-run-1-1",
       success: true,
     });
-    expect(state.statuses.at(-1)?.status).toBe("completed");
+    expect(state.statuses.at(-1)).toMatchObject({
+      status: "failed",
+      error: "Child OMP compaction was aborted",
+    });
     expect(state.close).toHaveBeenCalledOnce();
   });
 
@@ -87,7 +103,7 @@ describe("ChildCompactControl", () => {
     const failed = setup();
     failed.control.queue();
     failed.control.childSettled();
-    failed.control.observe({ type: "compaction_end", errorMessage: "summary failed" });
+    failed.control.observe({ type: "auto_compaction_end", errorMessage: "summary failed" });
     failed.control.observe({
       type: "response",
       command: "compact",
@@ -121,7 +137,7 @@ describe("ChildCompactControl", () => {
     state.control.childSettled();
     state.control.queue("second");
     state.control.queue("latest");
-    state.control.observe({ type: "compaction_end", aborted: false });
+    state.control.observe({ type: "auto_compaction_end", aborted: false });
     state.control.observe({
       type: "response",
       command: "compact",
@@ -140,7 +156,7 @@ describe("ChildCompactControl", () => {
       id: "fabric-compact-run-1-2",
       success: true,
     });
-    state.control.observe({ type: "compaction_end", aborted: false });
+    state.control.observe({ type: "auto_compaction_end", aborted: false });
     expect(state.close).toHaveBeenCalledOnce();
     expect(state.statuses.at(-1)?.attempts).toBe(2);
   });

@@ -1,5 +1,5 @@
 /** Worker-owned optional-tool allowlist; absence leaves the host unrestricted. */
-export function readChildToolAllowlist(raw = process.env.PI_FABRIC_TOOL_ALLOWLIST): ReadonlySet<string> | undefined {
+export function readChildToolAllowlist(raw = process.env.OMP_FABRIC_TOOL_ALLOWLIST): ReadonlySet<string> | undefined {
   if (raw === undefined) return undefined;
   try {
     const names: unknown = JSON.parse(raw);

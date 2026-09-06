@@ -1,5 +1,5 @@
 // Stack frames captured from the executed guest bundle reference the emitted
-// pi-fabric-guest.js (wrapper header plus TypeScript printer layout), not the
+// omp-fabric-guest.js (wrapper header plus TypeScript printer layout), not the
 // author's program. These helpers decode the transpile source map and rewrite
 // error text so stack positions point back at the user-submitted code.
 
@@ -113,14 +113,14 @@ export const createGuestStackMap = (
   };
 };
 
-const GUEST_FRAME_PATTERN = /pi-fabric-guest\.js:(\d+):(\d+)/g;
+const GUEST_FRAME_PATTERN = /omp-fabric-guest\.js:(\d+):(\d+)/g;
 
 export const remapGuestErrorText = (
   text: string,
   stackMap: GuestStackMap | undefined,
   guestLineCount?: number,
 ): string => {
-  if (!stackMap || !text.includes("pi-fabric-guest.js:")) return text;
+  if (!stackMap || !text.includes("omp-fabric-guest.js:")) return text;
   return text.replace(GUEST_FRAME_PATTERN, (match, lineText, columnText) => {
     const line = Number(lineText);
     const mapped = stackMap.lookup(line, Number(columnText));

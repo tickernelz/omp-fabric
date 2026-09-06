@@ -1,6 +1,6 @@
 import { canonicalizeText, utf8Bytes } from "./bounds.js";
 
-export const FABRIC_COMPACTION_REQUEST_PREFIX = "__pi_fabric_compact_request_v1__:";
+export const FABRIC_COMPACTION_REQUEST_PREFIX = "__omp_fabric_compact_request_v1__:";
 export const MAX_COMPACTION_INSTRUCTIONS_CHARS = 8 * 1024;
 const MAX_COMPACTION_INSTRUCTIONS_BYTES = 8 * 1024;
 export const MAX_PRESERVE_ITEMS = 16;

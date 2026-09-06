@@ -63,7 +63,7 @@ const participantFromEntry = (entry: MeshStateEntry): FabricParticipantRecord | 
     entry.updatedBy.id !== value.ownerIdentityId ||
     typeof value.name !== "string" ||
     typeof value.status !== "string" ||
-    (value.runner !== "pi" && value.runner !== "claude" && value.runner !== "veda") ||
+    (value.runner !== "omp" && value.runner !== "claude" && value.runner !== "veda") ||
     typeof value.transport !== "string" ||
     !transports.has(value.transport) ||
     !Array.isArray(value.capabilities) ||
@@ -118,7 +118,7 @@ const peerFromParticipant = (participant: FabricParticipantInfo): FabricPeerInfo
     ...(participant.label ? { label: participant.label } : {}),
     kind: "peer",
     status: participant.status,
-    runner: "pi",
+    runner: "omp",
     transport: "host",
     cwd: participant.cwd,
     sessionId: participant.sessionId,
@@ -159,7 +159,7 @@ const legacyRootFromEntry = (
     ownerIdentityId: value.id,
     name: typeof value.name === "string" ? value.name : "main",
     status: value.status,
-    runner: "pi",
+    runner: "omp",
     transport: "host",
     capabilities: ["steer", "followUp", "fabric"],
     cwd: value.cwd,
@@ -184,7 +184,7 @@ const legacyActorFromEntry = (
   if (
     typeof value.id !== "string" ||
     typeof value.name !== "string" ||
-    (value.runner !== "pi" && value.runner !== "claude" && value.runner !== "veda") ||
+    (value.runner !== "omp" && value.runner !== "claude" && value.runner !== "veda") ||
     typeof value.status !== "string"
   ) {
     return undefined;
@@ -211,7 +211,7 @@ const legacyActorFromEntry = (
     transport: "host",
     capabilities: [
       ...(active ? (["steer", "followUp"] as const) : []),
-      ...(value.runner === "pi" ? (["fabric"] as const) : []),
+      ...(value.runner === "omp" ? (["fabric"] as const) : []),
     ],
     startedAt: typeof value.createdAt === "number" ? value.createdAt : entry.updatedAt,
     updatedAt: entry.updatedAt,
@@ -423,7 +423,7 @@ export class ParticipantDirectory implements FabricParticipantSource {
       ...(kind === "root" ? {} : { parentId: this.options.rootId }),
       name: this.options.identity.name,
       status: "running",
-      runner: "pi",
+      runner: "omp",
       transport: "host",
       capabilities: ["steer", "followUp", "fabric"],
       ...(this.options.identity.sessionId ? { sessionId: this.options.identity.sessionId } : {}),
@@ -458,7 +458,7 @@ export class ParticipantDirectory implements FabricParticipantSource {
       ownerIdentityId: this.options.identity.id,
       name: "main",
       status: main.status === "running" ? "running" : "idle",
-      runner: "pi",
+      runner: "omp",
       transport: "host",
       capabilities: ["steer", "followUp", "fabric"],
       ...(main.cwd ? { cwd: main.cwd } : {}),
@@ -558,7 +558,7 @@ export class ParticipantDirectory implements FabricParticipantSource {
           ...(root.label ? { label: root.label } : {}),
           kind: "peer",
           status: root.status === "running" ? "running" : "idle",
-          runner: "pi",
+          runner: "omp",
           transport: "host",
           cwd: root.cwd,
           sessionId: root.sessionId,

@@ -231,7 +231,7 @@ export class TranscriptAccumulator {
       return;
     }
 
-    if (event.type === "model_change") {
+    if (event.type === "model_changed") {
       const provider = typeof event.provider === "string" ? event.provider : "";
       const model = typeof event.modelId === "string" ? event.modelId : "";
       this.entries.push({
@@ -244,7 +244,7 @@ export class TranscriptAccumulator {
       return;
     }
 
-    if (event.type === "thinking_level_change") {
+    if (event.type === "thinking_level_changed") {
       this.entries.push({
         id,
         kind: "status",
@@ -427,7 +427,7 @@ export class TranscriptAccumulator {
     }
 
     if (event.type === "response" && event.command === "prompt" && event.success === false) {
-      const text = typeof event.error === "string" ? event.error : "Pi rejected the prompt";
+      const text = typeof event.error === "string" ? event.error : "OMP rejected the prompt";
       this.entries.push({
         id,
         kind: "error",
@@ -486,7 +486,7 @@ export class TranscriptAccumulator {
       return;
     }
 
-    if (event.type === "compaction_start") {
+    if (event.type === "auto_compaction_start") {
       this.#compaction = {
         id,
         kind: "status",
@@ -496,7 +496,7 @@ export class TranscriptAccumulator {
       this.entries.push(this.#compaction);
       return;
     }
-    if (event.type === "compaction_end") {
+    if (event.type === "auto_compaction_end") {
       if (this.#compaction) {
         const failed = event.aborted === true || typeof event.errorMessage === "string";
         this.#compaction.status = failed ? "failed" : "completed";

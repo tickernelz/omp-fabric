@@ -6,7 +6,7 @@
 // artifact is clock-free and deterministic: the same evidence compiles to
 // the same bytes.
 
-import { Value } from "typebox/value";
+import { isJsonSchemaValueValid } from "@oh-my-pi/pi-ai/utils/schema";
 import { stableJsonHash } from "../core/stable-hash.js";
 import type {
   EntropyAuditCall,
@@ -235,7 +235,7 @@ export const replaySuccessfulCalls = (
   const beforeByRef = new Map(before.actions.map((action) => [action.ref, action.inputSchema]));
   const accepts = (schema: unknown, args: Record<string, unknown>): boolean => {
     try {
-      return isPlainRecord(schema) && Value.Check(schema, args);
+      return isPlainRecord(schema) && isJsonSchemaValueValid(schema, args);
     } catch {
       return false;
     }
@@ -309,7 +309,7 @@ export const replaySuccessfulCallsAsync = async (
   const beforeByRef = new Map(before.actions.map((action) => [action.ref, action.inputSchema]));
   const accepts = (schema: unknown, args: Record<string, unknown>): boolean => {
     try {
-      return isPlainRecord(schema) && Value.Check(schema, args);
+      return isPlainRecord(schema) && isJsonSchemaValueValid(schema, args);
     } catch {
       return false;
     }

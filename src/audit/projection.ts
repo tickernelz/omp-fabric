@@ -222,29 +222,28 @@ export const projectFabricAuditArgs = (
         copyNumber(output, args, "stageCount");
         copyNumber(output, args, "concurrency");
       });
-    case "pi.read":
+    case "omp.read":
       return projected(args, (output) => {
         copyPath(output, args);
         copyNumber(output, args, "offset");
         copyNumber(output, args, "limit");
       });
-    case "pi.grep":
+    case "omp.grep":
       return projected(args, (output) => {
         copyPath(output, args);
         copyNumber(output, args, "context");
         copyNumber(output, args, "limit");
       });
-    case "pi.find":
-    case "pi.ls":
+    case "omp.find":
+    case "omp.ls":
       return projected(args, (output) => {
         copyPath(output, args);
         copyNumber(output, args, "limit");
       });
-    case "pi.edit":
-    case "pi.write":
+    case "omp.edit":
+    case "omp.write":
       return projected(args, (output) => copyPath(output, args));
-    case "pi.bash":
-    case "pi.powershell":
+    case "omp.bash":
       return projected(args, (output) => copyString(output, args, "command"));
     case "mesh.publish":
       return projected(args, (output) => {
@@ -277,7 +276,7 @@ export const projectFabricAuditArgs = (
 
 /**
  * Results are omitted except for the exact boolean creation outcome emitted by
- * pi.write. No provider details or output text accompany that flag.
+ * omp.write. No provider details or output text accompany that flag.
  */
 export const projectFabricAuditResult = (
   ref: string,
@@ -296,7 +295,7 @@ export const projectFabricAuditResult = (
       copyNumber(output, record, "at");
     });
   }
-  if (ref !== "pi.write") return undefined;
+  if (ref !== "omp.write") return undefined;
   const details =
     typeof record.details === "object" && record.details !== null && !Array.isArray(record.details)
       ? (record.details as Record<string, unknown>)

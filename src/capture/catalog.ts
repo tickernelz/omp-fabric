@@ -1,11 +1,11 @@
-import type { ExtensionRunner, RegisteredTool, SourceInfo, ToolDefinition } from "@earendil-works/pi-coding-agent";
+import type { ExtensionRunner, RegisteredTool, SourceInfo, ToolDefinition } from "@oh-my-pi/pi-coding-agent";
 import { wrapRegisteredToolForCapture } from "./wrapper.js";
 import type { FabricToolCaptureConfig } from "../config.js";
 import type { FabricRisk } from "../protocol.js";
 
 export interface CapturedToolEntry {
   name: string;
-  definition: ToolDefinition<any, any, any>;
+  definition: ToolDefinition<any, any>;
   registeredTool: RegisteredTool;
   sourceInfo: SourceInfo;
   runner: ExtensionRunner;
@@ -17,7 +17,7 @@ export class CapturedToolCatalog {
   readonly #tools = new Map<string, CapturedToolEntry>();
   readonly #listeners = new Set<() => void>();
   // The ExtensionRunner observed during the last tool refresh. Stored even
-  // when capture is disabled so PiToolsProvider can replay the tool-execution
+  // when capture is disabled so OmpToolsProvider can replay the tool-execution
   // lifecycle (tool_call/tool_result/tool_execution_*) for nested pi.* calls
   // in full-code mode — without it, extensions that hook those events
   // (pi-vision-handoff, auditors, etc.) would never fire for pi core tools.
@@ -62,7 +62,13 @@ export class CapturedToolCatalog {
     this.#suspended = false;
 
     for (const registeredTool of registeredTools) {
-      const { definition, sourceInfo } = registeredTool;
+      const { definition, extensionPath } = registeredTool;
+      const sourceInfo: SourceInfo = {
+        path: extensionPath,
+        source: "extension",
+        scope: "project",
+        origin: "top-level",
+      };
       if (sourceInfo.path === ownSourcePath) continue;
       this.#tools.set(definition.name, {
         name: definition.name,

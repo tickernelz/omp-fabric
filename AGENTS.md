@@ -8,7 +8,7 @@ Always finish a change with a fresh build before handing it back:
 bun run build
 ```
 
-Pi loads and publishes the compiled bundle in `dist/` — not `src/`. Tests run
+OMP loads and publishes the compiled bundle in `dist/` — not `src/`. Tests run
 against `src/`, so green tests alone are not enough: without a build the
 change is invisible in the TUI and unpublished. Rebuild so the user can
 verify immediately.

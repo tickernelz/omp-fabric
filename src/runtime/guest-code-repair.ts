@@ -1,5 +1,5 @@
 // Silent repairs for high-frequency unquoted path/URL arguments in pi.*
-// calls. Models often write `pi.read(/tmp/foo)` or `pi.read(https://…)` which
+// calls. Models often write `omp.read(/tmp/foo)` or `omp.read(https://…)` which
 // TypeScript parses as regex, division, extra arguments, or invalid
 // characters — a wasted round trip the type gate otherwise spends on 20+
 // diagnostics. Only rewrite unambiguous path heads; leave regex-primary
@@ -277,11 +277,11 @@ const collectRepairs = (code: string, start: number, end: number): Repair[] => {
       continue;
     }
     if (
-      char === "p"
-      && code.startsWith("pi.", i)
+      char === "o"
+      && code.startsWith("omp.", i)
       && !isIdentChar(code[i - 1])
     ) {
-      const tool = readIdent(code, i + 3, end);
+      const tool = readIdent(code, i + 4, end);
       if (tool && PATH_OBJECT_TOOLS.has(tool.name)) {
         const paren = skipWs(code, tool.end, end);
         if (code[paren] === "(") {

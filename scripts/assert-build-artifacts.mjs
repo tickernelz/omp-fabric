@@ -93,21 +93,15 @@ for (const forbidden of ["src/fabric-runtime-state.ts", "src/ui/settings.ts", "s
 }
 const lazyFiles = staticClosure(lazy.map((file) => join(dist, file)));
 const lazySource = [...lazyFiles].map((file) => readFileSync(file, "utf8")).join("\n");
-const mandatoryPowerShellFactoryImport =
-  /import\s*\{[^}]*\bcreatePowerShellToolDefinition\b[^}]*\}\s*from\s*["']@earendil-works\/pi-coding-agent["']/s;
-if (mandatoryPowerShellFactoryImport.test(lazySource)) {
-  throw new Error(
-    "Optional Pi PowerShell factory must be accessed through the module namespace",
-  );
-}
 for (const expected of ["src/fabric-runtime-state.ts", "src/ui/settings.ts", 'import("mcporter")']) {
   if (!lazySource.includes(expected)) {
     throw new Error(`Expected lazy entry marker not found: ${expected}`);
   }
 }
 
+const syntaxRuntime = process.env.OMP_FABRIC_NODE_BINARY || "node";
 for (const file of entries) {
-  const checked = spawnSync(process.execPath, ["--check", join(dist, file)], { encoding: "utf8" });
+  const checked = spawnSync(syntaxRuntime, ["--check", join(dist, file)], { encoding: "utf8" });
   if (checked.status !== 0) throw new Error(checked.stderr || `Syntax check failed: ${file}`);
 }
 await Promise.all(

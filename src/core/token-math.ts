@@ -1,6 +1,5 @@
-// Local mirror of the token heuristics in pi 0.84.2
-// core/compaction/compaction.js. Kept identical so compaction projections
-// match the host's without importing the host package during extension load.
+// Mirrors the OMP host tokenizer for the block and role kinds Fabric projects,
+// verified against @oh-my-pi/pi-coding-agent/extensibility/legacy-pi-coding-agent-shim.
 
 const ESTIMATED_IMAGE_CHARS = 4800;
 
@@ -31,56 +30,50 @@ const contentParts = (content: unknown): readonly TokenContentPart[] => {
   return [];
 };
 
-const estimateTextAndImageContentChars = (content: unknown): number => {
-  if (typeof content === "string") {
-    return content.length;
-  }
-  let chars = 0;
-  for (const block of contentParts(content)) {
-    if (block.type === "text" && block.text) {
-      chars += block.text.length;
-    } else if (block.type === "image") {
-      chars += ESTIMATED_IMAGE_CHARS;
-    }
-  }
-  return chars;
-};
+const blockTokens = (chars: number): number => (chars > 0 ? Math.ceil(chars / 4) : 0);
 
 const textLength = (value: unknown): number => (typeof value === "string" ? value.length : 0);
 
+const imageTokens = (): number => blockTokens(ESTIMATED_IMAGE_CHARS);
+
 export const estimateTokens = (message: TokenMessage): number => {
-  let chars = 0;
+  let tokens = 0;
   switch (message.role) {
     case "user": {
-      chars = estimateTextAndImageContentChars(message.content);
-      return Math.ceil(chars / 4);
+      if (typeof message.content === "string") return blockTokens(message.content.length);
+      for (const block of contentParts(message.content)) {
+        if (block.type === "text") tokens += blockTokens(textLength(block.text));
+      }
+      return tokens;
     }
     case "assistant": {
       for (const block of contentParts(message.content)) {
         if (block.type === "text") {
-          chars += textLength(block.text);
+          tokens += blockTokens(textLength(block.text));
         } else if (block.type === "thinking") {
-          chars += textLength(block.thinking);
+          tokens += blockTokens(textLength(block.thinking));
         } else if (block.type === "toolCall") {
-          chars += textLength(block.name) + JSON.stringify(block.arguments).length;
+          tokens += blockTokens(textLength(block.name));
+          tokens += blockTokens((JSON.stringify(block.arguments) ?? "null").length);
         }
       }
-      return Math.ceil(chars / 4);
+      return tokens;
     }
     case "custom":
+      return 0;
     case "toolResult": {
-      chars = estimateTextAndImageContentChars(message.content);
-      return Math.ceil(chars / 4);
+      if (typeof message.content === "string") return blockTokens(message.content.length);
+      for (const block of contentParts(message.content)) {
+        if (block.type === "text") tokens += blockTokens(textLength(block.text));
+        else if (block.type === "image") tokens += imageTokens();
+      }
+      return tokens;
     }
-    case "bashExecution": {
-      chars = textLength(message.command) + textLength(message.output);
-      return Math.ceil(chars / 4);
-    }
+    case "bashExecution":
+      return blockTokens(textLength(message.command)) + blockTokens(textLength(message.output));
     case "branchSummary":
-    case "compactionSummary": {
-      chars = textLength(message.summary);
-      return Math.ceil(chars / 4);
-    }
+    case "compactionSummary":
+      return blockTokens(textLength(message.summary));
   }
   return 0;
 };

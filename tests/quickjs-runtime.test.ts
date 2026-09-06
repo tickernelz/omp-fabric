@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { QuickJsRuntime } from "../src/runtime/quickjs-runtime.js";
-import { classifyPiBashError } from "../src/core/pi-bash-error.js";
+import { classifyOmpBashError } from "../src/core/omp-bash-error.js";
 import { transpileFabricCodeWithSourceMap } from "../src/runtime/type-checker.js";
 
 const options = {
@@ -624,7 +624,7 @@ await Promise.all([
     expect(result.value).toBe(2);
   });
 
-  it("exposes named strings via π and throws a clear error for unprovided keys", async () => {
+  it("exposes named payloads via payloads and throws a clear error for unprovided keys", async () => {
     const content = [
       "multiline",
       "` ${value} { braces }",
@@ -632,45 +632,45 @@ await Promise.all([
       "nul:" + String.fromCharCode(0) + " end",
     ].join("\n");
     const provided = await new QuickJsRuntime().execute(
-      `return { value: π.content, keys: Object.keys(π).join(",") };`,
+      `return { value: payloads.content, keys: Object.keys(payloads).join(",") };`,
       async () => undefined,
-      { ...options, strings: { content } },
+      { ...options, payloads: { content } },
     );
     expect(provided.error).toBeUndefined();
     expect(provided.value).toEqual({ value: content, keys: "content" });
 
     const failed = await new QuickJsRuntime().execute(
-      `return π.previewFile;`,
+      `return payloads.previewFile;`,
       async () => undefined,
-      { ...options, strings: { content: "hello" } },
+      { ...options, payloads: { content: "hello" } },
     );
-    expect(failed.error).toContain("Pre-execution check: π.previewFile is referenced");
+    expect(failed.error).toContain("Pre-execution check: payloads.previewFile is referenced");
     expect(failed.error).toContain("(provided: content)");
 
     const dynamic = await new QuickJsRuntime().execute(
-      `const k = "previewFile"; return π[k];`,
+      `const k = "previewFile"; return payloads[k];`,
       async () => undefined,
-      { ...options, strings: { content: "hello" } },
+      { ...options, payloads: { content: "hello" } },
     );
-    expect(dynamic.error).toContain("π.previewFile is not defined");
+    expect(dynamic.error).toContain("payloads.previewFile is not defined");
     expect(dynamic.error).toContain("provided: content");
   });
 
-  it("rejects π references to missing strings keys before execution (#68)", async () => {
+  it("rejects payloads references to missing strings keys before execution (#68)", async () => {
     const failed = await new QuickJsRuntime().execute(
-      'await pi.write({ path: "x.md", text: π.body });',
+      'await omp.write({ path: "x.md", text: payloads.body });',
       async () => {
         throw new Error("host call must not run");
       },
-      { ...options, strings: { other: "hello" } },
+      { ...options, payloads: { other: "hello" } },
     );
     expect(failed.terminationReason).toBe("runtime_error");
-    expect(failed.error).toContain("Pre-execution check: π.body is referenced");
+    expect(failed.error).toContain("Pre-execution check: payloads.body is referenced");
     expect(failed.error).toContain("(provided: other)");
     expect(failed.error).toContain("Add payloads: { body: '...' }");
 
     const none = await new QuickJsRuntime().execute(
-      'return π.summary;',
+      'return payloads.summary;',
       async () => {
         throw new Error("host call must not run");
       },
@@ -679,41 +679,41 @@ await Promise.all([
     expect(none.error).toContain("(none provided)");
 
     const multiple = await new QuickJsRuntime().execute(
-      'const a = π.alpha; const b = π.alpha; const c = π.beta;',
+      'const a = payloads.alpha; const b = payloads.alpha; const c = payloads.beta;',
       async () => undefined,
-      { ...options, strings: {} },
+      { ...options, payloads: {} },
     );
-    expect(multiple.error).toContain("π.alpha, π.beta are referenced");
+    expect(multiple.error).toContain("payloads.alpha, payloads.beta are referenced");
 
     const provided = await new QuickJsRuntime().execute(
-      'await pi.write({ path: "x.md", text: π.body }); return "ok";',
+      'await omp.write({ path: "x.md", text: payloads.body }); return "ok";',
       async () => undefined,
-      { ...options, strings: { body: "content" } },
+      { ...options, payloads: { body: "content" } },
     );
     expect(provided.terminationReason).toBe("completed");
   });
 
-  it("ignores π examples inside strings and comments during payload preflight", async () => {
+  it("ignores payloads examples inside strings and comments during payload preflight", async () => {
     const code = [
-      'const example = "use π.task only with a matching payload";',
-      "// π.commentExample is documentation, not an access",
+      'const example = "use omp.task only with a matching payload";',
+      "// omp.commentExample is documentation, not an access",
       "return example;",
     ].join("\n");
     const result = await new QuickJsRuntime().execute(
       code,
       async () => undefined,
-      { ...options, strings: { contract: "content" } },
+      { ...options, payloads: { contract: "content" } },
     );
 
     expect(result.terminationReason).toBe("completed");
     expect(result.error).toBeUndefined();
   });
 
-  it("does not flag bracket access or bare π on dynamic keys", async () => {
+  it("does not flag bracket access or bare payloads on dynamic keys", async () => {
     const result = await new QuickJsRuntime().execute(
-      'const key = "k"; return Object.keys(π).length + (π[key] === undefined ? 0 : 1);',
+      'const key = "k"; return Object.keys(payloads).length + (payloads[key] === undefined ? 0 : 1);',
       async () => undefined,
-      { ...options, strings: { k: "v" } },
+      { ...options, payloads: { k: "v" } },
     );
     expect(result.terminationReason).toBe("completed");
   });
@@ -811,10 +811,10 @@ return "done";
       options,
     );
     expect(result.error).toContain("recursive cwd guard");
-    expect(request).toMatchObject({ task: "map", cwd: "target", runner: "pi", recursive: true });
+    expect(request).toMatchObject({ task: "map", cwd: "target", runner: "omp", recursive: true });
   });
 
-  it("counts rlm.query usage and forces the Pi runner", async () => {
+  it("counts rlm.query usage and forces the OMP runner", async () => {
     let request: Record<string, unknown> | undefined;
     const result = await new QuickJsRuntime().execute(
       `await rlm.query({ task: "map" }); return budget.spent();`,
@@ -829,7 +829,7 @@ return "done";
     );
     expect(result.error).toBeUndefined();
     expect(result.value).toBe(10);
-    expect(request).toMatchObject({ task: "map", runner: "pi", recursive: true });
+    expect(request).toMatchObject({ task: "map", runner: "omp", recursive: true });
   });
 
   it("preempts the council synthesizer when roles exhaust the token budget", async () => {
@@ -854,17 +854,17 @@ return "done";
     const calls: Array<{ ref: string; args: Record<string, unknown> }> = [];
     const result = await new QuickJsRuntime().execute(
       `
-await pi.edit({ path: "src/guard.ts", old: "false", new: "true" });
+await omp.edit({ path: "src/guard.ts", old: "false", new: "true" });
 return agents.handoff({
   model: "anthropic/executor",
   task: "Finish and verify the guard",
   when: ({ count, calls }) =>
-    count("pi.edit") === 1 && calls[0]?.ref === "pi.edit",
+    count("omp.edit") === 1 && calls[0]?.ref === "omp.edit",
 });
 `,
       async (ref, args) => {
         calls.push({ ref, args });
-        if (ref === "pi.edit") return { ok: true };
+        if (ref === "omp.edit") return { ok: true };
         if (ref === "agents.handoff") {
           return {
             scheduled: true,
@@ -883,18 +883,18 @@ return agents.handoff({
       status: "deferred",
       boundary: "fabric_exec_end",
     });
-    expect(calls.map((call) => call.ref)).toEqual(["pi.edit", "agents.handoff"]);
+    expect(calls.map((call) => call.ref)).toEqual(["omp.edit", "agents.handoff"]);
     expect(calls[1]?.args).toEqual({
       model: "anthropic/executor",
       task: "Finish and verify the guard",
     });
   });
 
-  it("counts successful calls across Pi, extensions, MCP, and computed providers", async () => {
+  it("counts successful calls across OMP, extensions, MCP, and computed providers", async () => {
     const calls: string[] = [];
     const result = await new QuickJsRuntime().execute(
       `
-await pi.read({ path: "a.txt" });
+await omp.read({ path: "a.txt" });
 await extensions.format({ path: "a.txt" });
 await mcp.docs.lookup({ query: "handoff" });
 await tools.call({ ref: "external.inspect", args: { id: "a" } });
@@ -902,9 +902,9 @@ return agents.handoff({
   model: "anthropic/executor",
   when: ({ count, calls }) =>
     count() === 4 &&
-    count(["pi.read", "extensions.format", "mcp.docs.lookup", "external.inspect"]) === 4 &&
+    count(["omp.read", "extensions.format", "mcp.docs.lookup", "external.inspect"]) === 4 &&
     calls.map((call) => call.ref).join(",") ===
-      "pi.read,extensions.format,mcp.docs.lookup,external.inspect",
+      "omp.read,extensions.format,mcp.docs.lookup,external.inspect",
 });
 `,
       async (ref) => {
@@ -919,7 +919,7 @@ return agents.handoff({
 
     expect(result.error).toBeUndefined();
     expect(calls).toEqual([
-      "pi.read",
+      "omp.read",
       "extensions.format",
       "mcp.docs.lookup",
       "fabric.$call",
@@ -932,7 +932,7 @@ return agents.handoff({
     const result = await new QuickJsRuntime().execute(
       `return agents.handoff({
   model: "anthropic/executor",
-  when: ({ count }) => count("pi.edit") > 0,
+  when: ({ count }) => count("omp.edit") > 0,
 });`,
       async (ref) => {
         calls.push(ref);
@@ -948,14 +948,14 @@ return agents.handoff({
   it("does not count failed mutation calls in handoff facts", async () => {
     const result = await new QuickJsRuntime().execute(
       `
-try { await pi.edit({ path: "missing.ts", old: "a", new: "b" }); } catch {}
+try { await omp.edit({ path: "missing.ts", old: "a", new: "b" }); } catch {}
 return agents.handoff({
   model: "anthropic/executor",
-  when: ({ count }) => count("pi.edit") === 1,
+  when: ({ count }) => count("omp.edit") === 1,
 });
 `,
       async (ref) => {
-        if (ref === "pi.edit") throw new Error("edit failed");
+        if (ref === "omp.edit") throw new Error("edit failed");
         throw new Error("handoff should not run");
       },
       options,
@@ -1062,7 +1062,7 @@ return { self, members, lineage };
       `
 const created = await agents.subscribe({
   from: "session:peer",
-  events: ["pi.agent_settled"],
+  events: ["omp.agent_end"],
   delivery: "followUp",
   triggerTurn: true,
   once: true,
@@ -1119,19 +1119,19 @@ return { done: true };
 describe("pi proxy silent repairs and envelope guard", () => {
   it("normalizes alias keys and numeric strings before the host call", async () => {
     const hostCall = vi.fn(async (ref: string, _args?: Record<string, unknown>) =>
-      ref === "pi.bash" || ref === "pi.write" || ref === "pi.edit"
+      ref === "omp.bash" || ref === "omp.write" || ref === "omp.edit"
         ? { ok: true, output: "", details: null }
         : "",
     );
     const result = await new QuickJsRuntime().execute(
       `
-await pi.find({ glob: "*.ts", path: "src", max: "50" });
-await pi.find({ name: "a.ts" });
-await pi.find({ filename: "b.ts" });
-await pi.ls({ folder: "src" });
-await pi.grep({ pattern: "x", limit: "20", ctx: "2" });
-await pi.write({ path: "/tmp/x", data: "c" });
-await pi.bash({ script: "ls src", timeout: "30" });
+await omp.find({ glob: "*.ts", path: "src", max: "50" });
+await omp.find({ name: "a.ts" });
+await omp.find({ filename: "b.ts" });
+await omp.ls({ folder: "src" });
+await omp.grep({ pattern: "x", limit: "20", ctx: "2" });
+await omp.write({ path: "/tmp/x", data: "c" });
+await omp.bash({ script: "ls src", timeout: "30" });
 return "done";
 `,
       hostCall,
@@ -1141,13 +1141,13 @@ return "done";
     expect(result.value).toBe("done");
     const calls = hostCall.mock.calls.map(([ref, args]) => [ref, args]);
     expect(calls).toEqual([
-      ["pi.find", { pattern: "*.ts", path: "src", limit: 50 }],
-      ["pi.find", { pattern: "a.ts" }],
-      ["pi.find", { pattern: "b.ts" }],
-      ["pi.ls", { path: "src" }],
-      ["pi.grep", { pattern: "x", limit: 20, context: 2 }],
-      ["pi.write", { path: "/tmp/x", content: "c" }],
-      ["pi.bash", { command: "ls src", timeout: 30 }],
+      ["omp.find", { pattern: "*.ts", path: "src", limit: 50 }],
+      ["omp.find", { pattern: "a.ts" }],
+      ["omp.find", { pattern: "b.ts" }],
+      ["omp.ls", { path: "src" }],
+      ["omp.grep", { pattern: "x", limit: 20, context: 2 }],
+      ["omp.write", { path: "/tmp/x", content: "c" }],
+      ["omp.bash", { command: "ls src", timeout: 30 }],
     ]);
   });
 
@@ -1155,7 +1155,7 @@ return "done";
     const hostCall = vi.fn(async () => ({ ok: true, output: "  hello  ", details: null }));
     const result = await new QuickJsRuntime().execute(
       `
-const r = await pi.bash({ command: "echo hello" });
+const r = await omp.bash({ command: "echo hello" });
 return r.trim();
 `,
       hostCall,
@@ -1163,14 +1163,14 @@ return r.trim();
     );
     expect(result.error).toContain("envelope");
     expect(result.error).toContain(".output");
-    expect(result.error).toContain("pi.bash");
+    expect(result.error).toContain("omp.bash");
   });
 
   it("keeps ordinary envelope reads, destructuring, membership, and keys intact", async () => {
     const hostCall = vi.fn(async () => ({ ok: true, output: "  hello  ", details: null }));
     const result = await new QuickJsRuntime().execute(
       `
-const r = await pi.bash({ command: "echo hello" });
+const r = await omp.bash({ command: "echo hello" });
 const { ok, output } = r;
 return {
   ok,
@@ -1196,7 +1196,7 @@ return {
   it("marshals an envelope returned as the program value", async () => {
     const hostCall = vi.fn(async () => ({ ok: true, output: "  hello  ", details: null }));
     const result = await new QuickJsRuntime().execute(
-      `return await pi.bash({ command: "echo hello" });`,
+      `return await omp.bash({ command: "echo hello" });`,
       hostCall,
       options,
     );
@@ -1208,7 +1208,7 @@ return {
     const hostCall = vi.fn(async () => ({ ok: true, output: "a\nb", details: null }));
     const result = await new QuickJsRuntime().execute(
       `
-const r = await pi.bash({ command: "x" });
+const r = await omp.bash({ command: "x" });
 for (const line of r) {
   void line;
 }
@@ -1223,11 +1223,11 @@ return "never";
 
   it("guards settled bash envelopes and still exposes ok/exitCode/output reads", async () => {
     const hostCall = vi.fn(async () => {
-      throw classifyPiBashError(new Error("sync-spawn\n\nCommand exited with code 3"));
+      throw classifyOmpBashError(new Error("sync-spawn\n\nCommand exited with code 3"));
     });
     const reads = await new QuickJsRuntime().execute(
       `
-const r = await pi.bash({ command: "false", settle: true });
+const r = await omp.bash({ command: "false", settle: true });
 return { ok: r.ok, code: r.exitCode, text: r.output.trim() };
 `,
       hostCall,
@@ -1238,7 +1238,7 @@ return { ok: r.ok, code: r.exitCode, text: r.output.trim() };
 
     const misuse = await new QuickJsRuntime().execute(
       `
-const r = await pi.bash({ command: "false", settle: true });
+const r = await omp.bash({ command: "false", settle: true });
 return r.split("-");
 `,
       hostCall,
@@ -1317,6 +1317,6 @@ describe("QuickJsRuntime guest stack remapping", () => {
     );
 
     expect(result.terminationReason).toBe("runtime_error");
-    expect(result.error).toContain("pi-fabric-guest.js");
+    expect(result.error).toContain("omp-fabric-guest.js");
   });
 });

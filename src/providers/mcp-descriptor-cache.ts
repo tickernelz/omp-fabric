@@ -49,9 +49,14 @@ export interface McpDescriptorCacheFile {
 // mcporter's own listConfigLayerPaths is not part of the package's public
 // exports map, so the layer discovery is mirrored here exactly; the
 // fingerprint below must watch the same files mcporter would read.
+const homeDir = (): string => {
+  const home = process.env.HOME;
+  return home && home.trim().length > 0 ? home : os.homedir();
+};
+
 const expandHome = (input: string): string => {
   if (!input.startsWith("~")) return input;
-  const home = os.homedir();
+  const home = homeDir();
   if (input === "~") return home;
   if (input.startsWith("~/") || input.startsWith("~\\")) {
     return path.join(home, input.slice(2));
@@ -59,7 +64,7 @@ const expandHome = (input: string): string => {
   return input;
 };
 
-const legacyMcporterDir = (): string => path.join(os.homedir(), ".mcporter");
+const legacyMcporterDir = (): string => path.join(homeDir(), ".mcporter");
 
 const mcporterConfigDir = (): string => {
   const raw = process.env.XDG_CONFIG_HOME;

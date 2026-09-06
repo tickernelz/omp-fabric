@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { MeshStore, type MeshIdentity } from "../src/mesh/store.js";
 import {
@@ -23,7 +23,7 @@ const identity: MeshIdentity = {
 };
 
 const createStore = (maxReadEvents = 100): MeshStore => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-state-"));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-state-"));
   roots.push(root);
   return new MeshStore(root, 64 * 1024, maxReadEvents);
 };
@@ -306,7 +306,7 @@ describe("StateStore", () => {
   it("revokes a successful certificate when the latest verification fails", async () => {
     const mesh = createStore();
     const store = new StateStore(mesh);
-    const project = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-revoke-"));
+    const project = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-revoke-"));
     roots.push(project);
     const marker = path.join(project, "passing");
     fs.writeFileSync(marker, "yes");
@@ -341,7 +341,7 @@ describe("StateStore", () => {
   it("revokes the durable current certificate even when violation publication fails", async () => {
     const mesh = createStore();
     const store = new StateStore(mesh);
-    const project = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-revoke-reporting-"));
+    const project = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-revoke-reporting-"));
     roots.push(project);
     const markerFile = path.join(project, "passing");
     fs.writeFileSync(markerFile, "yes");
@@ -523,7 +523,7 @@ describe("StateStore", () => {
     async () => {
       const mesh = createStore();
       const store = new StateStore(mesh);
-      const project = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-process-group-"));
+      const project = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-process-group-"));
       roots.push(project);
       const marker = path.join(project, "descendant-survived");
       fs.writeFileSync(
@@ -648,7 +648,7 @@ describe("StateStore", () => {
   it("rejects a proposal on ledger failure and rolls back prior ledger writes", async () => {
     const mesh = createStore();
     const store = new StateStore(mesh);
-    const project = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-ledger-failure-"));
+    const project = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-ledger-failure-"));
     roots.push(project);
     fs.mkdirSync(path.join(project, "src"));
     fs.writeFileSync(path.join(project, "src/a.ts"), "if (a) run();\n");
@@ -689,7 +689,7 @@ describe("StateStore", () => {
   it("restores the previous head and ledgers when the commit marker fails", async () => {
     const mesh = createStore();
     const store = new StateStore(mesh);
-    const project = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-commit-failure-"));
+    const project = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-commit-failure-"));
     roots.push(project);
     fs.mkdirSync(path.join(project, "src"));
     const file = "src/value.ts";
@@ -742,7 +742,7 @@ describe("StateStore", () => {
   it("quarantines a rejected proposal when CAS restoration fails", async () => {
     const mesh = createStore();
     const store = new StateStore(mesh);
-    const project = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-quarantine-"));
+    const project = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-quarantine-"));
     roots.push(project);
     fs.mkdirSync(path.join(project, "src"));
     const file = "src/quarantine.ts";
@@ -949,7 +949,7 @@ describe("StateStore", () => {
   it("retains the committed current head, synthesized record, certificate, and transitionability with maxReadEvents=5", async () => {
     const mesh = createStore(5);
     const store = new StateStore(mesh);
-    const project = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-retained-head-"));
+    const project = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-retained-head-"));
     roots.push(project);
     fs.mkdirSync(path.join(project, "src"));
     const file = "src/current.ts";
@@ -1043,7 +1043,7 @@ describe("StateStore", () => {
   it("durably revokes a current certificate after failure and event aging", async () => {
     const mesh = createStore(5);
     const store = new StateStore(mesh);
-    const project = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-retained-revoke-"));
+    const project = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-retained-revoke-"));
     roots.push(project);
     fs.writeFileSync(path.join(project, "passing"), "yes");
     const transition = await store.transition(

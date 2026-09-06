@@ -2,7 +2,7 @@ import { accessSync, constants } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
 
-export interface PiBinaryResolutionOptions {
+export interface OmpBinaryResolutionOptions {
   env?: NodeJS.ProcessEnv;
   homeDirectory?: string;
   isExecutable?: (file: string) => boolean;
@@ -17,18 +17,18 @@ const executable = (file: string): boolean => {
   }
 };
 
-export const resolvePiBinary = (
+export const resolveOmpBinary = (
   configured?: string,
-  options: PiBinaryResolutionOptions = {},
+  options: OmpBinaryResolutionOptions = {},
 ): string => {
   if (configured !== undefined) return configured;
   const env = options.env ?? process.env;
-  if (env.PI_FABRIC_PI_BINARY !== undefined) return env.PI_FABRIC_PI_BINARY;
+  if (env.OMP_FABRIC_OMP_BINARY !== undefined) return env.OMP_FABRIC_OMP_BINARY;
 
   if (env.LOCALTERM === "1") {
-    const shim = path.join(options.homeDirectory ?? homedir(), ".localterm", "shims", "pi");
+    const shim = path.join(options.homeDirectory ?? homedir(), ".localterm", "shims", "omp");
     if ((options.isExecutable ?? executable)(shim)) return shim;
   }
 
-  return "pi";
+  return "omp";
 };

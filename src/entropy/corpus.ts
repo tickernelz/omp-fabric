@@ -102,7 +102,7 @@ const scanSessionLine = (
 
 // One scan yields all three evidence corpora. The async form consumes a
 // readline stream record-by-record, so large session files never monopolize
-// Pi's TUI event loop or require a whole-file string allocation.
+// OMP's TUI event loop or require a whole-file string allocation.
 export interface EntropySessionEvidence {
   traces: EntropyTraceInput[];
   valueObservations: EntropyValueObservation[];
@@ -176,7 +176,7 @@ export const entropySessionEvidenceFromJsonlAsync = async (
   lines: AsyncIterable<string>,
 ): Promise<EntropySessionEvidence> => (await scanEntropySessionJsonlAsync(lines)).evidence;
 
-// Extract meter traces from Pi session JSONL lines. Malformed lines, non-trace
+// Extract meter traces from OMP session JSONL lines. Malformed lines, non-trace
 // entries, and envelopes that fail the trace guard are skipped without
 // throwing; only typed, guarded trace V1 envelopes count.
 export const entropyTracesFromSessionJsonl = (lines: readonly string[]): EntropyTraceInput[] =>

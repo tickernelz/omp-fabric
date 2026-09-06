@@ -82,7 +82,7 @@ export const actorParticipantRecord = (
     ...(actor.status === "stopped"
       ? []
       : (["steer", "followUp", "stop", "ask", "actor-bindings"] as const)),
-    ...(actor.runner === "pi" && actor.extensions !== false ? (["fabric"] as const) : []),
+    ...(actor.runner === "omp" && actor.extensions !== false ? (["fabric"] as const) : []),
   ],
   ...(actor.model ? { model: actor.model } : {}),
   ...(actor.thinking ? { thinking: actor.thinking } : {}),

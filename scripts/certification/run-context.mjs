@@ -2,17 +2,19 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { Buffer } from "node:buffer";
-import { SessionManager } from "@earendil-works/pi-coding-agent";
+import { SessionManager } from "@oh-my-pi/pi-coding-agent";
 import { encodeCwdDir } from "../../dist/memory/discovery.js";
-import { normalizeSession } from "../../dist/memory/normalize.js";
+import { normalizeSession, readSessionHeader } from "../../dist/memory/normalize.js";
 import { MemoryProvider } from "../../dist/providers/memory-provider.js";
 import {
-  contextEntriesMatch,
-  expectedContextEntriesAfterCompaction,
+  appendFabricCompaction,
+  contextMessagesFromEntries,
+  contextMessagesMatch,
+  contextSubchainAfterCompaction,
+  HOST_COMPACTION_API,
   invokeRegisteredFabricCompactor,
-  PI_COMPACTION_API,
   prepareEligibleCompaction,
-} from "./pi-compaction.mjs";
+} from "./omp-compaction.mjs";
 import {
   evaluateCertification,
   evaluateFixtureOracle,
@@ -114,10 +116,10 @@ const invocationContext = (cwd) => ({
 
 const compileEligibleManager = (manager, customInstructions) => {
   const eligibility = prepareEligibleCompaction(manager);
-  if (!eligibility.eligible) throw new Error("Fixture was not eligible under Pi shouldCompact semantics");
-  if (!eligibility.preparation) throw new Error("Pi prepareCompaction returned undefined for an eligible fixture");
-  if (!contextEntriesMatch(eligibility.builtEntries, eligibility.publicBuiltEntries)) {
-    throw new Error("SessionManager and public buildContextEntries disagree");
+  if (!eligibility.eligible) throw new Error("Fixture was not eligible under OMP shouldCompact semantics");
+  if (!eligibility.preparation) throw new Error("OMP prepareCompaction returned undefined for an eligible fixture");
+  if (!contextMessagesMatch(eligibility.contextMessages, eligibility.publicContextMessages)) {
+    throw new Error("SessionManager and public buildSessionContext disagree");
   }
   const invoked = invokeRegisteredFabricCompactor({
     preparation: eligibility.preparation,
@@ -135,7 +137,10 @@ const appendAndCheckContext = (manager, expected, append) => {
   const entry = manager.getEntry(entryId);
   const nextExpected = entry ? [...expected, entry] : expected;
   const matches = entry !== undefined
-    && contextEntriesMatch(manager.buildContextEntries(), nextExpected);
+    && contextMessagesMatch(
+      manager.buildSessionContext().messages,
+      contextMessagesFromEntries(nextExpected),
+    );
   return { entryId, expected: nextExpected, matches };
 };
 
@@ -171,12 +176,12 @@ const createContextCertification = (sessionDir, cwd) => {
     const eligibility = prepareEligibleCompaction(manager);
     eligibleCycleCount += eligibility.eligible ? 1 : 0;
     prepareUndefinedCount += eligibility.preparation ? 0 : 1;
-    builtContextMismatchCount += contextEntriesMatch(
-      eligibility.builtEntries,
-      eligibility.publicBuiltEntries,
+    builtContextMismatchCount += contextMessagesMatch(
+      eligibility.contextMessages,
+      eligibility.publicContextMessages,
     ) ? 0 : 1;
     if (!eligibility.eligible || !eligibility.preparation) {
-      throw new Error(`Pi compaction was ineligible at cycle ${cycle + 1}`);
+      throw new Error(`OMP compaction was ineligible at cycle ${cycle + 1}`);
     }
     if (cycle > 0 && eligibility.preparation.previousSummary === previousStoredSummary) {
       priorSummaryObservedCount += 1;
@@ -231,25 +236,19 @@ const createContextCertification = (sessionDir, cwd) => {
 
     const poison = `${POISON_PREFIX}_cycle_${String(cycle + 1).padStart(3, "0")}`;
     const storedSummary = `${summary}\n${poison}`;
-    const compactionId = manager.appendCompaction(
-      storedSummary,
-      compacted.firstKeptEntryId,
-      compacted.tokensBefore,
-      details,
-      true,
-    );
+    const compactionId = appendFabricCompaction(manager, compacted, storedSummary);
     const compactionEntry = manager.getEntry(compactionId);
     if (!compactionEntry || compactionEntry.type !== "compaction") {
-      throw new Error("Pi did not persist the CompactionEntry");
+      throw new Error("OMP did not persist the CompactionEntry");
     }
     poisonStoredCount += compactionEntry.summary.endsWith(poison) ? 1 : 0;
-    const expectedAfterCompaction = expectedContextEntriesAfterCompaction(
+    const expectedAfterCompaction = contextSubchainAfterCompaction(
       eligibility.branchEntries,
       compactionEntry,
     );
-    builtContextMismatchCount += contextEntriesMatch(
-      manager.buildContextEntries(),
-      expectedAfterCompaction,
+    builtContextMismatchCount += contextMessagesMatch(
+      manager.buildSessionContext().messages,
+      contextMessagesFromEntries(expectedAfterCompaction),
     ) ? 0 : 1;
     byteMismatchCount += compactionEntry.summary === storedSummary
       && JSON.stringify(compactionEntry.details) === JSON.stringify(details) ? 0 : 1;
@@ -368,7 +367,10 @@ const createClosureFixtures = (sessionDir, cwd) => {
   const malformed = SessionManager.create(cwd, sessionDir);
   malformed.appendMessage(user("historical malformed boundary"));
   malformed.appendMessage(assistantText("historical response"));
-  malformed.appendCompaction("untrusted prior summary", "orphan-kept-entry", 100, {}, true);
+  malformed.appendCompaction("untrusted prior summary", undefined, "orphan-kept-entry", 100, {
+    details: {},
+    fromExtension: true,
+  });
   malformed.appendMessage(user("live after orphan " + "雪".repeat(80)));
   malformed.appendMessage(assistantText("live response " + "界".repeat(80)));
   malformed.appendMessage(user("malformed boundary kept turn"));
@@ -412,7 +414,7 @@ const createMaximalMultibyteFixture = (sessionDir, cwd) => {
     manager.appendMessage(user(`范围变更 ${suffix} ${"继续保持多字节事实".repeat(55)}`));
   }
   const trace = {
-    kind: "pi-fabric.execution",
+    kind: "omp-fabric.execution",
     version: 1,
     outcome: "succeeded",
     phases: Array.from({ length: 20 }, (_, index) => `阶段${index} ${"并行多字节".repeat(20)}`),
@@ -462,9 +464,38 @@ const createMaximalMultibyteFixture = (sessionDir, cwd) => {
   };
 };
 
+const EXPAND_SELECTOR_BATCH = 100;
+
+const expandEveryAddress = async ({ provider, cwd, session, sourceHash, entryIds }) => {
+  const textById = new Map();
+  let observedSourceHash;
+  for (let start = 0; start < entryIds.length; start += EXPAND_SELECTOR_BATCH) {
+    let request = {
+      session,
+      expectedSourceHash: sourceHash,
+      entryIds: entryIds.slice(start, start + EXPAND_SELECTOR_BATCH),
+    };
+    while (request) {
+      const page = await provider.invoke("expand", request, invocationContext(cwd));
+      if (page.error) {
+        throw new Error(`memory.expand rejected a certification address batch: ${JSON.stringify(page.error)}`);
+      }
+      observedSourceHash ??= page.sourceHash;
+      if (page.sourceHash !== observedSourceHash) {
+        throw new Error("memory.expand changed sourceHash mid-expansion");
+      }
+      for (const entry of page.entries) {
+        textById.set(entry.entryId, `${textById.get(entry.entryId) ?? ""}${entry.text}`);
+      }
+      request = page.next?.args;
+    }
+  }
+  return { textById, sourceHash: observedSourceHash };
+};
+
 const createMemoryCertification = async ({ agentDir, cwd, sessionDir, contextResult, indexDir }) => {
   const baseSeconds = 1_700_000_000;
-  let rareSessionFile = "";
+  let rareSessionId = "";
   let rareEntryId = "";
   const coldRareFact = "cold_exact_quasar_7f91 Ωmega雪 address=43117";
   for (let index = 0; index < 1_000; index += 1) {
@@ -476,15 +507,15 @@ const createMemoryCertification = async ({ agentDir, cwd, sessionDir, contextRes
     manager.appendMessage(assistantText("Indexed certification session."));
     if (index === 0) {
       const structuralTrace = {
-        kind: "pi-fabric.execution",
+        kind: "omp-fabric.execution",
         version: 1,
         outcome: "succeeded",
         phases: ["Certification"],
         operations: [{
           type: "call",
           sequence: 0,
-          ref: "pi.grep",
-          provider: "pi",
+          ref: "omp.grep",
+          provider: "omp",
           action: "grep",
           args: { path: "src", pattern: "cold_exact_quasar_7f91" },
           outcome: "succeeded",
@@ -508,7 +539,7 @@ const createMemoryCertification = async ({ agentDir, cwd, sessionDir, contextRes
     if (!file) throw new Error("Expected a persisted memory session");
     fs.utimesSync(file, baseSeconds + index, baseSeconds + index);
     if (index === 0) {
-      rareSessionFile = file;
+      rareSessionId = manager.getSessionId();
       rareEntryId = entryId;
     }
   }
@@ -534,7 +565,7 @@ const createMemoryCertification = async ({ agentDir, cwd, sessionDir, contextRes
   );
   const rareHit = recalled.hits.find(
     (hit) => hit.kind === "session"
-      && hit.sessionId === SessionManager.open(rareSessionFile).getSessionId(),
+      && hit.sessionId === rareSessionId,
   );
   const rareHydration = rareHit
     ? await provider.invoke("recall", rareHit.follow.args, invocationContext(cwd))
@@ -553,7 +584,7 @@ const createMemoryCertification = async ({ agentDir, cwd, sessionDir, contextRes
     "recall",
     {
       scope: "global",
-      ref: "pi.grep",
+      ref: "omp.grep",
       outcome: "succeeded",
       pageSize: 20,
     },
@@ -561,7 +592,7 @@ const createMemoryCertification = async ({ agentDir, cwd, sessionDir, contextRes
   );
   const structuralHit = structuralRecall.hits.find(
     (hit) => hit.kind === "session"
-      && hit.sessionId === SessionManager.open(rareSessionFile).getSessionId(),
+      && hit.sessionId === rareSessionId,
   );
   const structuralHydration = structuralHit
     ? await provider.invoke("recall", structuralHit.follow.args, invocationContext(cwd))
@@ -569,7 +600,7 @@ const createMemoryCertification = async ({ agentDir, cwd, sessionDir, contextRes
   const structuralEntries = structuralHydration.hits.filter((hit) => hit.kind === "entry");
   const structuralNegative = await provider.invoke(
     "recall",
-    { scope: "global", ref: "pi.nonexistent", pageSize: 20 },
+    { scope: "global", ref: "omp.nonexistent", pageSize: 20 },
     invocationContext(cwd),
   );
 
@@ -579,26 +610,33 @@ const createMemoryCertification = async ({ agentDir, cwd, sessionDir, contextRes
       .map((entry) => [entry.entryId, entry.text]),
   );
   const emittedIds = [...contextResult.emittedEntryIds];
+  const contextHeader = readSessionHeader(contextResult.session.file);
   const contextPointer = await provider.invoke(
     "expand",
     { session: contextResult.session.id },
     invocationContext(cwd),
   );
-  const expandedAddresses = await provider.invoke(
-    "expand",
-    {
-      session: contextResult.session.id,
-      expectedSourceHash: contextPointer.sourceHash,
-      entryIds: emittedIds,
-    },
-    invocationContext(cwd),
-  );
-  const expandedById = new Map(expandedAddresses.entries.map((entry) => [entry.entryId, entry.text]));
+  if (contextPointer.error) {
+    throw new Error(
+      `memory.expand could not address the certification session by id: ${JSON.stringify(contextPointer.error)}`,
+    );
+  }
+  const expansion = await expandEveryAddress({
+    provider,
+    cwd,
+    session: contextResult.session.id,
+    sourceHash: contextPointer.sourceHash,
+    entryIds: emittedIds,
+  });
+  const expandedById = expansion.textById;
   const expandedCorrectly = emittedIds.filter((id) => expandedById.get(id) === sourceById.get(id)).length;
   const rareTier = rareHit?.tier ?? "missing";
   const sourceRoot = path.join(agentDir, "sessions");
 
   return {
+    sessionId: contextResult.session.id,
+    sessionHeaderId: contextHeader?.sessionId ?? null,
+    sessionHeaderResolved: contextHeader?.sessionId === contextResult.session.id,
     eligibleSessions: recalled.coverage.eligibleSessions,
     indexedSessions: recalled.coverage.indexedSessions,
     staleSessions: recalled.coverage.staleSessions,
@@ -615,8 +653,8 @@ const createMemoryCertification = async ({ agentDir, cwd, sessionDir, contextRes
       && structuralHit?.matchedStructuralEntries === 1
       && structuralHydration.error === undefined
       && structuralEntries.length === 1
-      && structuralEntries[0].ref === "pi.grep"
-      && structuralEntries[0].provider === "pi"
+      && structuralEntries[0].ref === "omp.grep"
+      && structuralEntries[0].provider === "omp"
       && structuralEntries[0].action === "grep"
       && structuralEntries[0].outcome === "succeeded",
     structuralNegativeControl: structuralNegative.coverage.complete === true
@@ -626,7 +664,7 @@ const createMemoryCertification = async ({ agentDir, cwd, sessionDir, contextRes
     addressExpansionRate: emittedIds.length === 0 ? 0 : expandedCorrectly / emittedIds.length,
     integrityBoundExpansion: typeof contextPointer.sourceHash === "string"
       && contextPointer.sourceHash.length === 64
-      && expandedAddresses.sourceHash === contextPointer.sourceHash,
+      && expansion.sourceHash === contextPointer.sourceHash,
     cacheVersionBehavior: "V6 sourceHash checked for hydration/expansion; exact capability postings checked by cold structural recall",
     cacheBytes: directoryBytes(indexDir),
     sourceBytes: directoryBytes(sourceRoot),
@@ -733,19 +771,16 @@ const createContinuationCertification = async ({ root, sessionDir, cwd, agentDir
     manager.appendMessage(assistantText("Task accepted; exact source remains memory-addressable."));
     manager.appendMessage(user("Compact before continuation"));
     const compiled = compileEligibleManager(manager);
-    const compactionId = manager.appendCompaction(
-      compiled.compaction.summary,
-      compiled.compaction.firstKeptEntryId,
-      compiled.compaction.tokensBefore,
-      compiled.compaction.details,
-      true,
-    );
+    const compactionId = appendFabricCompaction(manager, compiled.compaction);
     const compactionEntry = manager.getEntry(compactionId);
-    const expected = expectedContextEntriesAfterCompaction(
+    const expected = contextSubchainAfterCompaction(
       compiled.eligibility.branchEntries,
       compactionEntry,
     );
-    if (!contextEntriesMatch(manager.buildContextEntries(), expected)) {
+    if (!contextMessagesMatch(
+      manager.buildSessionContext().messages,
+      contextMessagesFromEntries(expected),
+    )) {
       throw new Error(`Built continuation context mismatch for ${fixture.name}`);
     }
     const handoffFile = path.join(root, "handoffs", `${fixture.name}.json`);
@@ -789,7 +824,7 @@ const createContinuationCertification = async ({ root, sessionDir, cwd, agentDir
 };
 
 export const runContextCertification = async () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-certification-"));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-certification-"));
   const agentDir = path.join(root, "agent");
   const cwd = path.join(root, "repo");
   const sessionDir = path.join(agentDir, "sessions", encodeCwdDir(cwd));
@@ -810,7 +845,7 @@ export const runContextCertification = async () => {
     const report = {
       schemaVersion: 2,
       deterministic: true,
-      piApi: PI_COMPACTION_API,
+      hostApi: HOST_COMPACTION_API,
       context: contextResult.metrics,
       memory,
       continuation,

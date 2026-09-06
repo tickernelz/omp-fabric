@@ -17,7 +17,7 @@ describe("fabric-schema skill contract", () => {
     expect(skill).toContain("state.verify()");
     expect(skill).toContain("one same-`fabric_exec`");
     expect(skill).toContain("Evidence is not proof");
-    expect(skill).toContain("does not gate direct `pi.edit`");
+    expect(skill).toContain("does not gate direct `omp.edit`");
     expect(skill).toContain("Remote/network/database effects are not transactional");
     expect(skill).not.toContain("tools.call({");
     expect(skill).not.toMatch(/tests? (?:are|is) proof/i);

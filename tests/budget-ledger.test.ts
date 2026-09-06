@@ -38,9 +38,9 @@ describe("budget ledger", () => {
   });
 
   it("treats a non-positive budget as inactive", () => {
-    process.env.PI_FABRIC_BUDGET = "0";
-    process.env.PI_FABRIC_BUDGET_FILE = "/tmp/ignored";
-    process.env.PI_FABRIC_BUDGET_ID = "x";
+    process.env.OMP_FABRIC_BUDGET = "0";
+    process.env.OMP_FABRIC_BUDGET_FILE = "/tmp/ignored";
+    process.env.OMP_FABRIC_BUDGET_ID = "x";
     try {
       expect(activeBudgetState()).toBeUndefined();
     } finally {
@@ -80,7 +80,7 @@ describe("budget ledger", () => {
       cost: 0.05,
       tokens: 30,
       ts: 1,
-      runner: "pi",
+      runner: "omp",
     });
     appendBudgetLedger(state.file, {
       id: "b",
@@ -98,7 +98,7 @@ describe("budget ledger", () => {
       cost: 0.02,
       tokens: 10,
       ts: 3,
-      runner: "pi",
+      runner: "omp",
       actorId: "actor-1",
       actorName: "reviewer",
     });
@@ -106,7 +106,7 @@ describe("budget ledger", () => {
     expect(detail.cost).toBeCloseTo(0.1);
     expect(detail.tokens).toBe(60);
     expect(detail.entries).toHaveLength(3);
-    expect(detail.byRunner.pi).toEqual({ cost: expect.closeTo(0.07), tokens: 40 });
+    expect(detail.byRunner.omp).toEqual({ cost: expect.closeTo(0.07), tokens: 40 });
     expect(detail.byRunner.claude).toEqual({ cost: expect.closeTo(0.03), tokens: 20 });
     expect(detail.byActor["actor-1"]).toEqual({ cost: expect.closeTo(0.05), tokens: 30 });
   });
@@ -120,7 +120,7 @@ describe("budget ledger", () => {
       cost: 0.05,
       tokens: 30,
       ts: 1,
-      runner: "pi",
+      runner: "omp",
       actorId: "actor-1",
     });
     const summary = readBudgetLedger(state.file);
@@ -138,16 +138,16 @@ describe("budget ledger", () => {
       cost: 0.01,
       tokens: 5,
       ts: 1,
-      runner: "pi",
+      runner: "omp",
     });
     const detail = readBudgetLedgerDetailed(state.file);
     expect(detail.entries).toHaveLength(1);
     expect(detail.entries[0]!.id).toBe("ok");
-    expect(detail.byRunner.pi).toEqual({ cost: expect.closeTo(0.01), tokens: 5 });
+    expect(detail.byRunner.omp).toEqual({ cost: expect.closeTo(0.01), tokens: 5 });
   });
 
   it("returns zero for a missing ledger file", () => {
-    expect(readBudgetLedger(path.join(os.tmpdir(), "pi-fabric-missing-cost.jsonl"))).toEqual({
+    expect(readBudgetLedger(path.join(os.tmpdir(), "omp-fabric-missing-cost.jsonl"))).toEqual({
       cost: 0,
       tokens: 0,
     });

@@ -1,26 +1,24 @@
 import type { FabricDynamicGuestDeclarations } from "../protocol.js";
 
 // These names and compatibility fields are the single source of truth for
-// generated core-override overloads. Keep them beside PiToolsApi below so an
+// generated core-override overloads. Keep them beside OmpToolsApi below so an
 // override extends the same guest contract rather than copying its signatures.
 // Numeric fields widen to `number | string` in generated overloads too,
 // mirroring built-in runtime normalization; a strict override schema still
 // rejects the string form at validation time, and the registry error wins.
-export const PI_CORE_COMPATIBILITY_ARGUMENT_TYPE_NAMES = {
-  read: "PiReadCompatibilityArgument",
-  bash: "PiBashCompatibilityArgument",
-  powershell: "PiPowerShellCompatibilityArgument",
-  edit: "PiEditCompatibilityArgument",
-  write: "PiWriteCompatibilityArgument",
-  grep: "PiGrepCompatibilityArgument",
-  find: "PiFindCompatibilityArgument",
-  ls: "PiLsCompatibilityArgument",
+export const OMP_CORE_COMPATIBILITY_ARGUMENT_TYPE_NAMES = {
+  read: "OmpReadCompatibilityArgument",
+  bash: "OmpBashCompatibilityArgument",
+  edit: "OmpEditCompatibilityArgument",
+  write: "OmpWriteCompatibilityArgument",
+  grep: "OmpGrepCompatibilityArgument",
+  find: "OmpFindCompatibilityArgument",
+  ls: "OmpLsCompatibilityArgument",
 } as const;
 
-export const PI_CORE_NUMERIC_FIELDS = {
+export const OMP_CORE_NUMERIC_FIELDS = {
   read: ["offset", "limit"],
   bash: ["timeout"],
-  powershell: ["timeout"],
   edit: [],
   write: [],
   grep: ["context", "limit"],
@@ -32,7 +30,7 @@ export const GUEST_TYPE_DECLARATIONS = `
 type JsonPrimitive = string | number | boolean | null;
 type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue };
 type FabricTransport = "auto" | "process" | "tmux" | "screen" | "localterm" | "herdr";
-type FabricAgentRunner = "pi" | "claude" | "veda";
+type FabricAgentRunner = "omp" | "claude" | "veda";
 type FabricThinking = "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
 interface FabricActionEffect {
   kind: "none" | "scoped" | "transactional" | "emission";
@@ -105,7 +103,7 @@ interface FabricMainAgentInfo {
   name: "Main";
   kind: "main";
   status: "idle" | "running" | "remote";
-  runner: "pi";
+  runner: "omp";
   transport: "host";
   cwd?: string;
   sessionId?: string;
@@ -121,7 +119,7 @@ interface FabricPeerInfo {
   name: string;
   kind: "peer";
   status: "idle" | "running";
-  runner: "pi";
+  runner: "omp";
   transport: "host";
   cwd: string;
   sessionId: string;
@@ -169,13 +167,12 @@ interface FabricParticipantInfo {
   stale: boolean;
 }
 type FabricLifecycleEventType =
-  | "pi.input"
-  | "pi.agent_start"
-  | "pi.agent_end"
-  | "pi.turn_end"
-  | "pi.agent_settled"
-  | "pi.tool_error"
-  | "pi.session_compact"
+  | "omp.input"
+  | "omp.agent_start"
+  | "omp.agent_end"
+  | "omp.turn_end"
+  | "omp.tool_error"
+  | "omp.session_compact"
   | "run.completed"
   | "run.failed"
   | "run.stopped"
@@ -330,7 +327,7 @@ interface FabricCapabilityProviderHead {
   actions: FabricCapabilityActionHead[];
 }
 interface FabricCapabilityCatalog {
-  kind: "pi-fabric.capability-catalog";
+  kind: "omp-fabric.capability-catalog";
   version: 1;
   root: {
     key: "capability:fabric";
@@ -367,12 +364,12 @@ interface FabricCapturedTool {
   (args?: Record<string, unknown>): Promise<FabricCapturedToolResult>;
 }
 type FabricExtensionsApi = Record<string, FabricCapturedTool>;
-// String-primary tools (read/bash/powershell/grep/find/ls) accept a bare string; the
+// String-primary tools (read/bash/grep/find/ls) accept a bare string; the
 // runtime proxy coerces it to { <primaryField>: string }. Lets the model write
-// the natural form (pi.bash("ls")) instead of pi.bash({ command: "ls" }).
+// the natural form (omp.bash("ls")) instead of omp.bash({ command: "ls" }).
 // Return shapes differ by tool: read/grep/find/ls return their text as a bare
-// string (e.g. const src: string = await pi.read({ path })); shell/edit/write
-// return { ok, output, details } (e.g. const { output } = await pi.bash(...)).
+// string (e.g. const src: string = await omp.read({ path })); shell/edit/write
+// return { ok, output, details } (e.g. const { output } = await omp.bash(...)).
 // Common alias keys (cmd→command, query→pattern, file→path, dir→path) and a
 // flat edit shape ({ path, oldText, newText }) are also accepted; the runtime
 // proxy normalizes them to the canonical form before the host validates args.
@@ -382,13 +379,13 @@ type FabricExtensionsApi = Record<string, FabricCapturedTool>;
 // fields (limit/offset/context/timeout) also accept numeric strings, coerced
 // at runtime (2322 diagnostics are suppressed by the type-checker by design).
 // String-primary tools also take a two-arg (primary, options) form —
-// pi.read("index.ts", { limit: 120 }) merges to { path, ...options } at
+// omp.read("index.ts", { limit: 120 }) merges to { path, ...options } at
 // runtime, the positional string winning the primary field on conflict.
 // shell/edit/write envelopes are proxy-guarded so string-method access
 // (.trim(), .split(), iteration) fails with an actionable TypeError pointing
 // at .output instead of QuickJS's context-free "not a function" — property-
 // miss (2339) checks are suppressed by design, so the runtime gives the hint.
-type PiPathArgument = {
+type OmpPathArgument = {
   path?: string;
   file?: string;
   absolutePath?: string;
@@ -401,7 +398,7 @@ type PiPathArgument = {
   absolute_path?: string;
   fileAbsolutePath?: string;
 };
-type PiOptionalPathArgument = {
+type OmpOptionalPathArgument = {
   path?: string;
   file?: string;
   absolutePath?: string;
@@ -418,7 +415,7 @@ type PiOptionalPathArgument = {
   directory?: string;
   directoryPath?: string;
 };
-type PiOldTextArgument = {
+type OmpOldTextArgument = {
   oldText?: string;
   old?: string;
   old_string?: string;
@@ -431,7 +428,7 @@ type PiOldTextArgument = {
   oldContent?: string;
   old_content?: string;
 };
-type PiNewTextArgument = {
+type OmpNewTextArgument = {
   newText?: string;
   new?: string;
   replacement?: string;
@@ -445,85 +442,83 @@ type PiNewTextArgument = {
   newContent?: string;
   new_content?: string;
 };
-type PiEditOperation = PiOldTextArgument & PiNewTextArgument & { all?: boolean };
-type PiCommandArgument = { command?: string; cmd?: string; shell?: string; cmdline?: string; script?: string; commandLine?: string };
-type PiContentArgument = { content?: string; contents?: string; body?: string; text?: string; data?: string; fileContent?: string };
-type PiGrepPatternArgument = { pattern?: string; query?: string; regex?: string; search?: string; q?: string; expression?: string; text?: string };
-type PiFindPatternArgument = { pattern?: string; query?: string; regex?: string; search?: string; name?: string; filename?: string; glob?: string; expression?: string; include?: string };
+type OmpEditOperation = OmpOldTextArgument & OmpNewTextArgument & { all?: boolean };
+type OmpCommandArgument = { command?: string; cmd?: string; shell?: string; cmdline?: string; script?: string; commandLine?: string };
+type OmpContentArgument = { content?: string; contents?: string; body?: string; text?: string; data?: string; fileContent?: string };
+type OmpGrepPatternArgument = { pattern?: string; query?: string; regex?: string; search?: string; q?: string; expression?: string; text?: string };
+type OmpFindPatternArgument = { pattern?: string; query?: string; regex?: string; search?: string; name?: string; filename?: string; glob?: string; expression?: string; include?: string };
 // Two-arg (primary, options) bags for the string-primary tools. Only option
 // aliases belong here (max/start/ctx/ic/...), never primary-field aliases —
 // the primary field comes from the positional string.
-type PiReadOptions = { offset?: number; limit?: number; start?: number; max?: number };
+type OmpReadOptions = { offset?: number; limit?: number; start?: number; max?: number };
 // cwd is honored per call by the pi provider, which binds the command to a
 // shell definition rooted there; relative paths resolve from the session cwd.
-// The alias spellings mirror the shell entries in __piArgAliases: the
+// The alias spellings mirror the shell entries in __ompArgAliases: the
 // runtime repairs them, so the checker has to accept the same spellings or a
 // repairable call is rejected before it ever reaches the sandbox.
-type PiShellOptions = {
+type OmpShellOptions = {
   timeout?: number; timeoutMs?: number; settle?: boolean;
   cwd?: string; workdir?: string; directory?: string; workingDirectory?: string;
 };
-type PiBashOptions = PiShellOptions;
-type PiPowerShellOptions = PiShellOptions;
-type PiGrepOptions = { path?: string; glob?: string; globPattern?: string; ignoreCase?: boolean; ic?: boolean; caseInsensitive?: boolean; literal?: boolean; context?: number; ctx?: number; limit?: number; max?: number };
-type PiFindOptions = { path?: string; limit?: number; max?: number };
-type PiLsOptions = { limit?: number; max?: number };
-type PiReadArgument = string | (PiPathArgument & PiReadOptions);
-type PiBashArgument = string | (PiCommandArgument & PiBashOptions);
-type PiPowerShellArgument = string | (PiCommandArgument & PiPowerShellOptions);
-type PiEditFlatArgument = PiPathArgument & PiOldTextArgument & PiNewTextArgument & { all?: boolean };
-type PiEditArgument = PiPathArgument & ({ edits: PiEditOperation[]; all?: boolean } | PiEditFlatArgument);
-type PiWriteArgument = string | (PiPathArgument & PiContentArgument);
-type PiGrepArgument = string | (PiGrepPatternArgument & PiGrepOptions);
-type PiFindArgument = string | (PiFindPatternArgument & PiFindOptions);
-type PiLsArgument = string | (PiOptionalPathArgument & PiLsOptions);
-type PiNumericString<T> = T extends number ? T | string : T;
-type PiNumericStringOptions<T> = { [K in keyof T]: PiNumericString<T[K]> };
-type PiReadCompatibilityArgument = string | (PiPathArgument & PiNumericStringOptions<PiReadOptions>);
-type PiBashCompatibilityArgument = string | (PiCommandArgument & PiNumericStringOptions<PiBashOptions>);
-type PiPowerShellCompatibilityArgument = string | (PiCommandArgument & PiNumericStringOptions<PiPowerShellOptions>);
-type PiEditCompatibilityArgument = PiEditFlatArgument;
-type PiWriteCompatibilityArgument = PiWriteArgument;
-type PiGrepCompatibilityArgument = string | (PiGrepPatternArgument & PiNumericStringOptions<PiGrepOptions>);
-type PiFindCompatibilityArgument = string | (PiFindPatternArgument & PiNumericStringOptions<PiFindOptions>);
-type PiLsCompatibilityArgument = string | (PiOptionalPathArgument & PiNumericStringOptions<PiLsOptions>);
-interface PiToolsApi {
-  read(args: PiReadArgument, options?: PiReadOptions): Promise<string>;
-  bash(args: PiBashArgument, options?: PiBashOptions): Promise<{ ok: true; output: string; details: unknown } | { ok: false; output: string; details: null; exitCode: number; error: string }>;
-  powershell(args: PiPowerShellArgument, options?: PiPowerShellOptions): Promise<{ ok: true; output: string; details: unknown } | { ok: false; output: string; details: null; exitCode: number; error: string }>;
-  edit(args: PiEditArgument): Promise<{ ok: true; output: string; details: unknown }>;
+type OmpBashOptions = OmpShellOptions;
+type OmpGrepOptions = { path?: string; glob?: string; globPattern?: string; ignoreCase?: boolean; ic?: boolean; caseInsensitive?: boolean; literal?: boolean; context?: number; ctx?: number; limit?: number; max?: number };
+type OmpFindOptions = { path?: string; limit?: number; max?: number };
+type OmpLsOptions = { limit?: number; max?: number };
+type OmpReadArgument = string | (OmpPathArgument & OmpReadOptions);
+type OmpBashArgument = string | (OmpCommandArgument & OmpBashOptions);
+type OmpEditFlatArgument = OmpPathArgument & OmpOldTextArgument & OmpNewTextArgument & { all?: boolean };
+type OmpEditArgument = OmpPathArgument & ({ edits: OmpEditOperation[]; all?: boolean } | OmpEditFlatArgument);
+type OmpWriteArgument = string | (OmpPathArgument & OmpContentArgument);
+type OmpGrepArgument = string | (OmpGrepPatternArgument & OmpGrepOptions);
+type OmpFindArgument = string | (OmpFindPatternArgument & OmpFindOptions);
+type OmpLsArgument = string | (OmpOptionalPathArgument & OmpLsOptions);
+type OmpNumericString<T> = T extends number ? T | string : T;
+type OmpNumericStringOptions<T> = { [K in keyof T]: OmpNumericString<T[K]> };
+type OmpReadCompatibilityArgument = string | (OmpPathArgument & OmpNumericStringOptions<OmpReadOptions>);
+type OmpBashCompatibilityArgument = string | (OmpCommandArgument & OmpNumericStringOptions<OmpBashOptions>);
+type OmpEditCompatibilityArgument = OmpEditFlatArgument;
+type OmpWriteCompatibilityArgument = OmpWriteArgument;
+type OmpGrepCompatibilityArgument = string | (OmpGrepPatternArgument & OmpNumericStringOptions<OmpGrepOptions>);
+type OmpFindCompatibilityArgument = string | (OmpFindPatternArgument & OmpNumericStringOptions<OmpFindOptions>);
+type OmpLsCompatibilityArgument = string | (OmpOptionalPathArgument & OmpNumericStringOptions<OmpLsOptions>);
+interface OmpToolsApi {
+  read(args: OmpReadArgument, options?: OmpReadOptions): Promise<string>;
+  bash(args: OmpBashArgument, options?: OmpBashOptions): Promise<{ ok: true; output: string; details: unknown } | { ok: false; output: string; details: null; exitCode: number; error: string }>;
+  edit(args: OmpEditArgument): Promise<{ ok: true; output: string; details: unknown }>;
   edit(path: string, oldText: string, newText: string): Promise<{ ok: true; output: string; details: unknown }>;
-  write(args: PiWriteArgument): Promise<{ ok: true; output: string; details: unknown }>;
+  write(args: OmpWriteArgument): Promise<{ ok: true; output: string; details: unknown }>;
   write(path: string, content: string): Promise<{ ok: true; output: string; details: unknown }>;
-  grep(args: PiGrepArgument): Promise<string>;
-  grep(pattern: string, path?: string | PiGrepOptions, limit?: number): Promise<string>;
-  find(args: PiFindArgument): Promise<string>;
-  find(pattern: string, path?: string | PiFindOptions, limit?: number): Promise<string>;
-  ls(args?: PiLsArgument, options?: PiLsOptions): Promise<string>;
+  grep(args: OmpGrepArgument): Promise<string>;
+  grep(pattern: string, path?: string | OmpGrepOptions, limit?: number): Promise<string>;
+  find(args: OmpFindArgument): Promise<string>;
+  find(pattern: string, path?: string | OmpFindOptions, limit?: number): Promise<string>;
+  ls(args?: OmpLsArgument, options?: OmpLsOptions): Promise<string>;
 }
 type FabricActorHostEvent =
   | "resources_discover"
   | "session_start"
-  | "session_info_changed"
   | "session_before_switch"
-  | "session_before_fork"
+  | "session_switch"
+  | "session_before_branch"
+  | "session_branch"
   | "session_before_compact"
+  | "session.compacting"
   | "session_compact"
   | "session_shutdown"
   | "session_before_tree"
   | "session_tree"
+  | "goal_updated"
   | "input"
   | "before_agent_start"
   | "agent_start"
   | "agent_end"
-  | "agent_settled"
+  | "session_stop"
   | "turn_start"
   | "turn_end"
   | "message_start"
   | "message_update"
   | "message_end"
   | "context"
-  | "before_provider_headers"
   | "before_provider_request"
   | "after_provider_response"
   | "tool_execution_start"
@@ -531,8 +526,6 @@ type FabricActorHostEvent =
   | "tool_execution_update"
   | "tool_result"
   | "tool_execution_end"
-  | "model_select"
-  | "thinking_level_select"
   | "user_bash"
   | "tool_error";
 type FabricActorDelivery = "mailbox" | "steer" | "followUp" | "nextTurn";
@@ -1265,7 +1258,7 @@ interface FabricWorkflowApi {
   budget: { total: number; spent(): number; remaining(): number };
 }
 declare const tools: FabricToolsApi;
-declare const pi: PiToolsApi;
+declare const omp: OmpToolsApi;
 declare const extensions: FabricExtensionsApi;
 declare const agents: FabricAgentsApi;
 declare const mesh: FabricMeshApi;
@@ -1285,7 +1278,7 @@ declare function phase(name: string, options?: FabricWorkflowPhaseOptions): Prom
 declare function phase(input: FabricWorkflowPhaseInput): Promise<{ name: string; index: number; id?: string }>;
 declare function log(...values: unknown[]): void;
 declare const budget: FabricWorkflowApi["budget"];
-type FabricRlmRequest = Omit<FabricAgentRequest, "runner" | "recursive" | "cwd"> & { runner?: "pi" };
+type FabricRlmRequest = Omit<FabricAgentRequest, "runner" | "recursive" | "cwd"> & { runner?: "omp" };
 declare const rlm: { query(args: FabricRlmRequest): Promise<FabricAgentResult> };
 interface FabricConsole {
   log(...args: unknown[]): void;
@@ -1294,7 +1287,7 @@ interface FabricConsole {
   error(...args: unknown[]): void;
 }
 declare const console: FabricConsole;
-declare const π: Readonly<Record<string, string>>;
+declare const payloads: Readonly<Record<string, string>>;
 declare function print(...args: unknown[]): void;
 declare function setTimeout(handler: (...args: any[]) => void, timeout?: number): number;
 declare function clearTimeout(handle: number): void;
@@ -1303,11 +1296,11 @@ declare function clearInterval(handle: number): void;
 `;
 
 const FULL_CODE_GLOBAL_DECLARATIONS = [
-  "declare const pi: PiToolsApi;\n",
+  "declare const omp: OmpToolsApi;\n",
   "declare const extensions: FabricExtensionsApi;\n",
 ];
 
-const PI_LOOSE_DECLARATION = "declare const pi: PiToolsApi;\n";
+const OMP_LOOSE_DECLARATION = "declare const omp: OmpToolsApi;\n";
 const MCP_LOOSE_DECLARATION = "declare const mcp: FabricMcpApi;\n";
 const EXTENSIONS_LOOSE_DECLARATION = "declare const extensions: FabricExtensionsApi;\n";
 
@@ -1321,10 +1314,7 @@ export interface FabricGuestDeclarationOptions {
    * replace, and missing/undefined sections keep the loose surface.
    */
   dynamic?: FabricDynamicGuestDeclarations;
-  /**
-   * Additive overloads for the current captured exact-name core overrides.
-   * The block is applied only to the full-code `pi` declaration.
-   */
+  /** Add captured core overloads to the full-code OMP declaration. */
   coreOverrides?: string;
 }
 
@@ -1348,9 +1338,9 @@ export const guestTypeDeclarations = (
     (declarations, name) => declarations.replace(globalDeclarationLine(name), ""),
     base,
   );
-  if (fullCodeMode && options.coreOverrides && result.includes(PI_LOOSE_DECLARATION)) {
+  if (fullCodeMode && options.coreOverrides && result.includes(OMP_LOOSE_DECLARATION)) {
     result = result.replace(
-      PI_LOOSE_DECLARATION,
+      OMP_LOOSE_DECLARATION,
       terminatedDeclaration(options.coreOverrides),
     );
   }

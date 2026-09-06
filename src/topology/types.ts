@@ -78,7 +78,7 @@ export interface FabricPeerInfo {
   label?: string;
   kind: "peer";
   status: "idle" | "running";
-  runner: "pi";
+  runner: "omp";
   transport: "host";
   cwd: string;
   sessionId: string;
@@ -94,7 +94,7 @@ export interface FabricParticipantSource {
   list(options?: FabricParticipantListOptions, now?: number): FabricParticipantInfo[];
   get(id: string, now?: number): FabricParticipantInfo | undefined;
   self(now?: number): FabricParticipantInfo;
-  /** All live root Pi session agents, including the current lineage root. */
+  /** All live root OMP session agents, including the current lineage root. */
   sessions?(now?: number): FabricParticipantInfo[];
   peers(now?: number): FabricPeerInfo[];
   refresh(): Promise<void>;

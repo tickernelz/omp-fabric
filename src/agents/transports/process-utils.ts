@@ -68,7 +68,7 @@ export interface ScriptRuntimeOptions {
 }
 
 const runtimeOverride = (env: NodeJS.ProcessEnv): string | undefined => {
-  const value = env.PI_FABRIC_NODE_BINARY;
+  const value = env.OMP_FABRIC_NODE_BINARY;
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
 };
 
@@ -77,6 +77,12 @@ const isGenericRuntime = (execPath: string, requireNode: boolean, requireBun = f
   return GENERIC_RUNTIME.test(name)
     && (!requireNode || name.startsWith("node"))
     && (!requireBun || name.startsWith("bun"));
+};
+
+const isWrongFlavorRuntime = (execPath: string, requireNode: boolean, requireBun: boolean): boolean => {
+  const name = path.basename(execPath).toLowerCase();
+  return GENERIC_RUNTIME.test(name)
+    && ((requireNode && name.startsWith("bun")) || (requireBun && name.startsWith("node")));
 };
 
 const missingRuntimeError = (execPath: string, requireNode: boolean, requireBun = false): Error => {
@@ -88,8 +94,8 @@ const missingRuntimeError = (execPath: string, requireNode: boolean, requireBun 
   const shape = requireNode ? "(not node)" : requireBun ? "(not bun)" : "(not node/bun)";
   return new Error(
     `Fabric requires ${required} to launch a JavaScript worker, but ` +
-      `process.execPath is ${execPath} ${shape} and PI_FABRIC_NODE_BINARY is unset. ` +
-      "Install Node.js or Bun, or set PI_FABRIC_NODE_BINARY to the runtime binary.",
+      `process.execPath is ${execPath} ${shape} and OMP_FABRIC_NODE_BINARY is unset. ` +
+      "Install Node.js or Bun, or set OMP_FABRIC_NODE_BINARY to the runtime binary.",
   );
 };
 
@@ -97,7 +103,7 @@ const missingRuntimeError = (execPath: string, requireNode: boolean, requireBun 
 // Under the new Bun-compiled pi binary, process.execPath is the pi executable,
 // not node/bun, so it cannot run an arbitrary script. Resolve a real runtime
 // before spawning: reuse process.execPath when it IS node/bun, else fall back
-// to PI_FABRIC_NODE_BINARY, then the first node/bun on PATH.
+// to OMP_FABRIC_NODE_BINARY, then the first node/bun on PATH.
 const resolveScriptRuntimeUncached = async (options: ScriptRuntimeOptions = {}): Promise<string> => {
   const execPath = options.execPath ?? process.execPath;
   const env = options.env ?? process.env;
@@ -138,6 +144,9 @@ export const resolveScriptRuntimeSync = (options: ScriptRuntimeOptions = {}): st
   const requireNode = options.requireNode === true;
   const requireBun = options.requireBun === true;
   if (isGenericRuntime(execPath, requireNode, requireBun)) return execPath;
+  if (options.execPath !== undefined && isWrongFlavorRuntime(execPath, requireNode, requireBun)) {
+    throw missingRuntimeError(execPath, requireNode, requireBun);
+  }
   const override = runtimeOverride(env);
   if (override) return override;
   throw missingRuntimeError(execPath, requireNode, requireBun);

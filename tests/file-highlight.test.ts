@@ -40,7 +40,7 @@ describe("fabric file highlight coverage", () => {
   let file: string;
 
   beforeEach(async () => {
-    dir = mkdtempSync(join(tmpdir(), "pi-fabric-hl-"));
+    dir = mkdtempSync(join(tmpdir(), "omp-fabric-hl-"));
     file = join(dir, "audio.cpp");
     writeFileSync(file, CPP, "utf8");
     await initHighlighting("dark-plus", true);

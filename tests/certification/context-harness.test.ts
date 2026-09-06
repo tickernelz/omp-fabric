@@ -7,7 +7,7 @@ import { evaluateCertification, evaluateFixtureOracle, formatHumanReport, snapsh
 
 const temporaryDirectories: string[] = [];
 const temporaryDirectory = (): string => {
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-certification-test-"));
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-certification-test-"));
   temporaryDirectories.push(directory);
   return directory;
 };
@@ -59,6 +59,9 @@ const passingReport = () => ({
     integrityBoundExpansion: true,
     cacheBytes: 10,
     sourceBytes: 20,
+    sessionId: "01a07640-aaaa-bbbb-cccc-ddddeeeeffff",
+    sessionHeaderId: "01a07640-aaaa-bbbb-cccc-ddddeeeeffff",
+    sessionHeaderResolved: true,
   },
   continuation: { passRate: 1, passedFixtures: 2, totalFixtures: 2, addressesResolved: true },
 });

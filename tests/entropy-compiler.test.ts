@@ -22,7 +22,7 @@ import {
 
 const tmpRoots: string[] = [];
 const makeTempDir = (): string => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-entropy-compiler-"));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-entropy-compiler-"));
   tmpRoots.push(dir);
   return dir;
 };
@@ -385,10 +385,10 @@ describe("entropyReviewSignals", () => {
     expect(
       formatEntropyReviewSignal({
         kind: "sequence-fuse",
-        sequence: ["pi.read", "pi.grep", "pi.edit"],
+        sequence: ["omp.read", "omp.grep", "omp.edit"],
         occurrences: 2,
       }),
-    ).toBe("sequence-fuse pi.read -> pi.grep -> pi.edit");
+    ).toBe("sequence-fuse omp.read -> omp.grep -> omp.edit");
     expect(
       formatEntropyReviewSignal({
         kind: "declare-enum",

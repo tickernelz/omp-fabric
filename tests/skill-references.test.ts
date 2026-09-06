@@ -48,7 +48,7 @@ describe("skill reference guidance", () => {
     expect(guidance).not.toContain("/research ->");
   });
 
-  it("supports Pi-style delegated skill commands", () => {
+  it("supports OMP-style delegated skill commands", () => {
     const guidance = buildSkillReferenceGuidance(
       expandedPrompt("Load `/skill:research` and follow its process."),
       skills,

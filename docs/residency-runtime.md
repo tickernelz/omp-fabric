@@ -1,19 +1,19 @@
-# Durable residency through Pi
+# Durable residency through OMP
 
 ## Purpose
 
 Fabric participants with `residency: "durable"` continue after the originating
-Pi session closes. They run in one background resident host per Fabric root.
+OMP session closes. They run in one background resident host per Fabric root.
 The host owns durable actors and one-shot durable agents; mesh state and the
 residency directory provide reconnection and control routing.
 
-## Why the host starts through Pi
+## Why the host starts through OMP
 
-Pi packages intentionally leave Pi core packages as host-provided peers. A raw
+OMP packages intentionally leave OMP core packages as host-provided peers. A raw
 Node process started from an installed Fabric package therefore cannot resolve
-`@earendil-works/pi-coding-agent`. Pi's extension loader supplies those imports.
+`@oh-my-pi/pi-coding-agent`. OMP's extension loader supplies those imports.
 
-The resident host must consequently run inside a headless Pi process, rather
+The resident host must consequently run inside a headless OMP process, rather
 than directly under `node`.
 
 ## Process topology
@@ -21,20 +21,20 @@ than directly under `node`.
 ```text
 Fabric residency client
   -> detached Node launcher
-    -> pi --mode rpc --no-session --no-tools --extension pi-entry.js
-      -> Pi extension loader
+    -> omp --mode rpc --no-session --no-tools --extension omp-entry.js
+      -> OMP extension loader
         -> ResidentHost
 ```
 
-`launcher.js` is Node-core-only. It keeps RPC stdin open because Pi RPC exits on
-stdin EOF. `pi-entry.js` starts `ResidentHost` on `session_start`, aborts it on
-`session_shutdown`, and shuts Pi down after the host reaches its idle exit.
+`launcher.js` is Node-core-only. It keeps RPC stdin open because OMP RPC exits on
+`omp-entry.js` starts `ResidentHost` on `session_start`, aborts it on
+`session_shutdown`, and shuts OMP down after the host reaches its idle exit.
 
 ## Files and responsibilities
 
 - `src/residency/client.ts` writes host configuration and starts the launcher.
-- `src/residency/launcher.ts` creates the detached headless Pi child.
-- `src/residency/pi-entry.ts` bridges Pi lifecycle events to the host.
+- `src/residency/launcher.ts` creates the detached headless OMP child.
+- `src/residency/omp-entry.ts` bridges OMP lifecycle events to the host.
 - `src/residency/host.ts` owns requests, mesh control, `owner.json`, and idle
   shutdown.
 - `src/index.ts` registers `residency/launcher.js`; this registration must not
@@ -63,20 +63,20 @@ bun run build
 bunx vitest run tests/type-checker.test.ts tests/residency.test.ts tests/fabric-runtime-components.test.ts
 ```
 
-Also validate a locally installed package in Pi: create a durable actor, verify
+Also validate a locally installed package in OMP: create a durable actor, verify
 its `owner.json`, route `stop`, and confirm the actor becomes `stopped` with a
 resident `ownerHostId`.
 
 ## Known Windows limitation
 
 Durable residency E2E is POSIX-only today. On Windows, the launcher's spawn of
-the `pi` binary through the installed `node_modules/.bin` shims hangs before
+the `omp` binary through the installed `node_modules/.bin` shims hangs before
 the child starts, so the resident host never starts.
 The launcher, ownership observation, and protocol logic are platform-agnostic
 and are tested on every operating system.
 
 ## Future direction
 
-A native Pi extension-host subprocess API could replace `launcher.js` later.
+A native OMP extension-host subprocess API could replace `launcher.js` later.
 Keep the launcher boundary isolated so that migration changes no residency
 protocol or public Fabric API.

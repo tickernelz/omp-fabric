@@ -48,7 +48,7 @@ const lexicalIdentity = (ref: string): { provider?: string; action?: string } =>
 };
 
 const toolOf = (ref: string, provider?: string, action?: string): string => {
-  if (provider === "pi" && action) return action;
+  if (provider === "omp" && action) return action;
   return action ?? ref;
 };
 

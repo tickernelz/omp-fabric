@@ -20,8 +20,18 @@ const hostWith = (initial: string[]) => {
 };
 
 describe("FabricToolOwnership", () => {
-  it("gives Fabric exclusive ownership of active Pi core tools", () => {
-    const state = hostWith(["read", "bash", "grep", "custom_tool"]);
+  it("gives Fabric exclusive ownership of active OMP core tools", () => {
+    const state = hostWith([
+      "read",
+      "bash",
+      "edit",
+      "write",
+      "grep",
+      "find",
+      "ls",
+      "custom_tool",
+      "fabric_exec",
+    ]);
     const ownership = new FabricToolOwnership(state.host);
 
     expect(ownership.apply(true)).toBe(true);
@@ -33,7 +43,7 @@ describe("FabricToolOwnership", () => {
   });
 
   it("restores only the native core tools that were active before full mode", () => {
-    const state = hostWith(["read", "find", "custom_tool"]);
+    const state = hostWith(["read", "find", "custom_tool", "fabric_exec"]);
     const ownership = new FabricToolOwnership(state.host);
 
     ownership.apply(true);
@@ -66,9 +76,9 @@ describe("FabricToolOwnership", () => {
   });
 
   it("hides captured extension tools from the active set in full code mode", () => {
-    // Captured tools remain registered (visible to pi.getAllTools() consumers
+    // Captured tools remain registered (visible to omp.getAllTools() consumers
     // such as permission systems); only the model-facing active set is pruned.
-    const state = hostWith(["read", "ask_user_question", "deploy_release"]);
+    const state = hostWith(["read", "ask_user_question", "deploy_release", "fabric_exec"]);
     const ownership = new FabricToolOwnership(state.host);
 
     expect(
@@ -93,7 +103,7 @@ describe("FabricToolOwnership", () => {
   });
 
   it("re-exposes extension tools removed from the hidden set while full mode stays active", () => {
-    const state = hostWith(["read", "ask_user_question", "deploy_release"]);
+    const state = hostWith(["read", "ask_user_question", "deploy_release", "fabric_exec"]);
     const ownership = new FabricToolOwnership(state.host);
 
     ownership.apply(true, new Set(["ask_user_question", "deploy_release"]));
@@ -104,7 +114,7 @@ describe("FabricToolOwnership", () => {
   });
 
   it("restores hidden extension tools when full code mode is released", () => {
-    const state = hostWith(["read", "ask_user_question"]);
+    const state = hostWith(["read", "ask_user_question", "fabric_exec"]);
     const ownership = new FabricToolOwnership(state.host);
 
     ownership.apply(true, new Set(["ask_user_question"]));

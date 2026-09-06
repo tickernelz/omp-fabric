@@ -8,7 +8,7 @@ disable-model-invocation: true
 
 Start with `const status = await schema.status();`.
 
-- `off`: compatibility mode; state discipline is optional and does not gate direct `pi.edit`, `pi.write`, or `pi.bash`.
+- `off`: compatibility mode; state discipline is optional and does not gate direct `omp.edit`, `omp.write`, or `omp.bash`.
 - `audit`: reports actions enforce mode would block without changing behavior.
 - `enforce`: host authorization for protected-workspace file changes. Reads remain available; mutations require one same-`fabric_exec` `schema.hypothesize → schema.verify → schema.commit` sequence. Direct mutations, agents, state/mesh writes, compaction, MCP, extensions, and external providers are blocked.
 
@@ -19,7 +19,7 @@ Evidence is not proof. Verification confirms falsifiable observations at one fin
 Observe, hypothesize with literal/SHA evidence or a host-configured trusted command, verify, then commit only with the returned short-lived certificate and observed SHA:
 
 ```ts
-await pi.read({ path: "src/parser.ts" });
+await omp.read({ path: "src/parser.ts" });
 const hypothesis = await schema.hypothesize({
   label: "parser-local-form",
   summary: "The declared parser edit accepts the local form while focused checks remain green",
@@ -105,7 +105,7 @@ const transition = await state.transition({
   label: "claim",
   to: "claim-stated",
   summary: "A falsifiable delta",
-  evidence: ["pnpm exec vitest run tests/focused.test.ts"],
+  evidence: ["bun exec vitest run tests/focused.test.ts"],
 });
 const verification = await state.verify();
 if (!verification.certified) {

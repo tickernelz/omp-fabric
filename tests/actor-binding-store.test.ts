@@ -7,7 +7,7 @@ import { ActorBindingStore } from "../src/actors/binding-store.js";
 const roots: string[] = [];
 
 const setup = (): { first: ActorBindingStore; second: ActorBindingStore } => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-bindings-"));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-bindings-"));
   roots.push(root);
   return {
     first: new ActorBindingStore("session:shared", root),

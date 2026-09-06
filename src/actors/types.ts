@@ -1,44 +1,41 @@
-import type { ExtensionEvent } from "@earendil-works/pi-coding-agent";
+import type { ExtensionEvent } from "@oh-my-pi/pi-coding-agent";
 import type { FabricAgentRunner, FabricAgentTransport } from "../config.js";
 import type { FabricThinking } from "../thinking.js";
 import type { FabricLogLine, AgentRunRecord, AgentUsage } from "../agents/types.js";
 import type { FabricCapabilityRequirement } from "../components/types.js";
 import type { FabricParticipantResidency } from "../topology/types.js";
 
-export type FabricActorPiHostEvent = Exclude<ExtensionEvent["type"], "project_trust">;
+export type FabricActorOmpHostEvent = Exclude<ExtensionEvent["type"], "project_trust">;
 
-const defineFabricActorPiHostEvents = <
-  const Events extends readonly FabricActorPiHostEvent[],
->(
-  events: Exclude<FabricActorPiHostEvent, Events[number]> extends never ? Events : never,
+const defineFabricActorOmpHostEvents = <const Events extends readonly FabricActorOmpHostEvent[]>(
+  events: Events,
 ): Events => events;
 
-export const FABRIC_ACTOR_PI_HOST_EVENTS = defineFabricActorPiHostEvents([
+export const FABRIC_ACTOR_OMP_HOST_EVENTS = defineFabricActorOmpHostEvents([
   "resources_discover",
   "session_start",
-  "session_info_changed",
   "session_before_switch",
-  "session_before_fork",
+  "session_switch",
+  "session_before_branch",
+  "session_branch",
   "session_before_compact",
+  "session.compacting",
   "session_compact",
-  "session_compact_failed",
   "session_shutdown",
   "session_before_tree",
   "session_tree",
+  "goal_updated",
   "input",
   "before_agent_start",
   "agent_start",
   "agent_end",
-  "agent_settled",
+  "session_stop",
   "turn_start",
   "turn_end",
   "message_start",
   "message_update",
   "message_end",
-  "ui_prompt_start",
-  "ui_prompt_end",
   "context",
-  "before_provider_headers",
   "before_provider_request",
   "after_provider_response",
   "tool_execution_start",
@@ -46,13 +43,10 @@ export const FABRIC_ACTOR_PI_HOST_EVENTS = defineFabricActorPiHostEvents([
   "tool_execution_update",
   "tool_result",
   "tool_execution_end",
-  "model_select",
-  "thinking_level_select",
   "user_bash",
 ]);
-
 export const FABRIC_ACTOR_HOST_EVENTS = [
-  ...FABRIC_ACTOR_PI_HOST_EVENTS,
+  ...FABRIC_ACTOR_OMP_HOST_EVENTS,
   "tool_error",
 ] as const;
 
@@ -138,7 +132,7 @@ export interface FabricActorRequest {
   scope?: FabricActorStorageScope;
   name: string;
   instructions: string;
-  /** Asynchronous observations of session-bound Pi events plus synthetic tool_error. */
+  /** Asynchronous observations of session-bound OMP events plus synthetic tool_error. */
   events?: FabricActorHostEvent[];
   topics?: string[];
   /** Defaults to mailbox. steer/followUp require an explicit triggerTurn choice. */
@@ -147,7 +141,7 @@ export interface FabricActorRequest {
   /** Required for steer/followUp; must be false or omitted for mailbox/nextTurn. */
   triggerTurn?: boolean;
   coalesce?: boolean;
-  /** session actors stop with their Pi host; durable actors transfer to a resident host. */
+  /** session actors stop with their OMP host; durable actors transfer to a resident host. */
   residency?: FabricParticipantResidency;
   runner?: FabricAgentRunner;
   model?: string;
@@ -156,9 +150,9 @@ export interface FabricActorRequest {
   transport?: FabricAgentTransport;
   timeoutMs?: number;
   /**
-   * Fabric capability for the actor. Defaults to true (today's behavior: a Pi
+   * Fabric capability for the actor. Defaults to true (today's behavior: an OMP
    * actor is recursively Fabric-equipped with the host-required fabric_exec
-   * tool). Set false to disable Fabric for a Pi actor: the activation runs with
+   * tool). Set false to disable Fabric for an OMP actor: the activation runs with
    * extensions:false and recursive:false so fabric_exec is not injected and the
    * actor cannot call agents.* or mesh.*; the host still manages its mailbox
    * and delivery (same model as a Claude actor). This does not restrict the

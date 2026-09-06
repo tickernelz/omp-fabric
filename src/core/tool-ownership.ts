@@ -4,10 +4,10 @@ import type {
   ToolCallEventResult,
   ToolResultEvent,
   ExtensionContext,
-} from "@earendil-works/pi-coding-agent";
+} from "@oh-my-pi/pi-coding-agent";
 import { readFabricExecutionTraceV1 } from "../audit/index.js";
 import { NESTED_TOOL_CALL_ID_PREFIX } from "./action-registry.js";
-import { PI_CORE_TOOL_NAME_SET } from "./pi-tools.js";
+import { OMP_CORE_TOOL_NAME_SET } from "./omp-tools.js";
 
 export interface FabricToolOwnershipHost {
   getActiveTools(): string[];
@@ -138,38 +138,55 @@ export const createToolOwnershipReassertion = (options: {
 export class FabricToolOwnership {
   #savedNativeCoreTools: Array<{ name: string; index: number }> | undefined;
   // Captured extension tools stay registered so host extensions (permission
-  // systems, auditors) keep them in `pi.getAllTools()`; hiding from the model
+  // systems, auditors) keep them in `omp.getAllTools()`; hiding from the model
   // happens here, in the active set. Removed names are remembered so leaving
   // full code mode (or adding a name to `capture.keepVisible`) re-exposes them.
   #savedHiddenExtensionTools = new Map<string, number>();
 
   constructor(readonly host: FabricToolOwnershipHost) {}
 
-  apply(fullCodeMode: boolean, hiddenExtensionTools?: ReadonlySet<string>): boolean {
+  apply(
+    fullCodeModeOrPolicy: boolean | {
+      fullCodeMode: boolean;
+      schemaMode?: string;
+      includeTools?: ReadonlySet<string>;
+      excludeTools?: ReadonlySet<string>;
+    },
+    hiddenExtensionTools?: ReadonlySet<string>,
+  ): boolean {
     const active = this.host.getActiveTools();
-    if (!fullCodeMode) return this.#restore(active);
-
-    this.#savedNativeCoreTools ??= active.flatMap((name, index) =>
-      PI_CORE_TOOL_NAME_SET.has(name) ? [{ name, index }] : [],
-    );
+    const policy = typeof fullCodeModeOrPolicy === "boolean"
+      ? { fullCodeMode: fullCodeModeOrPolicy, includeTools: new Set<string>(), excludeTools: new Set<string>() }
+      : fullCodeModeOrPolicy;
+    const enforce = policy.schemaMode === "enforce";
+    const include = policy.includeTools ?? new Set<string>();
+    const exclude = policy.excludeTools ?? new Set<string>();
+    const hideCore = policy.fullCodeMode || enforce;
     const hidden = hiddenExtensionTools ?? new Set<string>();
+    if (!hideCore && hidden.size === 0 && exclude.size === 0) return this.#restore(active);
+    if (hideCore) {
+      this.#savedNativeCoreTools ??= active.flatMap((name, index) =>
+        OMP_CORE_TOOL_NAME_SET.has(name) ? [{ name, index }] : [],
+      );
+    }
     const next: string[] = [];
-    active.forEach((name, index) => {
-      if (PI_CORE_TOOL_NAME_SET.has(name)) return;
-      if (hidden.has(name)) {
-        if (!this.#savedHiddenExtensionTools.has(name)) {
+    for (const [index, name] of active.entries()) {
+      const coreHidden = hideCore && OMP_CORE_TOOL_NAME_SET.has(name) && (enforce || !include.has(name));
+      const extensionHidden = hidden.has(name) && !include.has(name);
+      const explicitlyExcluded = exclude.has(name);
+      if (coreHidden || extensionHidden || explicitlyExcluded) {
+        if ((extensionHidden || explicitlyExcluded) && !this.#savedHiddenExtensionTools.has(name)) {
           this.#savedHiddenExtensionTools.set(name, index);
         }
-        return;
+        continue;
       }
       next.push(name);
-    });
+    }
     for (const [name, index] of this.#savedHiddenExtensionTools) {
-      if (hidden.has(name) || next.includes(name)) continue;
+      if (hidden.has(name) || exclude.has(name) || next.includes(name)) continue;
       this.#savedHiddenExtensionTools.delete(name);
       next.splice(Math.min(index, next.length), 0, name);
     }
-    if (!next.includes("fabric_exec")) next.push("fabric_exec");
     return this.#setIfChanged(active, next);
   }
 

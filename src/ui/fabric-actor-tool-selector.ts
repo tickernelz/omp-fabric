@@ -1,7 +1,7 @@
-import type { Theme } from "@earendil-works/pi-coding-agent";
-import { Container, type Focusable, getKeybindings, Spacer, Text } from "@earendil-works/pi-tui";
+import type { Theme } from "@oh-my-pi/pi-coding-agent";
+import { Container, type Focusable, getKeybindings, Spacer, Text } from "@oh-my-pi/pi-tui";
 
-const ACTOR_TOOL_ORDER = ["read", "grep", "find", "ls", "bash", "powershell", "edit", "write"] as const;
+const ACTOR_TOOL_ORDER = ["read", "grep", "find", "ls", "bash", "edit", "write"] as const;
 
 const TOOL_LABELS: Record<(typeof ACTOR_TOOL_ORDER)[number], string> = {
   read: "read files",
@@ -9,7 +9,6 @@ const TOOL_LABELS: Record<(typeof ACTOR_TOOL_ORDER)[number], string> = {
   find: "find files by name",
   ls: "list directories",
   bash: "execute shell commands",
-  powershell: "execute PowerShell commands",
   edit: "edit existing files",
   write: "write files",
 };

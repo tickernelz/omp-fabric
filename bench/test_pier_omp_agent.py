@@ -3,10 +3,10 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from pier_pi_agent import collect_pi_session_metrics
+from pier_omp_agent import collect_omp_session_metrics
 
 
-class PiSessionMetricsTest(unittest.TestCase):
+class OMPSessionMetricsTest(unittest.TestCase):
     def test_collects_pareto_metrics(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             session = Path(directory) / "session.jsonl"
@@ -43,7 +43,7 @@ class PiSessionMetricsTest(unittest.TestCase):
                                 "outcome": "failed",
                                 "operations": [
                                     {
-                                        "ref": "pi.read",
+                                        "ref": "omp.read",
                                         "args": {
                                             "path": "src/a.ts",
                                             "offset": 10,
@@ -51,11 +51,11 @@ class PiSessionMetricsTest(unittest.TestCase):
                                         },
                                     },
                                     {
-                                        "ref": "pi.edit",
+                                        "ref": "omp.edit",
                                         "args": {"path": "src/a.ts"},
                                     },
                                     {
-                                        "ref": "pi.edit",
+                                        "ref": "omp.edit",
                                         "args": {"path": "src/a.ts"},
                                     },
                                 ]
@@ -67,7 +67,7 @@ class PiSessionMetricsTest(unittest.TestCase):
             ]
             session.write_text("".join(json.dumps(row) + "\n" for row in records))
 
-            metrics = collect_pi_session_metrics(Path(directory))
+            metrics = collect_omp_session_metrics(Path(directory))
 
         self.assertEqual(metrics["input_tokens"], 305)
         self.assertEqual(metrics["fresh_input_tokens"], 105)
@@ -79,8 +79,8 @@ class PiSessionMetricsTest(unittest.TestCase):
         self.assertEqual(metrics["outer_calls_by_name"], {"read": 1})
         self.assertEqual(metrics["nested_tool_calls"], 3)
         self.assertEqual(metrics["nested_calls_by_ref"], {
-            "pi.edit": 2,
-            "pi.read": 1,
+            "omp.edit": 2,
+            "omp.read": 1,
         })
         self.assertEqual(metrics["fabric_failures"], 1)
         self.assertEqual(metrics["same_file_extra_edits"], 1)

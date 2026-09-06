@@ -1,16 +1,17 @@
 // Adapted from pi-code-previews; see THIRD_PARTY_NOTICES.md.
-import type { Theme, ToolDefinition } from "@earendil-works/pi-coding-agent";
+import type { Theme, ToolDefinition, ToolRenderResultOptions } from "@oh-my-pi/pi-coding-agent";
+import { Ellipsis } from "@oh-my-pi/pi-tui";
 import {
   Container,
   Text,
   truncateToWidth,
   visibleWidth,
   type Component,
-} from "@earendil-works/pi-tui";
+} from "@oh-my-pi/pi-tui";
 import { continueArcGroup } from "./arc-group.js";
 
 type ToolCallBackgroundMode = "on" | "border" | "off";
-type AnyTool = ToolDefinition<any, any, any>;
+type AnyTool = ToolDefinition;
 
 export type FabricToolShellDecorator = <TTool extends AnyTool>(
   tool: TTool,
@@ -21,7 +22,7 @@ export type FabricToolShellDecorator = <TTool extends AnyTool>(
   },
 ) => TTool;
 
-type PreviewRenderContext = {
+export type PreviewRenderContext = {
   args: unknown;
   toolCallId: string;
   invalidate: () => void;
@@ -132,7 +133,7 @@ const updateTiming = (
 
 class TimingPreservedComponent implements Component {
   constructor(readonly component: Component, private readonly state: TimingState) {}
-  render(width: number): string[] {
+  render(width: number): readonly string[] {
     return this.component.render(width);
   }
   invalidate(): void {
@@ -146,9 +147,9 @@ class TimingFooter implements Component {
     private readonly footer: string,
     private readonly state: TimingState,
   ) {}
-  render(width: number): string[] {
+  render(width: number): readonly string[] {
     return [
-      ...continueArcGroup(this.component.render(width)),
+      ...continueArcGroup([...this.component.render(width)]),
       truncateToWidth(this.footer, width, ""),
     ];
   }
@@ -180,6 +181,54 @@ const renderTimedResult = (
 
 const borderState = (context: PreviewRenderContext): BorderState =>
   context.state as BorderState;
+
+const shellStates = new WeakMap<object, BorderState>();
+
+const shellStateFor = (key: unknown): BorderState => {
+  const object = typeof key === "object" && key !== null ? key : shellStates;
+  const existing = shellStates.get(object);
+  if (existing) return existing;
+  const created: BorderState = {};
+  shellStates.set(object, created);
+  return created;
+};
+
+const isRenderComponent = (value: unknown): value is Component =>
+  value !== null && typeof value === "object" &&
+  typeof Reflect.get(value, "render") === "function";
+
+const buildRenderContext = (
+  args: unknown,
+  options: ToolRenderResultOptions & { renderContext?: unknown },
+  supplied: Record<string, unknown>,
+  fallbackState: BorderState,
+): PreviewRenderContext => {
+  const executionStarted = typeof supplied.executionStarted === "boolean"
+    ? supplied.executionStarted
+    : !options.isPartial;
+  const argsComplete = typeof supplied.argsComplete === "boolean"
+    ? supplied.argsComplete
+    : !options.isPartial;
+  const state = typeof supplied.state === "object" && supplied.state !== null
+    ? supplied.state as BorderState
+    : fallbackState;
+  return {
+    args,
+    toolCallId: typeof supplied.toolCallId === "string" ? supplied.toolCallId : "fabric_exec",
+    invalidate: typeof supplied.invalidate === "function"
+      ? supplied.invalidate as () => void
+      : () => undefined,
+    lastComponent: isRenderComponent(supplied.lastComponent) ? supplied.lastComponent : undefined,
+    state,
+    cwd: typeof supplied.cwd === "string" ? supplied.cwd : process.cwd(),
+    executionStarted,
+    argsComplete,
+    isPartial: options.isPartial,
+    expanded: options.expanded,
+    showImages: typeof supplied.showImages === "boolean" ? supplied.showImages : true,
+    isError: supplied.isError === true,
+  };
+};
 
 const borderColor = (context: PreviewRenderContext): "warning" | "success" | "error" => {
   if (context.isError) return "error";
@@ -214,7 +263,7 @@ class BorderedToolCall implements Component {
     this.timingLabel = label;
     this.invalidateCache();
   }
-  render(width: number): string[] {
+  render(width: number): readonly string[] {
     if (width === this.cachedWidth && this.cachedRows) return this.cachedRows;
     const rows = this.renderUncached(width);
     this.cachedWidth = width;
@@ -269,35 +318,56 @@ const shouldRenderResultSeparately = (state: BorderState, isPartial: boolean): b
   (state.codePreviewBorderLastCallPartial !== isPartial &&
     state.codePreviewBorderLastCallExecutionStarted === true);
 
-export const withCodePreviewShell: FabricToolShellDecorator = (tool, options = {}) => {
+export const withCodePreviewShell: FabricToolShellDecorator = <TTool extends AnyTool>(
+  tool: TTool,
+  options: {
+    mode?: ToolCallBackgroundMode;
+    preserveSelfShell?: boolean;
+    toolCallTiming?: boolean;
+  } = {},
+): TTool => {
   const mode = options.mode ?? "on";
   const timingEnabled = options.toolCallTiming ?? true;
-  if ((options.preserveSelfShell ?? true) && tool.renderShell === "self") return tool;
+  if ((options.preserveSelfShell ?? true) && (tool as AnyTool & { renderShell?: string }).renderShell === "self") return tool;
   const originalRenderCall = tool.renderCall;
   const originalRenderResult = tool.renderResult;
-  const renderCall = (args: unknown, theme: Theme, context: PreviewRenderContext): Component =>
-    originalRenderCall
-      ? originalRenderCall.call(tool, args as never, theme, context as never)
+  const renderCall = (args: unknown, options: ToolRenderResultOptions, theme: Theme, context: PreviewRenderContext): Component => {
+    const renderOptions = { ...options, renderContext: context };
+    return originalRenderCall
+      ? originalRenderCall.call(tool, args as never, renderOptions, theme)
       : new Text(theme.fg("toolTitle", theme.bold(tool.label || tool.name)), 0, 0);
+  };
   const renderResult = (
     result: unknown,
     resultOptions: unknown,
     theme: Theme,
     context: PreviewRenderContext,
-  ): Component => originalRenderResult
-    ? originalRenderResult.call(tool, result as never, resultOptions as never, theme, context as never)
-    : new Container();
+  ): Component => {
+    const renderOptions = { ...(resultOptions as ToolRenderResultOptions), renderContext: context };
+    return originalRenderResult
+      ? originalRenderResult.call(tool, result as never, renderOptions, theme)
+      : new Container();
+  };
 
   return {
     ...tool,
     renderShell: mode === "on" ? "default" : "self",
-    renderCall(args, theme, rawContext) {
-      if (!rawContext) {
+    renderCall(args, options, theme) {
+      const renderOptions = options as ToolRenderResultOptions & { renderContext?: Record<string, unknown> };
+      if (!renderOptions) {
         return originalRenderCall
-          ? originalRenderCall.call(tool, args, theme, rawContext)
+          ? originalRenderCall.call(tool, args, { expanded: false, isPartial: false }, theme)
           : new Text(theme.fg("toolTitle", theme.bold(tool.label || tool.name)), 0, 0);
       }
-      const context = rawContext as unknown as PreviewRenderContext;
+      const supplied = renderOptions.renderContext && typeof renderOptions.renderContext === "object"
+        ? renderOptions.renderContext
+        : (renderOptions as unknown as Record<string, unknown>);
+      const context = buildRenderContext(
+        args,
+        renderOptions,
+        supplied,
+        shellStateFor(renderOptions),
+      );
       if (mode !== "border") {
         const state = timingState(context);
         if (
@@ -308,7 +378,7 @@ export const withCodePreviewShell: FabricToolShellDecorator = (tool, options = {
           updateTiming(context, timingEnabled, { animate: false, formatLabel: false });
           return state.codePreviewTimingCallComponent;
         }
-        const component = renderCall(args, theme, {
+        const component = renderCall(args, { expanded: context.expanded, isPartial: context.isPartial }, theme, {
           ...context,
           lastComponent: unwrapTimingComponent(context.lastComponent),
         });
@@ -324,7 +394,7 @@ export const withCodePreviewShell: FabricToolShellDecorator = (tool, options = {
       const timingOnly = context.isPartial && isTimingOnlyRender(state);
       const component = timingOnly && state.codePreviewBorderCallComponent
         ? state.codePreviewBorderCallComponent
-        : renderCall(args, theme, {
+        : renderCall(args, { expanded: context.expanded, isPartial: context.isPartial }, theme, {
             ...context,
             lastComponent: state.codePreviewBorderCallComponent,
           });
@@ -344,8 +414,17 @@ export const withCodePreviewShell: FabricToolShellDecorator = (tool, options = {
       state.codePreviewBorderTheme = theme;
       return shell;
     },
-    renderResult(result, resultOptions, theme, rawContext) {
-      const context = rawContext as unknown as PreviewRenderContext;
+    renderResult(result, resultOptions, theme) {
+      const renderOptions = (resultOptions ?? {}) as ToolRenderResultOptions & { renderContext?: Record<string, unknown> };
+      const supplied = renderOptions.renderContext && typeof renderOptions.renderContext === "object"
+        ? renderOptions.renderContext
+        : (renderOptions as unknown as Record<string, unknown>);
+      const context = buildRenderContext(
+        result,
+        renderOptions,
+        supplied,
+        shellStateFor(renderOptions),
+      );
       const optionsRecord = resultOptions as { isPartial: boolean };
       const label = updateTiming(context, timingEnabled);
       if (mode !== "border") {
@@ -380,5 +459,5 @@ export const withCodePreviewShell: FabricToolShellDecorator = (tool, options = {
         ? component
         : new Container();
     },
-  } as typeof tool;
+  } as TTool;
 };

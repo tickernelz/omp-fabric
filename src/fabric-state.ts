@@ -1,6 +1,6 @@
-import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 import { resolveAgentDir } from "./core/agent-dir.js";
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI } from "@oh-my-pi/pi-coding-agent";
 import fs from "node:fs";
 import path from "node:path";
 import { FabricActivityStore } from "./activity/store.js";
@@ -74,7 +74,7 @@ export class FabricState {
   #widgetDismissedAt = 0;
 
   constructor(
-    readonly pi: ExtensionAPI,
+    readonly omp: ExtensionAPI,
     readonly capturedTools: CapturedToolCatalog,
     options: FabricStateOptions = {},
   ) {
@@ -98,7 +98,7 @@ export class FabricState {
   }
 
   get config(): FabricConfig {
-    if (!this.#config) throw new Error("Pi Fabric has not bootstrapped");
+    if (!this.#config) throw new Error("OMP Fabric has not bootstrapped");
     return this.#config;
   }
 
@@ -183,8 +183,8 @@ export class FabricState {
 
   shouldEagerlyActivate(context: ExtensionContext): boolean {
     if (
-      process.env.PI_FABRIC_CAPABILITY_REQUIREMENTS !== undefined &&
-      Boolean(process.env.PI_FABRIC_CAPABILITY_DIGEST)
+      process.env.OMP_FABRIC_CAPABILITY_REQUIREMENTS !== undefined &&
+      Boolean(process.env.OMP_FABRIC_CAPABILITY_DIGEST)
     ) return true;
     if (this.config.prewalk.alwaysRearm) return true;
     if (this.config.components.some((component) => component.disabled !== true)) return true;
@@ -193,12 +193,12 @@ export class FabricState {
     }
     const sessionId = context.sessionManager.getSessionId();
     if (resolveFabricIdentity(sessionId).identity.kind !== "main") return false;
-    const projectRoot = process.env.PI_FABRIC_PROJECT_ROOT ?? context.cwd;
-    const meshRoot = process.env.PI_FABRIC_MESH_ROOT ??
+    const projectRoot = process.env.OMP_FABRIC_PROJECT_ROOT ?? context.cwd;
+    const meshRoot = process.env.OMP_FABRIC_MESH_ROOT ??
       (this.config.mesh.root
         ? path.resolve(projectRoot, this.config.mesh.root)
-        : path.join(projectRoot, ".pi", "fabric", "mesh"));
-    const fabricSessionId = process.env.PI_FABRIC_SESSION_ID?.trim() || sessionId;
+        : path.join(projectRoot, ".omp", "fabric", "mesh"));
+    const fabricSessionId = process.env.OMP_FABRIC_SESSION_ID?.trim() || sessionId;
     const actorRoots = [
       path.join(meshRoot, "actors"),
       path.join(meshRoot, "actors", fabricSessionId),
@@ -383,7 +383,7 @@ export class FabricState {
     let candidate: FabricRuntimeState | undefined;
     const assertCurrent = (): void => {
       if (generation !== this.#generation) {
-        throw new Error("Pi Fabric activation was superseded by a session change");
+        throw new Error("OMP Fabric activation was superseded by a session change");
       }
     };
     const activation = (async () => {
@@ -437,7 +437,7 @@ export class FabricState {
   async #createRuntime(): Promise<FabricRuntimeState> {
     const module = await (this.#options.runtimeLoader?.() ?? import("./fabric-runtime-state.js"));
     return new module.FabricRuntimeState(
-      this.pi,
+      this.omp,
       this.capturedTools,
       {
         activity: this.activity,
@@ -455,7 +455,7 @@ export class FabricState {
 
   #required(): FabricRuntimeState {
     const runtime = this.#current();
-    if (!runtime?.initialized) throw new Error("Pi Fabric has not activated");
+    if (!runtime?.initialized) throw new Error("OMP Fabric has not activated");
     return runtime;
   }
 }

@@ -1,7 +1,8 @@
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
-import { formatSkillsForPrompt, loadSkillsFromDir } from "@earendil-works/pi-coding-agent";
+import { loadSkillsFromDir } from "@oh-my-pi/pi-coding-agent";
+import { formatSkillsForPrompt } from "../src/core/skill-block.js";
 import { describe, expect, it } from "vitest";
 import { GUEST_TYPE_DECLARATIONS } from "../src/runtime/guest-types.js";
 import { typeCheckFabricCode } from "../src/runtime/type-checker.js";
@@ -38,8 +39,8 @@ describe("fabric-exec skill provider contracts", () => {
     const extension = fs.readFileSync("src/index.ts", "utf8");
 
     expect(skill).toContain("multiline or syntax-heavy payloads");
-    expect(skill).toContain("Every `π.key` must exist in the same call's top-level `payloads` map");
-    expect(skill).toContain("`pi.bash` and `pi.powershell` have no `stdin` option");
+    expect(skill).toContain("Every `omp.key` must exist in the same call's top-level `payloads` map");
+    expect(skill).toContain("`omp.bash` has no `stdin` option");
     expect(skill).toContain("Omit `timeoutMs` for agents and actors");
     expect(extension).not.toContain("Shorthands (all accepted)");
     expect(extension).not.toContain("mcp.fal_ai.get_model_schema");
@@ -51,7 +52,7 @@ describe("fabric-exec skill provider contracts", () => {
     const skill = fs.readFileSync("skills/fabric-exec/SKILL.md", "utf8");
     const frontmatter = skill.slice(0, skill.indexOf("---", 4));
 
-    expect(frontmatter).toContain("Routine `pi.*`");
+    expect(frontmatter).toContain("Routine `omp.*`");
     expect(frontmatter).toContain("only after");
     expect(frontmatter).not.toContain("before the first Fabric call");
   });
@@ -111,9 +112,9 @@ describe("fabric-exec skill provider contracts", () => {
         const code = match[1]!;
         const result = typeCheckFabricCode(code, GUEST_TYPE_DECLARATIONS);
         expect(result.errors, `${file} TypeScript block ${index + 1}`).toEqual([]);
-        for (const key of code.matchAll(/π\.([a-zA-Z_][a-zA-Z0-9_]*)/g)) {
-          expect(markdown, `${file} does not document strings.${key[1]}`)
-            .toContain(`strings.${key[1]}`);
+        for (const key of code.matchAll(/payloads\.([a-zA-Z_][a-zA-Z0-9_]*)/g)) {
+          expect(markdown, `${file} does not document payloads.${key[1]}`)
+            .toContain(`payloads.${key[1]}`);
         }
       }
     }
@@ -138,7 +139,7 @@ describe("fabric-exec skill provider contracts", () => {
 
   it("retains each specialized skill's execution invariants", () => {
     const required: Record<string, string[]> = {
-      "fabric-advisor": ["agent_settled", "tool_error", "no recreation warning", "without recreating or retrying automatically"],
+      "fabric-advisor": ["agent_end", "tool_error", "no recreation warning", "without recreating or retrying automatically"],
       "fabric-ambient": ["Choose and execute", "supervisor", "advisor", "never bounce the user", "without automatically rerunning setup"],
       "fabric-council": ["3–5 distinct", "CouncilOutcome", 'status: "partial"', "fallback: completed", "automatic whole-council rerun"],
       "fabric-exec": ["read, describe, retry", "tools.describe", "timeoutMs", "multiline or syntax-heavy payloads", "shell heredocs", "never load them autonomously", "Peer is a reserved Fabric term", "query `agents.peers()` first", "Search before reading", "offset", "2000 lines or 50KB", "Use offset=n to continue"],
@@ -146,10 +147,10 @@ describe("fabric-exec skill provider contracts", () => {
       "fabric-fusion": ["2–8 model panel", "PanelOutcome", "ambiguous", 'status: "partial"', "automatic full-panel rerun", "strings.actor", "1–4", "exactly one actor call", "never automatically rerun successful references"],
       "fabric-rlm": ["strings.task", "context-sized", "Context is an external variable", "QuickJS bindings end", "root-scoped `rlm/<rootId>/bindings/...`", "`state` is for claims", "recursive=true only", "all-failed batch", "full `FabricAgentResult` objects never return", "never rerun successful partitions"],
       "fabric-schema": ["one same-`fabric_exec`", "Evidence is not proof", 'status: commit.outcome === "committed"', "actually inspected"],
-      "fabric-supervisor": ["agent_settled", "tool_error", "Goal verified complete", "without recreating or retrying automatically"],
+      "fabric-supervisor": ["agent_end", "tool_error", "Goal verified complete", "without recreating or retrying automatically"],
       "fabric-swarm": ["ifVersion: 0", "observed version", "CAS-unblock dependents", "agents.tell"],
       "fabric-workflow": ["parallel(thunks", "WorkOutcome", 'status: "partial"', "fallback: completed", "automatic whole-workflow rerun"],
-      "fabric-spec": ["agent_settled", "tool_error", "Spec verified complete", "never the approach", "without recreating or retrying automatically"],
+      "fabric-spec": ["agent_end", "tool_error", "Spec verified complete", "never the approach", "without recreating or retrying automatically"],
     };
 
     for (const [name, signals] of Object.entries(required)) {
@@ -201,7 +202,7 @@ describe("fabric-exec skill provider contracts", () => {
     }
   }, 120_000);
 
-  it("keeps the skill hierarchy core-first and user-opt-in", () => {
+  it("keeps the skill hierarchy core-first and user-opt-in", async () => {
     const skills = fs.readdirSync("skills", { withFileTypes: true })
       .filter((entry) => entry.isDirectory())
       .map((entry) => ({
@@ -210,17 +211,17 @@ describe("fabric-exec skill provider contracts", () => {
       }))
       .filter((entry) => fs.existsSync(entry.file));
 
-    const loaded = loadSkillsFromDir({ dir: "skills", source: "test" });
-    expect(loaded.diagnostics).toEqual([]);
+    const loaded = await loadSkillsFromDir({ dir: "skills", source: "test" });
+    expect(loaded.warnings).toEqual([]);
     const fabricSkills = loaded.skills.filter((skill) => skill.name.startsWith("fabric-"));
     expect(fabricSkills.map((skill) => skill.name).sort()).toEqual(
       skills.map(({ name }) => name).sort(),
     );
-    expect(fabricSkills.filter((skill) => !skill.disableModelInvocation)
+    expect(fabricSkills.filter((skill) => !skill.hide)
       .map((skill) => skill.name)).toEqual(["fabric-exec"]);
     const prompt = formatSkillsForPrompt(fabricSkills);
     expect(prompt).toContain("fabric-exec");
-    for (const skill of fabricSkills.filter((skill) => skill.disableModelInvocation)) {
+    for (const skill of fabricSkills.filter((skill) => skill.hide)) {
       expect(prompt).not.toContain(`<name>${skill.name}</name>`);
     }
 
@@ -236,15 +237,15 @@ describe("fabric-exec skill provider contracts", () => {
     expect(policy).toContain("core-first, user-opt-in");
     expect(policy).toContain("not a filesystem authorization boundary");
     expect(fs.readFileSync("README.md", "utf8")).toContain(
-      "Pi loads advanced patterns after direct user invocation",
+      "OMP loads advanced patterns after direct user invocation",
     );
 
     const packageJson = JSON.parse(fs.readFileSync("package.json", "utf8")) as {
       files: string[];
-      pi: { skills: string[] };
+      omp: { skills: string[] };
     };
     expect(packageJson.files).toContain("docs/");
-    expect(packageJson.pi.skills).toContain("./skills");
+    expect(packageJson.omp.skills).toContain("./skills");
 
     for (const reference of fs.readdirSync("skills/fabric-exec/references")) {
       const markdown = fs.readFileSync(

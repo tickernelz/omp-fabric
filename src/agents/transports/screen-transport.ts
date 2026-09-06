@@ -6,7 +6,7 @@ import type {
 import { EXTERNAL_TRANSPORT_LIVENESS_POLL_INTERVAL_MS } from "../constants.js";
 import { commandAvailable, executeFile, scriptSpawnArgs } from "./process-utils.js";
 
-const sessionName = (id: string): string => `pi-fabric-${id.slice(0, 12)}`;
+const sessionName = (id: string): string => `omp-fabric-${id.slice(0, 12)}`;
 
 export class ScreenTransport implements AgentTransportAdapter {
   readonly kind = "screen" as const;

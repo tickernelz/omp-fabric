@@ -1,7 +1,7 @@
 // Pure write-diff size guards shared by the write-preview tool wrapper and the
 // dashboard's core-tool-render. Keep this module free of imports from
-// "@earendil-works/pi-coding-agent": it is part of the lazily imported
-// dashboard graph, which cannot resolve pi's host package in managed
+// "@oh-my-pi/pi-coding-agent": it is part of the lazily imported
+// dashboard graph, which cannot resolve OMP's host package in managed
 // installs (issue #13).
 
 const configuredMaxBytes = Number.parseInt(

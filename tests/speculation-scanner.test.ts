@@ -4,8 +4,8 @@ import { LiteralCallScanner } from "../src/speculation/scanner.js";
 describe("LiteralCallScanner", () => {
   it("detects a single-object literal call", () => {
     const scanner = new LiteralCallScanner();
-    const found = scanner.push('const a = await pi.read({ path: "src/index.ts" });');
-    expect(found).toEqual([{ ref: "pi.read", args: { path: "src/index.ts" } }]);
+    const found = scanner.push('const a = await omp.read({ path: "src/index.ts" });');
+    expect(found).toEqual([{ ref: "omp.read", args: { path: "src/index.ts" } }]);
   });
 
   it("detects zero-argument calls as {}", () => {
@@ -17,11 +17,11 @@ describe("LiteralCallScanner", () => {
   it("detects nested literal shapes", () => {
     const scanner = new LiteralCallScanner();
     const found = scanner.push(
-      'await pi.grep({ pattern: "TODO", path: "src", ignoreCase: true, context: 2, tags: ["a", 3, null] });',
+      'await omp.grep({ pattern: "TODO", path: "src", ignoreCase: true, context: 2, tags: ["a", 3, null] });',
     );
     expect(found).toEqual([
       {
-        ref: "pi.grep",
+        ref: "omp.grep",
         args: {
           pattern: "TODO",
           path: "src",
@@ -37,47 +37,47 @@ describe("LiteralCallScanner", () => {
     const scanner = new LiteralCallScanner();
     const found = scanner.push(`
       const [a, b] = await Promise.all([
-        pi.read({ path: "a.ts" }),
-        pi.read({ path: "b.ts" }),
+        omp.read({ path: "a.ts" }),
+        omp.read({ path: "b.ts" }),
       ]);
       await memory.recall({ query: "speculation" });
     `);
-    expect(found.map((c) => c.ref)).toEqual(["pi.read", "pi.read", "memory.recall"]);
+    expect(found.map((c) => c.ref)).toEqual(["omp.read", "omp.read", "memory.recall"]);
   });
 
   it("builds three-segment MCP refs", () => {
     const scanner = new LiteralCallScanner();
     const found = scanner.push(
-      'const r = await mcp.exa.search({ query: "pi-fabric", numResults: 3 });',
+      'const r = await mcp.exa.search({ query: "omp-fabric", numResults: 3 });',
     );
     expect(found).toEqual([
-      { ref: "mcp.exa.search", args: { query: "pi-fabric", numResults: 3 } },
+      { ref: "mcp.exa.search", args: { query: "omp-fabric", numResults: 3 } },
     ]);
   });
 
   it("rejects non-literal arguments without emitting", () => {
     const scanner = new LiteralCallScanner();
     const code = [
-      "pi.read({ path: someVar })",
-      "pi.read({ path: `prefix-${x}` })",
-      "pi.read({ path: paths[0] })",
-      "pi.read({ ...base })",
-      "pi.read({ path: \"a\", other: compute() })",
+      "omp.read({ path: someVar })",
+      "omp.read({ path: `prefix-${x}` })",
+      "omp.read({ path: paths[0] })",
+      "omp.read({ ...base })",
+      "omp.read({ path: \"a\", other: compute() })",
     ].join(";\n") + ";";
     expect(scanner.push(code)).toEqual([]);
   });
 
   it("skips positional/multi-argument calls (normalization lives on the guest bridge)", () => {
     const scanner = new LiteralCallScanner();
-    expect(scanner.push('pi.grep("TODO", "src");')).toEqual([]);
-    expect(scanner.push('pi.ls("src");')).toEqual([]);
+    expect(scanner.push('omp.grep("TODO", "src");')).toEqual([]);
+    expect(scanner.push('omp.ls("src");')).toEqual([]);
   });
 
   it("taints a namespace root when the program shadows it", () => {
     const scanner = new LiteralCallScanner();
     const found = scanner.push(`
-      const pi = { read: () => "fake" };
-      pi.read({ path: "a.ts" });
+      const omp = { read: () => "fake" };
+      omp.read({ path: "a.ts" });
       memory.recall({ query: "still fine" });
     `);
     expect(found).toEqual([{ ref: "memory.recall", args: { query: "still fine" } }]);
@@ -93,26 +93,26 @@ describe("LiteralCallScanner", () => {
 
   it("emits each ref+args pair once across incremental pushes", () => {
     const scanner = new LiteralCallScanner();
-    expect(scanner.push('const a = pi.read({ path: "a.ts" }')).toEqual([]);
-    const first = scanner.push('const a = pi.read({ path: "a.ts" });\nconst b = pi.read({ path: "b.ts" });');
+    expect(scanner.push('const a = omp.read({ path: "a.ts" }')).toEqual([]);
+    const first = scanner.push('const a = omp.read({ path: "a.ts" });\nconst b = omp.read({ path: "b.ts" });');
     expect(first.map((c) => c.args.path)).toEqual(["a.ts", "b.ts"]);
     // Re-pushed overlapping prefix must not re-emit a.ts.
     const second = scanner.push(
-      'const a = pi.read({ path: "a.ts" });\nconst b = pi.read({ path: "b.ts" });\npi.read({ path: "a.ts" });',
+      'const a = omp.read({ path: "a.ts" });\nconst b = omp.read({ path: "b.ts" });\nomp.read({ path: "a.ts" });',
     );
     expect(second).toEqual([]);
   });
 
   it("does not scan when the appended text cannot complete a call", () => {
     const scanner = new LiteralCallScanner();
-    const noop = scanner.push('const x = pi.read({ path: "a.ts"');
+    const noop = scanner.push('const x = omp.read({ path: "a.ts"');
     expect(noop).toEqual([]);
   });
 
   it("detects calls under conditionals (launch is speculative; freshness gates correctness)", () => {
     const scanner = new LiteralCallScanner();
-    const found = scanner.push('if (docs.length > 0) { await pi.read({ path: "d.md" }); }');
-    expect(found).toEqual([{ ref: "pi.read", args: { path: "d.md" } }]);
+    const found = scanner.push('if (docs.length > 0) { await omp.read({ path: "d.md" }); }');
+    expect(found).toEqual([{ ref: "omp.read", args: { path: "d.md" } }]);
   });
 
   it("handles negative and fractional numbers", () => {

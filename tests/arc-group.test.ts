@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { Theme } from "@earendil-works/pi-coding-agent";
+import type { Theme } from "@oh-my-pi/pi-coding-agent";
 import {
   arcItem,
   arcItemStyled,

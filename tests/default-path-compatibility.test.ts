@@ -1,4 +1,4 @@
-import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
 import { ActionRegistry, type FabricCallAudit } from "../src/core/action-registry.js";
 import type { FabricInvocationContext, FabricProvider } from "../src/protocol.js";

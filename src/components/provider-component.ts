@@ -11,7 +11,7 @@ import type {
 export const FABRIC_PROVIDER_COMPONENT_PREFIX = "fabric.provider.";
 
 export const FABRIC_COMPONENT_PROVIDER_NAMES = [
-  "pi",
+  "omp",
   "extensions",
   "mcp",
   "mesh",

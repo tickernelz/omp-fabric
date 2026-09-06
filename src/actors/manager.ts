@@ -1,4 +1,4 @@
-import type { ImageContent } from "@earendil-works/pi-ai";
+import type { ImageContent } from "@oh-my-pi/pi-ai";
 import { randomUUID } from "node:crypto";
 import fs, { type FSWatcher } from "node:fs";
 import os from "node:os";
@@ -110,7 +110,6 @@ const HOST_EVENTS: ReadonlySet<FabricActorHostEvent> = new Set(FABRIC_ACTOR_HOST
 const MAIN_REVISION_EVENTS: ReadonlySet<FabricActorHostEvent> = new Set([
   "input",
   "turn_end",
-  "agent_settled",
   "tool_error",
   "session_compact",
 ]);
@@ -274,7 +273,7 @@ export class ActorManager {
   readonly #bindings: ActorBindingStore;
   readonly #mainAgent: FabricMainAgentTarget | undefined;
   readonly #canManageActor: ((id: string) => boolean | undefined) | undefined;
-  readonly #resolvePiModel: ((model: string) => string) | undefined;
+  readonly #resolveOmpModel: ((model: string) => string) | undefined;
   readonly #lineageAlive: ((rootId: string) => boolean) | undefined;
   readonly #claimResidency: FabricParticipantResidency | undefined;
   readonly #rootId: string;
@@ -307,7 +306,7 @@ export class ActorManager {
   #closing = false;
   // Stop-the-world gate armed by haltAll() (ESC): while true, host-event and
   // mesh dispatch are frozen so interrupted actors are not re-armed by the
-  // interrupt's own turn_end / agent_settled events. Lifted when the user
+  // interrupt's own turn_end / agent_end events. Lifted when the user
   // resumes by sending a new message (the "input" host event).
   #halted = false;
   #mainRevision = 0;
@@ -329,7 +328,7 @@ export class ActorManager {
       persistent?: boolean;
       mainAgent?: FabricMainAgentTarget;
       canManageActor?: (id: string) => boolean | undefined;
-      resolvePiModel?: (model: string) => string;
+      resolveOmpModel?: (model: string) => string;
       lineageAlive?: (rootId: string) => boolean;
       adoptionGraceMs?: number;
       claimResidency?: FabricParticipantResidency;
@@ -344,12 +343,12 @@ export class ActorManager {
     } = {},
   ) {
     this.#actorRoot =
-      options.actorRoot ?? fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-actors-"));
+      options.actorRoot ?? fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-actors-"));
     this.#actorScope = options.actorScope ?? meshConfig.actorScope;
     this.#persistent = options.persistent ?? false;
     this.#mainAgent = options.mainAgent;
     this.#canManageActor = options.canManageActor;
-    this.#resolvePiModel = options.resolvePiModel;
+    this.#resolveOmpModel = options.resolveOmpModel;
     this.#lineageAlive = options.lineageAlive;
     this.#adoptionGraceMs = options.adoptionGraceMs ?? ORPHAN_ADOPTION_RETRY_MS;
     this.#claimResidency = options.claimResidency;
@@ -436,7 +435,7 @@ export class ActorManager {
     }
     await validateActorValidWhile(request.validWhile);
     const runner = request.runner ?? this.agents.config.runner;
-    if (runner !== "pi" && runner !== "claude") {
+    if (runner !== "omp" && runner !== "claude") {
       throw new Error(`Invalid Fabric actor runner: ${String(request.runner)}`);
     }
     const requestedModel = typeof request.model === "string" ? request.model.trim() : "";
@@ -621,8 +620,8 @@ export class ActorManager {
   /**
    * Replace an existing actor's tool allowlist. The new list takes effect on
    * the next queued message; an in-flight run keeps its launch-time tools. An
-   * empty list leaves a Pi actor with only its host-required fabric_exec tool
-   * and a Claude actor with no tools — unless the Pi actor was created with
+   * empty list leaves an OMP actor with only its host-required fabric_exec tool
+   * and a Claude actor with no tools — unless the OMP actor was created with
    * `extensions: false`, in which case an empty list leaves it with no tools.
    */
   async setTools(id: string, tools: string[]): Promise<FabricActorInfo> {
@@ -932,7 +931,7 @@ export class ActorManager {
       typeof (payload as { signal?: { idle?: unknown } }).signal?.idle === "boolean"
       ? (payload as { signal: { idle: boolean } }).signal.idle
       : undefined;
-    if (!this.#beginHostEvent(event, payloadIdle ?? event === "agent_settled")) return 0;
+    if (!this.#beginHostEvent(event, payloadIdle ?? false)) return 0;
     return this.dispatchObservedHostEvent(event, payload, images);
   }
 
@@ -1137,7 +1136,7 @@ export class ActorManager {
    * and subscriptions, and resume responding to future events. Returns the
    * number of actors that had work to cancel. Also arms a short cooldown that
    * suppresses host-event dispatch so the interrupt's own turn_end /
-   * agent_settled events do not immediately re-enqueue the actors.
+   * agent_end events do not immediately re-enqueue the actors.
    */
   haltAll(): { halted: number } {
     if (!this.meshConfig.enabled) return { halted: 0 };
@@ -1537,7 +1536,7 @@ export class ActorManager {
       ].join("\n\n"),
       name: actor.name,
       runner: actor.runner,
-      recursive: (actor.extensions ?? true) && actor.runner === "pi",
+      recursive: (actor.extensions ?? true) && actor.runner === "omp",
       extensions: actor.extensions ?? true,
       sessionFile: actor.sessionFile,
       systemPrompt: this.#systemPrompt(actor),
@@ -1572,9 +1571,9 @@ export class ActorManager {
         : "Respond with the useful result for this message. Keep durable state in your session context.";
     const fabricEnabled = actor.extensions ?? true;
     const coordinationInstruction =
-      actor.runner === "pi" && !fabricEnabled
+      actor.runner === "omp" && !fabricEnabled
         ? "The Fabric host manages your mailbox, subscriptions, delivery, and lifecycle. You do not have fabric_exec or direct agents/mesh APIs; reply with your analysis and the host delivers it. Do not attempt to call fabric_exec, agents, or mesh tools."
-        : actor.runner === "pi"
+        : actor.runner === "omp"
           ? "You may use Fabric for tools and durable coordination. In fabric_exec, agents.main() discovers the user-facing Main target; agents.steer() and agents.followUp() message Main or other known agents, while mesh.self(), mesh.members(), mesh.publish(), mesh.read(), mesh.get(), and mesh.put() support durable coordination. Use addressed messages or shared versioned state when useful."
           : "The Fabric host manages your mailbox, subscriptions, delivery, and lifecycle. This Claude runner has Claude Code tools but not fabric_exec or direct mesh APIs; coordinate through the messages the host delivers.";
     const capabilityInstruction = actor.requirements.length > 0
@@ -2216,7 +2215,7 @@ export class ActorManager {
         triggerTurn,
         coalesce: record.coalesce !== false,
         residency: record.residency === "durable" ? "durable" : "session",
-        runner: record.runner === "claude" ? "claude" : "pi",
+        runner: record.runner === "claude" ? "claude" : "omp",
         ...(typeof record.runnerSessionId === "string" && record.runnerSessionId.trim()
           ? { runnerSessionId: record.runnerSessionId }
           : {}),
@@ -2273,8 +2272,8 @@ export class ActorManager {
   }
 
   #resolvedModel(runner: FabricAgentRunner, model: string): string {
-    return runner === "pi" && this.#resolvePiModel
-      ? this.#resolvePiModel(model)
+    return runner === "omp" && this.#resolveOmpModel
+      ? this.#resolveOmpModel(model)
       : model;
   }
 

@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { SessionManager, type ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { SessionManager, type ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ActorManager } from "../src/actors/manager.js";
 import type { FabricActorInfo, FabricActorRequest } from "../src/actors/types.js";
@@ -44,7 +44,7 @@ const usage = {
   cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
 };
 
-const visiblePiModels = [
+const visibleOmpModels = [
   { provider: "anthropic", id: "executor", name: "Executor" },
   { provider: "anthropic", id: "frontier", name: "Frontier" },
   { provider: "provider", id: "project" },
@@ -56,9 +56,9 @@ const visiblePiModels = [
 ];
 
 const visibleModelRegistry = {
-  getAvailable: () => visiblePiModels,
+  getAvailable: () => visibleOmpModels,
   find: (provider: string, id: string) =>
-    visiblePiModels.find((model) => model.provider === provider && model.id === id),
+    visibleOmpModels.find((model) => model.provider === provider && model.id === id),
 };
 
 const context: FabricInvocationContext = {
@@ -80,7 +80,7 @@ const setup = (
     modelsConfig?: FabricModelsConfig;
   },
 ) => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-agents-provider-"));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-agents-provider-"));
   roots.push(root);
   const mesh = new MeshStore(path.join(root, "mesh"), 64 * 1024, 100);
   const agents = new AgentManager(process.cwd(), DEFAULT_FABRIC_CONFIG.agents, {
@@ -107,7 +107,7 @@ const setup = (
       name: "Main" as const,
       kind: "main" as const,
       status: "idle" as const,
-      runner: "pi" as const,
+      runner: "omp" as const,
       transport: "host" as const,
       cwd: process.cwd(),
       sessionId: "test",
@@ -126,7 +126,7 @@ const setup = (
     },
     ...(options?.switchModel ? { switchModel: options.switchModel } : {}),
   };
-  const actors = new ActorManager("test", identity, mesh, meshConfig, agents, () => {}, {
+  const actors = new ActorManager("test", identity, mesh, meshConfig, agents, async () => {}, {
     actorRoot: path.join(root, "actors"),
     persistent: true,
     mainAgent,
@@ -151,7 +151,7 @@ const setup = (
       ownerIdentityId: identity.id,
       name: "main",
       status: "idle",
-      runner: "pi",
+      runner: "omp",
       transport: "host",
       capabilities: ["steer", "followUp", "fabric"],
       cwd: process.cwd(),
@@ -258,7 +258,7 @@ const lifecycleSubscription = (
       name: "Peer source",
       kind: "root",
       rootId: "session:source",
-      runner: "pi",
+      runner: "omp",
       ownerHostId: "session:source",
       ownerIdentityId: "session:source",
     },
@@ -267,7 +267,7 @@ const lifecycleSubscription = (
     ...overrides,
   });
 
-  describe("AgentsProvider lifecycle coalescing", () => {
+  describe("AgentsProvider lifecycle coalescing", async () => {
     it("coalesces a burst of followUp lifecycle events into one wake delivery", async () => {
       const { provider, mainDeliveries } = setup();
       for (let index = 0; index < 5; index += 1) {
@@ -326,7 +326,7 @@ const lifecycleSubscription = (
     });
   });
 
-describe("AgentsProvider runner support", () => {
+describe("AgentsProvider runner support", async () => {
   it("exposes model-programmable residency on spawn and create", async () => {
     const { provider } = setup();
     const spawn = await provider.describe("spawn", context);
@@ -365,8 +365,8 @@ describe("AgentsProvider runner support", () => {
     type RunnerProperty = { enum?: string[]; type?: string; description?: string };
     const runProperties = (run?.inputSchema as { properties: Record<string, RunnerProperty> }).properties;
     const spawnProperties = (spawn?.inputSchema as { properties: Record<string, RunnerProperty> }).properties;
-    expect(runProperties.runner?.enum).toEqual(["pi", "claude", "veda"]);
-    expect(spawnProperties.runner?.enum).toEqual(["pi", "claude", "veda"]);
+    expect(runProperties.runner?.enum).toEqual(["omp", "claude", "veda"]);
+    expect(spawnProperties.runner?.enum).toEqual(["omp", "claude", "veda"]);
     expect(runProperties.persona?.type).toBe("string");
     expect(runProperties.persona?.description).toContain("Veda persona");
     expect(spawnProperties.persona?.type).toBe("string");
@@ -452,7 +452,7 @@ describe("AgentsProvider runner support", () => {
         scope: request.scope ?? "project",
         name: request.name,
         status: "idle",
-        runner: request.runner ?? "pi",
+        runner: request.runner ?? "omp",
         events: request.events ?? [],
         topics: request.topics ?? [],
         delivery: request.delivery ?? "mailbox",
@@ -563,7 +563,7 @@ describe("AgentsProvider runner support", () => {
       name: "Peer peer",
       kind: "peer",
       status: "idle",
-      runner: "pi",
+      runner: "omp",
       transport: "host",
       cwd: process.cwd(),
       sessionId: "peer",
@@ -583,14 +583,14 @@ describe("AgentsProvider runner support", () => {
       {
         format: 1, id: "session:test", kind: "root", rootId: "session:test",
         ownerHostId: "session:test", ownerIdentityId: "session:test", name: "main",
-        status: "idle", runner: "pi", transport: "host",
+        status: "idle", runner: "omp", transport: "host",
         capabilities: ["steer", "followUp", "fabric"], sessionId: "test",
         startedAt: 1, updatedAt: 2, controlProtocol: "v1", local: true, stale: false,
       },
       {
         format: 1, id: "session:peer", kind: "root", rootId: "session:peer",
         ownerHostId: "session:peer", ownerIdentityId: "session:peer", name: "main",
-        status: "running", runner: "pi", transport: "host",
+        status: "running", runner: "omp", transport: "host",
         capabilities: ["steer", "followUp", "fabric"], sessionId: "peer",
         startedAt: 1, updatedAt: 2, controlProtocol: "v1", local: false, stale: false,
       },
@@ -611,7 +611,7 @@ describe("AgentsProvider runner support", () => {
       ownerIdentityId: "session:test",
       name: "main",
       status: "idle",
-      runner: "pi",
+      runner: "omp",
       transport: "host",
       capabilities: ["steer", "followUp", "fabric"],
       cwd: process.cwd(),
@@ -638,7 +638,7 @@ describe("AgentsProvider runner support", () => {
       "subscribe",
       {
         from: source.id,
-        events: ["pi.agent_settled"],
+        events: ["omp.agent_end"],
         delivery: "followUp",
         triggerTurn: false,
         once: true,
@@ -651,7 +651,7 @@ describe("AgentsProvider runner support", () => {
         id: subscription.id,
         from: source.id,
         to: target.id,
-        events: ["pi.agent_settled"],
+        events: ["omp.agent_end"],
         triggerTurn: false,
         once: true,
       }),
@@ -668,7 +668,7 @@ describe("AgentsProvider runner support", () => {
       format: 1,
       id: "subscription-1",
       from: "session:peer",
-      events: ["pi.agent_settled"],
+      events: ["omp.agent_end"],
       to: "session:test",
       delivery: "followUp",
       triggerTurn: false,
@@ -682,13 +682,13 @@ describe("AgentsProvider runner support", () => {
       version: 1,
       id: "event-1",
       sequence: 1,
-      event: "pi.agent_settled",
+      event: "omp.agent_end",
       source: {
         id: "session:peer",
         name: "Peer peer",
         kind: "root",
         rootId: "session:peer",
-        runner: "pi",
+        runner: "omp",
       },
       occurredAt: 2,
       publishedAt: 3,
@@ -717,7 +717,7 @@ describe("AgentsProvider runner support", () => {
       ownerIdentityId: "session:test",
       name: "main",
       status: "idle",
-      runner: "pi",
+      runner: "omp",
       transport: "host",
       capabilities: [],
       cwd: process.cwd(),
@@ -752,7 +752,7 @@ describe("AgentsProvider runner support", () => {
       parentId: "session:peer",
       name: "remote reviewer",
       status: "running",
-      runner: "pi",
+      runner: "omp",
       transport: "process",
       capabilities: ["steer", "followUp", "stop"],
       cwd: process.cwd(),
@@ -795,7 +795,7 @@ describe("AgentsProvider runner support", () => {
           id: context.parentToolCallId,
           name: "fabric_exec",
           arguments: {
-            code: "await pi.read(...); await pi.edit(...); await pi.edit(...); return 'verified';",
+            code: "await omp.read(...); await omp.edit(...); await omp.edit(...); return 'verified';",
           },
         },
       ],
@@ -884,7 +884,7 @@ describe("AgentsProvider runner support", () => {
     expect(task).toContain("Finish the implementation and verify it.");
     const handoffDirectory = path.join(root, "runs", result.agent.id, "handoff-session");
     const [sessionName] = fs.readdirSync(handoffDirectory);
-    const seededSession = SessionManager.open(path.join(handoffDirectory, sessionName!));
+    const seededSession = await SessionManager.open(path.join(handoffDirectory, sessionName!));
     const seededMessages = seededSession.buildSessionContext().messages;
     expect(JSON.stringify(seededMessages)).toContain("Implement the rare token guard 43117");
     expect(seededMessages.map((message) => message.role)).toEqual([
@@ -917,7 +917,7 @@ describe("AgentsProvider runner support", () => {
       } as unknown as ExtensionContext,
     };
     await expect(provider.invoke("handoff", {}, handoffContext)).rejects.toThrow(
-      /requires an explicit Pi target model/,
+      /requires an explicit OMP target model/,
     );
     const descriptor = await provider.describe("handoff", handoffContext);
     expect(descriptor?.risk).toBe("agent");
@@ -963,7 +963,7 @@ describe("AgentsProvider runner support", () => {
     const { provider } = setup();
     const updates: string[] = [];
     const invocationContext = { ...context, update: (message: string) => updates.push(message) };
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-agent-activity-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-agent-activity-"));
     roots.push(root);
     const target = path.join(root, "leaf");
     fs.mkdirSync(target);
@@ -995,7 +995,7 @@ describe("AgentsProvider runner support", () => {
     const { provider } = setup();
     const updates: string[] = [];
     const invocationContext = { ...context, update: (message: string) => updates.push(message) };
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-agent-activity-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-agent-activity-"));
     roots.push(root);
     const longPart = "x".repeat(96);
     const target = path.join(root, longPart, longPart, `leaf-\u001b-${"y".repeat(96)}`);
@@ -1103,7 +1103,7 @@ describe("AgentsProvider runner support", () => {
           type: "toolCall",
           id: context.parentToolCallId,
           name: "fabric_exec",
-          arguments: { code: "await pi.edit(...); return 'verified';" },
+          arguments: { code: "await omp.edit(...); return 'verified';" },
         },
       ],
       api: "anthropic",
@@ -1166,7 +1166,7 @@ describe("AgentsProvider runner support", () => {
 
     const handoffDirectory = path.join(root, "runs", result.agent.id, "handoff-session");
     const [sessionName] = fs.readdirSync(handoffDirectory);
-    const seededSession = SessionManager.open(path.join(handoffDirectory, sessionName!));
+    const seededSession = await SessionManager.open(path.join(handoffDirectory, sessionName!));
     const seededMessages = seededSession.buildSessionContext().messages;
     expect(seededMessages.map((message) => message.role)).toEqual([
       "compactionSummary",
@@ -1185,7 +1185,7 @@ describe("AgentsProvider runner support", () => {
     ).toBe(true);
     expect(seededSession.getEntries().at(-1)).toMatchObject({
       type: "custom",
-      customType: "pi-fabric-handoff",
+      customType: "omp-fabric-handoff",
       data: { compaction: { applied: true } },
     });
   });
@@ -1210,7 +1210,7 @@ describe("AgentsProvider runner support", () => {
       kind: "fabric-agent-tools",
       name: "preview-agent",
       status: "completed",
-      runner: "pi",
+      runner: "omp",
       owner: "agent",
       text: "fake worker complete",
       tools: expect.any(Array),
@@ -1341,7 +1341,7 @@ describe("AgentsProvider runner support", () => {
   });
 });
 
-describe("AgentsProvider shared actor definitions", () => {
+describe("AgentsProvider shared actor definitions", async () => {
   it("exposes the shared definition, mailbox, and logs while keeping mutation owner-gated", async () => {
     const members: FabricParticipantInfo[] = [];
     const { provider, actors } = setup([], members);
@@ -1356,7 +1356,7 @@ describe("AgentsProvider shared actor definitions", () => {
       parentId: "session:peer",
       name: actor.name,
       status: "idle",
-      runner: "pi",
+      runner: "omp",
       transport: "host",
       capabilities: ["steer", "followUp", "stop", "ask", "actor-bindings", "fabric"],
       startedAt: actor.createdAt,
@@ -1420,7 +1420,7 @@ describe("AgentsProvider shared actor definitions", () => {
       parentId: "session:owner",
       name: actor.name,
       status: "idle",
-      runner: "pi",
+      runner: "omp",
       transport: "host",
       capabilities: ["steer", "followUp", "stop", "ask", "actor-bindings", "fabric"],
       startedAt: actor.createdAt,
@@ -1482,7 +1482,7 @@ describe("AgentsProvider shared actor definitions", () => {
       name: "resident child",
       status: "idle",
       residency: "durable",
-      runner: "pi",
+      runner: "omp",
       transport: "host",
       capabilities: ["steer", "followUp", "stop", "ask", "actor-bindings", "fabric"],
       startedAt: 1,
@@ -1538,7 +1538,7 @@ describe("AgentsProvider shared actor definitions", () => {
   });
 
   it("executes one shared actor with each caller's session binding", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-two-sessions-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-two-sessions-"));
     roots.push(root);
     const meshRoot = path.join(root, "mesh");
     const actorRoot = path.join(root, "actors");
@@ -1576,7 +1576,7 @@ describe("AgentsProvider shared actor definitions", () => {
         name: "Main",
         kind: "main",
         status: "idle",
-        runner: "pi",
+        runner: "omp",
         transport: "host",
         cwd: process.cwd(),
         sessionId: identity.sessionId ?? identity.id,
@@ -1634,7 +1634,7 @@ describe("AgentsProvider shared actor definitions", () => {
       parentId: ownerIdentity.id,
       name: actor.name,
       status: "idle",
-      runner: "pi",
+      runner: "omp",
       transport: "host",
       capabilities: ["steer", "followUp", "stop", "ask", "actor-bindings", "fabric"],
       startedAt: actor.createdAt,
@@ -1659,7 +1659,7 @@ describe("AgentsProvider shared actor definitions", () => {
         ownerIdentityId: identity.id,
         name: identity.name,
         status: "idle",
-        runner: "pi",
+        runner: "omp",
         transport: "host",
         capabilities: ["steer", "followUp", "fabric"],
         sessionId: identity.sessionId ?? identity.id,
@@ -1765,7 +1765,7 @@ describe("AgentsProvider shared actor definitions", () => {
 
 });
 
-describe("AgentsProvider global actors", () => {
+describe("AgentsProvider global actors", async () => {
   it("creates a global template and lists it separately from project actors", async () => {
     const { provider, actors, globalActors } = setup();
     const template = await provider.invoke("create", { ...createRequest, scope: "global" }, context);
@@ -1966,7 +1966,7 @@ describe("AgentsProvider global actors", () => {
   });
 });
 
-describe("AgentsProvider steering", () => {
+describe("AgentsProvider steering", async () => {
   const readSteerFile = (root: string, id: string): Array<Record<string, unknown>> => {
     const file = path.join(root, "runs", id, "steer.jsonl");
     if (!fs.existsSync(file)) return [];
@@ -2180,14 +2180,14 @@ describe("AgentsProvider steering", () => {
   });
 });
 
-describe("collectAgentToolPreviewNodes", () => {
+describe("collectAgentToolPreviewNodes", async () => {
   const previewRecord = (overrides: Record<string, unknown>): AgentRunRecord =>
     ({
       id: "id",
       name: "agent",
       task: "task",
       status: "running",
-      runner: "pi",
+      runner: "omp",
       transport: "process",
       cwd: "/tmp",
       startedAt: 0,
@@ -2205,7 +2205,7 @@ describe("collectAgentToolPreviewNodes", () => {
     label: "read",
   });
 
-  it("maps a nested run tree onto recursive preview nodes", () => {
+  it("maps a nested run tree onto recursive preview nodes", async () => {
     const nodes = collectAgentToolPreviewNodes(
       [
         previewRecord({
@@ -2233,7 +2233,7 @@ describe("collectAgentToolPreviewNodes", () => {
     expect(child?.agentsTruncated).toBeUndefined();
   });
 
-  it("marks nodes whose descendants exceed the depth budget", () => {
+  it("marks nodes whose descendants exceed the depth budget", async () => {
     const nodes = collectAgentToolPreviewNodes(
       [
         previewRecord({
@@ -2251,7 +2251,7 @@ describe("collectAgentToolPreviewNodes", () => {
     expect(child?.agentsTruncated).toBe(true);
   });
 
-  it("caps the total node count across the breadth of the tree", () => {
+  it("caps the total node count across the breadth of the tree", async () => {
     const nodes = collectAgentToolPreviewNodes(
       [
         previewRecord({ id: "first" }),
@@ -2266,7 +2266,7 @@ describe("collectAgentToolPreviewNodes", () => {
     expect(nodes[1]?.agentsTruncated).toBe(true);
   });
 
-  it("labels actor-runs with the actor owner kind", () => {
+  it("labels actor-runs with the actor owner kind", async () => {
     const nodes = collectAgentToolPreviewNodes(
       [previewRecord({ id: "run", actorId: "actor-1", actorName: "mailbox-bot" })],
       { tools: () => [] },
@@ -2276,7 +2276,7 @@ describe("collectAgentToolPreviewNodes", () => {
   });
 });
 
-describe("AgentsProvider switchModel", () => {
+describe("AgentsProvider switchModel", async () => {
   const registryModels = [
     { provider: "anthropic", id: "claude-opus-4-5", name: "Claude Opus 4.5" },
     { provider: "google", id: "gemini-2.5-flash", name: "Gemini 2.5 Flash" },
@@ -2417,12 +2417,12 @@ describe("AgentsProvider switchModel", () => {
           { task: "do not launch", model: "opencode/ox-alpha" },
           modelContext(),
         ),
-      ).rejects.toThrow(/not available to this Pi session/);
+      ).rejects.toThrow(/not available to this OMP session/);
       expect(spawn).not.toHaveBeenCalled();
     },
   );
 
-  it("rejects exhausted Pi model aliases instead of forwarding them", async () => {
+  it("rejects exhausted OMP model aliases instead of forwarding them", async () => {
     const { provider } = setup([], [], undefined, {
       modelsConfig: {
         aliases: { retired: ["opencode/old", "opencode/older"] },
@@ -2435,10 +2435,10 @@ describe("AgentsProvider switchModel", () => {
         { task: "do not launch", model: "retired" },
         modelContext(),
       ),
-    ).rejects.toThrow(/not available to this Pi session.*opencode\/old, opencode\/older/);
+    ).rejects.toThrow(/not available to this OMP session.*opencode\/old, opencode\/older/);
   });
 
-  it("rejects unavailable Pi models for handoff and actor creation", async () => {
+  it("rejects unavailable OMP models for handoff and actor creation", async () => {
     const { provider, actors } = setup();
     const deferHandoff = vi.fn(() => ({
       scheduled: true as const,
@@ -2449,7 +2449,7 @@ describe("AgentsProvider switchModel", () => {
 
     await expect(
       provider.invoke("handoff", { model: "opencode/ox-alpha" }, invocation),
-    ).rejects.toThrow(/not available to this Pi session/);
+    ).rejects.toThrow(/not available to this OMP session/);
     expect(deferHandoff).not.toHaveBeenCalled();
     await expect(
       provider.invoke(
@@ -2457,7 +2457,7 @@ describe("AgentsProvider switchModel", () => {
         { name: "hidden actor", instructions: "Do not create.", model: "opencode/ox-alpha" },
         modelContext(),
       ),
-    ).rejects.toThrow(/not available to this Pi session/);
+    ).rejects.toThrow(/not available to this OMP session/);
     expect(actors.list()).toEqual([]);
   });
 
@@ -2475,21 +2475,21 @@ describe("AgentsProvider switchModel", () => {
 
     await expect(
       provider.invoke("setModel", { id: actor.id, model: "opencode/ox-alpha" }, modelContext()),
-    ).rejects.toThrow(/not available to this Pi session/);
+    ).rejects.toThrow(/not available to this OMP session/);
     await expect(
       provider.invoke(
         "ask",
         { id: actor.id, message: "Do not run", model: "opencode/ox-alpha" },
         modelContext(),
       ),
-    ).rejects.toThrow(/not available to this Pi session/);
+    ).rejects.toThrow(/not available to this OMP session/);
     await expect(
       provider.invoke(
         "tell",
         { id: actor.id, message: "Do not queue", model: "opencode/ox-alpha" },
         modelContext(),
       ),
-    ).rejects.toThrow(/not available to this Pi session/);
+    ).rejects.toThrow(/not available to this OMP session/);
   });
 
   it("passes Claude and Veda model strings through unchanged", async () => {

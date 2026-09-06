@@ -95,7 +95,7 @@ const resolveDefinition = (
  * project. Operations are pure file I/O and do not require the mesh to be
  * enabled; only importing (which creates a live actor via ActorManager) does.
  * The registry is read into memory once at construction; run `/fabric reload`
- * to pick up templates added by other Pi sessions. Writes are atomic (write
+ * to pick up templates added by other OMP sessions. Writes are atomic (write
  * to a temp file then rename) so concurrent sessions cannot corrupt the
  * store, though truly simultaneous edits are last-write-wins.
  */
@@ -277,8 +277,8 @@ export class GlobalActorRegistry {
     if (residency !== "session" && residency !== "durable") {
       throw new Error(`Invalid global actor residency: ${String(def.residency)}`);
     }
-    const runner = def.runner ?? "pi";
-    if (runner !== "pi" && runner !== "claude") {
+    const runner = def.runner ?? "omp";
+    if (runner !== "omp" && runner !== "claude") {
       throw new Error(`Invalid global actor runner: ${String(def.runner)}`);
     }
     const model = typeof def.model === "string" && def.model.trim() ? def.model.trim() : undefined;
@@ -364,7 +364,7 @@ export class GlobalActorRegistry {
         (delivery === "steer" || delivery === "followUp") && record.triggerTurn === true;
       const coalesce = record.coalesce !== false;
       const residency = record.residency === "durable" ? "durable" : "session";
-      const runner = record.runner === "claude" ? "claude" : "pi";
+      const runner = record.runner === "claude" ? "claude" : "omp";
       const thinking: FabricThinking | undefined = isFabricThinking(record.thinking)
         ? record.thinking
         : undefined;

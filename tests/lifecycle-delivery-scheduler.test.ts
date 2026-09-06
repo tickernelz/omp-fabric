@@ -36,7 +36,7 @@ const event = (id: string): FabricLifecycleEvent => ({
     name: "agent",
     kind: "agent",
     rootId: "session:main",
-    runner: "pi",
+    runner: "omp",
   },
   occurredAt: 1,
   publishedAt: 2,

@@ -44,8 +44,8 @@ export class ResidentActorClient {
   }
 
   static fromEnv(): ResidentActorClient | undefined {
-    const rootId = process.env.PI_FABRIC_MAIN_AGENT_ID;
-    const meshRoot = process.env.PI_FABRIC_MESH_ROOT;
+    const rootId = process.env.OMP_FABRIC_MAIN_AGENT_ID;
+    const meshRoot = process.env.OMP_FABRIC_MESH_ROOT;
     if (!rootId || !meshRoot) return undefined;
     return new ResidentActorClient(meshRoot, rootId);
   }

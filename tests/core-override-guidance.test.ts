@@ -1,10 +1,9 @@
 import {
-  createSyntheticSourceInfo,
-  defineTool,
   type ExtensionAPI,
   type ExtensionRunner,
-} from "@earendil-works/pi-coding-agent";
-import { Type } from "typebox";
+  type ToolDefinition,
+} from "@oh-my-pi/pi-coding-agent";
+import { Type } from "@oh-my-pi/omptype/typebox";
 import { describe, expect, it, vi } from "vitest";
 import { CapturedToolCatalog } from "../src/capture/catalog.js";
 import { coreOverridePromptGuidance } from "../src/core/core-override-guidance.js";
@@ -16,7 +15,7 @@ const runner = {
   getActiveTools: () => [],
 } as unknown as ExtensionRunner;
 
-const captured = (name: string, snippet?: string, guidelines?: string[]) => defineTool({
+const captured = (name: string, snippet?: string, guidelines?: string[]): ToolDefinition => ({
   name,
   label: name,
   description: `${name} override`,
@@ -35,20 +34,20 @@ describe("core override prompt guidance", () => {
       [
         {
           definition: captured("read", "structure-aware reads", ["Prefer symbol IDs when available."]),
-          sourceInfo: createSyntheticSourceInfo("/extensions/organon/index.ts", { source: "test" }),
+          extensionPath: "/extensions/organon/index.ts",
         },
         {
           definition: captured("deploy", "not a core slot", ["Do not advertise this here."]),
-          sourceInfo: createSyntheticSourceInfo("/extensions/deploy/index.ts", { source: "test" }),
+          extensionPath: "/extensions/deploy/index.ts",
         },
       ],
       runner,
       DEFAULT_FABRIC_CONFIG.capture,
-      "/extensions/pi-fabric/index.ts",
+      "/extensions/omp-fabric/index.ts",
     );
 
     const guidance = coreOverridePromptGuidance(catalog);
-    expect(guidance).toContain("pi.read");
+    expect(guidance).toContain("omp.read");
     expect(guidance).toContain("structure-aware reads");
     expect(guidance).toContain("Prefer symbol IDs when available.");
     expect(guidance).not.toContain("deploy");
@@ -60,11 +59,11 @@ describe("core override prompt guidance", () => {
     const replace = (snippet: string) => catalog.replace(
       [{
         definition: captured("edit", snippet),
-        sourceInfo: createSyntheticSourceInfo("/extensions/editor/index.ts", { source: "test" }),
+        extensionPath: "/extensions/editor/index.ts",
       }],
       runner,
       DEFAULT_FABRIC_CONFIG.capture,
-      "/extensions/pi-fabric/index.ts",
+      "/extensions/omp-fabric/index.ts",
     );
 
     replace("first effective schema");
@@ -101,18 +100,25 @@ describe("core override prompt guidance", () => {
     };
     const get = vi.spyOn(CapturedToolCatalog.prototype, "get")
       .mockImplementation((name) => name === "read" ? fakeEntry as never : undefined);
+    // fullCodeMode defaults to false (orchestration-only) in the OMP port;
+    // the override guidance is opt-in, matching the documented contract.
+    const fullCodeCwd = vi.spyOn(FabricState.prototype, "cwd", "get").mockReturnValue("/tmp");
+    const fullCodeConfig = vi.spyOn(FabricState.prototype, "config", "get").mockReturnValue({
+      ...structuredClone(DEFAULT_FABRIC_CONFIG),
+      fullCodeMode: true,
+    });
     try {
-      const { default: piFabric } = await import("../src/index.js");
-      await piFabric(pi);
+      const { default: ompFabric } = await import("../src/index.js");
+      await ompFabric(pi);
       const handler = handlers.get("before_agent_start")?.[0];
       if (!handler) throw new Error("before_agent_start handler was not registered");
       const result = await handler({
-        systemPrompt: "base system",
+        systemPrompt: ["base system"],
         prompt: "inspect source",
         systemPromptOptions: { skills: [] },
       }, {});
-      const prompt = (result as { systemPrompt: string }).systemPrompt;
-      expect(prompt).toContain("pi.read");
+      const prompt = (result as { systemPrompt: string[] }).systemPrompt[0]!;
+      expect(prompt).toContain("omp.read");
       expect(prompt).toContain("structure-aware reads");
       expect(prompt).toContain("Prefer symbol IDs when available.");
       expect(prompt).not.toContain("extensions.read");
@@ -151,15 +157,15 @@ describe("core override prompt guidance", () => {
         ];
         const modelContext = { model: { provider: "deepseek", id: "deepseek-chat" } };
         const guidedEvent = {
-          systemPrompt: "base system",
+          systemPrompt: ["base system"],
           prompt: "inspect source",
           systemPromptOptions: { skills },
         };
         const guidedResult = await handler(guidedEvent, modelContext);
         const repeatedResult = await handler(guidedEvent, modelContext);
-        const guidedPrompt = (guidedResult as { systemPrompt: string }).systemPrompt;
-        expect((repeatedResult as { systemPrompt: string }).systemPrompt).toBe(guidedPrompt);
-        expect(guidedPrompt).toContain("Pi Fabric full code mode");
+        const guidedPrompt = (guidedResult as { systemPrompt: string[] }).systemPrompt[0]!;
+        expect((repeatedResult as { systemPrompt: string[] }).systemPrompt[0]).toBe(guidedPrompt);
+        expect(guidedPrompt).toContain("OMP Fabric full code mode");
         expect(guidedPrompt).toContain("Custom DeepSeek execution profile");
         expect(guidedPrompt).toContain("DeepSeek-specific final instruction");
         expect(guidedPrompt).not.toContain("Examples and returns");
@@ -178,7 +184,7 @@ describe("core override prompt guidance", () => {
         // Turn-derived skill guidance must NOT touch the system prompt: the
         // system prompt stays byte-identical to a non-skill turn so provider
         // prefix caches never cold-prefill. It rides the message channel.
-        const skillPrompt = (skillResult as { systemPrompt: string }).systemPrompt;
+        const skillPrompt = (skillResult as { systemPrompt: string[] }).systemPrompt[0]!;
         expect(skillPrompt).toBe(guidedPrompt);
         expect(skillPrompt).not.toContain("The active skill");
         const skillMessage = (skillResult as { message?: { content: string } }).message;
@@ -195,11 +201,11 @@ describe("core override prompt guidance", () => {
       const config = vi.spyOn(FabricState.prototype, "config", "get").mockReturnValue(enforceConfig);
       try {
         const enforcedResult = await handler({
-          systemPrompt: "base system",
+          systemPrompt: ["base system"],
           prompt: "inspect source",
           systemPromptOptions: { skills: [] },
         }, {});
-        const enforcedPrompt = (enforcedResult as { systemPrompt: string }).systemPrompt;
+        const enforcedPrompt = (enforcedResult as { systemPrompt: string[] }).systemPrompt[0]!;
         expect(enforcedPrompt).toContain("structure-aware reads");
         expect(enforcedPrompt).toContain("Prefer symbol IDs when available.");
         expect(enforcedPrompt).not.toContain("extensions.read");
@@ -209,6 +215,8 @@ describe("core override prompt guidance", () => {
       }
     } finally {
       get.mockRestore();
+      fullCodeCwd.mockRestore();
+      fullCodeConfig.mockRestore();
     }
   });
 
@@ -217,11 +225,11 @@ describe("core override prompt guidance", () => {
     catalog.replace(
       [{
         definition: captured("read"),
-        sourceInfo: createSyntheticSourceInfo("/extensions/reader/index.ts", { source: "test" }),
+        extensionPath: "/extensions/reader/index.ts",
       }],
       runner,
       DEFAULT_FABRIC_CONFIG.capture,
-      "/extensions/pi-fabric/index.ts",
+      "/extensions/omp-fabric/index.ts",
     );
     expect(coreOverridePromptGuidance(catalog)).toBe("");
   });

@@ -1,23 +1,22 @@
-import type { Theme, ToolDefinition } from "@earendil-works/pi-coding-agent";
-import type { TSchema } from "@earendil-works/pi-ai";
-import { Container, Text, type Component } from "@earendil-works/pi-tui";
+import type { Theme, ToolDefinition, ToolRenderResultOptions } from "@oh-my-pi/pi-coding-agent";
+import type { TSchema } from "@oh-my-pi/omptype/typebox";
+import { Container, Text, type Component } from "@oh-my-pi/pi-tui";
 
-type AnyToolDefinition = ToolDefinition<any, any, any>;
+type FabricToolDefinition = ToolDefinition<any, any> & {
+  promptGuidelines?: readonly string[];
+  promptSnippet?: string;
+};
 
-// Local mirror of the host's defineTool declaration shape (pi 0.84.2):
-// identity at runtime, inference-preserving in the type system.
-const defineTool = <TParams extends TSchema, TDetails = unknown, TState = any>(
-  tool: ToolDefinition<TParams, TDetails, TState>,
-): ToolDefinition<TParams, TDetails, TState> & AnyToolDefinition =>
-  tool as ToolDefinition<TParams, TDetails, TState> & AnyToolDefinition;
+const defineTool = (tool: FabricToolDefinition): ToolDefinition<any, any> => tool;
 import { arcItemStyled } from "./ui/arc-group.js";
 import type { CodePreviewSettings } from "./ui/code-preview.js";
 import {
   type FabricToolShellDecorator,
+  type PreviewRenderContext,
   withCodePreviewShell,
 } from "./ui/code-preview-shell.js";
 import { fabricExecTitleHintCached } from "./ui/fabric-title-hint.js";
-import { Type } from "typebox";
+import { Type } from "@oh-my-pi/omptype/typebox";
 import {
   createFabricPersistedExecutionDetails,
   readFabricExecutionRenderDetails,
@@ -70,7 +69,7 @@ import {
   isCoreToolAudit,
   renderCoreToolBody,
 } from "./ui/core-tool-render.js";
-import { highlightCode, observePiTheme } from "./ui/highlight.js";
+import { highlightCode, observeOmpTheme } from "./ui/highlight.js";
 import {
   HiddenRowBorrowingComponent,
   observeResultRows,
@@ -83,6 +82,15 @@ import { formatFabricValue } from "./ui/structured.js";
 import { countNewlines } from "./util.js";
 
 const RESULT_FORMATS = ["auto", "yaml", "json", "text"] as const;
+type FabricExecParams = {
+  code: string | string[];
+  payloads?: unknown;
+  display?: unknown;
+  resultFormat?: (typeof RESULT_FORMATS)[number];
+  tokenBudget?: number;
+  agentBudget?: number;
+  timeoutMs?: number;
+};
 const MAX_FABRIC_CODE_TRANSFER_LINES = 12;
 
 type FabricRendererState = {
@@ -94,6 +102,30 @@ type FabricRendererState = {
   fabricAgentPreviews?: FabricAgentPreview[];
   fabricResultRowBalance?: ResultRowBalance;
   fabricSpinner?: SpinnerTimerState;
+};
+
+const normalizeFabricExecParams = (input: unknown): FabricExecParams => {
+  const prepared = prepareFabricExecArguments(input);
+  if (typeof prepared !== "object" || prepared === null || Array.isArray(prepared)) {
+    throw new Error("fabric_exec arguments must be an object");
+  }
+  const record = prepared as Record<string, unknown>;
+  const code = record.code;
+  if (typeof code !== "string" && !(Array.isArray(code) && code.every((line) => typeof line === "string"))) {
+    throw new Error("fabric_exec code must be a string or string array");
+  }
+  const resultFormat = RESULT_FORMATS.includes(record.resultFormat as (typeof RESULT_FORMATS)[number])
+    ? record.resultFormat as (typeof RESULT_FORMATS)[number]
+    : undefined;
+  return {
+    code,
+    ...(record.payloads !== undefined ? { payloads: record.payloads } : {}),
+    ...(record.display !== undefined ? { display: record.display } : {}),
+    ...(resultFormat !== undefined ? { resultFormat } : {}),
+    ...(typeof record.tokenBudget === "number" ? { tokenBudget: record.tokenBudget } : {}),
+    ...(typeof record.agentBudget === "number" ? { agentBudget: record.agentBudget } : {}),
+    ...(typeof record.timeoutMs === "number" ? { timeoutMs: record.timeoutMs } : {}),
+  };
 };
 
 type FabricToolDisplayMode = "full" | "compact";
@@ -125,6 +157,49 @@ const compactResultHeader = (
 
 const countLabel = (count: number, singular: string): string =>
   `${count} ${count === 1 ? singular : `${singular}s`}`;
+const rendererStates = new WeakMap<object, FabricRendererState>();
+
+const rendererStateFor = (key: unknown): FabricRendererState => {
+  const object = typeof key === "object" && key !== null ? key : rendererStates;
+  const existing = rendererStates.get(object);
+  if (existing) return existing;
+  const created: FabricRendererState = {};
+  rendererStates.set(object, created);
+  return created;
+};
+
+const isRenderComponent = (value: unknown): value is Component =>
+  value !== null && typeof value === "object" && typeof Reflect.get(value, "render") === "function";
+
+const previewContext = (
+  options: ToolRenderResultOptions,
+  state: FabricState,
+  args: unknown,
+  rendererState: FabricRendererState,
+): PreviewRenderContext => {
+  const raw = options as ToolRenderResultOptions & { renderContext?: Record<string, unknown> };
+  const supplied = raw.renderContext ?? (options as unknown as Record<string, unknown>);
+  const executionStarted = typeof supplied.executionStarted === "boolean"
+    ? supplied.executionStarted
+    : !options.isPartial;
+  const argsComplete = typeof supplied.argsComplete === "boolean"
+    ? supplied.argsComplete
+    : !options.isPartial;
+  return {
+    args,
+    toolCallId: typeof supplied.toolCallId === "string" ? supplied.toolCallId : "fabric_exec",
+    invalidate: typeof supplied.invalidate === "function" ? supplied.invalidate as () => void : () => undefined,
+    lastComponent: isRenderComponent(supplied.lastComponent) ? supplied.lastComponent : undefined,
+    state: supplied.state && typeof supplied.state === "object" ? supplied.state as FabricRendererState : rendererState,
+    cwd: typeof supplied.cwd === "string" ? supplied.cwd : state.cwd ?? process.cwd(),
+    executionStarted,
+    argsComplete,
+    isPartial: options.isPartial,
+    expanded: options.expanded,
+    showImages: supplied.showImages !== false,
+    isError: supplied.isError === true,
+  };
+};
 
 export const createFabricExecTool = (
   state: FabricState,
@@ -132,46 +207,31 @@ export const createFabricExecTool = (
   pendingHandoffs: Map<string, PendingFabricHandoff>,
   decorateShell: FabricToolShellDecorator = withCodePreviewShell,
   toolDisplay?: FabricToolDisplayController,
-): ToolDefinition<any, any, any> => decorateShell(
+): ToolDefinition<any, any> => decorateShell(
   defineTool({
     name: "fabric_exec",
     label: "Fabric",
     description:
-      "Execute type-checked TypeScript through Fabric's configured executor for Pi core tools, MCP, Fabric providers, discovery, and extensions. QuickJS is isolated by default; the optional Node/Bun process is an unsafe trusted-code escape hatch. In full code mode, and always in Schema enforce mode, this is the exclusive model tool path.",
-    promptSnippet:
-      "Pi core tools, MCP, Fabric providers, discovery, and extensions",
+      "Execute type-checked TypeScript through Fabric's configured executor for OMP tools, MCP, Fabric providers, discovery, and extensions. QuickJS is isolated by default; the optional Node/Bun process is an unsafe trusted-code escape hatch. In full code mode, and always in Schema enforce mode, this is the exclusive model tool path.",
     promptGuidelines: [
-      "Batch independent operations in one `fabric_exec` program (`Promise.all` for parallel, sequential `await` for ordered), not one call per tool; keep dependent/conditional steps sequential. Coalesce non-dependent replacements from one file snapshot into one `pi.edit({path, edits:[...]})`; use `all:true` only for intentional repeated exact anchors. Return only the compact final value; intermediate results stay in the sandbox.",
-      "Search before reading: use `pi.grep`/`pi.find` to locate relevant lines, then `pi.read({path, offset, limit})` that range. Escape regex metacharacters, or use `literal:true` for exact punctuated text. Keep fan-out search limits small and widen only on misses. An unbounded `pi.read` returns at most 2000 lines or 50KB and, when truncated, ends with a `Use offset=…` continuation notice; reserve whole-file reads for small files you will use in full.",
+      "Batch independent operations in one `fabric_exec` program (`Promise.all` for parallel, sequential `await` for ordered), not one call per tool; keep dependent/conditional steps sequential. Coalesce non-dependent replacements from one file snapshot into one `omp.edit({path, edits:[...]})`; use `all:true` only for intentional repeated exact anchors. Return only the compact final value; intermediate results stay in the sandbox.",
+      "Search before reading: use `omp.grep`/`omp.find` to locate relevant lines, then `omp.read({path, offset, limit})` that range. Escape regex metacharacters, or use `literal:true` for exact punctuated text. Keep fan-out search limits small and widen only on misses. An unbounded `omp.read` returns at most 2000 lines or 50KB and, when truncated, ends with a `Use offset=…` continuation notice.",
       "For coding tasks, keep an acceptance ledger: turn the request into concrete checks, trace the relevant execution path before editing, implement end to end, then run targeted tests and direct behavioral probes. Mechanically confirm requested public symbols, registrations, and configuration entries. Use the smallest checks that cover the ledger, escalating only for failures or cross-cutting risk; inspect failures and iterate instead of rerunning unchanged passing checks. A build alone is not completion.",
-      "Amortize round trips without inflating context: batch only independent, bounded work. Keep search→read and edit→verify sequential when an output determines the next action. Use `settle:true` for tests or probes whose nonzero result is evidence rather than an exceptional stop; for a known long suite, set `pi.bash` `timeout` in seconds once instead of retrying a timed-out call. Filter or summarize noisy command output inside the program and return decisions, failures, and evidence—not raw logs or unused intermediate results.",
-      "For edits/writes, pass named payloads through top-level `payloads`; each `π.key` must exactly match a key there; prefer `pi.edit`/`pi.write`. `pi.bash`: no stdin.",
+      "Amortize round trips without inflating context: batch only independent, bounded work. Keep search→read and edit→verify sequential when an output determines the next action. Use `settle:true` for tests or probes whose nonzero result is evidence rather than an exceptional stop; for a known long suite, set `omp.bash` `timeout` in seconds once instead of retrying a timed-out call. Filter or summarize noisy command output inside the program and return decisions, failures, and evidence—not raw logs or unused intermediate results.",
+      "For edits/writes, pass named payloads through top-level `payloads`; each `payloads.key` must exactly match a key there; prefer `omp.edit`/`omp.write`. `omp.bash`: no stdin.",
       "Use `display.name` and objective `display.description`; Fabric pairs them with verified outcomes in deterministic compaction.",
     ],
-    // The model-facing schema is intentionally flat: one large `code` string
-    // plus scalar/optional params. Do not add nested arrays-of-objects with
-    // escaped content here. SOTA models are post-trained on one dominant
-    // harness's flat tool shapes and can invent trailing keys at the
-    // highest-entropy point of a nested escaped-JSON field, which a strict
-    // schema hard-rejects. Keep this surface string/scalar-heavy; the only
-    // nested field (display) ignores unknown keys. See
-    // lucumr.pocoo.org/2026/7/4/better-models-worse-tools/ and pi-tool-repair.
-    // display also accepts a bare (or JSON-object) string, silently repaired
-    // to { name } via normalizeRunDisplay: flash-tier models cold-start with
-    // that near-miss, and repairing beats a zero-work rejection round trip.
-    // payloads is the remaining nested map (legacy alias: strings). The old
-    // name collides with the JSON string type, so models stringify it;
-    // prepareArguments remaps `strings` and parses a JSON-object string
-    // back to Record<string, string> before Pi validates.
+    // The model-facing schema is intentionally flat: one large code string plus scalar metadata.
+    // Keep nested payloads bounded and let prepareArguments normalize provider input.
     parameters: Type.Object({
       code: Type.String({
         description:
-          "TypeScript function body. Top-level await and return are supported. Globals include `tools`, `mcp`, `memory`, `state`, `schema`, `compact`, `agents`, `mesh`, `print`, and `π`; full-code mode adds `pi` and `extensions`. `π` contains only the exact keys supplied by this call's `payloads`. See session guidance / `fabric-exec` skill for exact signatures.",
+        "TypeScript function body. Top-level await and return are supported. Globals include `tools`, `mcp`, `memory`, `state`, `schema`, `compact`, `agents`, `mesh`, `print`, and `omp`; full-code mode adds `omp` and `extensions`. Payloads contains only the exact keys supplied by this call."
       }),
       payloads: Type.Optional(
         Type.Record(Type.String(), Type.String(), {
           description:
-            "Named payloads exposed under the same exact name as π.key (for example, payloads.contract becomes π.contract). Never reference a π key absent from this map. Useful for content that is awkward to quote inside code. Prefer an object of string values; a JSON-object string is parsed.",
+            "Named payloads exposed under the same exact name as omp.key (for example, payloads.contract becomes omp.contract). Never reference a key absent from this map. Useful for content that is awkward to quote inside code. Prefer an object of string values; a JSON-object string is parsed.",
         }),
       ),
       resultFormat: Type.Optional(Type.Union(RESULT_FORMATS.map((value) => Type.Literal(value)))),
@@ -217,17 +277,15 @@ export const createFabricExecTool = (
         ]),
       ),
     }),
-    // Pi validates custom-tool arguments before `tool_call` and `execute`, so
+    // OMP validates custom-tool arguments before `tool_call` and `execute`, so
     // compatibility coercions for the model-facing boundary must live in the
     // official prepareArguments hook rather than execute-time fallbacks.
-    prepareArguments(args) {
-      return prepareFabricExecArguments(args) as any;
-    },
-    renderCall(params, theme, context) {
-      observePiTheme(theme);
+    renderCall(params: FabricExecParams, options: ToolRenderResultOptions, theme: Theme) {
+      const rendererState = rendererStateFor(params);
+      const context = previewContext(options, state, params, rendererState);
+      observeOmpTheme(theme);
       const code = Array.isArray(params.code) ? params.code.join("\n") : params.code;
       const mode = toolDisplayMode(state);
-      const rendererState = context.state as FabricRendererState;
       toolDisplay?.observe(context.toolCallId, "call", context.invalidate);
       const spinner = updateSpinner(
         rendererState.fabricSpinner ??= {},
@@ -240,7 +298,7 @@ export const createFabricExecTool = (
         rendererState.fabricWriteBindings = fabricWriteBindings(code);
       }
       // The write argument preview is a streaming affordance: it previews
-      // pending writes while args are still arriving. Pi only flips
+      // pending writes while args are still arriving. OMP only flips
       // executionStarted for live calls; resumed cards stay at its false
       // default and are always complete (isPartial false), so their previews
       // belong to the result side alone. Without the isPartial gate, a
@@ -250,7 +308,7 @@ export const createFabricExecTool = (
         : renderFabricWriteArgumentPreview(
             {
               bindings: rendererState.fabricWriteBindings ?? [],
-              strings: resolveFabricExecPayloads(params),
+              payloads: resolveFabricExecPayloads(params),
               expanded: context.expanded,
               cwd: context.cwd,
               settings: codePreviewSettings,
@@ -259,7 +317,7 @@ export const createFabricExecTool = (
             theme,
             context.invalidate,
           );
-      // Pi's app.tools.expand toggle (ctrl+o) flips context.expanded and
+      // OMP app.tools.expand toggle (ctrl+o) flips context.expanded and
       // promotes a compact card to the full transcript below.
       if (mode === "compact" && !context.expanded) {
         const display = normalizeRunDisplay(params.display);
@@ -313,11 +371,11 @@ export const createFabricExecTool = (
           hidden > 0
             ? `\n${theme.fg("dim", `… ${countLabel(hidden, "line")} hidden · `)}${expandHint(theme)}`
             : "";
-        return new Text(
+        return [...new Text(
           `${title}${description ? `\n${description}` : ""}${preview ? `\n${preview}` : ""}${hiddenHint}`,
           0,
           0,
-        ).render(width);
+        ).render(width)];
       };
       const codePreview = new HiddenRowBorrowingComponent(
         baseLimit,
@@ -332,14 +390,17 @@ export const createFabricExecTool = (
       composite.addChild(writePreview);
       return composite;
     },
-    renderResult(result, { expanded, isPartial }, theme, context) {
-      observePiTheme(theme);
+    renderResult(result, options, theme, params?: FabricExecParams) {
+      const expanded = options.expanded;
+      const isPartial = options.isPartial;
+      const rendererState = rendererStateFor(result.details ?? params ?? options);
+      const context = previewContext(options, state, params, rendererState);
+      observeOmpTheme(theme);
       const details = readFabricExecutionRenderDetails(result.details);
       let audits = restoreLegacyBashCommands(
         details.audits as FabricRenderAudit[],
-        context.args,
+        params ?? { code: "" },
       );
-      const rendererState = context.state as FabricRendererState;
       toolDisplay?.observe(context.toolCallId, "result", context.invalidate);
       const spinner = updateSpinner(
         rendererState.fabricSpinner ??= {},
@@ -789,22 +850,23 @@ export const createFabricExecTool = (
     },
     async execute(toolCallId, params, signal, onUpdate, context) {
       await state.ensure(context);
-      // prepareArguments joins code arrays / remaps `strings` → `payloads`
-      // and quotes unquoted pi path arguments before Pi validates this call;
+      // prepareArguments joins code arrays / remaps `payloads`
+      // and quotes unquoted OMP path arguments before OMP validates this call;
       // keep the same coercion here for direct internal invocations.
-      const joined = Array.isArray(params.code) ? params.code.join("\n") : params.code;
+      const normalized = normalizeFabricExecParams(params);
+      const joined = Array.isArray(normalized.code) ? normalized.code.join("\n") : normalized.code;
       const code = repairFabricGuestCode(joined);
-      const runDisplay = normalizeRunDisplay(params.display);
-      const strings = resolveFabricExecPayloads(params);
+      const runDisplay = normalizeRunDisplay(normalized.display);
+      const payloads = resolveFabricExecPayloads(normalized);
       const result = await state.execution.execute({
         code,
-        ...(strings ? { strings } : {}),
+        ...(payloads ? { payloads } : {}),
         signal,
         parentToolCallId: toolCallId,
         context,
-        ...(params.tokenBudget !== undefined ? { tokenBudget: params.tokenBudget } : {}),
-        ...(params.agentBudget !== undefined ? { maxAgentCalls: params.agentBudget } : {}),
-        ...(params.timeoutMs !== undefined ? { requestedTimeoutMs: params.timeoutMs } : {}),
+        ...(normalized.tokenBudget !== undefined ? { tokenBudget: normalized.tokenBudget } : {}),
+        ...(normalized.agentBudget !== undefined ? { maxAgentCalls: normalized.agentBudget } : {}),
+        ...(normalized.timeoutMs !== undefined ? { requestedTimeoutMs: normalized.timeoutMs } : {}),
         ...(runDisplay
           ? {
               display: {
@@ -826,7 +888,7 @@ export const createFabricExecTool = (
       });
 
       const selectedResultFormat =
-        params.resultFormat ?? state.config.executor.resultFormat;
+        normalized.resultFormat ?? state.config.executor.resultFormat;
       const pendingHandoff = await state.claimHandoff(
         result,
         context.sessionManager.getSessionId(),
@@ -923,12 +985,12 @@ export const createFabricExecTool = (
           result.value !== null &&
           "terminate" in result.value &&
           result.value.terminate === true);
-      // A nested `pi.read` of an image returns image content blocks that
+      // A nested `omp.read` of an image returns image content blocks that
       // normalizeResult stripped (the sandbox holds text only). The provider
       // handed them out-of-band to each call audit; re-attach them here so
       // pi core's ToolExecutionComponent renders a kitty image preview — the
       // same path a native `read` takes — for single-call AND multitool
-      // reads. pi-vision-handoff keeps the image in the nested tool_result
+      // reads. omp-vision-handoff keeps the image in the nested tool_result
       // (its `context` hook swaps image→description on the LLM-bound
       // fabric_exec clone), so every read audit carries its image here.
       const mediaBlocks: FabricMediaBlock[] = [];
@@ -937,7 +999,7 @@ export const createFabricExecTool = (
       }
       const singleAudit = result.audits.length === 1 ? result.audits[0] : undefined;
       // The read tool's own text note (e.g. "Read image file [image/png]"),
-      // captured after the handoff stripped pi's non-vision note. Used as
+      // captured after the handoff stripped OMP's non-vision note. Used as
       // the single-call body + content text so the preview shows the kitty
       // image + the clean note (like pi core) instead of the handoff's
       // verbose description. Multitool renders each read's note as its own

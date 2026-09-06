@@ -44,9 +44,11 @@ let nextCheckerId = 0;
 export const normalizeTypeScriptPath = (fileName: string): string =>
   fileName.replaceAll("\\", "/");
 
+export const OMP_GUEST_ENTRYPOINT = "__ompFabricMain";
+
 /** Guest programs execute inside this wrapper; user code starts on wrapped line 2. */
 export const wrapFabricGuestCode = (code: string): string =>
-  `async function __piFabricMain() {\n${code}\n}\n`;
+  `async function ${OMP_GUEST_ENTRYPOINT}() {\n${code}\n}\n`;
 
 class FabricTypeChecker {
   readonly #guestFile: string;
@@ -61,9 +63,9 @@ class FabricTypeChecker {
 
   constructor(readonly declarations: string) {
     const id = ++nextCheckerId;
-    this.#guestFile = normalizeTypeScriptPath(path.resolve(`/__pi_fabric_guest_${id}.ts`));
+    this.#guestFile = normalizeTypeScriptPath(path.resolve(`/__omp_fabric_guest_${id}.ts`));
     this.#declarationFile = normalizeTypeScriptPath(
-      path.resolve(`/__pi_fabric_globals_${id}.d.ts`),
+      path.resolve(`/__omp_fabric_globals_${id}.d.ts`),
     );
     this.#sourceFile = ts.createSourceFile(
       this.#guestFile,

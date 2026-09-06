@@ -1,6 +1,6 @@
-import { PI_CORE_TOOL_NAME_SET } from "./pi-tools.js";
+import { OMP_CORE_TOOL_NAME_SET } from "./omp-tools.js";
 
-export const PROXY_CONTRACT_CUSTOM_TYPE = "pi-fabric-proxy";
+export const PROXY_CONTRACT_CUSTOM_TYPE = "omp-fabric-proxy";
 
 const FABRIC_EXEC_TOOL = "fabric_exec";
 const MAX_PROXY_NAMES = 8;
@@ -15,7 +15,7 @@ const escapeRegex = (value: string): string =>
 
 export const isRewritableCapturedToolName = (name: string): boolean => {
   if (!name || name === FABRIC_EXEC_TOOL) return false;
-  if (PI_CORE_TOOL_NAME_SET.has(name)) return false;
+  if (OMP_CORE_TOOL_NAME_SET.has(name)) return false;
   return name.includes("_") || name.length >= 10;
 };
 
@@ -80,7 +80,7 @@ const namesFromEntry = (entry: {
 
 /**
  * Branch-local set of captured names already reminded. Restored from
- * `pi-fabric-proxy` transcript entries only — never counted as furnace fires.
+ * `omp-fabric-proxy` transcript entries only — never counted as furnace fires.
  */
 export class ProxyContractLedger {
   #reminded = new Set<string>();

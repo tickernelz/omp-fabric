@@ -23,7 +23,7 @@ const waitFor = async (predicate: () => boolean): Promise<void> => {
 };
 
 const setup = () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-valid-while-"));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-valid-while-"));
   roots.push(root);
   const mesh = new MeshStore(path.join(root, "mesh"), 64 * 1024, 100);
   const worker = new AgentManager(process.cwd(), DEFAULT_FABRIC_CONFIG.agents, {
@@ -189,7 +189,7 @@ describe("persistent actor validWhile", () => {
     const actor = await actors.create({
       name: "reviewer",
       instructions: "Review.",
-      events: ["tool_error", "agent_settled"],
+      events: ["tool_error", "agent_end"],
       responseMode: "directive",
       delivery: "steer",
       triggerTurn: false,
@@ -199,7 +199,7 @@ describe("persistent actor validWhile", () => {
       },
     });
     actors.dispatchHostEvent("tool_error", { signal: { idle: false } });
-    actors.dispatchHostEvent("agent_settled", { signal: { idle: true } });
+    actors.dispatchHostEvent("agent_end", { signal: { idle: true } });
     await waitFor(() => actors.status(actor.id).status === "idle");
     expect(deliveries).toEqual(["fake actor advice"]);
     expect(actors.messages(actor.id).some((message) => message.stale)).toBe(true);

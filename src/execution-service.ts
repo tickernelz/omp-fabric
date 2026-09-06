@@ -1,5 +1,5 @@
-import type { Usage } from "@earendil-works/pi-ai";
-import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { Usage } from "@oh-my-pi/pi-ai";
+import type { ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 import {
   FabricExecutionTraceRecorder,
   FabricTraceSafeError,
@@ -10,7 +10,7 @@ import {
 } from "./audit/trace.js";
 import { FabricActivityStore } from "./activity/store.js";
 import type { CapturedToolCatalog } from "./capture/catalog.js";
-import { isPiShellRef } from "./core/pi-tools.js";
+import { isOmpShellRef } from "./core/omp-tools.js";
 import type {
   FabricActivityEventInput,
   FabricActivityItemInput,
@@ -98,11 +98,11 @@ const aggregateUsage = (usages: Usage[]): Usage => ({
   output: usages.reduce((total, usage) => total + usage.output, 0),
   cacheRead: usages.reduce((total, usage) => total + usage.cacheRead, 0),
   cacheWrite: usages.reduce((total, usage) => total + usage.cacheWrite, 0),
-  ...(usages.some((usage) => usage.cacheWrite1h !== undefined)
-    ? { cacheWrite1h: usages.reduce((total, usage) => total + (usage.cacheWrite1h ?? 0), 0) }
+  ...(usages.some((usage) => (usage as Usage & { cacheWrite1h?: number }).cacheWrite1h !== undefined)
+    ? { cacheWrite1h: usages.reduce((total, usage) => total + ((usage as Usage & { cacheWrite1h?: number }).cacheWrite1h ?? 0), 0) }
     : {}),
-  ...(usages.some((usage) => usage.reasoning !== undefined)
-    ? { reasoning: usages.reduce((total, usage) => total + (usage.reasoning ?? 0), 0) }
+  ...(usages.some((usage) => (usage as Usage & { reasoning?: number }).reasoning !== undefined)
+    ? { reasoning: usages.reduce((total, usage) => total + ((usage as Usage & { reasoning?: number }).reasoning ?? 0), 0) }
     : {}),
   totalTokens: usages.reduce((total, usage) => total + usage.totalTokens, 0),
   cost: {
@@ -140,7 +140,7 @@ export interface FabricExecutionAuthorizer {
 
 export interface FabricExecutionOptions {
   code: string;
-  strings?: Record<string, string>;
+  payloads?: Record<string, string>;
   /** Per-invocation whole-program deadline request from fabric_exec.timeoutMs.
    * Raises (never lowers) the configured executor.timeoutMs, subject to
    * executor.maxTimeoutMs. */
@@ -289,17 +289,17 @@ export class FabricExecutionService {
         throw new FabricTraceSafeError(`Fabric agent budget exhausted (${maxAgentCalls} per execution)`);
       }
     };
-    const fullCodeProvider = (value: string): "pi" | "extensions" | undefined => {
+    const fullCodeProvider = (value: string): "omp" | "extensions" | undefined => {
       const separator = value.indexOf(".");
       const provider = separator > 0 ? value.slice(0, separator) : value;
-      return provider === "pi" || provider === "extensions" ? provider : undefined;
+      return provider === "omp" || provider === "extensions" ? provider : undefined;
     };
     const guardFullCodeRef = (ref: string): void => {
       if (effectiveFullCodeMode) return;
       const provider = fullCodeProvider(ref);
       if (!provider) return;
       throw new FabricTraceSafeError(
-        `Fabric full code mode is disabled; call ${provider === "pi" ? "Pi core" : "registered extension"} tools directly outside fabric_exec`,
+        `Fabric full code mode is disabled; call ${provider === "omp" ? "OMP core" : "registered extension"} tools directly outside fabric_exec`,
       );
     };
     let currentProgress: string | undefined;
@@ -398,7 +398,7 @@ export class FabricExecutionService {
         !Array.isArray(args.args)
           ? (args.args as Record<string, unknown>)
           : args;
-      if (isPiShellRef(targetRef)) {
+      if (isOmpShellRef(targetRef)) {
         const seconds = targetArgs.timeout;
         const milliseconds = targetArgs.timeoutMs;
         const requested =
@@ -754,7 +754,7 @@ export class FabricExecutionService {
           minimumTimeoutMsForHostCall,
           ...(checked.javascript ? { transpiledCode: checked.javascript } : {}),
           ...(checked.sourceMap ? { transpiledSourceMap: checked.sourceMap } : {}),
-          ...(options.strings ? { strings: options.strings } : {}),
+          ...(options.payloads ? { payloads: options.payloads } : {}),
           ...(options.tokenBudget !== undefined ? { tokenBudget: options.tokenBudget } : {}),
           ...(options.signal ? { signal: options.signal } : {}),
         },

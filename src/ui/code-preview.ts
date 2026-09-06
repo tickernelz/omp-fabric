@@ -2,10 +2,10 @@ type DiffBackgroundIntensity = "off" | "subtle" | "medium";
 type DiffWordEmphasis = "all" | "smart" | "off";
 type ToolCallBackgroundMode = "on" | "border" | "off";
 type PathIconMode = "unicode" | "nerd" | "off";
-type CodePreviewToolName = "bash" | "powershell" | "read" | "write" | "edit" | "grep" | "find" | "ls";
+type CodePreviewToolName = "bash" | "read" | "write" | "edit" | "grep" | "find" | "ls";
 
 export interface CodePreviewSettings {
-  // Shiki theme preference: "auto" follows Pi's resolved light/dark variant,
+  // Shiki theme preference: "auto" follows OMP's resolved light/dark variant,
   // "<light>/<dark>" pins both variants, and any other value is a fixed theme id.
   shikiTheme: string;
   diffIntensity: DiffBackgroundIntensity;
@@ -40,7 +40,7 @@ const DEFAULT_DARK_SHIKI_THEME = "dark-plus";
 
 /**
  * Parse a shiki theme preference into per-variant theme ids. "auto" resolves to
- * the built-in pair and tracks Pi's resolved variant at render time; a
+ * the built-in pair and tracks OMP's resolved variant at render time; a
  * "<light>/<dark>" pair fixes both variants explicitly; anything else is a
  * single variant-independent theme id.
  */
@@ -75,7 +75,7 @@ export const resolveShikiTheme = (
   return variant === "light" ? parsed.lightTheme : parsed.darkTheme;
 };
 
-const TOOLS: CodePreviewToolName[] = ["bash", "powershell", "read", "write", "edit", "grep", "find", "ls"];
+const TOOLS: CodePreviewToolName[] = ["bash", "read", "write", "edit", "grep", "find", "ls"];
 const booleanEnv = (name: string, fallback: boolean): boolean => {
   const value = process.env[name]?.toLowerCase();
   if (value === "1" || value === "true" || value === "yes" || value === "on") return true;

@@ -146,8 +146,8 @@ describe("agent transcript projection", () => {
       { type: "tool_execution_end", toolCallId: "tool-1", toolName: "bash", isError: true, result: "exit 1" },
       { type: "auto_retry_start", attempt: 1, errorMessage: "rate limited" },
       { type: "auto_retry_end", attempt: 1, success: true },
-      { type: "compaction_start", reason: "threshold" },
-      { type: "compaction_end", reason: "threshold", aborted: false },
+      { type: "auto_compaction_start", reason: "threshold" },
+      { type: "auto_compaction_end", aborted: false },
       { type: "response", command: "prompt", success: false, error: "prompt rejected" },
     ]);
 
@@ -249,7 +249,7 @@ describe("agent transcript projection", () => {
         type: "tool_execution_start",
         toolCallId: "outer",
         toolName: "fabric_exec",
-        args: { code: "await pi.edit(...)" },
+        args: { code: "await omp.edit(...)" },
       },
       {
         type: "tool_execution_start",
@@ -281,7 +281,7 @@ describe("agent transcript projection", () => {
   });
 
   it("navigates an unbounded log through bounded lazy pages", () => {
-    const directory = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-transcript-"));
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-transcript-"));
     temporaryDirectories.push(directory);
     const logFile = path.join(directory, "events.jsonl");
     const events = Array.from({ length: 520 }, (_, index) => ({
@@ -328,7 +328,7 @@ describe("agent transcript projection", () => {
   });
 
   it("hydrates tool metadata when a lifecycle crosses the bounded page boundary", () => {
-    const directory = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-transcript-"));
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-transcript-"));
     temporaryDirectories.push(directory);
     const logFile = path.join(directory, "events.jsonl");
     const events = [
@@ -370,7 +370,7 @@ describe("agent transcript projection", () => {
   });
 
   it("tails a live JSONL file and refreshes when it grows", () => {
-    const directory = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-transcript-"));
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-transcript-"));
     temporaryDirectories.push(directory);
     const logFile = path.join(directory, "events.jsonl");
     fs.writeFileSync(
@@ -396,7 +396,7 @@ describe("agent transcript projection", () => {
   });
 
   it("preserves partial UTF-8 JSON records across incremental reads", () => {
-    const directory = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-transcript-"));
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-transcript-"));
     temporaryDirectories.push(directory);
     const logFile = path.join(directory, "events.jsonl");
     const line = Buffer.from(
@@ -420,7 +420,7 @@ describe("agent transcript projection", () => {
   });
 
   it("bounds live transcript pages and freezes a paused page while the log grows", () => {
-    const directory = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-transcript-"));
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-transcript-"));
     temporaryDirectories.push(directory);
     const logFile = path.join(directory, "events.jsonl");
     const event = (text: string) =>
@@ -462,7 +462,7 @@ describe("agent transcript projection", () => {
   });
 
   it("invalidates same-size rewrites and retains cached data across transient failures", () => {
-    const directory = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-transcript-"));
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-transcript-"));
     temporaryDirectories.push(directory);
     const logFile = path.join(directory, "events.jsonl");
     const event = (text: string) =>

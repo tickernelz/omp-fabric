@@ -1,7 +1,7 @@
 import type { LanguageRegistration } from "shiki";
 
-// Resolve bundled language grammars through pi-fabric's dependency graph.
-// Shiki's own lazy imports are not resolvable from Pi's jiti extension host.
+// Resolve bundled language grammars through omp-fabric's dependency graph.
+// Shiki's own lazy imports are not resolvable from OMP's jiti extension host.
 const LANGUAGE_IMPORTS = {
   bash: () => import("@shikijs/langs/shellscript"),
   typescript: () => import("@shikijs/langs/typescript"),

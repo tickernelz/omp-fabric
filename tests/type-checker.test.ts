@@ -7,18 +7,18 @@ import {
 
 describe("Fabric guest type checker", () => {
   it("normalizes Windows paths for TypeScript compiler host comparisons", () => {
-    expect(normalizeTypeScriptPath("C:\\work\\__pi_fabric_guest_1.ts")).toBe(
-      "C:/work/__pi_fabric_guest_1.ts",
+    expect(normalizeTypeScriptPath("C:\\work\\__omp_fabric_guest_1.ts")).toBe(
+      "C:/work/__omp_fabric_guest_1.ts",
     );
   });
 
   it("accepts typed Fabric code with top-level return", () => {
     const result = typeCheckFabricCode(
-      'const text = await pi.read({ path: "README.md" });\nreturn text.length;',
+      'const text = await omp.read({ path: "README.md" });\nreturn text.length;',
       GUEST_TYPE_DECLARATIONS,
     );
     expect(result.errors).toEqual([]);
-    expect(result.javascript).toContain("async function __piFabricMain()");
+    expect(result.javascript).toContain("async function __ompFabricMain()");
     expect(result.javascript).not.toContain("path: string");
   });
 
@@ -81,13 +81,13 @@ return { mcpResult, review };
   it("accepts immediate and predicate-gated trajectory handoff", () => {
     const result = typeCheckFabricCode(
       `
-await pi.edit({ path: "src/a.ts", old: "a", new: "b" });
+await omp.edit({ path: "src/a.ts", old: "a", new: "b" });
 const migrated = await agents.setModel({ id: "reviewer", model: "anthropic/executor" });
 return agents.handoff({
   model: "anthropic/executor",
   task: migrated.name,
   when: ({ count, calls }) =>
-    count(["pi.edit", "mcp.docs.lookup"]) >= 1 && calls[0]?.ref === "pi.edit",
+    count(["omp.edit", "mcp.docs.lookup"]) >= 1 && calls[0]?.ref === "omp.edit",
 });
 `,
       GUEST_TYPE_DECLARATIONS,
@@ -161,7 +161,7 @@ return { recalled, authoritative, walked, followed, visited, current, mode: stat
 
   it("keeps first-class Fabric providers typed in orchestration-only mode", () => {
     const declarations = guestTypeDeclarations(false);
-    expect(declarations).not.toContain("declare const pi: PiToolsApi");
+    expect(declarations).not.toContain("declare const pi: OmpToolsApi");
     expect(declarations).not.toContain("declare const extensions: FabricExtensionsApi");
     expect(declarations).toContain("declare const schema: FabricSchemaApi");
 
@@ -242,7 +242,7 @@ return out;
     // Wrong arg type (path: 42) is now deferred to runtime (functional-errors-only);
     // an undefined name is a genuine breakage still caught at type-check.
     const result = typeCheckFabricCode(
-      'await pi.read({ path: missingFile });\nreturn "never";',
+      'await omp.read({ path: missingFile });\nreturn "never";',
       GUEST_TYPE_DECLARATIONS,
     );
     expect(result.errors.length).toBeGreaterThan(0);

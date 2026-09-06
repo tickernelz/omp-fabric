@@ -1,4 +1,4 @@
-import type { Theme } from "@earendil-works/pi-coding-agent";
+import type { Theme } from "@oh-my-pi/pi-coding-agent";
 import { formatDuration, formatTokens, safeText } from "./format.js";
 import { spinnerFrame } from "./spinner.js";
 import type { Entity } from "./dashboard-model.js";
@@ -29,7 +29,7 @@ export const entityTail = (entity: Entity, now: number): string => {
   if (entity.kind === "main") {
     const main = entity.value;
     return [
-      "host Pi",
+      "host OMP",
       main.model,
       main.thinking,
       main.pendingMessages ? "messages queued" : undefined,

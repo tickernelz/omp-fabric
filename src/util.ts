@@ -8,7 +8,7 @@ export const countNewlines = (value: string): number => {
 
 export const truncateMiddle = (value: string, maxChars: number): string => {
   if (value.length <= maxChars) return value;
-  const marker = `\n\n... ${value.length - maxChars} characters omitted by Pi Fabric ...\n\n`;
+  const marker = `\n\n... ${value.length - maxChars} characters omitted by OMP Fabric ...\n\n`;
   const available = Math.max(0, maxChars - marker.length);
   const head = Math.ceil(available / 2);
   const tail = Math.floor(available / 2);

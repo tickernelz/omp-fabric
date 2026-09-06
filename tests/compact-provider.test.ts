@@ -1,4 +1,4 @@
-import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 import { describe, expect, it } from "vitest";
 import {
   MAX_COMPACTION_INSTRUCTIONS_CHARS,

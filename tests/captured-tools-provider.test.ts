@@ -1,17 +1,16 @@
 import {
-  createSyntheticSourceInfo,
-  defineTool,
   type ExtensionContext,
   type ExtensionRunner,
   type RegisteredTool,
-} from "@earendil-works/pi-coding-agent";
-import { Type } from "typebox";
+  type ToolDefinition,
+} from "@oh-my-pi/pi-coding-agent";
+import { Type } from "@oh-my-pi/omptype/typebox";
 import { describe, expect, it, vi } from "vitest";
 import { CapturedToolCatalog } from "../src/capture/catalog.js";
 import { DEFAULT_FABRIC_CONFIG } from "../src/config.js";
 import { ActionRegistry } from "../src/core/action-registry.js";
 import { CapturedToolsProvider } from "../src/providers/captured-tools-provider.js";
-import { PiToolsProvider } from "../src/providers/pi-tools-provider.js";
+import { OmpToolsProvider } from "../src/providers/omp-tools-provider.js";
 
 const context = {
   cwd: process.cwd(),
@@ -25,9 +24,9 @@ const context = {
   maxResultChars: 100_000,
 };
 
-describe("CapturedToolsProvider", () => {
+describe("CapturedToolsProvider", async () => {
   it("prepares, validates, intercepts, and executes a captured tool lazily", async () => {
-    const execute = vi.fn(async (_id, params: { value: string }, _signal, onUpdate, ctx) => {
+    const execute = vi.fn(async (_id: string, params: { value: string }, _signal: AbortSignal | undefined, onUpdate: ((result: { content: [{ type: "text"; text: string }]; details: { progress: number } }) => void) | undefined, ctx: ExtensionContext) => {
       onUpdate?.({
         content: [{ type: "text", text: "halfway" }],
         details: { progress: 50 },
@@ -38,7 +37,7 @@ describe("CapturedToolsProvider", () => {
         terminate: true,
       };
     });
-    const definition = defineTool({
+    const definition = ({
       name: "compat_tool",
       label: "Compat Tool",
       description: "Exercise captured execution",
@@ -48,11 +47,8 @@ describe("CapturedToolsProvider", () => {
         return { value: input.oldValue ?? "missing" };
       },
       execute,
-    });
-    const sourceInfo = createSyntheticSourceInfo("/extensions/pi-compat/index.ts", {
-      source: "test",
-    });
-    const registeredTool: RegisteredTool = { definition, sourceInfo };
+    } as ToolDefinition & { prepareArguments(args: Record<string, unknown>): Record<string, unknown> });
+    const registeredTool: RegisteredTool = { definition, extensionPath: "/extensions/pi-compat/index.ts" };
     const lifecycleEvents: string[] = [];
     const runner = {
       createContext: () => ({ cwd: "/captured-context" }),
@@ -71,7 +67,7 @@ describe("CapturedToolsProvider", () => {
       [registeredTool],
       runner,
       DEFAULT_FABRIC_CONFIG.capture,
-      "/extensions/pi-fabric/index.ts",
+      "/extensions/omp-fabric/index.ts",
     );
     const registry = new ActionRegistry();
     registry.register(new CapturedToolsProvider(catalog));
@@ -114,12 +110,12 @@ describe("CapturedToolsProvider", () => {
   });
 
   it("routes Fabric built-ins through captured extension overrides", async () => {
-    const definition = defineTool({
+    const definition = ({
       name: "read",
       label: "Audited read",
       description: "Read through an extension gate",
       parameters: Type.Object({ path: Type.String() }),
-      async execute(_id, params) {
+      async execute(_id: string, params: { path: string }) {
         return {
           content: [{ type: "text" as const, text: `override:${params.path}` }],
           details: { override: true },
@@ -138,26 +134,24 @@ describe("CapturedToolsProvider", () => {
       [
         {
           definition,
-          sourceInfo: createSyntheticSourceInfo("/extensions/audited-read.ts", {
-            source: "test",
-          }),
+          extensionPath: "/extensions/audited-read.ts",
         },
       ],
       runner,
       DEFAULT_FABRIC_CONFIG.capture,
-      "/extensions/pi-fabric/index.ts",
+      "/extensions/omp-fabric/index.ts",
     );
     const capturedProvider = new CapturedToolsProvider(catalog);
     const registry = new ActionRegistry();
-    registry.register(new PiToolsProvider(process.cwd(), catalog, capturedProvider));
+    registry.register(await OmpToolsProvider.create(process.cwd(), catalog, capturedProvider));
 
-    await expect(registry.invoke("pi.read", { path: "README.md" }, context)).resolves.toBe(
+    await expect(registry.invoke("omp.read", { path: "README.md" }, context)).resolves.toBe(
       "override:README.md",
     );
   });
 
   it("discovers and routes a captured Fovea grep override", async () => {
-    const definition = defineTool({
+    const definition = ({
       name: "grep",
       label: "grep (Fovea)",
       description: "Navigate the pi-fovea code graph through grep's familiar shape",
@@ -170,7 +164,7 @@ describe("CapturedToolsProvider", () => {
         context: Type.Optional(Type.Number()),
         limit: Type.Optional(Type.Number()),
       }),
-      async execute(_id, params) {
+      async execute(_id: string, params: { pattern: string }) {
         return {
           content: [{ type: "text" as const, text: `fovea grep ${params.pattern}` }],
           details: { backend: "fovea" },
@@ -188,37 +182,35 @@ describe("CapturedToolsProvider", () => {
     catalog.replace(
       [{
         definition,
-        sourceInfo: createSyntheticSourceInfo("/extensions/pi-fovea/src/index.ts", {
-          source: "test",
-        }),
+        extensionPath: "/extensions/pi-fovea/src/index.ts",
       }],
       runner,
       DEFAULT_FABRIC_CONFIG.capture,
-      "/extensions/pi-fabric/index.ts",
+      "/extensions/omp-fabric/index.ts",
     );
     const capturedProvider = new CapturedToolsProvider(catalog);
     const registry = new ActionRegistry();
     registry.register(capturedProvider);
-    registry.register(new PiToolsProvider(process.cwd(), catalog, capturedProvider));
+    registry.register(await OmpToolsProvider.create(process.cwd(), catalog, capturedProvider));
 
     const refs = (await registry.search("fovea", context)).map((action) => action.ref);
     expect(refs).toContain("extensions.grep");
-    expect(refs).toContain("pi.grep");
-    await expect(registry.invoke("pi.grep", { pattern: "CreateUser" }, context)).resolves.toBe(
+    expect(refs).toContain("omp.grep");
+    await expect(registry.invoke("omp.grep", { pattern: "CreateUser" }, context)).resolves.toBe(
       "fovea grep CreateUser",
     );
   });
 
   it("releases scheduler barriers after an aborted non-cooperative tool", async () => {
-    const hangingExecute = vi.fn(async () => new Promise<never>(() => undefined));
-    const hanging = defineTool({
+    const hangingExecute = vi.fn(async (_id: string, _params: Record<string, never>, _signal: AbortSignal | undefined, _onUpdate: unknown, _context: unknown) => new Promise<never>(() => undefined));
+    const hanging = ({
       name: "hanging_parallel",
       label: "Hanging parallel",
       description: "Never settles",
       parameters: Type.Object({}),
       execute: hangingExecute,
     });
-    const sequential = defineTool({
+    const sequential = ({
       name: "sequential_after_abort",
       label: "Sequential after abort",
       description: "Runs after cancellation",
@@ -239,13 +231,11 @@ describe("CapturedToolsProvider", () => {
     catalog.replace(
       [hanging, sequential].map((definition) => ({
         definition,
-        sourceInfo: createSyntheticSourceInfo(`/extensions/${definition.name}.ts`, {
-          source: "test",
-        }),
+        extensionPath: `/extensions/${definition.name}.ts`,
       })),
       runner,
       DEFAULT_FABRIC_CONFIG.capture,
-      "/extensions/pi-fabric/index.ts",
+      "/extensions/omp-fabric/index.ts",
     );
     const provider = new CapturedToolsProvider(catalog);
     const controller = new AbortController();
@@ -276,7 +266,7 @@ describe("CapturedToolsProvider", () => {
       operation: () => Promise<void> | void,
       executionMode?: "sequential" | "parallel",
     ) =>
-      defineTool({
+      ({
         name,
         label: name,
         description: name,
@@ -300,7 +290,7 @@ describe("CapturedToolsProvider", () => {
         },
         "sequential",
       ),
-      makeDefinition("parallel_last", () => {
+      makeDefinition("parallel_last", async () => {
         timeline.push("parallel:last");
       }),
     ];
@@ -315,13 +305,11 @@ describe("CapturedToolsProvider", () => {
     catalog.replace(
       definitions.map((definition) => ({
         definition,
-        sourceInfo: createSyntheticSourceInfo(`/extensions/${definition.name}.ts`, {
-          source: "test",
-        }),
+        extensionPath: `/extensions/${definition.name}.ts`,
       })),
       runner,
       DEFAULT_FABRIC_CONFIG.capture,
-      "/extensions/pi-fabric/index.ts",
+      "/extensions/omp-fabric/index.ts",
     );
     const provider = new CapturedToolsProvider(catalog);
     const invocationContext = {

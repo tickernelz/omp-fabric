@@ -1,7 +1,7 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { runAbortable, settleWithin } from "../async-settlement.js";
-import { piBashExitMetadata } from "../core/pi-bash-error.js";
-import { isPiShellRef } from "../core/pi-tools.js";
+import { ompBashExitMetadata } from "../core/omp-bash-error.js";
+import { isOmpShellRef } from "../core/omp-tools.js";
 import {
   GUEST_SETUP,
   type FabricHostCall,
@@ -68,7 +68,7 @@ export class NodeProcessRuntime {
 
     // Bun evaluates --eval input as ESM and ignores V8 heap flags, so the
     // Bun child gets the guest source bare; Node needs the module + heap flags.
-    // Bun resolution stays async: Pi may legitimately run under Node while bun
+    // Bun resolution stays async: OMP may legitimately run under Node while bun
     // is only available on PATH, and the sync variant does no PATH lookup.
     const runtimeOptions = this.#interpreter === "bun" ? { requireBun: true } : { requireNode: true };
     const interpreterPath = this.#interpreter === "bun"
@@ -193,7 +193,7 @@ export class NodeProcessRuntime {
               id: message.id,
               ok: false,
               error: error instanceof Error ? error.message : String(error),
-              bashExit: isPiShellRef(message.ref) ? piBashExitMetadata(error) : undefined,
+              bashExit: isOmpShellRef(message.ref) ? ompBashExitMetadata(error) : undefined,
             }),
         );
         hostTasks.add(task);
@@ -223,7 +223,7 @@ export class NodeProcessRuntime {
         type: "execute",
         setup: GUEST_SETUP,
         code: guestBundle.code,
-        strings: options.strings ?? {},
+        payloads: options.payloads ?? {},
         tokenBudget: options.tokenBudget,
         maxLogChars: options.maxLogChars ?? 100_000,
       });

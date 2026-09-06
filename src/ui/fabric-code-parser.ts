@@ -5,8 +5,8 @@ export interface FabricWriteBinding {
 
 type Token = { kind: "identifier" | "string" | "punctuation"; text: string };
 
-const identifierStart = (char: string): boolean => /[A-Za-z_$π]/u.test(char);
-const identifierPart = (char: string): boolean => /[A-Za-z0-9_$π]/u.test(char);
+const identifierStart = (char: string): boolean => /[A-Za-z_$payloads]/u.test(char);
+const identifierPart = (char: string): boolean => /[A-Za-z0-9_$payloads]/u.test(char);
 
 const readEscape = (source: string, index: number): { value: string; next: number } => {
   const char = source[index];
@@ -91,7 +91,7 @@ const propertyName = (token: Token | undefined): string | undefined =>
   token?.kind === "identifier" || token?.kind === "string" ? token.text : undefined;
 
 const namedStringKey = (tokens: Token[], start: number, end: number): string | undefined => {
-  if (tokens[start]?.text !== "π") return undefined;
+  if (tokens[start]?.text !== "payloads" && tokens[start]?.text !== "omp") return undefined;
   if (tokens[start + 1]?.text === "." && tokens[start + 2]?.kind === "identifier" && start + 3 === end) {
     return tokens[start + 2]!.text;
   }
@@ -138,7 +138,7 @@ export const fabricWriteBindings = (code: string): FabricWriteBinding[] => {
   const tokens = tokenize(code);
   const bindings: FabricWriteBinding[] = [];
   for (let index = 0; index < tokens.length - 5; index++) {
-    if (tokens[index]?.text !== "pi" || tokens[index + 1]?.text !== "." || tokens[index + 2]?.text !== "write" || tokens[index + 3]?.text !== "(" || tokens[index + 4]?.text !== "{") continue;
+    if (tokens[index]?.text !== "omp" || tokens[index + 1]?.text !== "." || tokens[index + 2]?.text !== "write" || tokens[index + 3]?.text !== "(" || tokens[index + 4]?.text !== "{") continue;
     const parsed = objectBinding(tokens, index + 4);
     if (parsed.binding) bindings.push(parsed.binding);
     index = parsed.next - 1;
@@ -156,7 +156,7 @@ const TITLE_MAX_WINDOW_TOKENS = 96;
 const TITLE_SAFE_ANCHOR = /^[A-Za-z0-9_./~@*+,-]+$/;
 const TITLE_FILE_LIKE = /\.[A-Za-z0-9]{1,8}$/;
 
-const PI_VERB_LABELS: Record<string, string> = {
+const OMP_VERB_LABELS: Record<string, string> = {
   read: "Read",
   bash: "Shell",
   edit: "Edit",
@@ -222,7 +222,7 @@ const callWindow = (tokens: Token[], openIndex: number): { start: number; end: n
 };
 
 const isNamedStringToken = (tokens: Token[], index: number): boolean =>
-  tokens[index]?.kind === "string" && tokens[index - 1]?.text === "[" && tokens[index - 2]?.text === "π";
+  tokens[index]?.kind === "string" && tokens[index - 1]?.text === "[" && tokens[index - 2]?.text === "payloads";
 
 const windowKeyedString = (
   tokens: Token[],
@@ -293,7 +293,7 @@ const pathTarget = (tokens: Token[], start: number, end: number): string | undef
   return keyed !== undefined ? dirQualifier(keyed) : undefined;
 };
 
-const piCallTarget = (
+const ompCallTarget = (
   label: string,
   tokens: Token[],
   start: number,
@@ -311,7 +311,7 @@ const piCallTarget = (
 // executing it. Every recognized call contributes "Verb target" — target is
 // a basename, glob, quoted literal search head, command head, mcp ref, or
 // task/key clip — and segments join in first-occurrence order under a char
-// budget. π payload keys are skipped so named strings never surface in
+// budget. payloads keys are skipped so named payloads never surface in
 // titles. Returns undefined when the program holds no recognizable Fabric
 // call, letting callers keep a neutral fallback.
 export const fabricExecTitleHint = (code: string): string | undefined => {
@@ -339,10 +339,10 @@ export const fabricExecTitleHint = (code: string): string | undefined => {
     const dot = tokens[index + 1];
     const leaf = tokens[index + 2];
     if (dot?.text !== "." || leaf?.kind !== "identifier") continue;
-    if (token.text === "pi" && tokens[index + 3]?.text === "(") {
-      const label = PI_VERB_LABELS[leaf.text] ?? humanizeIdentifier(leaf.text);
+    if (token.text === "omp" && tokens[index + 3]?.text === "(") {
+      const label = OMP_VERB_LABELS[leaf.text] ?? humanizeIdentifier(leaf.text);
       const window = callWindow(tokens, index + 3);
-      record(label, piCallTarget(label, tokens, window.start, window.end));
+      record(label, ompCallTarget(label, tokens, window.start, window.end));
       continue;
     }
     if (

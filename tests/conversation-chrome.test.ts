@@ -1,9 +1,9 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import type { AssistantMessage } from "@earendil-works/pi-ai";
-import { AssistantMessageComponent, UserMessageComponent, initTheme, type Theme } from "@earendil-works/pi-coding-agent";
-import { stripTerminalSequences, visibleWidth, type TUI } from "@earendil-works/pi-tui";
+import type { AssistantMessage } from "@oh-my-pi/pi-ai";
+import { AssistantMessageComponent, UserMessageComponent, initThemeSync, type Theme } from "@oh-my-pi/pi-coding-agent";
+import { visibleWidth, type TUI } from "@oh-my-pi/pi-tui";
 import { describe, expect, it, vi } from "vitest";
 import { conversationFooter, readConversationAppearance } from "../src/ui/conversation-chrome.js";
 import { FabricConversationState, FabricConversationView, type FabricConversationTarget } from "../src/ui/conversation.js";
@@ -21,28 +21,28 @@ const target: FabricConversationTarget = {
   model: "openai/child-model", thinking: "low", canSteer: true, canFollowUp: true, canStop: true,
   usage: { input: 1200, output: 400, cacheRead: 600, cacheWrite: 0, cost: 0.012 }, contextWindow: 128000,
 };
-const tui = { terminal: { rows: 22, columns: 120 }, requestRender: vi.fn() } as unknown as TUI;
-const plain = (lines: string[]) => lines.map(stripTerminalSequences);
+const tui = { terminal: { rows: 22, columns: 120, write: vi.fn() }, requestRender: vi.fn() } as unknown as TUI;
+const plain = (lines: readonly string[]) => lines.map((line) => line.replace(/\x1b\[[0-9;]*m/g, ""));
 
 describe("native conversation chrome", () => {
-  it.each([0, 1] as const)("matches native user background width and padding (%s)", (outputPad) => {
-    initTheme("dark", false);
+  it("matches native user background width and padding", () => {
+    initThemeSync(undefined, false, "dark");
     const renderer = new FabricConversationTranscriptRenderer(tui, theme);
-    const lines = renderer.render(nativeTranscript([userMessage("Hello!")]), 80, { target, toolsExpanded: false, outputPad });
-    const native = new UserMessageComponent("Hello!", undefined, outputPad).render(80);
+    const lines = renderer.render(nativeTranscript([userMessage("Hello!")]), 80, { target, toolsExpanded: false });
+    const native = new UserMessageComponent("Hello!", undefined, undefined).render(80);
     expect(plain(lines)).toEqual(plain(native));
     expect(lines.every((line) => visibleWidth(line) === 80)).toBe(true);
   });
 
-  it.each([0, 1] as const)("matches native assistant spacing without an Agent heading (%s)", (outputPad) => {
-    initTheme("dark", false);
-    const text = "A **normal Pi** response.";
+  it("matches native assistant spacing without an Agent heading", () => {
+    initThemeSync(undefined, false, "dark");
+    const text = "A **normal OMP** response.";
     const message: AssistantMessage = {
       role: "assistant", content: [{ type: "text", text }], api: "openai-responses", provider: "openai", model: "fixture", timestamp: 0, stopReason: "stop",
       usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
     };
-    const native = new AssistantMessageComponent(message, false, undefined, undefined, outputPad).render(80);
-    const lines = new FabricConversationTranscriptRenderer(tui, theme).render(nativeTranscript([message]), 80, { target, toolsExpanded: false, outputPad });
+    const native = new AssistantMessageComponent(message, false, undefined, undefined, undefined).render(80);
+    const lines = new FabricConversationTranscriptRenderer(tui, theme).render(nativeTranscript([message]), 80, { target, toolsExpanded: false });
     expect(plain(lines)).toEqual(plain(native));
     expect(plain(lines).join("\n")).not.toContain("Agent");
   });
@@ -59,7 +59,7 @@ describe("native conversation chrome", () => {
     expect(lines.join("\n")).toContain("\x1b[38;2;");
     expect(lines.some((line) => line.includes("\x1b[48;"))).toBe(true);
     expect(lines.every((line) => visibleWidth(line) <= 80)).toBe(true);
-    expect(plain(lines).find((line) => line.includes("const result"))).toMatch(/^ {5}/);
+    expect(plain(lines).find((line) => line.includes("const result"))).toBe("const result = 42;");
   }, 15000);
 
   it("keeps editor rules full width and the child footer below the editor", () => {
@@ -73,12 +73,14 @@ describe("native conversation chrome", () => {
       send: vi.fn(), stop: vi.fn(), close: vi.fn(),
     });
     const lines = plain(view.render(120));
-    const rules = lines.map((line, index) => ({ line, index })).filter(({ line }) => /^─+$/.test(line));
-    expect(rules).toHaveLength(2);
-    expect(rules.every(({ line }) => line.length === 120)).toBe(true);
-    expect(lines.find((line) => line.includes("draft"))).toMatch(/^  draft/);
+    const topIndex = lines.findIndex((line) => line.startsWith("╭"));
+    const editorIndex = lines.findIndex((line) => line.includes("draft"));
+    expect(topIndex).toBeGreaterThanOrEqual(0);
+    expect(editorIndex).toBe(topIndex + 1);
+    expect(visibleWidth(lines[topIndex]!)).toBe(120);
+    expect(visibleWidth(lines[editorIndex]!)).toBe(120);
     const footerIndex = lines.findIndex((line) => line.includes("/repo/child (feature/chat)"));
-    expect(footerIndex).toBeGreaterThan(rules[1]!.index);
+    expect(footerIndex).toBeGreaterThan(editorIndex);
     expect(lines[footerIndex + 1]).toContain("run ↑1.2k ↓400 R600 $0.012");
     expect(lines[footerIndex + 1]).toContain("?/128k ctx");
     expect(lines[footerIndex + 1]).toMatch(/openai\/child-model • low$/);
@@ -88,7 +90,7 @@ describe("native conversation chrome", () => {
   it("keeps the draft cursor visible in a one-row terminal", () => {
     const state = new FabricConversationState();
     state.view(target.id).draft = "visible draft";
-    const view = new FabricConversationView({ ...tui, terminal: { rows: 1, columns: 40 } } as TUI, theme, {
+    const view = new FabricConversationView({ ...tui, terminal: { rows: 1, columns: 40, write: vi.fn() } } as unknown as TUI, theme, {
       state, targets: () => [target], transcript: () => nativeTranscript(),
       loadOlder: () => false, loadNewer: () => false, loadLatest: () => false,
       send: vi.fn(), stop: vi.fn(), close: vi.fn(),
@@ -111,17 +113,29 @@ describe("native conversation chrome", () => {
     }
   });
 
-  it("reads native padding and code settings only from trusted layers", () => {
+  it("reads trusted settings and uses isolated defaults when untrusted", async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "fabric-chrome-"));
     const cwd = path.join(root, "project");
     const agentDir = path.join(root, "agent");
-    fs.mkdirSync(path.join(cwd, ".pi"), { recursive: true });
+    fs.mkdirSync(path.join(cwd, ".omp"), { recursive: true });
     fs.mkdirSync(agentDir);
-    fs.writeFileSync(path.join(agentDir, "settings.json"), JSON.stringify({ editorPaddingX: 1, outputPad: 1, markdown: { codeBlockIndent: "  " } }));
-    fs.writeFileSync(path.join(cwd, ".pi", "settings.json"), JSON.stringify({ editorPaddingX: 3, outputPad: 0, markdown: { codeBlockIndent: "    " } }));
+    fs.writeFileSync(path.join(agentDir, "config.yml"), "terminal:\n  showImages: true\nhideThinkingBlock: false\n");
+    fs.writeFileSync(path.join(cwd, ".omp", "config.yml"), "terminal:\n  showImages: false\nhideThinkingBlock: true\n");
     try {
-      expect(readConversationAppearance(cwd, agentDir, true)).toMatchObject({ editorPaddingX: 3, outputPad: 0, codeBlockIndent: "    " });
-      expect(readConversationAppearance(cwd, agentDir, false)).toMatchObject({ editorPaddingX: 1, outputPad: 1, codeBlockIndent: "  " });
+      await expect(readConversationAppearance(cwd, agentDir, true)).resolves.toMatchObject({
+        editorPaddingX: 0,
+        outputPad: 0,
+        codeBlockIndent: "  ",
+        hideThinkingBlock: true,
+        showImages: false,
+      });
+      await expect(readConversationAppearance(cwd, agentDir, false)).resolves.toMatchObject({
+        editorPaddingX: 0,
+        outputPad: 0,
+        codeBlockIndent: "  ",
+        hideThinkingBlock: false,
+        showImages: true,
+      });
     } finally { fs.rmSync(root, { recursive: true, force: true }); }
   });
 });

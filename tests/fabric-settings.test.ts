@@ -1,7 +1,8 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
+import { setAgentDir } from "@oh-my-pi/pi-utils";
+import type { ExtensionContext, Theme } from "@oh-my-pi/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
 import type { CapturedToolCatalog } from "../src/capture/catalog.js";
 import { DEFAULT_FABRIC_CONFIG, loadFabricConfig } from "../src/config.js";
@@ -34,13 +35,26 @@ const fakeModelSource: ModelSource = {
   lastUsed: { "anthropic/claude-sonnet-4-5": 200, "openai/gpt-5.5": 100 },
 };
 
-const buildItems = (keepVisibleCandidates: string[] = ["fabric_exec"]) =>
+const buildItems = (keepVisibleCandidates: readonly string[] = ["fabric_exec"]) =>
   buildFabricSettingsItems(theme, DEFAULT_FABRIC_CONFIG, () => {}, {
-    keepVisibleCandidates,
+    keepVisibleCandidates: [...keepVisibleCandidates],
     modelSource: fakeModelSource,
     activeModelKey: "anthropic/claude-sonnet-4-5",
   });
 
+type SettingsListProbe = {
+  selectItem(id: string): boolean;
+  handleInput(data: string): void;
+  getSelectedItem(): { id: string; currentValue: string } | undefined;
+  render(width: number): readonly string[];
+};
+
+type SectionProbe = {
+  items: Array<{ id: string; currentValue: string; values?: readonly string[] }>;
+  settingsList: SettingsListProbe;
+  applyChange(id: string, value: string): void;
+  render(width: number): readonly string[];
+};
 describe("FabricSettingsComponent", () => {
   it("populates Claude models asynchronously without requiring startup discovery", async () => {
     const source: ModelSource = {
@@ -85,7 +99,7 @@ describe("FabricSettingsComponent", () => {
     expect(lines).toContain("trusted-code escape hatch");
   });
 
-  it("renders the pi-core style top and bottom borders with search", () => {
+  it("renders the native top and bottom borders with search", () => {
     const component = new FabricSettingsComponent(theme, buildItems(), () => {}, () => {});
     const lines = component.render(80);
 
@@ -94,7 +108,7 @@ describe("FabricSettingsComponent", () => {
     expect(lines.some((line) => line.includes("Type to search"))).toBe(true);
     expect(lines.some((line) => line.includes("Full code mode"))).toBe(true);
     expect(lines.some((line) => line.includes("Executor"))).toBe(true);
-    expect(lines.some((line) => line.includes("Editing: Project overrides (.pi/fabric.json)"))).toBe(true);
+    expect(lines.some((line) => line.includes("Editing: Project overrides (.omp/fabric.json)"))).toBe(true);
   });
 
   it("toggles save scope with Ctrl+G from the root and active submenus", () => {
@@ -107,18 +121,17 @@ describe("FabricSettingsComponent", () => {
 
     component.handleInput("\x07");
     expect(component.render(100).join("\n")).toContain(
-      "Editing: Global defaults (~/.pi/agent/fabric.json)",
+      "Editing: Global defaults (<active OMP agent dir>/fabric.json)",
     );
 
-    const list = component.settingsList as any;
-    list.selectedIndex = list.items.findIndex((item: { id: string }) => item.id === "executor");
-    list.activateItem();
+    expect(component.settingsList.selectItem("executor")).toBe(true);
+    component.settingsList.handleInput("\r");
     component.handleInput("\x07");
 
-    expect(list.submenuComponent).not.toBeNull();
     expect(component.render(100).join("\n")).toContain(
-      "Editing: Project overrides (.pi/fabric.json)",
+      "Editing: Project overrides (.omp/fabric.json)",
     );
+    expect(component.render(100).join("\n")).toContain("Runtime");
     expect(scopes).toEqual(["global", "project"]);
   });
 
@@ -133,7 +146,7 @@ describe("FabricSettingsComponent", () => {
     component.handleInput("\x07");
 
     expect(component.render(100).join("\n")).toContain(
-      "Editing: Global defaults (~/.pi/agent/fabric.json)",
+      "Editing: Global defaults (<active OMP agent dir>/fabric.json)",
     );
     expect(component.render(100).join("\n")).toContain("project scope unavailable");
     expect(onSaveScopeChange).not.toHaveBeenCalled();
@@ -229,17 +242,17 @@ describe("FabricSettingsComponent", () => {
     expect(compaction?.currentValue).toBe("fabric");
     const lines = compaction!.submenu!("", () => {}).render(80).join("\n");
     expect(lines).toContain("Threshold");
-    expect(lines).toContain("Pi default");
+    expect(lines).toContain("OMP default");
     expect(lines).toContain("anthropic/claude-sonnet-4-5");
     expect(lines).toContain("Engine");
     expect(lines).toContain("fabric");
     expect(lines).toContain("Max occupancy");
     expect(lines).toContain("0.65");
     const section = compaction!.submenu!("", () => {}) as any;
-    const target = section.settingsList.items.find(
+    const target = (section.items as Array<{ id: string; values?: readonly string[] }>).find(
       (item: { id: string }) => item.id === "compaction.targetContextRatio",
     );
-    expect(target.values).toEqual(
+    expect(target?.values).toEqual(
       Array.from({ length: 13 }, (_, index) => String((25 + index * 5) / 100)),
     );
   });
@@ -248,101 +261,99 @@ describe("FabricSettingsComponent", () => {
     const applied: Array<{ id: string; value: unknown }> = [];
     const config = structuredClone(DEFAULT_FABRIC_CONFIG);
     config.compaction.thresholds["openai/gpt-5.5"] = 0.6;
-    const items = buildFabricSettingsItems(
-      theme,
-      config,
-      (id, value) => applied.push({ id, value }),
-      {
-        keepVisibleCandidates: ["fabric_exec"],
-        modelSource: fakeModelSource,
-        activeModelKey: "openai/gpt-5.5",
-      },
-    );
-    const section = items.find((item) => item.id === "compaction")!.submenu!("", () => {}) as any;
-    const list = section.settingsList as any;
-    list.selectedIndex = list.items.findIndex((item: { id: string }) => item.id === "compaction.threshold");
-    expect(list.items[list.selectedIndex].currentValue).toBe("60%");
+    const items = buildFabricSettingsItems(theme, config, (id, value) => applied.push({ id, value }), {
+      keepVisibleCandidates: ["fabric_exec"],
+      modelSource: fakeModelSource,
+      activeModelKey: "openai/gpt-5.5",
+    });
+    const section = items.find((item) => item.id === "compaction")!.submenu!("", () => {}) as unknown as SectionProbe;
+    const list = section.settingsList;
+    expect(list.selectItem("compaction.threshold")).toBe(true);
+    expect(list.getSelectedItem()?.currentValue).toBe("60%");
 
-    list.activateItem();
-    list.submenuComponent.selectList.onSelect({ value: "Custom percent…", label: "Custom percent…" });
-    expect(list.submenuComponent.input).toBeDefined();
-    expect(list.submenuComponent.input.getValue()).toBe("60");
+    const pickCustomPercent = (): void => {
+      list.handleInput("\r");
+      list.handleInput("\x1b[B");
+      list.handleInput("\r");
+    };
+    const clearPrefill = (length: number): void => {
+      for (let index = 0; index < length; index += 1) list.handleInput("\x7f");
+    };
 
-    list.submenuComponent.input.setValue("");
-    list.submenuComponent.handleInput("73");
-    list.submenuComponent.handleInput("\r");
+    pickCustomPercent();
+    clearPrefill(2);
+    list.handleInput("73");
+    list.handleInput("\r");
     expect(applied.at(-1)).toEqual({
       id: "compaction.threshold",
       value: { mode: "percent", value: 0.73 },
     });
-    expect(list.items[list.selectedIndex].currentValue).toBe("73%");
+    expect(list.getSelectedItem()?.currentValue).toBe("73%");
 
-    list.activateItem();
-    list.submenuComponent.selectList.onSelect({ value: "Custom percent…", label: "Custom percent…" });
-    list.submenuComponent.input.setValue("");
-    list.submenuComponent.handleInput("5");
-    list.submenuComponent.handleInput("\r");
+    pickCustomPercent();
+    clearPrefill(2);
+    list.handleInput("5");
+    list.handleInput("\r");
     expect(applied.at(-1)).toEqual({
       id: "compaction.threshold",
       value: { mode: "percent", value: 0.25 },
     });
-    expect(list.items[list.selectedIndex].currentValue).toBe("25%");
+    expect(list.getSelectedItem()?.currentValue).toBe("25%");
 
-    list.activateItem();
-    list.submenuComponent.selectList.onSelect({ value: "Custom percent…", label: "Custom percent…" });
-    list.submenuComponent.handleInput("\x1b");
-    expect(list.submenuComponent.selectList).toBeDefined();
+    pickCustomPercent();
+    list.handleInput("\x1b");
+    expect(list.render(100).join("\n")).toContain("Custom percent…");
   });
 
   it("persists a custom token threshold through the drill-in input", () => {
     const applied: Array<{ id: string; value: unknown }> = [];
     const config = structuredClone(DEFAULT_FABRIC_CONFIG);
     config.compaction.tokenThresholds["openai/gpt-5.5"] = 150_000;
-    const items = buildFabricSettingsItems(
-      theme,
-      config,
-      (id, value) => applied.push({ id, value }),
-      {
-        keepVisibleCandidates: ["fabric_exec"],
-        modelSource: fakeModelSource,
-        activeModelKey: "openai/gpt-5.5",
-      },
-    );
-    const section = items.find((item) => item.id === "compaction")!.submenu!("", () => {}) as any;
-    const list = section.settingsList as any;
-    list.selectedIndex = list.items.findIndex((item: { id: string }) => item.id === "compaction.threshold");
-    expect(list.items[list.selectedIndex].currentValue).toBe("150k tokens");
+    const items = buildFabricSettingsItems(theme, config, (id, value) => applied.push({ id, value }), {
+      keepVisibleCandidates: ["fabric_exec"],
+      modelSource: fakeModelSource,
+      activeModelKey: "openai/gpt-5.5",
+    });
+    const section = items.find((item) => item.id === "compaction")!.submenu!("", () => {}) as unknown as SectionProbe;
+    const list = section.settingsList;
+    expect(list.selectItem("compaction.threshold")).toBe(true);
+    expect(list.getSelectedItem()?.currentValue).toBe("150k tokens");
 
-    list.activateItem();
-    list.submenuComponent.selectList.onSelect({ value: "Custom tokens…", label: "Custom tokens…" });
-    expect(list.submenuComponent.input).toBeDefined();
-    expect(list.submenuComponent.input.getValue()).toBe("150000");
+    const pickCustomTokens = (): void => {
+      list.handleInput("\r");
+      list.handleInput("\x1b[B");
+      list.handleInput("\x1b[B");
+      list.handleInput("\r");
+    };
+    const clearPrefill = (length: number): void => {
+      for (let index = 0; index < length; index += 1) list.handleInput("\x7f");
+    };
 
-    list.submenuComponent.input.setValue("");
-    list.submenuComponent.handleInput("5");
-    list.submenuComponent.handleInput("\r");
+    pickCustomTokens();
+    clearPrefill(6);
+    list.handleInput("5");
+    list.handleInput("\r");
     expect(applied.at(-1)).toEqual({
       id: "compaction.threshold",
       value: { mode: "tokens", value: 1_000 },
     });
-    expect(list.items[list.selectedIndex].currentValue).toBe("1k tokens");
+    expect(list.getSelectedItem()?.currentValue).toBe("1k tokens");
 
-    list.activateItem();
-    list.submenuComponent.selectList.onSelect({ value: "Custom tokens…", label: "Custom tokens…" });
-    list.submenuComponent.input.setValue("");
-    list.submenuComponent.handleInput("240000");
-    list.submenuComponent.handleInput("\r");
+    pickCustomTokens();
+    clearPrefill(6);
+    list.handleInput("240000");
+    list.handleInput("\r");
     expect(applied.at(-1)).toEqual({
       id: "compaction.threshold",
       value: { mode: "tokens", value: 240_000 },
     });
-    expect(list.items[list.selectedIndex].currentValue).toBe("240k tokens");
+    expect(list.getSelectedItem()?.currentValue).toBe("240k tokens");
 
-    list.activateItem();
-    list.submenuComponent.selectList.onSelect({ value: "Custom tokens…", label: "Custom tokens…" });
-    list.submenuComponent.handleInput("\x1b");
-    expect(list.submenuComponent.selectList).toBeDefined();
+    pickCustomTokens();
+    list.handleInput("\x1b");
+    expect(list.render(100).join("\n")).toContain("Custom tokens…");
   });
+
 
   it("builds exclusive compaction threshold partials per mode", () => {
     expect(compactionThresholdPartial("openai/gpt-5.5", { mode: "percent", value: 0.8 })).toEqual({
@@ -411,29 +422,29 @@ describe("FabricSettingsComponent", () => {
       { keepVisibleCandidates: ["fabric_exec"], modelSource: fakeModelSource },
     );
     const agents = items.find((item) => item.id === "agents")!;
-    const section = agents.submenu!("", () => {}) as any;
-    const list = section.settingsList as any;
-    list.selectedIndex = list.items.findIndex(
-      (item: { id: string }) => item.id === "agents.maxDepth",
-    );
-    list.activateItem();
+    const section = agents.submenu!("", () => {}) as unknown as SectionProbe;
+    const list = section.settingsList;
+    expect(list.selectItem("agents.maxDepth")).toBe(true);
+    list.handleInput("\r");
 
-    expect(list.submenuComponent.render(100).join("\n")).toContain(
+    expect(list.render(100).join("\n")).toContain(
       "Enter any non-negative integer",
     );
-    list.submenuComponent.input.setValue("-1");
-    list.submenuComponent.handleInput("\r");
+    list.handleInput("\x7f");
+    list.handleInput("-1");
+    list.handleInput("\r");
     expect(applied).toEqual([]);
-    expect(list.submenuComponent.render(100).join("\n")).toContain(
+    expect(list.render(100).join("\n")).toContain(
       "Enter a non-negative safe integer",
     );
 
-    list.submenuComponent.input.setValue("");
-    list.submenuComponent.handleInput("64");
-    list.submenuComponent.handleInput("\r");
+    list.handleInput("\x7f");
+    list.handleInput("\x7f");
+    list.handleInput("64");
+    list.handleInput("\r");
 
     expect(applied.at(-1)).toEqual({ id: "agents.maxDepth", value: 64 });
-    expect(list.items[list.selectedIndex].currentValue).toBe("64");
+    expect(list.getSelectedItem()?.currentValue).toBe("64");
   });
 
   it("shows the configured budget as a currency value", () => {
@@ -458,22 +469,22 @@ describe("FabricSettingsComponent", () => {
       { keepVisibleCandidates: ["fabric_exec"], modelSource: fakeModelSource },
     );
     const executor = items.find((item) => item.id === "executor")!;
-    const section = executor.submenu!("", () => {}) as any;
-    const list = section.settingsList as any;
-    list.selectedIndex = list.items.findIndex(
-      (item: { id: string }) => item.id === "executor.memoryLimitBytes",
-    );
-    list.activateItem();
-    list.submenuComponent.selectList.onSelect({
-      value: String(128 * 1024 * 1024),
-      label: "128 MB",
-    });
+    const section = executor.submenu!("", () => {}) as unknown as SectionProbe;
+    const list = section.settingsList;
+    expect(list.selectItem("executor.memoryLimitBytes")).toBe(true);
+    list.handleInput("\r");
+    const machineCapacity = 24 * 1024 * 1024 * 1024;
+    const options = executorMemoryLimitOptions(machineCapacity);
+    const targetRank = options.indexOf(128 * 1024 * 1024);
+    const currentRank = options.indexOf(DEFAULT_FABRIC_CONFIG.executor.memoryLimitBytes);
+    for (let steps = 0; steps < targetRank - currentRank; steps += 1) list.handleInput("\x1b[B");
+    list.handleInput("\r");
 
     expect(applied.at(-1)).toEqual({
       id: "executor.memoryLimitBytes",
       value: 128 * 1024 * 1024,
     });
-    expect(list.items[list.selectedIndex].currentValue).toBe("128 MB");
+    expect(list.getSelectedItem()?.currentValue).toBe("128 MB");
     expect(section.render(100).join("\n")).not.toContain("134217728");
   });
 
@@ -486,16 +497,15 @@ describe("FabricSettingsComponent", () => {
       { keepVisibleCandidates: ["fabric_exec"], modelSource: fakeModelSource },
     );
     const agents = items.find((item) => item.id === "agents")!;
-    const section = agents.submenu!("", () => {}) as any;
-    const list = section.settingsList as any;
-    list.selectedIndex = list.items.findIndex(
-      (item: { id: string }) => item.id === "agents.thinking",
-    );
-    list.activateItem();
-    list.submenuComponent.selectList.onSelect({ value: "high", label: "High" });
+    const section = agents.submenu!("", () => {}) as unknown as SectionProbe;
+    const list = section.settingsList;
+    expect(list.selectItem("agents.thinking")).toBe(true);
+    list.handleInput("\r");
+    for (let steps = 0; steps < 1; steps += 1) list.handleInput("\x1b[B");
+    list.handleInput("\r");
 
     expect(applied.at(-1)).toEqual({ id: "agents.thinking", value: "high" });
-    expect(list.items[list.selectedIndex].currentValue).toBe("High");
+    expect(list.getSelectedItem()?.currentValue).toBe("High");
   });
 
   it("parses every formatted numeric settings style", () => {
@@ -551,20 +561,18 @@ describe("FabricSettingsComponent", () => {
       { keepVisibleCandidates: ["fabric_exec"], modelSource: fakeModelSource },
     );
     const approvals = items.find((item) => item.id === "approvals")!;
-    const section = approvals.submenu!("", () => {}) as any;
-    const list = section.settingsList as any;
-    const write = list.items.find((item: { id: string }) => item.id === "approvals.write");
-    expect(write.currentValue).toBe("auto");
-    expect(write.values).toContain("auto");
+    const section = approvals.submenu!("", () => {}) as unknown as SectionProbe;
+    const list = section.settingsList;
+    const write = section.items.find((item) => item.id === "approvals.write");
+    expect(write?.currentValue).toBe("auto");
+    expect(write?.values).toContain("auto");
     expect(section.render(100).join("\n")).toContain("Auto model ›");
     expect(section.render(100).join("\n")).toContain("Inherit");
 
-    list.selectedIndex = list.items.findIndex(
-      (item: { id: string }) => item.id === "approvals.model",
-    );
-    list.activateItem();
-    list.submenuComponent.handleInput("\x1b[B");
-    list.submenuComponent.handleInput("\r");
+    expect(list.selectItem("approvals.model")).toBe(true);
+    list.handleInput("\r");
+    list.handleInput("\x1b[B");
+    list.handleInput("\r");
 
     expect(applied.at(-1)).toEqual({
       id: "approvals.model",
@@ -582,26 +590,24 @@ describe("FabricSettingsComponent", () => {
     );
     const prewalk = items.find((item) => item.id === "prewalk")!;
     expect(prewalk.currentValue).toBe("in-place · Ask each time");
-    const section = prewalk.submenu!("", () => {}) as any;
-    const list = section.settingsList as any;
-    list.selectedIndex = list.items.findIndex(
-      (item: { id: string }) => item.id === "prewalk.model",
-    );
+    const section = prewalk.submenu!("", () => {}) as unknown as SectionProbe;
+    const list = section.settingsList;
+    expect(list.selectItem("prewalk.model")).toBe(true);
 
-    list.activateItem();
-    list.submenuComponent.handleInput("\x1b[B");
-    list.submenuComponent.handleInput("\r");
+    list.handleInput("\r");
+    list.handleInput("\x1b[B");
+    list.handleInput("\r");
 
     expect(applied.at(-1)).toEqual({
       id: "prewalk.model",
       value: "anthropic/claude-sonnet-4-5",
     });
-    expect(list.items[list.selectedIndex].currentValue).toBe(
+    expect(list.getSelectedItem()?.currentValue).toBe(
       "anthropic/claude-sonnet-4-5",
     );
 
-    list.activateItem();
-    const reopened = list.submenuComponent.render(100).join("\n");
+    list.handleInput("\r");
+    const reopened = list.render(100).join("\n");
     const modelLine = reopened
       .split("\n")
       .find((line: string) => line.includes("claude-sonnet-4-5"));
@@ -614,13 +620,13 @@ describe("FabricSettingsComponent", () => {
     expect(modelLine).toContain("✓");
     expect(unsetLine).not.toContain("✓");
 
-    list.submenuComponent.handleInput("\x1b[A");
-    list.submenuComponent.handleInput("\r");
+    list.handleInput("\x1b[A");
+    list.handleInput("\r");
     expect(applied.at(-1)).toEqual({ id: "prewalk.model", value: "" });
-    expect(list.items[list.selectedIndex].currentValue).toBe("Ask each time");
+    expect(list.getSelectedItem()?.currentValue).toBe("Ask each time");
 
-    list.activateItem();
-    const cleared = list.submenuComponent.render(100).join("\n");
+    list.handleInput("\r");
+    const cleared = list.render(100).join("\n");
     const clearedUnsetLine = cleared
       .split("\n")
       .find(
@@ -640,28 +646,24 @@ describe("FabricSettingsComponent", () => {
     );
     const prewalk = items.find((item) => item.id === "prewalk")!;
     expect(prewalk.currentValue).toBe("in-place · Ask each time");
-    const section = prewalk.submenu!("", () => {}) as any;
-    const list = section.settingsList as any;
-    const row = list.items.find((item: { id: string }) => item.id === "prewalk.thinking");
-    expect(row.currentValue).toBe("Agents default");
-    list.selectedIndex = list.items.findIndex(
-      (item: { id: string }) => item.id === "prewalk.thinking",
-    );
+    const section = prewalk.submenu!("", () => {}) as unknown as SectionProbe;
+    const list = section.settingsList;
+    expect(list.selectItem("prewalk.thinking")).toBe(true);
+    expect(list.getSelectedItem()?.currentValue).toBe("Agents default");
 
-    list.activateItem();
-    list.submenuComponent.selectList.onSelect({ value: "high", label: "High" });
+    list.handleInput("\r");
+    for (let steps = 0; steps < 5; steps += 1) list.handleInput("\x1b[B");
+    list.handleInput("\r");
 
     expect(applied.at(-1)).toEqual({ id: "prewalk.thinking", value: "high" });
-    expect(list.items[list.selectedIndex].currentValue).toBe("High");
+    expect(list.getSelectedItem()?.currentValue).toBe("High");
 
-    list.activateItem();
-    list.submenuComponent.selectList.onSelect({
-      value: "Agents default",
-      label: "Agents default",
-    });
+    list.handleInput("\r");
+    for (let steps = 0; steps < 5; steps += 1) list.handleInput("\x1b[A");
+    list.handleInput("\r");
 
     expect(applied.at(-1)).toEqual({ id: "prewalk.thinking", value: "" });
-    expect(list.items[list.selectedIndex].currentValue).toBe("Agents default");
+    expect(list.getSelectedItem()?.currentValue).toBe("Agents default");
   });
 
   it("exposes a dedicated prewalk executor model picker", () => {
@@ -686,18 +688,16 @@ describe("FabricSettingsComponent", () => {
   it("reopens the shared agent model picker at its live selection", () => {
     const items = buildItems();
     const agents = items.find((item) => item.id === "agents")!;
-    const section = agents.submenu!("", () => {}) as any;
-    const list = section.settingsList as any;
-    list.selectedIndex = list.items.findIndex(
-      (item: { id: string }) => item.id === "agents.model",
-    );
+    const section = agents.submenu!("", () => {}) as unknown as SectionProbe;
+    const list = section.settingsList;
+    expect(list.selectItem("agents.model")).toBe(true);
 
-    list.activateItem();
-    list.submenuComponent.handleInput("\x1b[B");
-    list.submenuComponent.handleInput("\r");
-    list.activateItem();
+    list.handleInput("\r");
+    list.handleInput("\x1b[B");
+    list.handleInput("\r");
+    list.handleInput("\r");
 
-    const reopened = list.submenuComponent.render(100).join("\n");
+    const reopened = list.render(100).join("\n");
     const modelLine = reopened
       .split("\n")
       .find((line: string) => line.includes("claude-sonnet-4-5"));
@@ -775,12 +775,12 @@ describe("FabricSettingsComponent", () => {
   });
 
   it("persists tool-display changes through the real settings dialog flow", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-settings-display-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-settings-display-"));
     const cwd = path.join(root, "project");
     const agentDir = path.join(root, "agent");
-    const inheritedAgentDir = process.env.PI_CODING_AGENT_DIR;
+    const inheritedAgentDir = process.env.OMP_FABRIC_AGENT_DIR;
     fs.mkdirSync(cwd, { recursive: true });
-    process.env.PI_CODING_AGENT_DIR = agentDir;
+    process.env.OMP_FABRIC_AGENT_DIR = agentDir;
     try {
       const config = structuredClone(DEFAULT_FABRIC_CONFIG);
       const applyFabricMode = vi.fn();
@@ -819,7 +819,7 @@ describe("FabricSettingsComponent", () => {
         onConfigApplied,
       });
 
-      expect(JSON.parse(fs.readFileSync(path.join(cwd, ".pi", "fabric.json"), "utf8")))
+      expect(JSON.parse(fs.readFileSync(path.join(cwd, ".omp", "fabric.json"), "utf8")))
         .toMatchObject({ ui: { toolDisplay: "full" } });
       expect(config.ui.toolDisplay).toBe("full");
       expect(onConfigApplied).toHaveBeenCalledOnce();
@@ -828,19 +828,22 @@ describe("FabricSettingsComponent", () => {
       expect(onConfigApplied).toHaveBeenCalledWith("ui.toolDisplay");
       expect(applyFabricMode).toHaveBeenCalledOnce();
     } finally {
-      if (inheritedAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
-      else process.env.PI_CODING_AGENT_DIR = inheritedAgentDir;
+      if (inheritedAgentDir === undefined) delete process.env.OMP_FABRIC_AGENT_DIR;
+      else process.env.OMP_FABRIC_AGENT_DIR = inheritedAgentDir;
       fs.rmSync(root, { recursive: true, force: true });
     }
   });
 
   it("persists trusted-project changes globally after Ctrl+G", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-settings-global-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-settings-global-"));
     const cwd = path.join(root, "project");
     const agentDir = path.join(root, "agent");
-    const inheritedAgentDir = process.env.PI_CODING_AGENT_DIR;
+    const inheritedAgentDir = process.env.OMP_FABRIC_AGENT_DIR;
     fs.mkdirSync(cwd, { recursive: true });
-    process.env.PI_CODING_AGENT_DIR = agentDir;
+    fs.mkdirSync(agentDir, { recursive: true });
+    fs.writeFileSync(path.join(agentDir, "fabric.json"), JSON.stringify({ fullCodeMode: true }));
+    process.env.OMP_FABRIC_AGENT_DIR = agentDir;
+    setAgentDir(agentDir);
     try {
       const config = structuredClone(DEFAULT_FABRIC_CONFIG);
       const applyFabricMode = vi.fn();
@@ -861,11 +864,8 @@ describe("FabricSettingsComponent", () => {
           custom: vi.fn(async (factory) => {
             const component = factory({ requestRender }, theme, {}, () => {}) as FabricSettingsComponent;
             component.handleInput("\x07");
-            const list = component.settingsList as any;
-            list.selectedIndex = list.items.findIndex(
-              (item: { id: string }) => item.id === "fullCodeMode",
-            );
-            list.activateItem();
+            component.settingsList.selectItem("fullCodeMode");
+            component.settingsList.handleInput("\r");
           }),
         },
       } as unknown as ExtensionContext;
@@ -880,26 +880,27 @@ describe("FabricSettingsComponent", () => {
       expect(
         JSON.parse(fs.readFileSync(path.join(agentDir, "fabric.json"), "utf8")),
       ).toMatchObject({ fullCodeMode: false });
-      expect(fs.existsSync(path.join(cwd, ".pi", "fabric.json"))).toBe(false);
+      expect(fs.existsSync(path.join(cwd, ".omp", "fabric.json"))).toBe(false);
       expect(applyFabricMode).toHaveBeenCalledOnce();
     } finally {
-      if (inheritedAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
-      else process.env.PI_CODING_AGENT_DIR = inheritedAgentDir;
+      if (inheritedAgentDir === undefined) delete process.env.OMP_FABRIC_AGENT_DIR;
+      else process.env.OMP_FABRIC_AGENT_DIR = inheritedAgentDir;
       fs.rmSync(root, { recursive: true, force: true });
     }
   });
 
   it("edits the persisted full-code value instead of its environment override", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-settings-env-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-settings-env-"));
     const cwd = path.join(root, "project");
     const agentDir = path.join(root, "agent");
-    const inheritedAgentDir = process.env.PI_CODING_AGENT_DIR;
-    const inheritedFullCodeMode = process.env.PI_FABRIC_FULL_CODE_MODE;
+    const inheritedAgentDir = process.env.OMP_FABRIC_AGENT_DIR;
+    const inheritedFullCodeMode = process.env.OMP_FABRIC_FULL_CODE_MODE;
     fs.mkdirSync(cwd, { recursive: true });
     fs.mkdirSync(agentDir, { recursive: true });
     fs.writeFileSync(path.join(agentDir, "fabric.json"), JSON.stringify({ fullCodeMode: true }));
-    process.env.PI_CODING_AGENT_DIR = agentDir;
-    process.env.PI_FABRIC_FULL_CODE_MODE = "false";
+    process.env.OMP_FABRIC_AGENT_DIR = agentDir;
+    process.env.OMP_FABRIC_FULL_CODE_MODE = "false";
+    setAgentDir(agentDir);
     try {
       const location = { cwd, agentDir, projectTrusted: true };
       const config = loadFabricConfig(location);
@@ -919,13 +920,9 @@ describe("FabricSettingsComponent", () => {
           custom: vi.fn(async (factory) => {
             const component = factory({ requestRender: vi.fn() }, theme, {}, () => {}) as FabricSettingsComponent;
             component.handleInput("\x07");
-            const list = component.settingsList as any;
-            const item = list.items.find(
-              (candidate: { id: string }) => candidate.id === "fullCodeMode",
-            );
-            expect(item.currentValue).toBe("true");
-            list.selectedIndex = list.items.indexOf(item);
-            list.activateItem();
+            component.settingsList.selectItem("fullCodeMode");
+            expect(component.settingsList.getSelectedItem()?.currentValue).toBe("true");
+            component.settingsList.handleInput("\r");
           }),
         },
       } as unknown as ExtensionContext;
@@ -940,26 +937,27 @@ describe("FabricSettingsComponent", () => {
         .toMatchObject({ fullCodeMode: false });
       expect(config.fullCodeMode).toBe(false);
     } finally {
-      if (inheritedAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
-      else process.env.PI_CODING_AGENT_DIR = inheritedAgentDir;
-      if (inheritedFullCodeMode === undefined) delete process.env.PI_FABRIC_FULL_CODE_MODE;
-      else process.env.PI_FABRIC_FULL_CODE_MODE = inheritedFullCodeMode;
+      if (inheritedAgentDir === undefined) delete process.env.OMP_FABRIC_AGENT_DIR;
+      else process.env.OMP_FABRIC_AGENT_DIR = inheritedAgentDir;
+      if (inheritedFullCodeMode === undefined) delete process.env.OMP_FABRIC_FULL_CODE_MODE;
+      else process.env.OMP_FABRIC_FULL_CODE_MODE = inheritedFullCodeMode;
       fs.rmSync(root, { recursive: true, force: true });
     }
   });
 
   it("keeps global edits visible when a project override remains effective", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-settings-shadowed-global-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-settings-shadowed-global-"));
     const cwd = path.join(root, "project");
     const agentDir = path.join(root, "agent");
-    const inheritedAgentDir = process.env.PI_CODING_AGENT_DIR;
-    const inheritedFullCodeMode = process.env.PI_FABRIC_FULL_CODE_MODE;
-    fs.mkdirSync(path.join(cwd, ".pi"), { recursive: true });
+    const inheritedAgentDir = process.env.OMP_FABRIC_AGENT_DIR;
+    const inheritedFullCodeMode = process.env.OMP_FABRIC_FULL_CODE_MODE;
+    fs.mkdirSync(path.join(cwd, ".omp"), { recursive: true });
     fs.mkdirSync(agentDir, { recursive: true });
     fs.writeFileSync(path.join(agentDir, "fabric.json"), JSON.stringify({ fullCodeMode: true }));
-    fs.writeFileSync(path.join(cwd, ".pi", "fabric.json"), JSON.stringify({ fullCodeMode: true }));
-    process.env.PI_CODING_AGENT_DIR = agentDir;
-    delete process.env.PI_FABRIC_FULL_CODE_MODE;
+    fs.writeFileSync(path.join(cwd, ".omp", "fabric.json"), JSON.stringify({ fullCodeMode: true }));
+    process.env.OMP_FABRIC_AGENT_DIR = agentDir;
+    delete process.env.OMP_FABRIC_FULL_CODE_MODE;
+    setAgentDir(agentDir);
     try {
       const location = { cwd, agentDir, projectTrusted: true };
       const config = loadFabricConfig(location);
@@ -983,16 +981,16 @@ describe("FabricSettingsComponent", () => {
           custom: vi.fn(async (factory) => {
             const component = factory({ requestRender }, theme, {}, () => {}) as FabricSettingsComponent;
             component.handleInput("\x07");
-            expect(component.render(120).join("\n")).toContain(
+            expect(component.render(140).join("\n")).toContain(
               "project overrides may remain active here",
             );
 
             component.handleInput(" ");
-            globalLines = component.render(120);
+            globalLines = [...component.render(120)];
             expect(config.fullCodeMode).toBe(true);
 
             component.handleInput("\x07");
-            projectLines = component.render(120);
+            projectLines = [...component.render(120)];
           }),
         },
       } as unknown as ExtensionContext;
@@ -1007,26 +1005,26 @@ describe("FabricSettingsComponent", () => {
       expect(projectLines.find((line) => line.includes("Full code mode"))).toContain("true");
       expect(JSON.parse(fs.readFileSync(path.join(agentDir, "fabric.json"), "utf8")))
         .toMatchObject({ fullCodeMode: false });
-      expect(JSON.parse(fs.readFileSync(path.join(cwd, ".pi", "fabric.json"), "utf8")))
+      expect(JSON.parse(fs.readFileSync(path.join(cwd, ".omp", "fabric.json"), "utf8")))
         .toMatchObject({ fullCodeMode: true });
       expect(requestRender).toHaveBeenCalledTimes(2);
       expect(applyFabricMode).toHaveBeenCalledOnce();
     } finally {
-      if (inheritedAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
-      else process.env.PI_CODING_AGENT_DIR = inheritedAgentDir;
-      if (inheritedFullCodeMode === undefined) delete process.env.PI_FABRIC_FULL_CODE_MODE;
-      else process.env.PI_FABRIC_FULL_CODE_MODE = inheritedFullCodeMode;
+      if (inheritedAgentDir === undefined) delete process.env.OMP_FABRIC_AGENT_DIR;
+      else process.env.OMP_FABRIC_AGENT_DIR = inheritedAgentDir;
+      if (inheritedFullCodeMode === undefined) delete process.env.OMP_FABRIC_FULL_CODE_MODE;
+      else process.env.OMP_FABRIC_FULL_CODE_MODE = inheritedFullCodeMode;
       fs.rmSync(root, { recursive: true, force: true });
     }
   });
 
   it("persists disabling default-on Prewalk as a boolean across reloads", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-settings-prewalk-disable-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-settings-prewalk-disable-"));
     const cwd = path.join(root, "project");
     const agentDir = path.join(root, "agent");
-    const inheritedAgentDir = process.env.PI_CODING_AGENT_DIR;
+    const inheritedAgentDir = process.env.OMP_FABRIC_AGENT_DIR;
     fs.mkdirSync(cwd, { recursive: true });
-    process.env.PI_CODING_AGENT_DIR = agentDir;
+    process.env.OMP_FABRIC_AGENT_DIR = agentDir;
     try {
       const location = { cwd, agentDir, projectTrusted: true };
       const config = loadFabricConfig(location);
@@ -1046,16 +1044,10 @@ describe("FabricSettingsComponent", () => {
           notify: vi.fn(),
           custom: vi.fn(async (factory) => {
             const component = factory({}, theme, {}, () => {}) as FabricSettingsComponent;
-            const rootList = component.settingsList as any;
-            rootList.selectedIndex = rootList.items.findIndex(
-              (item: { id: string }) => item.id === "prewalk",
-            );
-            rootList.activateItem();
-            const prewalkList = rootList.submenuComponent.settingsList;
-            prewalkList.selectedIndex = prewalkList.items.findIndex(
-              (item: { id: string }) => item.id === "prewalk.enabled",
-            );
-            prewalkList.activateItem();
+            component.settingsList.selectItem("prewalk");
+            component.settingsList.handleInput("\r");
+            component.settingsList.handleInput("enabled");
+            component.settingsList.handleInput("\r");
           }),
         },
       } as unknown as ExtensionContext;
@@ -1067,7 +1059,7 @@ describe("FabricSettingsComponent", () => {
       });
 
       const saved = JSON.parse(
-        fs.readFileSync(path.join(cwd, ".pi", "fabric.json"), "utf8"),
+        fs.readFileSync(path.join(cwd, ".omp", "fabric.json"), "utf8"),
       ) as { prewalk?: { enabled?: unknown } };
       expect(saved.prewalk?.enabled).toBe(false);
       expect(typeof saved.prewalk?.enabled).toBe("boolean");
@@ -1075,19 +1067,19 @@ describe("FabricSettingsComponent", () => {
       expect(config.prewalk.enabled).toBe(false);
       expect(applyFabricMode).toHaveBeenCalledOnce();
     } finally {
-      if (inheritedAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
-      else process.env.PI_CODING_AGENT_DIR = inheritedAgentDir;
+      if (inheritedAgentDir === undefined) delete process.env.OMP_FABRIC_AGENT_DIR;
+      else process.env.OMP_FABRIC_AGENT_DIR = inheritedAgentDir;
       fs.rmSync(root, { recursive: true, force: true });
     }
   });
 
   it("persists a picked Prewalk thinking level through the real settings dialog flow", async () => {
-    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-settings-thinking-"));
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-settings-thinking-"));
     // Isolate the agent dir: the settings dialog layers the real global
     // fabric.json under the project layer, so the developer's global prewalk
     // config would otherwise leak into the rendered labels.
-    const inheritedAgentDir = process.env.PI_CODING_AGENT_DIR;
-    process.env.PI_CODING_AGENT_DIR = path.join(cwd, "agent");
+    const inheritedAgentDir = process.env.OMP_FABRIC_AGENT_DIR;
+    process.env.OMP_FABRIC_AGENT_DIR = path.join(cwd, "agent");
     try {
       const config = structuredClone(DEFAULT_FABRIC_CONFIG);
       const applyFabricMode = vi.fn();
@@ -1096,7 +1088,7 @@ describe("FabricSettingsComponent", () => {
         ensure: vi.fn().mockResolvedValue(undefined),
         reloadConfig: vi.fn(() => {
           const saved = JSON.parse(
-            fs.readFileSync(path.join(cwd, ".pi", "fabric.json"), "utf8"),
+            fs.readFileSync(path.join(cwd, ".omp", "fabric.json"), "utf8"),
           ) as { prewalk?: { thinking?: import("../src/thinking.js").FabricThinking } };
           config.prewalk = {
             ...config.prewalk,
@@ -1105,8 +1097,7 @@ describe("FabricSettingsComponent", () => {
         }),
         agents: { claudeModels: vi.fn().mockResolvedValue([]) },
       } as unknown as FabricState;
-      let rootList: any;
-      let nestedList: any;
+      let rootList: SettingsListProbe | undefined;
       const notify = vi.fn();
       const context = {
         mode: "tui",
@@ -1118,16 +1109,14 @@ describe("FabricSettingsComponent", () => {
           custom: vi.fn(async (factory) => {
             const component = factory({}, theme, {}, () => {}) as FabricSettingsComponent;
             rootList = component.settingsList;
-            rootList.selectedIndex = rootList.items.findIndex(
-              (item: { id: string }) => item.id === "prewalk",
-            );
-            rootList.activateItem();
-            nestedList = rootList.submenuComponent.settingsList;
-            nestedList.selectedIndex = nestedList.items.findIndex(
-              (item: { id: string }) => item.id === "prewalk.thinking",
-            );
-            nestedList.activateItem();
-            nestedList.submenuComponent.selectList.onSelect({ value: "xhigh", label: "XHigh" });
+            rootList.selectItem("prewalk");
+            rootList.handleInput("\r");
+            rootList.handleInput("thinking");
+            rootList.handleInput("\r");
+            for (let steps = 0; steps < 6; steps += 1) rootList.handleInput("\x1b[B");
+            rootList.handleInput("\r");
+            rootList.handleInput("\x1b");
+            rootList.handleInput("\x1b");
           }),
         },
       } as unknown as ExtensionContext;
@@ -1139,30 +1128,30 @@ describe("FabricSettingsComponent", () => {
       });
 
       expect(
-        JSON.parse(fs.readFileSync(path.join(cwd, ".pi", "fabric.json"), "utf8")),
+        JSON.parse(fs.readFileSync(path.join(cwd, ".omp", "fabric.json"), "utf8")),
       ).toMatchObject({
         prewalk: { thinking: "xhigh" },
       });
       expect(config.prewalk.thinking).toBe("xhigh");
       expect(
-        rootList.items.find((item: { id: string }) => item.id === "prewalk").currentValue,
-      ).toBe("in-place · Ask each time · XHigh");
+        rootList?.render(140).join("\n").split("\n").find((line) => line.includes("Prewalk")),
+      ).toContain("in-place · Ask each time · XHigh");
       expect(applyFabricMode).toHaveBeenCalledOnce();
       expect(notify).toHaveBeenCalledWith("Fabric settings saved.", "info");
     } finally {
-      if (inheritedAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
-      else process.env.PI_CODING_AGENT_DIR = inheritedAgentDir;
+      if (inheritedAgentDir === undefined) delete process.env.OMP_FABRIC_AGENT_DIR;
+      else process.env.OMP_FABRIC_AGENT_DIR = inheritedAgentDir;
       fs.rmSync(cwd, { recursive: true, force: true });
     }
   });
 
   it("persists a picked Prewalk model through the real settings dialog flow", async () => {
-    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-settings-model-"));
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-settings-model-"));
     // Isolate the agent dir: the settings dialog layers the real global
     // fabric.json under the project layer, so the developer's global prewalk
     // config would otherwise leak into the rendered labels.
-    const inheritedAgentDir = process.env.PI_CODING_AGENT_DIR;
-    process.env.PI_CODING_AGENT_DIR = path.join(cwd, "agent");
+    const inheritedAgentDir = process.env.OMP_FABRIC_AGENT_DIR;
+    process.env.OMP_FABRIC_AGENT_DIR = path.join(cwd, "agent");
     try {
       const config = structuredClone(DEFAULT_FABRIC_CONFIG);
       const applyFabricMode = vi.fn();
@@ -1171,7 +1160,7 @@ describe("FabricSettingsComponent", () => {
         ensure: vi.fn().mockResolvedValue(undefined),
         reloadConfig: vi.fn(() => {
           const saved = JSON.parse(
-            fs.readFileSync(path.join(cwd, ".pi", "fabric.json"), "utf8"),
+            fs.readFileSync(path.join(cwd, ".omp", "fabric.json"), "utf8"),
           ) as { prewalk?: { mode?: "in-place" | "trajectory"; model?: string; alwaysRearm?: boolean; compactOnReturn?: boolean; detectShellWrites?: boolean } };
           config.prewalk = {
             mode: saved.prewalk?.mode ?? "in-place",
@@ -1183,8 +1172,7 @@ describe("FabricSettingsComponent", () => {
         }),
         agents: { claudeModels: vi.fn().mockResolvedValue([]) },
       } as unknown as FabricState;
-      let rootList: any;
-      let nestedList: any;
+      let rootList: SettingsListProbe | undefined;
       const notify = vi.fn();
       const context = {
         mode: "tui",
@@ -1196,17 +1184,14 @@ describe("FabricSettingsComponent", () => {
           custom: vi.fn(async (factory) => {
             const component = factory({}, theme, {}, () => {}) as FabricSettingsComponent;
             rootList = component.settingsList;
-            rootList.selectedIndex = rootList.items.findIndex(
-              (item: { id: string }) => item.id === "prewalk",
-            );
-            rootList.activateItem();
-            nestedList = rootList.submenuComponent.settingsList;
-            nestedList.selectedIndex = nestedList.items.findIndex(
-              (item: { id: string }) => item.id === "prewalk.model",
-            );
-            nestedList.activateItem();
-            nestedList.submenuComponent.handleInput("\x1b[B");
-            nestedList.submenuComponent.handleInput("\r");
+            rootList.selectItem("prewalk");
+            rootList.handleInput("\r");
+            rootList.handleInput("model");
+            rootList.handleInput("\r");
+            rootList.handleInput("\x1b[B");
+            rootList.handleInput("\r");
+            rootList.handleInput("\x1b");
+            rootList.handleInput("\x1b");
           }),
         },
       } as unknown as ExtensionContext;
@@ -1218,22 +1203,19 @@ describe("FabricSettingsComponent", () => {
       });
 
       expect(
-        JSON.parse(fs.readFileSync(path.join(cwd, ".pi", "fabric.json"), "utf8")),
+        JSON.parse(fs.readFileSync(path.join(cwd, ".omp", "fabric.json"), "utf8")),
       ).toMatchObject({
         prewalk: { model: "anthropic/claude-sonnet-4-5" },
       });
       expect(config.prewalk.model).toBe("anthropic/claude-sonnet-4-5");
       expect(
-        rootList.items.find((item: { id: string }) => item.id === "prewalk").currentValue,
-      ).toBe("in-place · anthropic/claude-sonnet-4-5");
-      expect(nestedList.items[nestedList.selectedIndex].currentValue).toBe(
-        "anthropic/claude-sonnet-4-5",
-      );
+        rootList?.render(140).join("\n").split("\n").find((line) => line.includes("Prewalk")),
+      ).toContain("in-place · anthropic/claude-sonnet-4-5");
       expect(applyFabricMode).toHaveBeenCalledOnce();
       expect(notify).toHaveBeenCalledWith("Fabric settings saved.", "info");
     } finally {
-      if (inheritedAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
-      else process.env.PI_CODING_AGENT_DIR = inheritedAgentDir;
+      if (inheritedAgentDir === undefined) delete process.env.OMP_FABRIC_AGENT_DIR;
+      else process.env.OMP_FABRIC_AGENT_DIR = inheritedAgentDir;
       fs.rmSync(cwd, { recursive: true, force: true });
     }
   });
@@ -1242,12 +1224,12 @@ describe("FabricSettingsComponent", () => {
 
 describe("Fabric RPC settings", () => {
   it("navigates nested sections and persists values through dialog primitives", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-rpc-settings-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-rpc-settings-"));
     const cwd = path.join(root, "project");
     const agentDir = path.join(root, "agent");
-    const inheritedAgentDir = process.env.PI_CODING_AGENT_DIR;
+    const inheritedAgentDir = process.env.OMP_FABRIC_AGENT_DIR;
     fs.mkdirSync(cwd, { recursive: true });
-    process.env.PI_CODING_AGENT_DIR = agentDir;
+    process.env.OMP_FABRIC_AGENT_DIR = agentDir;
     try {
       const config = structuredClone(DEFAULT_FABRIC_CONFIG);
       const applyFabricMode = vi.fn();
@@ -1293,25 +1275,25 @@ describe("Fabric RPC settings", () => {
       });
 
       expect(select.mock.calls.some(([title]) => String(title).startsWith("Fabric settings › UI"))).toBe(true);
-      expect(JSON.parse(fs.readFileSync(path.join(cwd, ".pi", "fabric.json"), "utf8")))
+      expect(JSON.parse(fs.readFileSync(path.join(cwd, ".omp", "fabric.json"), "utf8")))
         .toMatchObject({ ui: { toolDisplay: "full" } });
       expect(config.ui.toolDisplay).toBe("full");
       expect(applyFabricMode).toHaveBeenCalledOnce();
       expect(notify).toHaveBeenCalledWith("Fabric settings saved.", "info");
     } finally {
-      if (inheritedAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
-      else process.env.PI_CODING_AGENT_DIR = inheritedAgentDir;
+      if (inheritedAgentDir === undefined) delete process.env.OMP_FABRIC_AGENT_DIR;
+      else process.env.OMP_FABRIC_AGENT_DIR = inheritedAgentDir;
       fs.rmSync(root, { recursive: true, force: true });
     }
   });
 
   it("supports nested numeric, string, and model pickers", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-rpc-agents-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-rpc-agents-"));
     const cwd = path.join(root, "project");
     const agentDir = path.join(root, "agent");
-    const inheritedAgentDir = process.env.PI_CODING_AGENT_DIR;
+    const inheritedAgentDir = process.env.OMP_FABRIC_AGENT_DIR;
     fs.mkdirSync(cwd, { recursive: true });
-    process.env.PI_CODING_AGENT_DIR = agentDir;
+    process.env.OMP_FABRIC_AGENT_DIR = agentDir;
     try {
       const config = structuredClone(DEFAULT_FABRIC_CONFIG);
       const applyFabricMode = vi.fn();
@@ -1376,7 +1358,7 @@ describe("Fabric RPC settings", () => {
         capturedTools: { list: () => [] } as unknown as CapturedToolCatalog,
       });
 
-      expect(JSON.parse(fs.readFileSync(path.join(cwd, ".pi", "fabric.json"), "utf8")))
+      expect(JSON.parse(fs.readFileSync(path.join(cwd, ".omp", "fabric.json"), "utf8")))
         .toMatchObject({
           agents: {
             maxDepth: 64,
@@ -1390,19 +1372,19 @@ describe("Fabric RPC settings", () => {
       expect(input).toHaveBeenCalledTimes(3);
       expect(applyFabricMode).toHaveBeenCalledOnce();
     } finally {
-      if (inheritedAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
-      else process.env.PI_CODING_AGENT_DIR = inheritedAgentDir;
+      if (inheritedAgentDir === undefined) delete process.env.OMP_FABRIC_AGENT_DIR;
+      else process.env.OMP_FABRIC_AGENT_DIR = inheritedAgentDir;
       fs.rmSync(root, { recursive: true, force: true });
     }
   });
 
   it("edits nested tool allowlists", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-rpc-list-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-rpc-list-"));
     const cwd = path.join(root, "project");
     const agentDir = path.join(root, "agent");
-    const inheritedAgentDir = process.env.PI_CODING_AGENT_DIR;
+    const inheritedAgentDir = process.env.OMP_FABRIC_AGENT_DIR;
     fs.mkdirSync(cwd, { recursive: true });
-    process.env.PI_CODING_AGENT_DIR = agentDir;
+    process.env.OMP_FABRIC_AGENT_DIR = agentDir;
     try {
       const config = structuredClone(DEFAULT_FABRIC_CONFIG);
       let openedAgents = false;
@@ -1452,22 +1434,22 @@ describe("Fabric RPC settings", () => {
 
       expect(config.agents.defaultTools).toContain("read");
       expect(config.agents.defaultTools).not.toContain("ls");
-      expect(JSON.parse(fs.readFileSync(path.join(cwd, ".pi", "fabric.json"), "utf8")))
+      expect(JSON.parse(fs.readFileSync(path.join(cwd, ".omp", "fabric.json"), "utf8")))
         .toMatchObject({ agents: { defaultTools: expect.not.arrayContaining(["ls"]) } });
     } finally {
-      if (inheritedAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
-      else process.env.PI_CODING_AGENT_DIR = inheritedAgentDir;
+      if (inheritedAgentDir === undefined) delete process.env.OMP_FABRIC_AGENT_DIR;
+      else process.env.OMP_FABRIC_AGENT_DIR = inheritedAgentDir;
       fs.rmSync(root, { recursive: true, force: true });
     }
   });
 
   it("edits the active model compaction threshold", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-rpc-compaction-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-rpc-compaction-"));
     const cwd = path.join(root, "project");
     const agentDir = path.join(root, "agent");
-    const inheritedAgentDir = process.env.PI_CODING_AGENT_DIR;
+    const inheritedAgentDir = process.env.OMP_FABRIC_AGENT_DIR;
     fs.mkdirSync(cwd, { recursive: true });
-    process.env.PI_CODING_AGENT_DIR = agentDir;
+    process.env.OMP_FABRIC_AGENT_DIR = agentDir;
     try {
       const config = structuredClone(DEFAULT_FABRIC_CONFIG);
       let openedCompaction = false;
@@ -1512,24 +1494,26 @@ describe("Fabric RPC settings", () => {
       });
 
       expect(config.compaction.thresholds["openai/gpt-5.5"]).toBe(0.73);
-      expect(JSON.parse(fs.readFileSync(path.join(cwd, ".pi", "fabric.json"), "utf8")))
+      expect(JSON.parse(fs.readFileSync(path.join(cwd, ".omp", "fabric.json"), "utf8")))
         .toMatchObject({ compaction: { thresholds: { "openai/gpt-5.5": 0.73 } } });
     } finally {
-      if (inheritedAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
-      else process.env.PI_CODING_AGENT_DIR = inheritedAgentDir;
+      if (inheritedAgentDir === undefined) delete process.env.OMP_FABRIC_AGENT_DIR;
+      else process.env.OMP_FABRIC_AGENT_DIR = inheritedAgentDir;
       fs.rmSync(root, { recursive: true, force: true });
     }
   });
 
   it("switches trusted projects to global save scope", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-rpc-scope-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-rpc-scope-"));
     const cwd = path.join(root, "project");
     const agentDir = path.join(root, "agent");
-    const inheritedAgentDir = process.env.PI_CODING_AGENT_DIR;
-    const inheritedFullCodeMode = process.env.PI_FABRIC_FULL_CODE_MODE;
+    const inheritedAgentDir = process.env.OMP_FABRIC_AGENT_DIR;
+    const inheritedFullCodeMode = process.env.OMP_FABRIC_FULL_CODE_MODE;
     fs.mkdirSync(cwd, { recursive: true });
-    process.env.PI_CODING_AGENT_DIR = agentDir;
-    delete process.env.PI_FABRIC_FULL_CODE_MODE;
+    fs.mkdirSync(agentDir, { recursive: true });
+    process.env.OMP_FABRIC_AGENT_DIR = agentDir;
+    delete process.env.OMP_FABRIC_FULL_CODE_MODE;
+    setAgentDir(agentDir);
     try {
       const config = structuredClone(DEFAULT_FABRIC_CONFIG);
       const applyFabricMode = vi.fn();
@@ -1569,13 +1553,13 @@ describe("Fabric RPC settings", () => {
 
       expect(JSON.parse(fs.readFileSync(path.join(agentDir, "fabric.json"), "utf8")))
         .toMatchObject({ fullCodeMode: false });
-      expect(fs.existsSync(path.join(cwd, ".pi", "fabric.json"))).toBe(false);
+      expect(fs.existsSync(path.join(cwd, ".omp", "fabric.json"))).toBe(false);
       expect(select.mock.calls.some(([title]) => String(title).includes("Global defaults"))).toBe(true);
     } finally {
-      if (inheritedAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
-      else process.env.PI_CODING_AGENT_DIR = inheritedAgentDir;
-      if (inheritedFullCodeMode === undefined) delete process.env.PI_FABRIC_FULL_CODE_MODE;
-      else process.env.PI_FABRIC_FULL_CODE_MODE = inheritedFullCodeMode;
+      if (inheritedAgentDir === undefined) delete process.env.OMP_FABRIC_AGENT_DIR;
+      else process.env.OMP_FABRIC_AGENT_DIR = inheritedAgentDir;
+      if (inheritedFullCodeMode === undefined) delete process.env.OMP_FABRIC_FULL_CODE_MODE;
+      else process.env.OMP_FABRIC_FULL_CODE_MODE = inheritedFullCodeMode;
       fs.rmSync(root, { recursive: true, force: true });
     }
   });

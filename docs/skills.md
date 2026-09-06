@@ -1,15 +1,15 @@
-# Pi Fabric skills
+# OMP Fabric skills
 
-Pi Fabric uses a core-first, user-opt-in skill hierarchy.
+OMP Fabric uses a core-first, user-opt-in skill hierarchy.
 
 ## Invocation contract
 
-- The model can invoke one skill only: `fabric-exec`. It covers normal Pi core work through `fabric_exec`, `pi.*`, discovery, and stable provider proxies.
+- The model can invoke one skill only: `fabric-exec`. It covers normal OMP core work through `fabric_exec`, `omp.*`, discovery, and stable provider proxies.
 - The user invokes every advanced workflow. Each one declares `disable-model-invocation: true` and stays out of the model catalog. Agent policy forbids reading one autonomously or delegating from one user-only skill to another. The policy governs agent behavior. It is not a filesystem authorization boundary.
 - `/skill:fabric-guide` is the user-only router. It names one exact advanced command and stops there. The router never invokes the recommendation.
 - Each user-facing description summarizes its command. The `fabric-exec` description is the only one that spends always-on model context.
 
-The parent agent behaves like regular Pi until the user explicitly opts into orchestration, recursion, Schema, ambient actors, or swarm coordination.
+The parent agent behaves like regular OMP until the user explicitly opts into orchestration, recursion, Schema, ambient actors, or swarm coordination.
 
 ## Information hierarchy
 
@@ -19,7 +19,7 @@ The parent agent behaves like regular Pi until the user explicitly opts into orc
 4. Use a **soft pointer** for optional depth that improves quality. Correctness does not require it.
 5. Keep skill-owned references beside the skill that owns them. Package-level profiles may point to that single source of truth.
 
-In a packaged `SKILL.md`, write every cross-document path with the `<skill-dir>` marker, for example `<skill-dir>/references/setup.md` or `<skill-dir>/../shared/references/setup.md`. Fabric replaces the marker inline with the directory that contains the loaded `SKILL.md`. Slash-invoked skills resolve through Pi's expanded `<skill location="...">` form. For a direct `SKILL.md` read, Fabric uses the actual read path. The marker is an explicit opt-in by the author. Fabric does not match skill names, enumerate directories, or alter ordinary document reads.
+In a packaged `SKILL.md`, write every cross-document path with the `<skill-dir>` marker, for example `<skill-dir>/references/setup.md` or `<skill-dir>/../shared/references/setup.md`. Fabric replaces the marker inline with the directory that contains the loaded `SKILL.md`. Slash-invoked skills resolve through OMP's expanded `<skill location="...">` form. For a direct `SKILL.md` read, Fabric uses the actual read path. The marker is an explicit opt-in by the author. Fabric does not match skill names, enumerate directories, or alter ordinary document reads.
 
 A mandatory pointer serves legibility and single-source maintenance. Per-run token savings are only a side effect. Keep always-required executable code whole even when a split would shorten the skill.
 

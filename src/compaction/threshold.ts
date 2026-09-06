@@ -1,4 +1,4 @@
-import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 import type { FabricConfig } from "../config.js";
 
 export const modelCompactionKey = (
@@ -20,19 +20,17 @@ const configuredCompactionThreshold = (
 ): number | undefined =>
   modelKey === undefined ? undefined : config.compaction.thresholds[modelKey];
 
-const runThresholdCompact = (
-  context: ExtensionContext,
-): Promise<boolean> => new Promise<boolean>((resolve) => {
-  context.compact({
-    onComplete: () => resolve(true),
-    onError: (error) => {
-      if (context.hasUI) {
-        context.ui.notify(`Fabric threshold compaction failed: ${error.message}`, "warning");
-      }
-      resolve(false);
-    },
-  });
-});
+const runThresholdCompact = async (context: ExtensionContext): Promise<boolean> => {
+  try {
+    await context.compact();
+    return true;
+  } catch (error) {
+    if (context.hasUI) {
+      context.ui.notify(`Fabric threshold compaction failed: ${error instanceof Error ? error.message : String(error)}`, "warning");
+    }
+    return false;
+  }
+};
 
 export const compactAtConfiguredThreshold = async (
   context: ExtensionContext,

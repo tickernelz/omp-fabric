@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 import type { FabricPrewalkMode } from "../src/config.js";
 import type { FabricState } from "../src/fabric-state.js";
 import { armFabricPrewalkSession, autoArmFabricPrewalk } from "../src/prewalk/arm.js";
@@ -12,7 +12,7 @@ const CWD = "/tmp/fabric-prewalk-arm-test";
 interface Harness {
   state: FabricState;
   context: ExtensionContext;
-  pi: ExtensionAPI;
+  omp: ExtensionAPI;
   prewalk: PrewalkController;
   captureBaseline: ReturnType<typeof vi.fn>;
   sendMessage: ReturnType<typeof vi.fn>;
@@ -64,15 +64,15 @@ const makeHarness = (
     },
     ui: { setStatus, notify: vi.fn() },
   } as unknown as ExtensionContext;
-  const pi = { sendMessage } as unknown as ExtensionAPI;
-  return { state, context, pi, prewalk, captureBaseline, sendMessage, setStatus };
+  const omp = { sendMessage } as unknown as ExtensionAPI;
+  return { state, context, omp, prewalk, captureBaseline, sendMessage, setStatus };
 };
 
 describe("armFabricPrewalkSession", () => {
   it("arms from the live config and mirrors arm-time side effects", async () => {
     const h = makeHarness({ model: "anthropic/executor", thinking: "high" });
 
-    await armFabricPrewalkSession(h.state, h.context, h.pi, {
+    await armFabricPrewalkSession(h.state, h.context, h.omp, {
       model: "anthropic/executor",
       task: "  draft the guard  ",
     });
@@ -111,7 +111,7 @@ describe("armFabricPrewalkSession", () => {
       ],
     });
 
-    await armFabricPrewalkSession(h.state, h.context, h.pi, { model: "anthropic/executor" });
+    await armFabricPrewalkSession(h.state, h.context, h.omp, { model: "anthropic/executor" });
 
     expect(h.prewalk.status().state).toBe("armed");
     expect(h.sendMessage).not.toHaveBeenCalled();
@@ -120,7 +120,7 @@ describe("armFabricPrewalkSession", () => {
   it("skips the drift baseline when shell-write detection is off", async () => {
     const h = makeHarness({ detectShellWrites: false });
 
-    await armFabricPrewalkSession(h.state, h.context, h.pi, { model: "anthropic/executor" });
+    await armFabricPrewalkSession(h.state, h.context, h.omp, { model: "anthropic/executor" });
 
     expect(h.captureBaseline).not.toHaveBeenCalled();
     expect(h.prewalk.status().state).toBe("armed");
@@ -131,7 +131,7 @@ describe("autoArmFabricPrewalk", () => {
   it("stays silent when the prewalk master switch is off", async () => {
     const h = makeHarness({ model: "anthropic/executor", enabled: false });
 
-    const skip = await autoArmFabricPrewalk(h.state, h.context, h.pi);
+    const skip = await autoArmFabricPrewalk(h.state, h.context, h.omp);
 
     expect(skip).toBeUndefined();
     expect(h.prewalk.status().state).toBe("idle");
@@ -140,7 +140,7 @@ describe("autoArmFabricPrewalk", () => {
   it("arms new sessions from prewalk.model", async () => {
     const h = makeHarness({ model: "anthropic/executor" });
 
-    const skip = await autoArmFabricPrewalk(h.state, h.context, h.pi);
+    const skip = await autoArmFabricPrewalk(h.state, h.context, h.omp);
 
     expect(skip).toBeUndefined();
     expect(h.prewalk.status()).toMatchObject({
@@ -157,7 +157,7 @@ describe("autoArmFabricPrewalk", () => {
   it("stays silent when always re-arm is off", async () => {
     const h = makeHarness({ alwaysRearm: false, model: "anthropic/executor" });
 
-    const skip = await autoArmFabricPrewalk(h.state, h.context, h.pi);
+    const skip = await autoArmFabricPrewalk(h.state, h.context, h.omp);
 
     expect(skip).toBeUndefined();
     expect(h.prewalk.status().state).toBe("idle");
@@ -168,7 +168,7 @@ describe("autoArmFabricPrewalk", () => {
     const h = makeHarness({ model: "anthropic/executor" });
     h.prewalk.arm({ model: "openai/manual", sessionId: "session-1", alwaysRearm: true });
 
-    const skip = await autoArmFabricPrewalk(h.state, h.context, h.pi);
+    const skip = await autoArmFabricPrewalk(h.state, h.context, h.omp);
 
     expect(skip).toBeUndefined();
     expect(h.prewalk.status().state).toBe("armed");
@@ -205,7 +205,7 @@ describe("autoArmFabricPrewalk", () => {
   ])("returns a skip reason when $name", async ({ harness, reason }) => {
     const h = makeHarness(harness);
 
-    const skip = await autoArmFabricPrewalk(h.state, h.context, h.pi);
+    const skip = await autoArmFabricPrewalk(h.state, h.context, h.omp);
 
     expect(skip).toContain(reason);
     expect(h.prewalk.status().state).toBe("idle");

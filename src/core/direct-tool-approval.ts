@@ -1,9 +1,9 @@
-import type { Usage } from "@earendil-works/pi-ai";
+import type { Usage } from "@oh-my-pi/pi-ai";
 import type {
   ExtensionAPI,
   ExtensionContext,
   ToolCallEvent,
-} from "@earendil-works/pi-coding-agent";
+} from "@oh-my-pi/pi-coding-agent";
 import type { FabricConfig } from "../config.js";
 import type { ResolvedFabricAction } from "./action-registry.js";
 import {
@@ -24,12 +24,6 @@ const addUsage = (left: Usage, right: Usage): Usage => ({
   output: left.output + right.output,
   cacheRead: left.cacheRead + right.cacheRead,
   cacheWrite: left.cacheWrite + right.cacheWrite,
-  ...(left.cacheWrite1h !== undefined || right.cacheWrite1h !== undefined
-    ? { cacheWrite1h: (left.cacheWrite1h ?? 0) + (right.cacheWrite1h ?? 0) }
-    : {}),
-  ...(left.reasoning !== undefined || right.reasoning !== undefined
-    ? { reasoning: (left.reasoning ?? 0) + (right.reasoning ?? 0) }
-    : {}),
   totalTokens: left.totalTokens + right.totalTokens,
   cost: {
     input: left.cost.input + right.cost.input,
@@ -49,7 +43,7 @@ export class FabricDirectToolApproval {
   readonly #pendingUsage = new Map<string, Usage>();
 
   constructor(
-    readonly pi: Pick<ExtensionAPI, "getAllTools">,
+    readonly omp: Pick<ExtensionAPI, "getAllTools">,
     readonly getConfig: () => FabricConfig,
     readonly sessionApprovals: FabricSessionApprovals,
     readonly classifier = new FabricAutoApprovalClassifier(),
@@ -86,14 +80,14 @@ export class FabricDirectToolApproval {
   }
 
   #resolve(toolName: string, config: FabricConfig): ResolvedFabricAction {
-    const metadata = this.pi.getAllTools().find((tool) => tool.name === toolName);
+    const metadata = this.omp.getAllTools().find((tool) => tool.name === toolName);
     const builtin = metadata?.sourceInfo.source === "builtin";
-    const provider = builtin ? "pi" : "extensions";
+    const provider = builtin ? "omp" : "extensions";
     return {
       ref: provider + "." + toolName,
       provider,
       name: toolName,
-      description: metadata?.description ?? "Direct Pi tool: " + toolName,
+      description: metadata?.description ?? "Direct OMP tool: " + toolName,
       inputSchema: isRecord(metadata?.parameters) ? metadata.parameters : {},
       risk: config.capture.risks[toolName] ?? config.capture.defaultRisk,
     };

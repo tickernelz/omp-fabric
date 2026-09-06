@@ -2,7 +2,7 @@
 import { readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, extname, isAbsolute, relative, resolve } from "node:path";
-import type { Theme } from "@earendil-works/pi-coding-agent";
+import type { Theme } from "@oh-my-pi/pi-coding-agent";
 import type { CodePreviewSettings } from "./code-preview.js";
 import { formatToolCallDuration } from "./tool-call-timing.js";
 import { diffLines } from "diff";
@@ -14,7 +14,7 @@ import {
   highlightFileLines,
   highlightSourceLines,
   languageFromPath,
-  observePiTheme,
+  observeOmpTheme,
 } from "./highlight.js";
 import { arcItem, pushArcItem } from "./arc-group.js";
 import { markDiffLine } from "./diff-background.js";
@@ -58,12 +58,12 @@ type DiffSummary = {
   hunks: number;
 };
 
-const CORE_TOOLS = new Set(["bash", "powershell", "read", "write", "edit", "grep", "find", "ls"]);
+const CORE_TOOLS = new Set(["bash", "read", "write", "edit", "grep", "find", "ls"]);
 
 export const isCoreToolAudit = (audit: FabricRenderAudit): boolean =>
   audit.tool !== undefined &&
   CORE_TOOLS.has(audit.tool) &&
-  (audit.provider === "pi" || audit.ref === `pi.${audit.tool}`);
+  (audit.provider === "omp" || audit.ref === `omp.${audit.tool}`);
 
 const positiveEnvInteger = (name: string, fallback: number): number => {
   const parsed = Number.parseInt(process.env[name] ?? "", 10);
@@ -201,7 +201,6 @@ const toolLimit = (audit: FabricRenderAudit, options: CoreToolRenderOptions): nu
       case "ls":
         return options.settings.pathListCollapsedLines;
       case "bash":
-      case "powershell":
         return 8;
       default:
         return options.maxLines;
@@ -1436,7 +1435,7 @@ const renderBash = (
   const highlightedCommand = command
     ? highlightCode(
         displayCommand,
-        audit.tool === "powershell" ? "powershell" : "bash",
+        "bash",
         options.invalidate,
       )
     : null;
@@ -1501,12 +1500,9 @@ export const coreToolPreviewEnabled = (
       return settings.findResultPreview;
     case "ls":
       return settings.lsResultPreview;
-    case "bash":
-    case "powershell": {
+    case "bash": {
       if (!settings.bashResultPreview) return false;
-      const command = audit.tool === "bash"
-        ? firstShellCommandName(bashCommand(audit))
-        : "";
+      const command = firstShellCommandName(bashCommand(audit));
       if (command === "grep" || command === "egrep" || command === "fgrep") {
         return settings.grepResultPreview;
       }
@@ -1524,7 +1520,7 @@ export const renderCoreToolBody = (
   theme: Theme,
   options: CoreToolRenderOptions,
 ): RenderedCoreToolBody | null => {
-  observePiTheme(theme);
+  observeOmpTheme(theme);
   if (!coreToolRendererEnabled(audit, options.settings) || !audit.tool) return null;
   switch (audit.tool) {
     case "read":
@@ -1539,7 +1535,6 @@ export const renderCoreToolBody = (
     case "ls":
       return renderPathList(audit, theme, options);
     case "bash":
-    case "powershell":
       return renderBash(audit, theme, options);
     default:
       return null;
@@ -1551,23 +1546,23 @@ export const coreToolTitle = (
   theme: Theme,
   options: Pick<CoreToolRenderOptions, "cwd" | "settings" | "invalidate">,
 ): string | null => {
-  observePiTheme(theme);
+  observeOmpTheme(theme);
   if (!coreToolRendererEnabled(audit, options.settings) || !audit.tool) return null;
   const title = theme.fg("toolTitle", theme.bold(audit.tool));
   const timing = options.settings.toolCallTiming
     ? formatToolCallDuration(audit.startedAt, audit.endedAt)
     : undefined;
   const filePath = argString(audit, "path") ?? "";
-  if (audit.tool === "bash" || audit.tool === "powershell") {
+  if (audit.tool === "bash") {
     const command = bashCommand(audit);
     const firstLine = command.split("\n")[0] ?? "";
-    const language = audit.tool === "powershell" ? "powershell" : "bash";
+    const language = "bash";
     const highlighted = firstLine ? highlightCode(firstLine, language, options.invalidate)?.[0] : undefined;
     const timeout = numberOf(audit.args?.timeout);
-    const warnings = audit.tool === "bash" && options.settings.bashWarnings
+    const warnings = options.settings.bashWarnings
       ? bashWarnings(command)
       : [];
-    const prompt = audit.tool === "powershell" ? "PS>" : "$";
+    const prompt = "$";
     return `${title} ${theme.fg("dim", prompt)} ${highlighted ?? theme.fg("accent", escapeControlChars(firstLine))}${metadata(theme, [
       timeout !== undefined ? `timeout ${timeout}s` : undefined,
       warnings.length > 0 ? `⚠ ${warnings.join(", ")}` : undefined,

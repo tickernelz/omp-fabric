@@ -4,7 +4,7 @@ import { readFile, readdir, stat } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
 
-// Prewalk's audit claim never sees writes made through opaque Pi shell calls
+// Prewalk's audit claim never sees writes made through opaque OMP shell calls
 // heredocs, sed -i, formatter binaries — because audits record tool refs, not
 // file effects. While a session is armed, a bash-running boundary without an
 // audited mutation diffs the work tree against a per-session stat baseline

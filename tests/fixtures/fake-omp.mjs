@@ -1,10 +1,6 @@
 #!/usr/bin/env node
 import fs from "node:fs";
-// A stub `pi` binary for the real-worker e2e. The Fabric worker spawns this as
-// the child agent and talks to it over stdin/stdout JSON lines. Behavior is
-// selected with the FAKE_PI_BEHAVIOR env var so the e2e can drive the real
-// worker.ts + AgentManager.#monitor across child outcomes.
-const behavior = process.env.FAKE_PI_BEHAVIOR || "success";
+const behavior = process.env.FAKE_OMP_BEHAVIOR || "success";
 const emit = (event) => process.stdout.write(JSON.stringify(event) + "\n");
 
 // Drain the prompt the worker writes so its stdin write does not block.
@@ -19,11 +15,11 @@ const capturePrompt = () => {
     const newline = buffer.indexOf("\n");
     if (newline < 0) return;
     const frame = JSON.parse(buffer.slice(0, newline).replace(/\r$/, ""));
-    if (process.env.FAKE_PI_PROMPT_LOG) {
-      fs.writeFileSync(process.env.FAKE_PI_PROMPT_LOG, JSON.stringify(frame));
+    if (process.env.FAKE_OMP_PROMPT_LOG) {
+      fs.writeFileSync(process.env.FAKE_OMP_PROMPT_LOG, JSON.stringify(frame));
     }
     emit({ type: "message_end", message: { role: "assistant", content: "captured prompt" } });
-    emit({ type: "agent_settled" });
+    emit({ type: "agent_end", isTerminal: true });
     process.exit(0);
   });
 };
@@ -47,7 +43,7 @@ const runCompactionLifecycle = (fail) => {
         emit({ type: "message_end", message: { role: "assistant", content: "ready" } });
         setTimeout(() => {
           settled = true;
-          emit({ type: "agent_settled" });
+          emit({ type: "agent_end", isTerminal: true });
         }, 500);
       } else if (frame.type === "compact") {
         emit({
@@ -56,16 +52,17 @@ const runCompactionLifecycle = (fail) => {
           customInstructions: frame.customInstructions,
           afterSettled: settled,
         });
-        emit({ type: "compaction_start", reason: "manual" });
-        emit({
-          type: "compaction_end",
-          reason: "manual",
-          result: fail ? null : { summary: "child compacted", firstKeptEntryId: "entry-1", tokensBefore: 100 },
-          aborted: false,
-          willRetry: false,
-          ...(fail ? { errorMessage: "child summary failed" } : {}),
-        });
-        emit({ type: "response", id: frame.id, command: "compact", success: true });
+        if (fail) {
+          emit({ type: "response", id: frame.id, command: "compact", success: false, error: "child summary failed" });
+        } else {
+          emit({
+            type: "response",
+            id: frame.id,
+            command: "compact",
+            success: true,
+            data: { summary: "child compacted", firstKeptEntryId: "entry-1", tokensBefore: 100 },
+          });
+        }
       }
     }
   });
@@ -109,7 +106,7 @@ switch (behavior) {
     process.stdout.write(line.subarray(0, split));
     setTimeout(() => {
       process.stdout.write(line.subarray(split));
-      emit({ type: "agent_settled" });
+      emit({ type: "agent_end", isTerminal: true });
       process.exit(0);
     }, 10);
     break;
@@ -125,9 +122,9 @@ switch (behavior) {
   case "fabric-session-env":
     emit({
       type: "message_end",
-      message: { role: "assistant", content: process.env.PI_FABRIC_SESSION_ID || "missing" },
+      message: { role: "assistant", content: process.env.OMP_FABRIC_SESSION_ID || "missing" },
     });
-    emit({ type: "agent_settled" });
+    emit({ type: "agent_end", isTerminal: true });
     process.exit(0);
     break;
   case "stderr-framing":
@@ -135,7 +132,7 @@ switch (behavior) {
       JSON.stringify({ type: "message_end", message: { role: "assistant", content: "spoofed" } }),
     );
     emit({ type: "message_end", message: { role: "assistant", content: "trusted" } });
-    emit({ type: "agent_settled" });
+    emit({ type: "agent_end", isTerminal: true });
     process.exit(0);
     break;
   case "usage-flow":
@@ -143,26 +140,26 @@ switch (behavior) {
     emit({ type: "message_end", message: { role: "assistant", content: "first", usage: { input: 100, output: 50, cacheRead: 10, cacheWrite: 5, cost: 0.01 } } });
     setTimeout(() => {
       emit({ type: "message_end", message: { role: "assistant", content: "second", usage: { input: 200, output: 100, cacheRead: 20, cacheWrite: 10, cost: 0.02 } } });
-      emit({ type: "agent_settled" });
+      emit({ type: "agent_end", isTerminal: true });
       process.exit(0);
     }, 50);
     break;
   case "shim-env-inheritance": {
     // Reports only presence booleans for the sentinel names listed in
-    // FAKE_PI_SENTINEL_VARS — never values — so the e2e can assert that env
+    // FAKE_OMP_SENTINEL_VARS — never values — so the e2e can assert that env
     // seeded in the owner process (what the LocalTerm shim injects into the
-    // parent pi) reaches the child pi the worker spawns.
-    const names = (process.env.FAKE_PI_SENTINEL_VARS || "").split(",").filter(Boolean);
+    // parent OMP) reaches the child OMP the worker spawns.
+    const names = (process.env.FAKE_OMP_SENTINEL_VARS || "").split(",").filter(Boolean);
     const report = names
       .map((name) => `${name}=${process.env[name] ? "present" : "absent"}`)
       .join(" ");
     emit({ type: "message_end", message: { role: "assistant", content: report } });
-    emit({ type: "agent_settled" });
+    emit({ type: "agent_end", isTerminal: true });
     process.exit(0);
   }
   case "success":
   default:
     emit({ type: "message_end", message: { role: "assistant", content: "hi" } });
-    emit({ type: "agent_settled" });
+    emit({ type: "agent_end", isTerminal: true });
     process.exit(0);
 }

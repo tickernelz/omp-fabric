@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import type { AppKeybinding, Theme } from "@earendil-works/pi-coding-agent";
+import type { AppKeybinding, Theme } from "@oh-my-pi/pi-coding-agent";
 import type { CodePreviewSettings } from "./code-preview.js";
 import { formatToolCallDuration } from "./tool-call-timing.js";
 import {
@@ -8,7 +8,7 @@ import {
   visibleWidth,
   wrapTextWithAnsi,
   type Component,
-} from "@earendil-works/pi-tui";
+} from "@oh-my-pi/pi-tui";
 import { highlightCode, languageFromPath } from "./highlight.js";
 import { headlineArg } from "../core/call-preview.js";
 import { coreToolTitle, renderCoreToolBody } from "./core-tool-render.js";
@@ -103,11 +103,11 @@ export const safeTerminalText = (value: string): string =>
 
 const truncateBoundedLine = (line: string, width: number): string => {
   const truncated = truncateToWidth(line, width, "");
-  if (!truncated.endsWith(FULL_SGR_RESET)) return truncated;
-
-  // truncateToWidth adds a full reset when clipping. Inside Pi's default tool Box,
-  // that reset clears the enclosing background before the right padding cell.
-  return truncated.slice(0, -FULL_SGR_RESET.length) + TEXT_SGR_RESET;
+  if (visibleWidth(line) <= width) return truncated;
+  if (truncated.endsWith(FULL_SGR_RESET)) {
+    return truncated.slice(0, -FULL_SGR_RESET.length) + TEXT_SGR_RESET;
+  }
+  return truncated.endsWith(TEXT_SGR_RESET) ? truncated : truncated + TEXT_SGR_RESET;
 };
 
 class BoundedLineList implements Component {
@@ -283,7 +283,7 @@ const legacyCommandsFrom = (fabricArgs: unknown): ReadonlyMap<string, string> =>
   const remember = (candidate: unknown): void => {
     if (typeof candidate === "string") commands.set(digestCommand(candidate), candidate);
   };
-  const namedStrings = recordOf(args.strings);
+  const namedStrings = recordOf(args.payloads);
   if (namedStrings) {
     for (const value of Object.values(namedStrings)) remember(value);
   }
@@ -306,14 +306,14 @@ export const restoreLegacyBashCommands = (
   fabricArgs: unknown,
 ): FabricRenderAudit[] => {
   const hasLegacyCommand = audits.some((audit) => {
-    const digest = audit.ref === "pi.bash" ? argString(audit.args ?? {}, "commandDigest") : undefined;
+    const digest = audit.ref === "omp.bash" ? argString(audit.args ?? {}, "commandDigest") : undefined;
     return Boolean(digest && LEGACY_COMMAND_DIGEST.test(digest));
   });
   if (!hasLegacyCommand) return audits;
 
   const commands = legacyCommandsFrom(fabricArgs);
   return audits.map((audit) => {
-    if (audit.ref !== "pi.bash" || !audit.args) return audit;
+    if (audit.ref !== "omp.bash" || !audit.args) return audit;
     const digest = argString(audit.args, "commandDigest");
     if (!digest || !LEGACY_COMMAND_DIGEST.test(digest)) return audit;
     const { commandDigest: _commandDigest, ...argsWithoutDigest } = audit.args;
@@ -327,7 +327,7 @@ export const restoreLegacyBashCommands = (
 
 export interface FabricWriteArgumentPreviewInput {
   bindings: FabricWriteBinding[];
-  strings?: Record<string, string> | undefined;
+  payloads?: Record<string, string> | undefined;
   expanded: boolean;
   cwd?: string | undefined;
   settings?: CodePreviewSettings | undefined;
@@ -344,7 +344,7 @@ const renderWriteArgumentBody = (
 ): { lines: string[]; hidden: number } => {
   if (parity) {
     const rendered = renderCoreToolBody(
-      { ref: "pi.write", provider: "pi", tool: "write", args: { path, content } },
+      { ref: "omp.write", provider: "omp", tool: "write", args: { path, content } },
       theme,
       {
         cwd: parity.cwd,
@@ -378,7 +378,7 @@ export const renderFabricWriteArgumentPreview = (
   invalidate?: () => void,
 ): Component | null => {
   const available = input.bindings.map(
-    (binding) => input.strings?.[binding.stringKey],
+    (binding) => input.payloads?.[binding.stringKey],
   );
   let activeIndex = -1;
   for (let index = 0; index < available.length; index++) {
@@ -391,8 +391,8 @@ export const renderFabricWriteArgumentPreview = (
     const rows = [
       nestedCallTitle(
         {
-          ref: "pi.write",
-          provider: "pi",
+          ref: "omp.write",
+          provider: "omp",
           tool: "write",
           args: { path: binding.path, content: available[0] ?? "" },
         },
@@ -442,8 +442,8 @@ export const renderFabricWriteArgumentPreview = (
     rows.push(
       `${glyph} ${nestedCallTitle(
         {
-          ref: "pi.write",
-          provider: "pi",
+          ref: "omp.write",
+          provider: "omp",
           tool: "write",
           args: {
             path: binding.path,
@@ -692,7 +692,7 @@ const transcriptToolAudit = (entry: FabricTranscriptEntry): FabricRenderAudit =>
   const normalized = rawName.toLowerCase();
   const tool = normalized === "glob"
     ? "find"
-    : ["read", "write", "edit", "bash", "powershell", "grep", "find", "ls"].includes(normalized)
+    : ["read", "write", "edit", "bash", "grep", "find", "ls"].includes(normalized)
       ? normalized
       : rawName;
   const rawArgs = entry.args ?? {};
@@ -706,8 +706,8 @@ const transcriptToolAudit = (entry: FabricTranscriptEntry): FabricRenderAudit =>
     if (oldText !== undefined && newText !== undefined) args.edits = [{ oldText, newText }];
   }
   return {
-    ref: `pi.${tool}`,
-    provider: "pi",
+    ref: `omp.${tool}`,
+    provider: "omp",
     tool,
     ...(Object.keys(args).length > 0 ? { args } : {}),
     ...(entry.result !== undefined ? { result: entry.result } : {}),
@@ -1030,7 +1030,7 @@ export interface FabricCoreToolPreview extends FabricRenderAudit {
   ref: string;
 }
 
-const CORE_TOOL_NAMES = new Set(["bash", "powershell", "read", "write", "edit", "grep", "find", "ls"]);
+const CORE_TOOL_NAMES = new Set(["bash", "read", "write", "edit", "grep", "find", "ls"]);
 
 export const captureFabricCoreToolPreviews = (
   audits: FabricRenderAudit[],
@@ -1041,7 +1041,7 @@ export const captureFabricCoreToolPreviews = (
     if (
       !audit.tool ||
       !CORE_TOOL_NAMES.has(audit.tool) ||
-      (audit.provider !== "pi" && audit.ref !== `pi.${audit.tool}`)
+      (audit.provider !== "omp" && audit.ref !== `omp.${audit.tool}`)
     ) return [];
     const path = argString(audit.args ?? {}, "path");
     const index = prior.findIndex(
@@ -1077,7 +1077,7 @@ export const restoreFabricCoreToolPreviews = (
     if (
       !audit.tool ||
       !CORE_TOOL_NAMES.has(audit.tool) ||
-      (audit.provider !== "pi" && audit.ref !== `pi.${audit.tool}`)
+      (audit.provider !== "omp" && audit.ref !== `omp.${audit.tool}`)
     ) return audit;
     const path = argString(audit.args ?? {}, "path");
     let index = remaining.findIndex(
@@ -1320,7 +1320,7 @@ const lineDiff = (oldLines: string[], newLines: string[]): DiffLine[] => {
   return out;
 };
 
-/** Render a syntax-highlighted line diff for a nested `pi.edit` call, or null. */
+/** Render a syntax-highlighted line diff for a nested `omp.edit` call, or null. */
 export function nestedEditDiff(
   audit: FabricRenderAudit,
   theme: Theme,

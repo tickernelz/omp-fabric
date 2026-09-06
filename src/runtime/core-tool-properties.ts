@@ -1,19 +1,19 @@
 import {
   GUEST_TYPE_DECLARATIONS,
-  PI_CORE_COMPATIBILITY_ARGUMENT_TYPE_NAMES,
+  OMP_CORE_COMPATIBILITY_ARGUMENT_TYPE_NAMES,
 } from "./guest-types.js";
 
 // Core tool names come from the compatibility-argument table so a new guest
 // tool extends the registry (and the recovery hints) without edits here.
-type CoreToolName = keyof typeof PI_CORE_COMPATIBILITY_ARGUMENT_TYPE_NAMES;
+type CoreToolName = keyof typeof OMP_CORE_COMPATIBILITY_ARGUMENT_TYPE_NAMES;
 
 export const CORE_TOOL_NAMES: readonly CoreToolName[] = Object.keys(
-  PI_CORE_COMPATIBILITY_ARGUMENT_TYPE_NAMES,
+  OMP_CORE_COMPATIBILITY_ARGUMENT_TYPE_NAMES,
 ) as CoreToolName[];
 
 // The guest declarations are a template-literal string, so the option bags are
 // extracted textually. Type aliases are matched with a bracket-depth scan (not
-// `[^;]`) because union members like `{ edits: PiEditOperation[]; all?: boolean }`
+// `[^;]`) because union members like `{ edits: OmpEditOperation[]; all?: boolean }`
 // contain interior semicolons.
 const extractTypeDeclarations = (declarations: string): Map<string, string> => {
   const parsed = new Map<string, string>();
@@ -46,22 +46,22 @@ const objectLiteralKeys = (rhs: string): string[] => {
 };
 
 const referencedTypeNames = (rhs: string): string[] =>
-  matchCaptures(rhs, /\b(Pi[A-Z]\w*)/g);
+  matchCaptures(rhs, /\b(Omp[A-Z]\w*)/g);
 
 const capitalise = (tool: string): string =>
   tool.charAt(0).toUpperCase() + tool.slice(1);
 
 // Property name -> every core tool whose argument or options bag accepts it.
 // Walking starts from each tool's argument/compatibility/options aliases and
-// follows Pi* references (shared bags, edit operations) transitively.
+// follows OMP* references (shared bags, edit operations) transitively.
 const collectCoreToolProperties = (declarations: string): Map<string, CoreToolName[]> => {
   const typeDeclarations = extractTypeDeclarations(declarations);
   const owners = new Map<string, Set<CoreToolName>>();
   for (const tool of CORE_TOOL_NAMES) {
     const roots = [
-      `Pi${capitalise(tool)}Argument`,
-      PI_CORE_COMPATIBILITY_ARGUMENT_TYPE_NAMES[tool],
-      `Pi${capitalise(tool)}Options`,
+      `Omp${capitalise(tool)}Argument`,
+      OMP_CORE_COMPATIBILITY_ARGUMENT_TYPE_NAMES[tool],
+      `Omp${capitalise(tool)}Options`,
     ];
     const visited = new Set<string>();
     const walk = (name: string): void => {

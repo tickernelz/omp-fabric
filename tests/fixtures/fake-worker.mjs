@@ -27,7 +27,7 @@ if (task.includes("HANG")) {
       name: args.get("name"),
       task,
       status: "running",
-      runner: args.get("runner") ?? "pi",
+      runner: args.get("runner") ?? "omp",
       transport: args.get("transport"),
       cwd: args.get("cwd"),
       startedAt: Date.now(),
@@ -50,7 +50,7 @@ if (task.includes("HANG")) {
     name: args.get("name"),
     task,
     status: "running",
-    runner: args.get("runner") ?? "pi",
+    runner: args.get("runner") ?? "omp",
     transport: args.get("transport"),
     cwd: args.get("cwd"),
     startedAt,
@@ -110,7 +110,7 @@ if (task.includes("HANG")) {
     name: args.get("name"),
     task,
     status: fail ? "failed" : "completed",
-    runner: args.get("runner") ?? "pi",
+    runner: args.get("runner") ?? "omp",
     transport: args.get("transport"),
     fullCodeMode: args.get("full-code-mode"),
     mainAgentId: args.get("main-agent-id"),
@@ -141,10 +141,10 @@ if (task.includes("HANG")) {
   fs.mkdirSync(path.dirname(statusFile), { recursive: true });
   if (lifecycleFile) {
     const lifecycleEvents = [
-      { version: 1, event: "pi.agent_start", occurredAt: now },
-      { version: 1, event: "pi.turn_end", occurredAt: now, data: { turnIndex: 0 } },
-      { version: 1, event: "pi.agent_end", occurredAt: now, data: { willRetry: false } },
-      { version: 1, event: "pi.agent_settled", occurredAt: now },
+      { version: 1, event: "omp.agent_start", occurredAt: now },
+      { version: 1, event: "omp.turn_end", occurredAt: now, data: { turnIndex: 0 } },
+      { version: 1, event: "omp.agent_end", occurredAt: now, data: { isTerminal: true } },
+      { version: 1, event: "omp.agent_end", occurredAt: now },
     ];
     fs.writeFileSync(
       lifecycleFile,
@@ -165,20 +165,26 @@ if (task.includes("HANG")) {
         type: "message_end",
         message: { role: "assistant", content: text, usage: { input: 1, output: 2 } },
       },
-      { type: "agent_end", willRetry: false },
-      { type: "agent_settled" },
+      { type: "agent_end", isTerminal: true },
+      { type: "agent_end" },
     ];
     fs.writeFileSync(logFile, events.map((event) => JSON.stringify(event)).join("\n") + "\n");
   }
 
   // Append a lightweight actor transcript only when this is not already a
-  // native Pi session. Handoff fixtures pass a real branched JSONL file; raw
+  // native OMP session. Handoff fixtures pass a real branched JSONL file; raw
   // role records would corrupt its id/parentId tree.
   let nativePiSession = false;
   if (sessionFile && fs.existsSync(sessionFile)) {
     try {
-      const first = fs.readFileSync(sessionFile, "utf8").split("\n", 1)[0];
-      nativePiSession = JSON.parse(first).type === "session";
+      const content = fs.readFileSync(sessionFile, "utf8");
+      nativePiSession = content.split("\n").some((line) => {
+        try {
+          return JSON.parse(line).type === "session";
+        } catch {
+          return false;
+        }
+      });
     } catch {}
   }
   if (sessionFile && !nativePiSession) {

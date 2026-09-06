@@ -328,7 +328,7 @@ const measureOnceAsync = async (
 
 // Cooperative meter for extension hooks. Trace accumulation yields in fixed
 // chunks in both the global and per-model passes, preserving exact synchronous
-// results while letting Pi repaint and process input during a large corpus.
+// results while letting OMP repaint and process input during a large corpus.
 export const measureEntropyAsync = async (
   input: EntropyMeterInput,
 ): Promise<EntropyReport> => {

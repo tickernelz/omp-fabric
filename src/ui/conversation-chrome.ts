@@ -1,7 +1,7 @@
 import { homedir } from "node:os";
 import path from "node:path";
-import { SettingsManager, type Theme } from "@earendil-works/pi-coding-agent";
-import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import type { Theme } from "@oh-my-pi/pi-coding-agent";
+import { Ellipsis, truncateToWidth, visibleWidth } from "@oh-my-pi/pi-tui";
 import { formatTokens, safeText } from "./format.js";
 import type { FabricConversationTarget } from "./conversation.js";
 
@@ -14,13 +14,18 @@ export interface FabricConversationAppearance {
   imageWidthCells?: number;
 }
 
-/** Read the host's public Pi settings without changing its editor or footer. */
-export function readConversationAppearance(cwd: string, agentDir: string, projectTrusted: boolean): FabricConversationAppearance {
-  const settings = SettingsManager.create(cwd, agentDir, { projectTrusted });
+/** Read OMP appearance settings; cwd and agentDir apply only to trusted project loading. */
+export async function readConversationAppearance(cwd: string, agentDir: string, projectTrusted: boolean): Promise<FabricConversationAppearance> {
+  const { Settings } = await import("@oh-my-pi/pi-coding-agent/config/settings");
+  const settings = projectTrusted
+    ? await Settings.loadReadOnly({ cwd, agentDir })
+    : Settings.isolated();
   return {
-    editorPaddingX: settings.getEditorPaddingX(), outputPad: settings.getOutputPad(),
-    codeBlockIndent: settings.getCodeBlockIndent(), hideThinkingBlock: settings.getHideThinkingBlock(),
-    showImages: settings.getShowImages(), imageWidthCells: settings.getImageWidthCells(),
+    editorPaddingX: 0,
+    outputPad: 0,
+    codeBlockIndent: "  ",
+    hideThinkingBlock: settings.get("hideThinkingBlock") === true,
+    showImages: settings.get("terminal.showImages") === true,
   };
 }
 
@@ -51,11 +56,11 @@ export function conversationFooter(target: FabricConversationTarget | undefined,
   stats.push(target.contextWindow ? `?/${formatTokens(target.contextWindow)} ctx` : "ctx ?");
   const model = safeText(target.model ?? `${target.runner ?? ""} model unavailable`).trim();
   const thinking = target.thinking ? ` • ${safeText(target.thinking === "off" ? "thinking off" : target.thinking)}` : "";
-  const left = truncateToWidth(stats.join(" "), width, "…");
+  const left = truncateToWidth(stats.join(" "), width, Ellipsis.Unicode);
   const right = truncateToWidth(`${model}${thinking}`, Math.max(0, width - visibleWidth(left) - 2), "");
   const gap = " ".repeat(Math.max(0, width - visibleWidth(left) - visibleWidth(right)));
   return [
-    truncateToWidth(theme.fg("dim", pwd), width, "…"),
+    truncateToWidth(theme.fg("dim", pwd), width, Ellipsis.Unicode),
     theme.fg("dim", `${left}${gap}${right}`),
   ];
 }

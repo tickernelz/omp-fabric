@@ -9,7 +9,7 @@ import { emptyRepairTable, type RepairTableFile } from "../src/repairs/types.js"
 
 const tmpRoots: string[] = [];
 const makeTempDir = (): string => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-repairs-"));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-repairs-"));
   tmpRoots.push(dir);
   return dir;
 };
@@ -65,7 +65,7 @@ describe("RepairCompiler", () => {
 
   it("does not promote effect failures", () => {
     const compiler = new RepairCompiler({ agentDir: makeTempDir() });
-    compiler.setCatalogSurface({ providers: ["pi"], capturedTools: [] });
+    compiler.setCatalogSurface({ providers: ["omp"], capturedTools: [] });
     expect(
       compiler.observe({ stage: "effect", fingerprint: "effect:bash" }),
     ).toBeUndefined();

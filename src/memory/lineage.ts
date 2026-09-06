@@ -60,7 +60,7 @@ const allLineage = (): SessionLineage => ({
 });
 
 /**
- * Reconstruct Pi 0.80.6's persisted leaf semantics without treating append
+ * Reconstruct the OMP host's persisted leaf semantics without treating append
  * order as a transcript: the final persisted entry is the leaf, duplicate IDs
  * resolve to their last record in the ID map, and parent links are walked to a
  * root. Cycles are stopped defensively and reported as incomplete coverage.
