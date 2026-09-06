@@ -3,7 +3,7 @@ import type {
   AgentTransportHandle,
   AgentTransportLaunch,
 } from "../types.js";
-import { spawnDetached } from "./process-utils.js";
+import { spawnDetached, transportStderrPath } from "./process-utils.js";
 
 export class ProcessTransport implements AgentTransportAdapter {
   readonly kind = "process" as const;
@@ -17,6 +17,9 @@ export class ProcessTransport implements AgentTransportAdapter {
       request.workerPath,
       request.workerArguments,
       request.cwd,
+      request.runDirectory
+        ? { stderrFile: transportStderrPath(request.runDirectory) }
+        : {},
     );
     return {
       kind: this.kind,

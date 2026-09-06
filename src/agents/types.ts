@@ -221,6 +221,7 @@ export interface AgentTransportLaunch {
   cwd: string;
   workerPath: string;
   workerArguments: string[];
+  runDirectory?: string;
 }
 
 export interface AgentTransportHandle {

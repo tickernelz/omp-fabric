@@ -28,6 +28,10 @@ import { removeTree } from "./rm.js";
 import { HerdrTransport } from "./transports/herdr-transport.js";
 import { LocaltermTransport } from "./transports/localterm-transport.js";
 import { ProcessTransport } from "./transports/process-transport.js";
+import {
+  clearTransportStderr,
+  readTransportStderrSummary,
+} from "./transports/process-utils.js";
 import { ScreenTransport } from "./transports/screen-transport.js";
 import { TmuxTransport } from "./transports/tmux-transport.js";
 import type {
@@ -743,6 +747,7 @@ export class AgentManager {
         cwd: agentCwd,
         workerPath: this.#workerPath,
         workerArguments,
+        runDirectory,
       };
       const transport = await adapter.launch(launch);
       let resolveResult: ((result: AgentRunResult) => void) | undefined;
@@ -1226,13 +1231,20 @@ export class AgentManager {
         if (!alive) {
           firstObservedDeadAt ??= livenessCheckedAt;
           if (livenessCheckedAt - firstObservedDeadAt >= TRANSPORT_EXIT_GRACE_MS) {
+            const startupError = readTransportStderrSummary(managed.runDirectory);
             const logSummary = summarizeRunLog(managed.runDirectory, 8);
+            const detail = [
+              startupError ? `worker startup failed: ${startupError}` : undefined,
+              logSummary ? `last run log: ${logSummary}` : undefined,
+            ]
+              .filter((part): part is string => part !== undefined)
+              .join("; ");
             const failed = failedRecord(
               managed,
               "failed",
-              logSummary
-                ? `Agent transport exited without a result; last run log: ${logSummary}`
-                : "Agent transport exited without a result",
+              detail
+                ? `${TRANSPORT_EXITED_WITHOUT_RESULT_PREFIX}; ${detail}`
+                : TRANSPORT_EXITED_WITHOUT_RESULT_PREFIX,
             );
             if (await this.#retryStartup(managed, failed, deadline)) {
               managed.lastRetriedTransportFailure = failed;
@@ -1258,6 +1270,7 @@ export class AgentManager {
     // have finished by settlement, so remove the owner-only handoff file for
     // every terminal outcome even when retainRuns keeps the rest of the run.
     fs.rmSync(path.join(managed.runDirectory, "images.json"), { force: true });
+    clearTransportStderr(managed.runDirectory);
     this.#emitLifecycle(managed, `run.${result.status}`, result.finishedAt ?? Date.now(), {
       status: result.status,
     });
