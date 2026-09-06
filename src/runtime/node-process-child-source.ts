@@ -62,6 +62,7 @@ const run = async (message) => {
     __fabricTokenBudget: message.tokenBudget ?? Number.POSITIVE_INFINITY,
     print,
     payloads: jsonCompatible(message.payloads),
+    __fabricProxyNames: jsonCompatible(message.proxyNames ?? {}),
   };
   const context = vm.createContext(sandbox, {
     name: "omp-fabric-node-process",

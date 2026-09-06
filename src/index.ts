@@ -40,6 +40,7 @@ import {
 } from "./prewalk/handoff.js";
 import type { PendingFabricHandoff } from "./prewalk/handoff.js";
 import { autoArmFabricPrewalk } from "./prewalk/arm.js";
+import { FabricSpeculationWarmup } from "./speculation/warmup.js";
 import {
   DEFAULT_FABRIC_CONFIG,
   effectiveToolCaptureConfig,
@@ -577,15 +578,27 @@ export default async function ompFabric(omp: ExtensionAPI): Promise<void> {
     await state.publishHostLifecycle("omp.agent_end", event);
   });
 
+  const speculationWarmup = new FabricSpeculationWarmup({
+    enabled: () => {
+      try {
+        return state.config.speculation.enabled === true;
+      } catch {
+        return false;
+      }
+    },
+    tap: () => state.speculationTap,
+    activate: (context) => state.ensure(context),
+  });
+
   // Speculative PTC: follow fabric_exec argument streaming and pre-launch
   // literal-argument read calls so their latency hides behind generation.
   omp.on("message_start", () => {
+    speculationWarmup.reset();
     state.speculationTap?.reset();
   });
 
   omp.on("message_update", (event, context) => {
-    if (!state.initialized) return;
-    state.speculationTap?.handleMessageUpdate(event, context);
+    speculationWarmup.handleMessageUpdate(event, context);
   });
 
   omp.on("tool_call", (event, context) =>

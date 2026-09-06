@@ -6,12 +6,20 @@ import {
 
 export const FABRIC_EXECUTION_DETAILS_MAX_BYTES = 512 * 1024;
 
+export interface FabricSpeculationSummaryV1 {
+  launched: number;
+  hit: number;
+  missed: number;
+  discarded: number;
+}
+
 export interface FabricPersistedExecutionDetailsV1 {
   success: boolean;
   trace: FabricExecutionTraceV1;
   /** Rich render audits persisted verbatim (minus in-memory media) so a resumed transcript re-renders — and expands — exactly like the live one. */
   audits: FabricLegacyRenderAudit[];
   phases: string[];
+  speculation?: FabricSpeculationSummaryV1;
   error?: string;
   outputFormat?: "yaml" | "json";
   outputFormatStartLine?: number;
@@ -35,6 +43,7 @@ export interface FabricPersistableAuditInput {
   preview?: unknown;
   startedAt?: number;
   endedAt?: number;
+  speculated?: boolean;
 }
 
 export interface FabricLegacyRenderAudit {
@@ -51,6 +60,7 @@ export interface FabricLegacyRenderAudit {
   fromTrace?: boolean;
   startedAt?: number;
   endedAt?: number;
+  speculated?: boolean;
 }
 
 export interface FabricExecutionRenderDetails {
@@ -83,6 +93,7 @@ const persistableAudit = (audit: FabricPersistableAuditInput): FabricLegacyRende
     ...(audit.preview !== undefined ? { preview: audit.preview } : {}),
     ...(audit.startedAt !== undefined ? { startedAt: audit.startedAt } : {}),
     ...(audit.endedAt !== undefined ? { endedAt: audit.endedAt } : {}),
+    ...(audit.speculated === true ? { speculated: true } : {}),
   });
 
 /**
@@ -99,6 +110,7 @@ export const createFabricPersistedExecutionDetails = (input: {
   trace: FabricExecutionTraceV1;
   audits?: readonly FabricPersistableAuditInput[];
   phases?: readonly string[];
+  speculation?: FabricSpeculationSummaryV1;
   error?: string;
   outputFormat?: "yaml" | "json";
   outputFormatStartLine?: number;
@@ -109,6 +121,7 @@ export const createFabricPersistedExecutionDetails = (input: {
     trace: cloneTrace(input.trace),
     audits: (input.audits ?? []).map(persistableAudit),
     phases: (input.phases ?? []).filter((phase): phase is string => typeof phase === "string"),
+    ...(input.speculation ? { speculation: input.speculation } : {}),
     ...(typeof input.error === "string" && input.error ? { error: input.error } : {}),
     ...(input.outputFormat ? { outputFormat: input.outputFormat } : {}),
     ...(input.outputFormatStartLine !== undefined
@@ -170,6 +183,7 @@ const legacyAudit = (value: unknown): FabricLegacyRenderAudit | undefined => {
     ...(value.preview !== undefined ? { preview: value.preview } : {}),
     ...(typeof value.startedAt === "number" ? { startedAt: value.startedAt } : {}),
     ...(typeof value.endedAt === "number" ? { endedAt: value.endedAt } : {}),
+    ...(value.speculated === true ? { speculated: true } : {}),
   };
 };
 

@@ -342,6 +342,11 @@ export interface FabricScopedProviderResult {
   dispose(): void | Promise<void>;
 }
 
+export interface FabricProviderListCoverage {
+  complete: boolean;
+  reasons: string[];
+}
+
 export interface FabricProvider {
   name: string;
   description: string;
@@ -349,6 +354,7 @@ export interface FabricProvider {
     request: FabricProviderListRequest,
     context: FabricInvocationContext,
   ): Promise<FabricActionDescriptor[]>;
+  listCoverage?(): FabricProviderListCoverage;
   describe(
     actionName: string,
     context: FabricInvocationContext,

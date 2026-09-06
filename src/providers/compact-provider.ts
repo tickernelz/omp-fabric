@@ -94,7 +94,7 @@ const descriptors: FabricActionDescriptor[] = [
   {
     name: "status",
     description:
-      "Read the pending compaction intent and the last compaction outcome",
+      "Read context occupancy (context.tokens/percent/contextWindow, context.known=false when the host has not measured yet), the configured engine and targetContextRatio, the pending compaction intent, and the last settled outcome (status committed | skipped | cancelled | failed, with tokensBefore/estimatedTokensAfter)",
     inputSchema: emptySchema,
     risk: "read",
   },
@@ -175,7 +175,7 @@ export class CompactProvider implements FabricProvider {
         return { requested: true, intent };
       }
       case "status":
-        return this.controller.status();
+        return this.controller.status(context.extensionContext);
       case "cancel":
         this.controller.cancel();
         context.activity?.({ type: "progress", message: "Compaction request cancelled" });

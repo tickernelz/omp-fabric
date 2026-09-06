@@ -51,6 +51,7 @@ import {
 } from "./core/action-registry.js";
 import { FabricSessionApprovals } from "./core/approval-controller.js";
 import { CompactController, type CompactLastCommit, type CompactPendingIntent } from "./core/compact-controller.js";
+import { fileCompactOutcomeStore } from "./core/compact-outcome-store.js";
 import { FabricToolResultProxy } from "./core/tool-result-proxy.js";
 import { FabricExecutionService, type FabricExecutionResult } from "./execution-service.js";
 import { RepairCompiler } from "./repairs/compiler.js";
@@ -106,7 +107,11 @@ import { AgentsProvider } from "./providers/agents-provider.js";
 import { CapturedToolsProvider } from "./providers/captured-tools-provider.js";
 import { CompactProvider } from "./providers/compact-provider.js";
 import { ComponentsProvider } from "./providers/components-provider.js";
-import { McpDescriptorCacheStore } from "./providers/mcp-descriptor-cache.js";
+import {
+  globalMcpCachePath,
+  McpDescriptorCacheStore,
+  projectMcpCachePath,
+} from "./providers/mcp-descriptor-cache.js";
 import { McpProvider, type McpProviderHooks } from "./providers/mcp-provider.js";
 import { MemoryProvider, type MemoryProviderContext } from "./providers/memory-provider.js";
 import { MeshProvider } from "./providers/mesh-provider.js";
@@ -513,13 +518,9 @@ export class FabricRuntimeState {
         ...(this.#config!.mcp.cache.enabled
           ? {
               cache: new McpDescriptorCacheStore(
-                path.join(
-                  process.env.OMP_FABRIC_PROJECT_ROOT ?? context.cwd,
-                  ".omp",
-                  "fabric",
-                  "mcp-cache.json",
-                ),
+                projectMcpCachePath(process.env.OMP_FABRIC_PROJECT_ROOT ?? context.cwd),
               ),
+              globalCache: new McpDescriptorCacheStore(globalMcpCachePath(resolveAgentDir())),
             }
           : {}),
         hooks: {
@@ -532,7 +533,7 @@ export class FabricRuntimeState {
       unmounted: (provider) => {
         if (this.#mcpProvider === provider) this.#mcpProvider = undefined;
       },
-      start: (provider) => { provider.warmup(); },
+      start: (provider) => provider.warmup(),
     }));
     if (capturedToolsProvider && !enforceSchema) {
       await installBuiltin(createProviderComponent({
@@ -621,6 +622,13 @@ export class FabricRuntimeState {
     this.#compact = new CompactController({
       onRequest: (intent) => void this.#publishCompactEvent("requested", intent),
       onCommit: (info) => void this.#publishCompactEvent(info.status, info),
+    }, {
+      settings: () => ({
+        engine: this.#config?.compaction.engine ?? DEFAULT_FABRIC_CONFIG.compaction.engine,
+        targetContextRatio: this.#config?.compaction.targetContextRatio
+          ?? DEFAULT_FABRIC_CONFIG.compaction.targetContextRatio,
+      }),
+      outcomes: fileCompactOutcomeStore(),
     });
     await installBuiltin(createProviderComponent({
       provider: "compact",

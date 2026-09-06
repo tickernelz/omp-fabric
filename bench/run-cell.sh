@@ -97,7 +97,7 @@ END=$(python3 -c 'import time;print(time.time())')
 WALL=$(python3 -c "print(round($END - $START, 1))")
 
 # session artifacts
-find "$CELL/session-store" -name '*.jsonl' -exec cp {} "$CELL/session/" \; 2>/dev/null || true
+(cd "$CELL/session-store" && find . -name '*.jsonl' -exec cp --parents {} "$CELL/session/" \;) 2>/dev/null || true
 
 # --- patch artifact ---
 git -C "$WORKDIR" add -A >/dev/null 2>&1
@@ -109,31 +109,39 @@ python3 - "$CELL" "$WALL" "$BENCH_THINKING" "$BENCH_MODEL" <<'PYEOF'
 import json, glob, os, sys
 cell, wall = sys.argv[1], float(sys.argv[2])
 thinking, requested_model = sys.argv[3], sys.argv[4]
-turns = 0; tool_calls = 0
-models = []
-tot = {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "totalTokens": 0}
-cost_seen = 0.0
-for f in glob.glob(os.path.join(cell, "session", "*.jsonl")):
-    for line in open(f, errors="replace"):
-        try:
-            rec = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        msg = rec.get("message", {})
-        if msg.get("role") != "assistant":
-            continue
-        turns += 1
-        seen_model = msg.get("model") or rec.get("model")
-        if seen_model and seen_model not in models:
-            models.append(seen_model)
-        u = msg.get("usage") or {}
-        for k in tot:
-            tot[k] += int(u.get(k) or 0)
-        c = (u.get("cost") or {}).get("total")
-        if c: cost_seen += float(c)
-        for item in msg.get("content", []):
-            if isinstance(item, dict) and item.get("type") == "toolCall":
-                tool_calls += 1
+
+def measure(paths):
+    turns = 0; tool_calls = 0; cost = 0.0
+    models = {}
+    tot = {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "totalTokens": 0}
+    for f in paths:
+        for line in open(f, errors="replace"):
+            try:
+                rec = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            msg = rec.get("message", {})
+            if msg.get("role") != "assistant":
+                continue
+            turns += 1
+            u = msg.get("usage") or {}
+            for k in tot:
+                tot[k] += int(u.get(k) or 0)
+            c = (u.get("cost") or {}).get("total")
+            if c: cost += float(c)
+            m = msg.get("model") or rec.get("model")
+            if m: models[m] = models.get(m, 0) + int(u.get("totalTokens") or 0)
+            for item in msg.get("content", []):
+                if isinstance(item, dict) and item.get("type") == "toolCall":
+                    tool_calls += 1
+    return turns, tool_calls, cost, models, tot
+
+every = glob.glob(os.path.join(cell, "session", "**", "*.jsonl"), recursive=True)
+agent_paths = [f for f in every if "__advisor" not in os.path.basename(f)]
+helper_paths = [f for f in every if "__advisor" in os.path.basename(f)]
+turns, tool_calls, cost_seen, model_tokens, tot = measure(agent_paths)
+h_turns, h_tool_calls, h_cost, h_models, h_tot = measure(helper_paths)
+models = sorted(model_tokens, key=model_tokens.get, reverse=True)
 RATES = {
     "input": float(os.environ.get("BENCH_RATE_INPUT", 5.0)),
     "cached": float(os.environ.get("BENCH_RATE_CACHED", 0.50)),
@@ -147,6 +155,11 @@ patch_bytes = os.path.getsize(patch_path) if os.path.exists(patch_path) else 0
 result = {
     "model": models[0] if models else (requested_model or "unresolved"),
     "models_seen": models,
+    "model_tokens": model_tokens,
+    "helper_turns": h_turns,
+    "helper_total_tokens": h_tot["totalTokens"],
+    "helper_cost_usd": round(h_cost, 4),
+    "helper_models": h_models,
     "thinking_level": thinking,
     "cost_source": "reported" if cost_seen else "estimated",
     "cost_usd_estimated": round(estimated, 4),

@@ -191,6 +191,12 @@ const parseCacheFile = (value: unknown): McpDescriptorCacheFile | undefined => {
   };
 };
 
+export const projectMcpCachePath = (projectRoot: string): string =>
+  path.join(projectRoot, ".omp", "fabric", "mcp-cache.json");
+
+export const globalMcpCachePath = (agentDir: string): string =>
+  path.join(agentDir, "fabric", "mcp-descriptors.json");
+
 let tempCounter = 0;
 
 export class McpDescriptorCacheStore {

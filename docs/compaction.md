@@ -4,13 +4,13 @@ OMP Fabric provides an LLM-free compactor through `session_before_compact`. This
 
 Fabric keeps a bounded recent raw continuity tail after compaction. The tail uses OMP's active `keepRecentTokens` setting, which defaults to 20,000 tokens. Fabric rebuilds the older state into its deterministic summary. OMP's native cut and Codex-style checkpoint compaction use the same fresh-window principle. The summary carries durable state, and a small raw suffix keeps the recent conversation coherent for the model.
 
-`compaction.targetContextRatio` sets a hard occupancy ceiling that applies after compaction. Fabric never treats the ceiling as space to fill. The value defaults to 65%, and you can change it from `/fabric-settings` (shown as **Max occupancy**) or in JSON. Allowed values are bounded to `0.25`–`0.85`:
+`compaction.targetContextRatio` sets a hard occupancy ceiling that applies after compaction. Fabric never treats the ceiling as space to fill. The value defaults to 75%, and you can change it from `/fabric-settings` (shown as **Max occupancy**) or in JSON. Allowed values are bounded to `0.25`–`0.85`. The ceiling is one of four constraints and the smallest wins; in practice continuity binds first on a large-context model, so measured post-compaction occupancy usually lands far below this value and changing it alone has no effect:
 
 ```json
 {
   "compaction": {
     "engine": "fabric",
-    "targetContextRatio": 0.65
+    "targetContextRatio": 0.75
   }
 }
 ```

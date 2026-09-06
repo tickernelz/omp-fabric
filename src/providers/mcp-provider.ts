@@ -9,6 +9,7 @@ import type {
   FabricActionDescriptor,
   FabricInvocationContext,
   FabricProvider,
+  FabricProviderListCoverage,
   FabricProviderListRequest,
   FabricToolAnnotations,
 } from "../protocol.js";
@@ -30,6 +31,7 @@ const REVALIDATE_SERVER_TIMEOUT_MS = 20_000;
 const MIN_REVALIDATE_SERVER_TIMEOUT_MS = 5_000;
 const NOTIFY_DEBOUNCE_MS = 100;
 const PERSIST_DEBOUNCE_MS = 150;
+const COLD_LIST_WAIT_MS = 2_500;
 
 const emptyObjectSchema = {
   type: "object",
@@ -126,6 +128,7 @@ export interface McpProviderHooks {
 
 export interface McpProviderOptions {
   cache?: McpDescriptorCacheStore;
+  globalCache?: McpDescriptorCacheStore;
   hooks?: McpProviderHooks;
 }
 
@@ -145,6 +148,20 @@ interface PendingServer {
   description: string | null;
   ephemeral: boolean;
 }
+
+const delay = (ms: number, signal?: AbortSignal): Promise<void> =>
+  new Promise<void>((resolve) => {
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    timer.unref?.();
+    const onAbort = (): void => {
+      clearTimeout(timer);
+      resolve();
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
 
 const withTimeout = <T>(
   operation: Promise<T>,
@@ -180,6 +197,7 @@ export class McpProvider implements FabricProvider {
   >();
 
   readonly #store: McpDescriptorCacheStore | undefined;
+  readonly #globalStore: McpDescriptorCacheStore | undefined;
   readonly #hooks: McpProviderHooks;
   #generation = 0;
   #closed = false;
@@ -190,8 +208,10 @@ export class McpProvider implements FabricProvider {
   readonly #revalidateQueue: string[] = [];
   readonly #revalidateQueued = new Set<string>();
   readonly #recontacted = new Set<string>();
+  readonly #seeded = new Set<string>();
   #revalidating: Promise<void> | undefined;
   #autoKicked = false;
+  #coldWaited = false;
   #dirtyPersist = false;
   #dirtyNotify = false;
   #persistTimer: NodeJS.Timeout | undefined;
@@ -203,6 +223,7 @@ export class McpProvider implements FabricProvider {
     options: McpProviderOptions = {},
   ) {
     this.#store = options.cache;
+    this.#globalStore = options.globalCache;
     this.#hooks = options.hooks ?? {};
   }
 
@@ -218,6 +239,7 @@ export class McpProvider implements FabricProvider {
     if (!this.#cacheOn) return this.#listLegacy(request, context);
     await this.#hydrate();
     this.#kickRevalidation();
+    if (!request.namespace) await this.#awaitColdEnumeration(context.signal);
     const query = request.query?.toLowerCase();
     const filterQuery = (descriptors: FabricActionDescriptor[]): FabricActionDescriptor[] =>
       query
@@ -299,6 +321,8 @@ export class McpProvider implements FabricProvider {
         this.#servers.clear();
         this.#pending.clear();
         this.#recontacted.clear();
+        this.#seeded.clear();
+        this.#coldWaited = false;
         this.#hydration = undefined;
         await this.#hydrate();
         this.#kickRevalidation(true);
@@ -356,13 +380,40 @@ export class McpProvider implements FabricProvider {
     await this.#resetRuntime();
   }
 
-  // Fire-and-forget session warm-up: hydrate from the descriptor cache, then
-  // start the background revalidation policy. Never awaited by session start.
-  warmup(): void {
-    if (!this.config.enabled || !this.#cacheOn) return;
-    void this.#hydrate()
+  warmup(): Promise<void> {
+    if (!this.config.enabled || !this.#cacheOn) return Promise.resolve();
+    return this.#hydrate()
       .then(() => this.#kickRevalidation())
       .catch(() => undefined);
+  }
+
+  listCoverage(): FabricProviderListCoverage {
+    if (!this.config.enabled || !this.#cacheOn) return { complete: true, reasons: [] };
+    const pending = [...this.#pending.keys()].sort();
+    if (pending.length === 0) return { complete: true, reasons: [] };
+    return {
+      complete: false,
+      reasons: [
+        "enumeration_pending",
+        ...pending.map((server) => `server_pending:${server}`),
+      ],
+    };
+  }
+
+  async #awaitColdEnumeration(signal?: AbortSignal): Promise<void> {
+    if (this.#coldWaited || this.#closed) return;
+    this.#coldWaited = true;
+    if (this.#pending.size === 0 || this.#servers.size > 0) return;
+    const budget = Math.min(COLD_LIST_WAIT_MS, Math.max(0, this.config.cache.revalidateBudgetMs));
+    if (budget <= 0) return;
+    const deadline = Date.now() + budget;
+    while (!this.#closed && this.#pending.size > 0 && signal?.aborted !== true) {
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) return;
+      const inflight = this.#revalidating;
+      if (!inflight) return;
+      await Promise.race([inflight, delay(remaining, signal)]);
+    }
   }
 
   // Provider-fidelity descriptors for everything currently known, cached or
@@ -476,10 +527,19 @@ export class McpProvider implements FabricProvider {
 
   async #hydrateInternal(): Promise<void> {
     const generation = this.#generation;
-    const snapshot = this.#store ? await this.#store.load().catch(() => undefined) : undefined;
+    const [snapshot, globalSnapshot] = await Promise.all([
+      this.#store ? this.#store.load().catch(() => undefined) : Promise.resolve(undefined),
+      this.#globalStore
+        ? this.#globalStore.load().catch(() => undefined)
+        : Promise.resolve(undefined),
+    ]);
     this.#layerStats = await statConfigLayers(this.cwd, this.config.configPath);
     if (generation !== this.#generation) return;
-    if (snapshot && sameConfigLayers(snapshot.layers, this.#layerStats)) {
+    if (
+      snapshot &&
+      Object.keys(snapshot.servers).length > 0 &&
+      sameConfigLayers(snapshot.layers, this.#layerStats)
+    ) {
       // Config untouched since the cache was written: adopt wholesale,
       // without even constructing the mcporter runtime.
       for (const [name, raw] of Object.entries(snapshot.servers)) {
@@ -500,15 +560,21 @@ export class McpProvider implements FabricProvider {
         const parsed = recorded ? parseCachedServer(recorded) : undefined;
         if (parsed && parsed.definitionHash === hash) {
           this.#servers.set(definition.name, this.#toWorking(parsed, false));
-        } else {
-          const existing = this.#pending.get(definition.name);
-          this.#pending.set(definition.name, {
-            definitionHash: hash,
-            transport: definition.command.kind,
-            description: definition.description ?? null,
-            ephemeral: existing?.ephemeral ?? false,
-          });
+          continue;
         }
+        const seed = globalSnapshot ? parseCachedServer(globalSnapshot.servers[definition.name]) : undefined;
+        if (seed && seed.definitionHash === hash && seed.tools.length > 0) {
+          this.#servers.set(definition.name, { ...this.#toWorking(seed, false), stale: true });
+          this.#seeded.add(definition.name);
+          continue;
+        }
+        const existing = this.#pending.get(definition.name);
+        this.#pending.set(definition.name, {
+          definitionHash: hash,
+          transport: definition.command.kind,
+          description: definition.description ?? null,
+          ephemeral: existing?.ephemeral ?? false,
+        });
       }
       // Servers dropped from the config are dropped from the cache.
       this.#dirtyPersist = true;
@@ -552,7 +618,7 @@ export class McpProvider implements FabricProvider {
     const targets =
       forceAll || policy === "all"
         ? [...this.#servers.keys(), ...this.#pending.keys()]
-        : [...this.#pending.keys()];
+        : [...this.#pending.keys(), ...this.#seeded];
     this.#scheduleRevalidate(targets);
   }
 
@@ -672,7 +738,7 @@ export class McpProvider implements FabricProvider {
   }
 
   #schedulePersist(): void {
-    if (!this.#store || this.#closed) return;
+    if ((!this.#store && !this.#globalStore) || this.#closed) return;
     this.#dirtyPersist = true;
     if (this.#persistTimer) return;
     this.#persistTimer = setTimeout(() => {
@@ -684,7 +750,7 @@ export class McpProvider implements FabricProvider {
 
   #persistNow(): Promise<void> {
     this.#dirtyPersist = false;
-    if (!this.#store) return Promise.resolve();
+    if (!this.#store && !this.#globalStore) return Promise.resolve();
     const servers: Record<string, CachedMcpServer> = {};
     for (const [name, entry] of this.#servers) {
       if (entry.ephemeral) continue;
@@ -706,11 +772,40 @@ export class McpProvider implements FabricProvider {
         }),
       };
     }
-    return this.#store.save({
+    const updatedAt = new Date().toISOString();
+    return Promise.all([
+      this.#store?.save({
+        version: MCP_DESCRIPTOR_CACHE_VERSION,
+        layers: this.#layerStats,
+        updatedAt,
+        servers,
+      }),
+      this.#persistGlobal(servers, updatedAt),
+    ]).then(() => undefined);
+  }
+
+  async #persistGlobal(
+    servers: Record<string, CachedMcpServer>,
+    updatedAt: string,
+  ): Promise<void> {
+    const store = this.#globalStore;
+    if (!store) return;
+    const enumerated = Object.entries(servers).filter(
+      ([, entry]) => entry.tools.length > 0 && !entry.stale,
+    );
+    if (enumerated.length === 0) return;
+    const existing = await store.load().catch(() => undefined);
+    const merged: Record<string, CachedMcpServer> = {};
+    for (const [name, raw] of Object.entries(existing?.servers ?? {})) {
+      const parsed = parseCachedServer(raw);
+      if (parsed) merged[name] = parsed;
+    }
+    for (const [name, entry] of enumerated) merged[name] = { ...entry };
+    await store.save({
       version: MCP_DESCRIPTOR_CACHE_VERSION,
-      layers: this.#layerStats,
-      updatedAt: new Date().toISOString(),
-      servers,
+      layers: [],
+      updatedAt,
+      servers: merged,
     });
   }
 

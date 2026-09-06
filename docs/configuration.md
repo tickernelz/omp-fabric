@@ -56,7 +56,7 @@ where absent values do not participate. Orchestration programs (`agents.run` / `
     "timeoutMs": 120000,
     "maxTimeoutMs": 900000,
     "hostCallTimeouts": {},
-    "memoryLimitBytes": 67108864,
+    "memoryLimitBytes": 268435456,
     "maxOutputChars": 100000,
     "maxNestedResultChars": 2000000,
     "resultFormat": "auto"
@@ -93,7 +93,7 @@ where absent values do not participate. Orchestration programs (`agents.run` / `
     "enabled": true,
     "disableOAuth": true,
     "allowDynamicServers": true,
-    "callTimeoutMs": 120000,
+    "callTimeoutMs": 90000,
     "cache": {
       "enabled": true,
       "revalidate": "changed",
@@ -125,12 +125,12 @@ where absent values do not participate. Orchestration programs (`agents.run` / `
       "persona": "navigator-chat"
     },
     "thinking": "medium",
-    "maxConcurrent": 4,
+    "maxConcurrent": 8,
     "maxPerExecution": 100,
-    "maxDepth": 2,
+    "maxDepth": 3,
     "timeoutMs": 3600000,
     "extensions": true,
-    "defaultTools": ["read", "bash", "edit", "write", "grep", "find", "ls"],
+    "defaultTools": ["read", "bash", "edit", "write", "grep", "find"],
     "retainRuns": false,
     "notifyOnComplete": true,
     "budgetUsd": 0,
@@ -149,7 +149,7 @@ where absent values do not participate. Orchestration programs (`agents.run` / `
   "ui": {
     "enabled": true,
     "widget": "auto",
-    "maxRows": 6,
+    "maxRows": 10,
     "refreshMs": 500,
     "eventHistory": 80,
     "haltOnEscape": true,

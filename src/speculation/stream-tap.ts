@@ -41,6 +41,15 @@ const toolCallBlock = (
   };
 };
 
+export const streamedToolCallName = (event: MessageUpdateEvent): string | undefined => {
+  const assistantEvent = event.assistantMessageEvent;
+  if (assistantEvent.contentIndex === undefined) return undefined;
+  const source = assistantEvent.type === "toolcall_end"
+    ? assistantEvent.toolCall
+    : assistantEvent.partial;
+  return toolCallBlock(source, assistantEvent.contentIndex).name;
+};
+
 // Floor between full-AST reparses of one stream. The scanner's own ")" gate
 // means most deltas never schedule a parse at all.
 const PARSE_INTERVAL_MS = 50;

@@ -41,6 +41,7 @@ export class FabricSpeculationStore implements FabricSpeculationRuntime {
   readonly #stats: FabricSpeculationStats = {
     launched: 0,
     served: 0,
+    absent: 0,
     epochInvalidated: 0,
     freshnessInvalidated: 0,
     failed: 0,
@@ -50,6 +51,7 @@ export class FabricSpeculationStore implements FabricSpeculationRuntime {
   readonly #maxConcurrent: number;
   readonly #maxEntries: number;
   readonly #entryTtlMs: number;
+  readonly #launching = new Map<string, { count: number; waiters: (() => void)[] }>();
 
   constructor(config: Pick<FabricSpeculationConfig, "maxConcurrent" | "maxEntries" | "entryTtlMs">) {
     this.#maxConcurrent = config.maxConcurrent;
@@ -78,6 +80,34 @@ export class FabricSpeculationStore implements FabricSpeculationRuntime {
     return `${parentToolCallId}\n${ref}\n${stableJsonHash(preparedArgs)}\n${bindingToken}`;
   }
 
+  beginLaunch(parentToolCallId: string): () => void {
+    const pending = this.#launching.get(parentToolCallId) ?? { count: 0, waiters: [] };
+    pending.count += 1;
+    this.#launching.set(parentToolCallId, pending);
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      pending.count -= 1;
+      if (pending.count > 0) return;
+      this.#launching.delete(parentToolCallId);
+      for (const waiter of pending.waiters.splice(0)) waiter();
+    };
+  }
+
+  async settleLaunches(parentToolCallId: string, timeoutMs: number): Promise<void> {
+    const pending = this.#launching.get(parentToolCallId);
+    if (!pending || pending.count === 0) return;
+    await new Promise<void>((resolvePromise) => {
+      const timer = setTimeout(resolvePromise, timeoutMs);
+      if (typeof timer.unref === "function") timer.unref();
+      pending.waiters.push(() => {
+        clearTimeout(timer);
+        resolvePromise();
+      });
+    });
+  }
+
   /**
    * Register and start a speculative invocation. Returns false when at
    * capacity; the candidate is dropped silently (a miss costs nothing, the
@@ -92,6 +122,7 @@ export class FabricSpeculationStore implements FabricSpeculationRuntime {
     replay: FabricSpeculationReplay,
     bindingToken: string,
   ): boolean {
+    this.#releaseLaunch(parentToolCallId);
     this.#sweepExpired(Date.now());
     if (this.#entries.size >= this.#maxEntries || this.#inFlightCount() >= this.#maxConcurrent) {
       this.#stats.skipped += 1;
@@ -135,6 +166,7 @@ export class FabricSpeculationStore implements FabricSpeculationRuntime {
     const key = FabricSpeculationStore.key(parentToolCallId, ref, preparedArgs, bindingToken);
     const entry = this.#entries.get(key);
     if (!entry || entry.parentToolCallId !== parentToolCallId) {
+      this.#stats.absent += 1;
       return { hit: false, reason: "absent" };
     }
     this.#entries.delete(key);
@@ -171,6 +203,20 @@ export class FabricSpeculationStore implements FabricSpeculationRuntime {
   reset(): void {
     for (const entry of this.#entries.values()) entry.controller.abort();
     this.#entries.clear();
+    for (const pending of this.#launching.values()) {
+      pending.count = 0;
+      for (const waiter of pending.waiters.splice(0)) waiter();
+    }
+    this.#launching.clear();
+  }
+
+  #releaseLaunch(parentToolCallId: string): void {
+    const pending = this.#launching.get(parentToolCallId);
+    if (!pending) return;
+    pending.count -= 1;
+    if (pending.count > 0) return;
+    this.#launching.delete(parentToolCallId);
+    for (const waiter of pending.waiters.splice(0)) waiter();
   }
 
   #inFlightCount(): number {

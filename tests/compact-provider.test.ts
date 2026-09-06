@@ -47,7 +47,7 @@ describe("CompactProvider", () => {
 
   it("list filters by query", async () => {
     const { provider } = setup();
-    const listed = await provider.list({ query: "cancel" }, context);
+    const listed = await provider.list({ query: "clear a pending" }, context);
     expect(listed.map((d) => d.name)).toEqual(["cancel"]);
   });
 
@@ -80,7 +80,15 @@ describe("CompactProvider", () => {
 
   it("status returns the controller status snapshot", async () => {
     const { provider } = setup();
-    expect(await provider.invoke("status", {}, context)).toEqual({});
+    expect(await provider.invoke("status", {}, context)).toEqual({
+      context: {
+        known: false,
+        tokens: null,
+        contextWindow: null,
+        percent: null,
+        remainingTokens: null,
+      },
+    });
     await provider.invoke("request", { reason: "x" }, context);
     const status = (await provider.invoke("status", {}, context)) as {
       pending?: { reason?: string };

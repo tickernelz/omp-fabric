@@ -12,6 +12,11 @@ export type FabricSandboxTerminationReason =
   | "timed_out"
   | "aborted";
 
+export interface FabricGuestProxyNames {
+  extensions?: string[];
+  mcp?: Record<string, string[]>;
+}
+
 export interface FabricSandboxResult {
   value: unknown;
   logs: string[];
@@ -24,6 +29,7 @@ export interface FabricSandboxOptions {
   memoryLimitBytes: number;
   maxLogChars?: number;
   payloads?: Record<string, string>;
+  proxyNames?: FabricGuestProxyNames;
   tokenBudget?: number;
   signal?: AbortSignal;
   minimumTimeoutMsForHostCall?(
@@ -167,7 +173,7 @@ const __ompArgAliases = {
     expression: "pattern", text: "pattern",
     ic: "ignoreCase", caseInsensitive: "ignoreCase",
     globPattern: "glob",
-    max: "limit", ctx: "context",
+    ctx: "context",
   },
   read: {
     file: "path", absolutePath: "path", file_path: "path", filePath: "path",
@@ -209,7 +215,7 @@ const __ompArgAliases = {
 // an options object, repaired by the merge instead of a wrong-arity (2554)
 // type error; only a non-object second arg still fails 2554.
 const __ompPositionalFields = {
-  grep: ["pattern", "path", "limit"],
+  grep: ["pattern", "path", "skip"],
   find: ["pattern", "path", "limit"],
   write: ["path", "content"],
   edit: ["path", "oldText", "newText"],
@@ -221,7 +227,7 @@ const __ompPositionalFields = {
 const __ompNumericFields = {
   read: ["offset", "limit"],
   bash: ["timeout"],
-  grep: ["limit", "context"],
+  grep: ["skip", "context"],
   find: ["limit"],
   ls: ["limit"],
 };
@@ -599,14 +605,43 @@ const __memoryWalk = async (args, visitor) => {
   }
 };
 
-const __providerProxy = (provider, local = {}) => new Proxy(local, {
+const __proxyNames = (() => {
+  const raw = globalThis.__fabricProxyNames;
+  delete globalThis.__fabricProxyNames;
+  return raw && typeof raw === "object" ? raw : {};
+})();
+const __nameList = (value) =>
+  Array.isArray(value) ? value.filter((name) => typeof name === "string") : [];
+const __lazyNamespace = (names, resolve, local = {}) => new Proxy(local, {
   get(target, property) {
     if (property === "then" || typeof property === "symbol") return undefined;
     if (Object.prototype.hasOwnProperty.call(target, property)) return target[property];
-    return (args = {}) => __call(provider + "." + String(property), args);
+    return resolve(String(property));
+  },
+  ownKeys(target) {
+    const own = Object.keys(target);
+    return names.concat(own.filter((key) => names.indexOf(key) < 0));
+  },
+  getOwnPropertyDescriptor(target, property) {
+    if (typeof property === "symbol") return undefined;
+    const name = String(property);
+    if (names.indexOf(name) < 0 && !Object.prototype.hasOwnProperty.call(target, name)) {
+      return undefined;
+    }
+    const value = Object.prototype.hasOwnProperty.call(target, name)
+      ? target[name]
+      : resolve(name);
+    return { value, writable: false, enumerable: true, configurable: true };
+  },
+  has(target, property) {
+    if (typeof property === "symbol") return false;
+    return names.indexOf(String(property)) >= 0
+      || Object.prototype.hasOwnProperty.call(target, property);
   },
 });
-globalThis.extensions = __providerProxy("extensions");
+const __providerProxy = (provider, local = {}, names = []) =>
+  __lazyNamespace(names, (property) => (args = {}) => __call(provider + "." + property, args), local);
+globalThis.extensions = __providerProxy("extensions", {}, __nameList(__proxyNames.extensions));
 globalThis.memory = __providerProxy("memory", { walk: __memoryWalk });
 globalThis.state = __providerProxy("state");
 globalThis.schema = __providerProxy("schema");
@@ -700,21 +735,28 @@ globalThis.mesh = Object.freeze({
 // dispatch — but guestTypeDeclarations renders per-server argument types from
 // the live descriptor cache (runtime/dynamic-guest-types.ts), so known tools
 // fail type-check on argument-shape mistakes before this proxy ever runs.
-globalThis.mcp = new Proxy({}, {
-  get(_target, server) {
-    if (server === "then") return undefined;
-    if (server === "servers") return () => __call("mcp.$servers", {});
-    if (server === "reload") return () => __call("mcp.$reload", {});
-    if (server === "register") return (args) => __call("mcp.$register", args);
-    if (server === "call") return (args) => __call("mcp.$call", args);
-    return new Proxy({}, {
-      get(_serverTarget, tool) {
-        if (tool === "then") return undefined;
-        return (args = {}) => __call("mcp." + String(server) + "." + String(tool), args);
-      },
-    });
-  },
-});
+const __mcpServerTools = (() => {
+  const raw = __proxyNames.mcp;
+  const out = {};
+  if (raw && typeof raw === "object") {
+    for (const server of Object.keys(raw)) out[server] = __nameList(raw[server]);
+  }
+  return out;
+})();
+const __mcpManagement = {
+  servers: () => __call("mcp.$servers", {}),
+  reload: () => __call("mcp.$reload", {}),
+  register: (args) => __call("mcp.$register", args),
+  call: (args) => __call("mcp.$call", args),
+};
+globalThis.mcp = __lazyNamespace(
+  Object.keys(__mcpServerTools).sort(),
+  (server) => __lazyNamespace(
+    __mcpServerTools[server] ? __mcpServerTools[server].slice().sort() : [],
+    (tool) => (args = {}) => __call("mcp." + server + "." + tool, args),
+  ),
+  __mcpManagement,
+);
 let __workflowSpentTokens = 0;
 const __workflowBudgetTotal = Number.isFinite(globalThis.__fabricTokenBudget)
   ? Math.max(0, globalThis.__fabricTokenBudget)
@@ -1177,6 +1219,14 @@ export class QuickJsRuntime {
       const payloads = jsonHandle(context, jsonObject, jsonParse, options.payloads ?? {});
       context.setProp(context.global, "payloads", payloads);
       payloads.dispose();
+      const proxyNames = jsonHandle(
+        context,
+        jsonObject,
+        jsonParse,
+        options.proxyNames ?? {},
+      );
+      context.setProp(context.global, "__fabricProxyNames", proxyNames);
+      proxyNames.dispose();
       const tokenBudget = context.newNumber(options.tokenBudget ?? Number.POSITIVE_INFINITY);
       context.setProp(context.global, "__fabricTokenBudget", tokenBudget);
       tokenBudget.dispose();

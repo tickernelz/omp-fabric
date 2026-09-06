@@ -21,7 +21,7 @@ export const OMP_CORE_NUMERIC_FIELDS = {
   bash: ["timeout"],
   edit: [],
   write: [],
-  grep: ["context", "limit"],
+  grep: ["context", "skip"],
   find: ["limit"],
   ls: ["limit"],
 } as const;
@@ -461,7 +461,7 @@ type OmpShellOptions = {
   cwd?: string; workdir?: string; directory?: string; workingDirectory?: string;
 };
 type OmpBashOptions = OmpShellOptions;
-type OmpGrepOptions = { path?: string; glob?: string; globPattern?: string; ignoreCase?: boolean; ic?: boolean; caseInsensitive?: boolean; literal?: boolean; context?: number; ctx?: number; limit?: number; max?: number };
+type OmpGrepOptions = { path?: string; glob?: string; globPattern?: string; ignoreCase?: boolean; ic?: boolean; caseInsensitive?: boolean; literal?: boolean; context?: number; ctx?: number; skip?: number };
 type OmpFindOptions = { path?: string; limit?: number; max?: number };
 type OmpLsOptions = { limit?: number; max?: number };
 type OmpReadArgument = string | (OmpPathArgument & OmpReadOptions);
@@ -489,7 +489,7 @@ interface OmpToolsApi {
   write(args: OmpWriteArgument): Promise<{ ok: true; output: string; details: unknown }>;
   write(path: string, content: string): Promise<{ ok: true; output: string; details: unknown }>;
   grep(args: OmpGrepArgument): Promise<string>;
-  grep(pattern: string, path?: string | OmpGrepOptions, limit?: number): Promise<string>;
+  grep(pattern: string, path?: string | OmpGrepOptions, skip?: number): Promise<string>;
   find(args: OmpFindArgument): Promise<string>;
   find(pattern: string, path?: string | OmpFindOptions, limit?: number): Promise<string>;
   ls(args?: OmpLsArgument, options?: OmpLsOptions): Promise<string>;
@@ -1151,11 +1151,28 @@ interface FabricCompactPendingIntent {
 interface FabricCompactLastCommit {
   at: number;
   requestedBy: string;
-  status: "committed" | "cancelled" | "failed";
+  status: "committed" | "skipped" | "cancelled" | "failed";
   summary?: string;
   tokensBefore?: number;
   estimatedTokensAfter?: number;
   error?: string;
+  persisted?: boolean;
+}
+interface FabricCompactContextUsage {
+  known: boolean;
+  tokens: number | null;
+  contextWindow: number | null;
+  percent: number | null;
+  remainingTokens: number | null;
+}
+interface FabricCompactStatus {
+  pending?: FabricCompactPendingIntent;
+  last?: FabricCompactLastCommit;
+  context?: FabricCompactContextUsage;
+  engine?: string;
+  targetContextRatio?: number;
+  model?: string;
+  sessionId?: string;
 }
 type FabricComponentState = "waiting" | "loading" | "active" | "unloading" | "failed" | "quarantined" | "disposed";
 interface FabricComponentEffectInfo {
@@ -1211,7 +1228,7 @@ interface FabricCompactApi {
     instruction?: string;
     requested_by?: string;
   }): Promise<{ requested: true; intent: FabricCompactPendingIntent }>;
-  status(): Promise<{ pending?: FabricCompactPendingIntent; last?: FabricCompactLastCommit }>;
+  status(): Promise<FabricCompactStatus>;
   cancel(): Promise<{ cancelled: true }>;
 }
 

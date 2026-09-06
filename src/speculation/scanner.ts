@@ -1,5 +1,6 @@
 import ts from "typescript";
 import { stableJsonHash } from "../core/stable-hash.js";
+import { guestOmpArgs } from "./guest-args.js";
 import type { FabricSpeculationCandidate } from "./types.js";
 
 // Root namespaces the model can call from a fabric program. Calls are emitted
@@ -153,7 +154,7 @@ export class LiteralCallScanner {
         if (segments) {
           const ref = refFromChain(segments, this.#tainted);
           if (ref) {
-            const args = this.#literalArgs(node);
+            const args = this.#literalArgs(ref, node);
             if (args !== undefined) {
               const key = `${ref}\n${stableJsonHash(args)}`;
               if (!this.#emitted.has(key)) {
@@ -170,26 +171,23 @@ export class LiteralCallScanner {
     return candidates;
   }
 
-  // Zero-arg calls mean `{}`; a single object literal is the documented
-  // fabric calling convention. Positional multi-arg calls are skipped: their
-  // normalization lives on the guest bridge, and guessing here would risk
-  // keying the speculation store on the wrong argument shape.
-  #literalArgs(node: ts.CallExpression): Record<string, unknown> | undefined {
+  #literalArgs(ref: string, node: ts.CallExpression): Record<string, unknown> | undefined {
     if (node.arguments.length === 0) return {};
-    if (node.arguments.length !== 1) return undefined;
-    const only = node.arguments[0]!;
-    if (ts.isSpreadElement(only)) return undefined;
-    const value = evalLiteral(only);
-    if (!value.ok) return undefined;
-    if (
-      typeof value.value !== "object" ||
-      value.value === null ||
-      Array.isArray(value.value) ||
-      !isJsonShape(value.value)
-    ) {
-      return undefined;
+    const values: unknown[] = [];
+    for (const argument of node.arguments) {
+      if (ts.isSpreadElement(argument)) return undefined;
+      const value = evalLiteral(argument);
+      if (!value.ok || !isJsonShape(value.value)) return undefined;
+      values.push(value.value);
     }
-    return value.value as Record<string, unknown>;
+    if (ref.startsWith("omp.")) {
+      const args = guestOmpArgs(ref.slice("omp.".length), values);
+      return args !== undefined && isJsonShape(args) ? args : undefined;
+    }
+    if (values.length !== 1) return undefined;
+    const only = values[0];
+    if (typeof only !== "object" || only === null || Array.isArray(only)) return undefined;
+    return only as Record<string, unknown>;
   }
 
   #collectStatementBindings(node: ts.Node, into: Set<string>): void {

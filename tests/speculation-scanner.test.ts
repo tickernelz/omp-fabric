@@ -67,10 +67,25 @@ describe("LiteralCallScanner", () => {
     expect(scanner.push(code)).toEqual([]);
   });
 
-  it("skips positional/multi-argument calls (normalization lives on the guest bridge)", () => {
+  it("normalizes omp string-primary and positional calls like the guest bridge", () => {
+    expect(new LiteralCallScanner().push('omp.grep("TODO", "src");')).toEqual([
+      { ref: "omp.grep", args: { pattern: "TODO", path: "src" } },
+    ]);
+    expect(new LiteralCallScanner().push('omp.ls("src");')).toEqual([
+      { ref: "omp.ls", args: { path: "src" } },
+    ]);
+    expect(new LiteralCallScanner().push('await omp.read("/abs/file.ts");')).toEqual([
+      { ref: "omp.read", args: { path: "/abs/file.ts" } },
+    ]);
+    expect(new LiteralCallScanner().push('omp.read("/abs/file.ts", { limit: 120 });')).toEqual([
+      { ref: "omp.read", args: { path: "/abs/file.ts", limit: 120 } },
+    ]);
+  });
+
+  it("keeps non-omp roots on the single-object-literal convention", () => {
     const scanner = new LiteralCallScanner();
-    expect(scanner.push('omp.grep("TODO", "src");')).toEqual([]);
-    expect(scanner.push('omp.ls("src");')).toEqual([]);
+    expect(scanner.push('memory.recall("speculation");')).toEqual([]);
+    expect(scanner.push('state.get("k", "extra");')).toEqual([]);
   });
 
   it("taints a namespace root when the program shadows it", () => {

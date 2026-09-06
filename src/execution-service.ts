@@ -41,6 +41,7 @@ import type { FabricCommittedCapabilityView } from "./protocol.js";
 import { fabricExecTitleHintCached } from "./ui/fabric-title-hint.js";
 import type {
   QuickJsRuntime,
+  FabricGuestProxyNames,
   FabricSandboxResult,
   FabricSandboxTerminationReason,
 } from "./runtime/quickjs-runtime.js";
@@ -200,6 +201,21 @@ export class FabricExecutionService {
       update() {},
       ...(this.#capabilityView ? { capabilityView: this.#capabilityView } : {}),
     });
+    const proxyNames: FabricGuestProxyNames = {
+      ...(guestTypeSources.extensionTools?.length
+        ? { extensions: guestTypeSources.extensionTools.map((tool) => tool.name) }
+        : {}),
+      ...(guestTypeSources.mcpServers?.length
+        ? {
+            mcp: Object.fromEntries(
+              guestTypeSources.mcpServers.map((entry) => [
+                entry.server,
+                entry.tools.map((tool) => tool.name),
+              ]),
+            ),
+          }
+        : {}),
+    };
     const coreOverrideDeclarations =
       effectiveFullCodeMode
         ? dependencies.buildCoreOverrideGuestDeclarations(
@@ -755,6 +771,7 @@ export class FabricExecutionService {
           ...(checked.javascript ? { transpiledCode: checked.javascript } : {}),
           ...(checked.sourceMap ? { transpiledSourceMap: checked.sourceMap } : {}),
           ...(options.payloads ? { payloads: options.payloads } : {}),
+          ...(Object.keys(proxyNames).length > 0 ? { proxyNames } : {}),
           ...(options.tokenBudget !== undefined ? { tokenBudget: options.tokenBudget } : {}),
           ...(options.signal ? { signal: options.signal } : {}),
         },

@@ -1412,12 +1412,12 @@ describe("Fabric RPC settings", () => {
         agents: { claudeModels: vi.fn().mockResolvedValue([]) },
       } as unknown as FabricState;
       const select = vi.fn(async (title: string, options: string[]) => {
-        if (title.startsWith("Fabric settings › Agents › Default tools › ls")) {
+        if (title.startsWith("Fabric settings › Agents › Default tools › find")) {
           toggled = true;
           return options.find((option) => option.startsWith("false"));
         }
         if (title.startsWith("Fabric settings › Agents › Default tools")) {
-          if (!toggled) return options.find((option) => option.startsWith("ls ·"));
+          if (!toggled) return options.find((option) => option.startsWith("find ·"));
           return "← Back";
         }
         if (title.startsWith("Fabric settings › Agents")) {
@@ -1448,9 +1448,9 @@ describe("Fabric RPC settings", () => {
       });
 
       expect(config.agents.defaultTools).toContain("read");
-      expect(config.agents.defaultTools).not.toContain("ls");
+      expect(config.agents.defaultTools).not.toContain("find");
       expect(JSON.parse(fs.readFileSync(path.join(agentDir, "fabric.json"), "utf8")))
-        .toMatchObject({ agents: { defaultTools: expect.not.arrayContaining(["ls"]) } });
+        .toMatchObject({ agents: { defaultTools: expect.not.arrayContaining(["find"]) } });
     } finally {
       if (inheritedAgentDir === undefined) delete process.env.OMP_FABRIC_AGENT_DIR;
       else process.env.OMP_FABRIC_AGENT_DIR = inheritedAgentDir;

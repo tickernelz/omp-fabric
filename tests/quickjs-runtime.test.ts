@@ -1129,7 +1129,7 @@ await omp.find({ glob: "*.ts", path: "src", max: "50" });
 await omp.find({ name: "a.ts" });
 await omp.find({ filename: "b.ts" });
 await omp.ls({ folder: "src" });
-await omp.grep({ pattern: "x", limit: "20", ctx: "2" });
+await omp.grep({ pattern: "x", skip: "20", ctx: "2" });
 await omp.write({ path: "/tmp/x", data: "c" });
 await omp.bash({ script: "ls src", timeout: "30" });
 return "done";
@@ -1145,7 +1145,7 @@ return "done";
       ["omp.find", { pattern: "a.ts" }],
       ["omp.find", { pattern: "b.ts" }],
       ["omp.ls", { path: "src" }],
-      ["omp.grep", { pattern: "x", limit: 20, context: 2 }],
+      ["omp.grep", { pattern: "x", skip: 20, context: 2 }],
       ["omp.write", { path: "/tmp/x", content: "c" }],
       ["omp.bash", { command: "ls src", timeout: 30 }],
     ]);

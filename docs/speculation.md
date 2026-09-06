@@ -18,7 +18,8 @@ PartialCodeFieldExtractor        src/speculation/partial-json.ts
   ▼
 LiteralCallScanner               src/speculation/scanner.ts
   │  reparses only when appended bytes contain `)`; emits completed
-  │  root.fn({...}) calls whose arguments are entirely literals;
+  │  root.fn(...) calls whose arguments are entirely literals, in both
+  │  the object-literal and positional shorthand forms;
   │  namespaces shadowed by local bindings are tainted for the stream
   ▼
 eligibility gate                 src/speculation/eligibility.ts
@@ -114,11 +115,15 @@ read; keep the allowlist to stable, idempotent reads.
 - `omp.edit`/`write`/`bash`, `state.transition`/`goal`/`verify`/`checkGoal`,
   every `write`/`execute`/`agent` risk class, and `compact.cancel`
   (reclassified from a historic mislabeled `"read"` to `"write"`).
-- Calls with non-literal arguments, positional or multi-argument calls (their
-  normalization lives on the guest bridge), and calls on namespace roots the
-  program shadows locally. These are Cases 2 and 3 in the blog (shadow-REPL
-  dependency resolution) and belong to later work. Literal arguments (Case 1)
-  cover the common generated shapes, including `Promise.all` fan-out.
+- Calls with non-literal arguments, and calls on namespace roots the program
+  shadows locally. These are Cases 2 and 3 in the blog (shadow-REPL dependency
+  resolution) and belong to later work. Literal arguments (Case 1) cover the
+  common generated shapes, including `Promise.all` fan-out. Positional
+  shorthand such as `omp.read("/abs/path")` is speculated: the guest-bridge
+  argument tables are mirrored in `src/speculation/guest-args.ts`, and
+  `tests/speculation-guest-args.test.ts` evaluates the real guest setup so
+  drift between the two is caught. Drift can only cost a miss, never a wrong
+  result.
 - `agents.*` sub-calls, the blog's headline target: a wrong speculation
   spends real tokens. A confirmer-backed variant belongs to a later phase,
   keyed off the budget ledger.

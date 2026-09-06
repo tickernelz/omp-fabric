@@ -479,8 +479,8 @@ describe("Fabric configuration", () => {
         },
       },
     });
-    expect(normalizeFabricConfig({ schema: { mode: "strict" } }).schema.mode).toBe("audit");
-    expect(DEFAULT_FABRIC_CONFIG.schema.mode).toBe("audit");
+    expect(normalizeFabricConfig({ schema: { mode: "strict" } }).schema.mode).toBe("off");
+    expect(DEFAULT_FABRIC_CONFIG.schema.mode).toBe("off");
   });
 
   it("forces fabric_exec to be the only capture visibility exception in enforce mode", () => {

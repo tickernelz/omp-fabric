@@ -48,6 +48,7 @@ import { stableJsonHash } from "./stable-hash.js";
 import type {
   FabricSpeculationReplay,
   FabricSpeculationRuntime,
+  FabricSpeculationStats,
 } from "../speculation/types.js";
 import type { FabricNestedToolResultProxy } from "./tool-result-proxy.js";
 import {
@@ -263,6 +264,8 @@ const resolveDescriptor = (
   ref: `${provider.name}.${descriptor.name}`,
 });
 
+const SPECULATION_LAUNCH_SETTLE_MS = 100;
+
 const descriptorHash = stableJsonHash;
 
 const actionDescriptorHash = (action: ResolvedFabricAction): string =>
@@ -422,6 +425,10 @@ export class ActionRegistry {
   ): void {
     this.#speculation = runtime;
     this.#speculationEligibility = eligibility;
+  }
+
+  speculationStats(): FabricSpeculationStats | undefined {
+    return this.#speculation?.stats?.();
   }
 
   register(provider: FabricProvider, options: { overwrite?: boolean } = {}): void {
@@ -718,6 +725,13 @@ export class ActionRegistry {
     });
     const indexedActions = providerHeads.reduce((total, provider) => total + provider.actions.length, 0);
     const rootHash = descriptorHash(providerHeads.map((provider) => provider.descriptorHash));
+    const truncated = indexedActions !== allActions.length;
+    const coverageReasons = providers.flatMap((provider) => {
+      const coverage = provider.listCoverage?.();
+      return coverage && !coverage.complete
+        ? coverage.reasons.map((reason) => `${provider.name}:${reason}`)
+        : [];
+    });
     return {
       kind: "omp-fabric.capability-catalog",
       version: 1,
@@ -732,8 +746,8 @@ export class ActionRegistry {
       providers: providerHeads,
       totalActions: allActions.length,
       indexedActions,
-      complete: indexedActions === allActions.length,
-      reasons: indexedActions === allActions.length ? [] : ["action_limit"],
+      complete: !truncated && coverageReasons.length === 0,
+      reasons: [...(truncated ? ["action_limit"] : []), ...coverageReasons],
     };
   }
 
@@ -1120,6 +1134,11 @@ export class ActionRegistry {
       let servedFromSpeculation = false;
       let providerValue: unknown;
       if (this.#speculation && effect.kind === "none") {
+        await runAbortable(context.signal, () =>
+          this.#speculation!.settleLaunches?.(
+            context.parentToolCallId,
+            SPECULATION_LAUNCH_SETTLE_MS,
+          ) ?? Promise.resolve());
         const served = await runAbortable(context.signal, () =>
           this.#speculation!.tryServe(context.parentToolCallId, ref, catalog.args, binding.id));
         if (served.hit) {
@@ -1286,6 +1305,8 @@ export class ActionRegistry {
     | undefined
   > {
     if (!this.#speculationEligibility) return undefined;
+    const releaseLaunch = this.#speculation?.beginLaunch?.(context.parentToolCallId);
+    let handedOff = false;
     try {
       const { binding, provider, actionName, expectedDescriptorHash } = this.#parseRef(
         ref,
@@ -1325,6 +1346,7 @@ export class ActionRegistry {
       );
       if (validationMessage(effectiveSchema, repairedArgs)) return undefined;
       const nestedToolCallId = `${NESTED_TOOL_CALL_ID_PREFIX}spec-${randomUUID()}`;
+      handedOff = true;
       return {
         preparedArgs: repairedArgs,
         bindingToken: binding.id,
@@ -1358,6 +1380,8 @@ export class ActionRegistry {
     } catch {
       // Speculation degrades silently; the real call runs the full pipeline.
       return undefined;
+    } finally {
+      if (!handedOff) releaseLaunch?.();
     }
   }
 

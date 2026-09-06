@@ -22,6 +22,7 @@ import {
   readFabricExecutionRenderDetails,
 } from "./audit/index.js";
 import { DEFAULT_FABRIC_CONFIG } from "./config.js";
+import { fabricSpeculationSummary } from "./speculation/summary.js";
 import type { FabricState } from "./fabric-state.js";
 import { formatFailureProgress } from "./failure-progress.js";
 import {
@@ -938,9 +939,11 @@ export const createFabricExecTool = (
         : 0;
       // Evaluated lazily at each return so the main path persists audits after
       // their in-memory image payloads are stripped below.
+      const speculationSummary = fabricSpeculationSummary(state.registry.speculationStats());
       const persistedRenderDetails = () =>
         createFabricPersistedExecutionDetails({
           ...result,
+          ...(speculationSummary ? { speculation: speculationSummary } : {}),
           ...(outputFormat ? { outputFormat, outputFormatStartLine } : {}),
           ...(outputFormat
             ? {

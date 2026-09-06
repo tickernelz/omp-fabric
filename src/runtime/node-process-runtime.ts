@@ -224,6 +224,7 @@ export class NodeProcessRuntime {
         setup: GUEST_SETUP,
         code: guestBundle.code,
         payloads: options.payloads ?? {},
+        proxyNames: options.proxyNames ?? {},
         tokenBudget: options.tokenBudget,
         maxLogChars: options.maxLogChars ?? 100_000,
       });

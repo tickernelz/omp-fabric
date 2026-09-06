@@ -23,6 +23,7 @@ export interface FabricSpeculationReplay {
 export interface FabricSpeculationStats {
   launched: number;
   served: number;
+  absent: number;
   epochInvalidated: number;
   freshnessInvalidated: number;
   failed: number;
@@ -47,6 +48,9 @@ export interface FabricSpeculationRuntime {
     bindingToken: string,
   ): Promise<FabricSpeculationServeResult>;
   bumpEpoch(): void;
+  stats?(): FabricSpeculationStats;
+  beginLaunch?(parentToolCallId: string): () => void;
+  settleLaunches?(parentToolCallId: string, timeoutMs: number): Promise<void>;
   reset?(): void;
   onInvocationEnd?(parentToolCallId: string): void;
 }

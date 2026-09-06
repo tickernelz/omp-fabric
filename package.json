@@ -24,7 +24,7 @@
     "THIRD_PARTY_NOTICES.md"
   ],
   "scripts": {
-    "build": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && tsc -p tsconfig.build.json --emitDeclarationOnly && node scripts/build.mjs && bun scripts/assert-build-artifacts.mjs",
+    "build": "tsc -p tsconfig.build.json --noEmit && node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && tsc -p tsconfig.build.json --emitDeclarationOnly && node scripts/build.mjs && bun scripts/assert-build-artifacts.mjs",
     "typecheck": "tsc --noEmit",
     "test": "bun --bun node_modules/vitest/vitest.mjs run",
     "test:changed": "node scripts/test-dirty.mjs",

@@ -366,7 +366,7 @@ describe("omp expanded argument aliases", () => {
   it("type-checks expanded alias keys", () => {
     const result = typeCheckFabricCode(
       'const a = await omp.bash({ shell: "ls", timeoutMs: 5 });' +
-        'const b = await omp.grep({ regex: "TODO", ic: true, ctx: 2, max: 5, globPattern: "*.ts" });' +
+        'const b = await omp.grep({ regex: "TODO", ic: true, ctx: 2, skip: 1, globPattern: "*.ts" });' +
         'const c = await omp.find({ search: "*.ts", max: 3 });' +
         'const d = await omp.read({ path: "/x", start: 0, max: 10 });' +
         'const e = await omp.write({ path: "/y", text: "z" });' +
@@ -407,7 +407,7 @@ describe("omp expanded argument aliases", () => {
     });
     const result = await new QuickJsRuntime().execute(
       'const a = await omp.bash({ shell: "ls", timeoutMs: 5000 });' +
-        'const b = await omp.grep({ regex: "TODO", ic: true, ctx: 2, max: 5, globPattern: "*.ts" });' +
+        'const b = await omp.grep({ regex: "TODO", ic: true, ctx: 2, skip: 1, globPattern: "*.ts" });' +
         'const c = await omp.find({ search: "*.ts", max: 3 });' +
         'const d = await omp.read({ path: "/x", start: 0, max: 10 });' +
         'const e = await omp.write({ path: "/y", text: "z" });' +
@@ -419,7 +419,7 @@ describe("omp expanded argument aliases", () => {
     );
     expect(result.error).toBeUndefined();
     expect(hostCall.mock.calls[0]?.[1]).toEqual({ command: "ls", timeout: 5 });
-    expect(hostCall.mock.calls[1]?.[1]).toEqual({ pattern: "TODO", ignoreCase: true, context: 2, limit: 5, glob: "*.ts" });
+    expect(hostCall.mock.calls[1]?.[1]).toEqual({ pattern: "TODO", ignoreCase: true, context: 2, skip: 1, glob: "*.ts" });
     expect(hostCall.mock.calls[2]?.[1]).toEqual({ pattern: "*.ts", limit: 3 });
     expect(hostCall.mock.calls[3]?.[1]).toEqual({ path: "/x", offset: 0, limit: 10 });
     expect(hostCall.mock.calls[4]?.[1]).toEqual({ path: "/y", content: "z" });
