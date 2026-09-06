@@ -1,0 +1,61 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+  id-token: write
+
+concurrency:
+  group: release-${{ github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+      - name: Install ripgrep
+        # OMP's grep tool downloads rg on first use when it is absent; on shared
+        # runners that ad-hoc GitHub Releases download is rate-limited, so
+        # provision rg on PATH up front to keep nested-grep tests hermetic.
+        run: sudo apt-get install -y ripgrep
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+      - name: Verify the tag matches this package
+        # Inherited upstream tags also match `v*`; pinning the name stops one of
+        # them from publishing a different package under this workflow.
+        run: |
+          name="$(node -p 'require("./package.json").name')"
+          expected="v$(node -p 'require("./package.json").version')"
+          if [ "$name" != "omp-fabric" ]; then
+            echo "refusing to publish package $name" >&2
+            exit 1
+          fi
+          if [ "$GITHUB_REF_NAME" != "$expected" ]; then
+            echo "tag $GITHUB_REF_NAME does not match package version $expected" >&2
+            exit 1
+          fi
+      - name: Publish to npm
+        # `prepack` runs `bun run check`, so typecheck, build, the lazy startup
+        # graph assertion, the full suite, and dead-code lint all gate the
+        # published tarball.
+        run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - name: Publish the GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release edit "$GITHUB_REF_NAME" --draft=false --latest
+          else
+            gh release create "$GITHUB_REF_NAME" --title "omp-fabric $GITHUB_REF_NAME" --generate-notes
+          fi
