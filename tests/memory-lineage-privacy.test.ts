@@ -4,7 +4,7 @@ import path from "node:path";
 import { SessionManager } from "@oh-my-pi/pi-coding-agent";
 import { afterEach, describe, expect, it } from "vitest";
 import type { FabricMemoryConfig } from "../src/config.js";
-import { encodeCwdDir } from "../src/memory/discovery.js";
+import { sessionDirNamesForCwd } from "../src/memory/discovery.js";
 import { digestPathForSession, shardPathForSession } from "../src/memory/index.js";
 import { MemoryProvider, type MemoryProviderContext } from "../src/providers/memory-provider.js";
 import type { FabricInvocationContext } from "../src/protocol.js";
@@ -79,7 +79,7 @@ describe("memory active lineage and privacy policy", async () => {
     const agentDir = temporaryDirectory("tree-agent");
     const indexDir = temporaryDirectory("tree-index");
     const cwd = "/work/tree";
-    const file = writeSessionFile(path.join(agentDir, "sessions", encodeCwdDir(cwd)), "tree.jsonl", [
+    const file = writeSessionFile(path.join(agentDir, "sessions", sessionDirNamesForCwd(cwd).canonical), "tree.jsonl", [
       sessionHeader("tree", cwd),
       message("root", null, "shared root", 0),
       message("abandoned", "root", "ABANDONED_SIBLING_DECOY_71", 1),
@@ -114,7 +114,7 @@ describe("memory active lineage and privacy policy", async () => {
     const agentDir = temporaryDirectory("live-agent");
     const indexDir = temporaryDirectory("live-index");
     const cwd = "/work/live";
-    const file = writeSessionFile(path.join(agentDir, "sessions", encodeCwdDir(cwd)), "live.jsonl", [
+    const file = writeSessionFile(path.join(agentDir, "sessions", sessionDirNamesForCwd(cwd).canonical), "live.jsonl", [
       sessionHeader("live", cwd),
       message("root", null, "root", 0),
       message("navigated-leaf", "root", "LIVE_NAVIGATED_FACT_93", 1),
@@ -152,7 +152,7 @@ describe("memory active lineage and privacy policy", async () => {
     const agentDir = temporaryDirectory("cold-agent");
     const indexDir = temporaryDirectory("cold-index");
     const cwd = "/work/cold-lineage";
-    const file = writeSessionFile(path.join(agentDir, "sessions", encodeCwdDir(cwd)), "cold.jsonl", [
+    const file = writeSessionFile(path.join(agentDir, "sessions", sessionDirNamesForCwd(cwd).canonical), "cold.jsonl", [
       sessionHeader("cold-tree", cwd),
       message("root", null, "root vocabulary", 0),
       message("sibling", "root", "COLD_SIBLING_VOCAB_15", 1),
@@ -201,7 +201,7 @@ describe("memory active lineage and privacy policy", async () => {
     const agentDir = temporaryDirectory("expand-agent");
     const indexDir = temporaryDirectory("expand-index");
     const cwd = "/work/expand-lineage";
-    const file = writeSessionFile(path.join(agentDir, "sessions", encodeCwdDir(cwd)), "expand.jsonl", [
+    const file = writeSessionFile(path.join(agentDir, "sessions", sessionDirNamesForCwd(cwd).canonical), "expand.jsonl", [
       sessionHeader("expand-tree", cwd),
       message("root", null, "root", 0),
       message("off-lineage", "root", "OFF_LINEAGE_EXPAND_21", 1),
@@ -297,7 +297,7 @@ describe("memory active lineage and privacy policy", async () => {
       summary: "ignored summary prose",
       details: branchDetails([fact]),
     } as FixtureEntry;
-    const file = writeSessionFile(path.join(agentDir, "sessions", encodeCwdDir(cwd)), "summary.jsonl", [
+    const file = writeSessionFile(path.join(agentDir, "sessions", sessionDirNamesForCwd(cwd).canonical), "summary.jsonl", [
       sessionHeader("summary", cwd),
       message("root", null, "root", 0),
       message("abandoned-source", "root", "off-lineage source", 1),
@@ -355,7 +355,7 @@ describe("memory active lineage and privacy policy", async () => {
       timestamp(1),
       toolResult("call", "read", "TOOL_OUTPUT_BODY_42", true),
     );
-    const file = writeSessionFile(path.join(agentDir, "sessions", encodeCwdDir(cwd)), "privacy.jsonl", [
+    const file = writeSessionFile(path.join(agentDir, "sessions", sessionDirNamesForCwd(cwd).canonical), "privacy.jsonl", [
       sessionHeader("privacy", cwd),
       assistant,
       result,
@@ -421,11 +421,11 @@ describe("memory active lineage and privacy policy", async () => {
     const indexDir = temporaryDirectory("scope-index");
     const cwd = "/work/scope-a";
     const otherCwd = "/work/scope-b";
-    const first = writeSessionFile(path.join(agentDir, "sessions", encodeCwdDir(cwd)), "one.jsonl", [
+    const first = writeSessionFile(path.join(agentDir, "sessions", sessionDirNamesForCwd(cwd).canonical), "one.jsonl", [
       sessionHeader("duplicate-id", cwd),
       message("one", null, "SCOPE_COMMON_TOKEN_51", 0),
     ]);
-    const second = writeSessionFile(path.join(agentDir, "sessions", encodeCwdDir(otherCwd)), "two.jsonl", [
+    const second = writeSessionFile(path.join(agentDir, "sessions", sessionDirNamesForCwd(otherCwd).canonical), "two.jsonl", [
       sessionHeader("duplicate-id", otherCwd),
       message("two", null, "SCOPE_COMMON_TOKEN_51", 0),
     ]);

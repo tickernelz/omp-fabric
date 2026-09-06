@@ -1,5 +1,8 @@
+import crypto from "node:crypto";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
+import { getSessionsDir, resolveEquivalentPath } from "@oh-my-pi/pi-utils";
 import { readSessionHeader } from "./normalize.js";
 
 export interface SessionRef {
@@ -18,17 +21,70 @@ export interface ResolveScopeInput {
   maxSessions: number;
 }
 
-const SESSIONS_SUBDIR = "sessions";
+const SESSION_SCOPE_PREFIX = "session:";
+
+/** Project scope matched no session directory at all, so its emptiness is unverified. */
+export const PROJECT_SESSION_DIR_MISSING = "project_session_dir_missing";
 
 const isJsonlFile = (name: string): boolean => name.endsWith(".jsonl");
 
-/** Encode a cwd into the safe directory name OMP stores session files under. */
-export const encodeCwdDir = (cwd: string): string =>
-  `--${path.resolve(cwd).replace(/^[/\\]/, "").replace(/[/\\:]/g, "-")}--`;
+type SessionDirScope = "home" | "tmp" | "abs";
 
-/** Directory OMP stores this project's session JSONL files under. */
-export const sessionDirForCwd = (cwd: string, agentDir: string): string =>
-  path.join(agentDir, SESSIONS_SUBDIR, encodeCwdDir(cwd));
+const isWithinRoot = (relative: string): boolean =>
+  relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
+
+const encodeRelativeDirName = (prefix: string, relative: string): string => {
+  const encoded = relative.replace(/[/\\:]/g, "-");
+  if (!encoded) return prefix;
+  return prefix.endsWith("-") ? `${prefix}${encoded}` : `${prefix}-${encoded}`;
+};
+
+const encodeAbsoluteDirName = (absolute: string): string =>
+  `--${absolute.replace(/^[/\\]/, "").replace(/[/\\:]/g, "-")}--`;
+
+const encodeHashedDirName = (canonicalCwd: string, scope: SessionDirScope): string => {
+  const readable = path
+    .basename(canonicalCwd)
+    .replace(/[^a-zA-Z0-9._-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(-80);
+  const digest = crypto
+    .createHash("sha256")
+    .update(canonicalCwd.replaceAll("\\", "/"))
+    .digest("hex");
+  return `${scope}-${readable || "project"}-${digest}`;
+};
+
+/** OMP's session directory names for a cwd: the one it writes today plus superseded encodings. */
+export const sessionDirNamesForCwd = (cwd: string): { canonical: string; legacy: string[] } => {
+  const resolved = path.resolve(cwd);
+  const canonicalCwd = resolveEquivalentPath(resolved);
+  const homeRelative = path.relative(resolveEquivalentPath(os.homedir()), canonicalCwd);
+  const tempRelative = path.relative(resolveEquivalentPath(os.tmpdir()), canonicalCwd);
+  let canonical: string;
+  let scope: SessionDirScope;
+  if (isWithinRoot(homeRelative)) {
+    canonical = encodeRelativeDirName("-", homeRelative);
+    scope = "home";
+  } else if (isWithinRoot(tempRelative)) {
+    canonical = encodeRelativeDirName("-tmp", tempRelative);
+    scope = "tmp";
+  } else {
+    canonical = encodeAbsoluteDirName(canonicalCwd);
+    scope = "abs";
+  }
+  const legacy: string[] = [];
+  for (
+    const name of [
+      encodeAbsoluteDirName(canonicalCwd),
+      encodeAbsoluteDirName(resolved),
+      encodeHashedDirName(canonicalCwd, scope),
+    ]
+  ) {
+    if (name !== canonical && !legacy.includes(name)) legacy.push(name);
+  }
+  return { canonical, legacy };
+};
 
 const listJsonlInDir = (dir: string): string[] => {
   try {
@@ -59,45 +115,67 @@ const refFromFile = (file: string): SessionRef => {
   };
 };
 
-export const sessionsDirRoot = (agentDir: string): string => path.join(agentDir, SESSIONS_SUBDIR);
+export const sessionsDirRoot = (agentDir: string): string => getSessionsDir(agentDir);
+
+const isDirectory = (dir: string): boolean => {
+  try {
+    return fs.statSync(dir).isDirectory();
+  } catch {
+    return false;
+  }
+};
+
+/** Existing session directories that hold this cwd's sessions, current encoding first. */
+export const sessionDirsForCwd = (cwd: string, agentDir: string): string[] => {
+  const root = sessionsDirRoot(agentDir);
+  const names = sessionDirNamesForCwd(cwd);
+  const dirs: string[] = [];
+  for (const name of [names.canonical, ...names.legacy]) {
+    const dir = path.join(root, name);
+    if (isDirectory(dir)) dirs.push(dir);
+  }
+  return dirs;
+};
 
 const compareRefsByRecency = (left: SessionRef, right: SessionRef): number => {
   if (right.mtime !== left.mtime) return right.mtime - left.mtime;
   return left.file < right.file ? -1 : left.file > right.file ? 1 : 0;
 };
 
+/** Directory holding the running session's file when it sits outside the agent dir. */
+export const overrideSessionDir = (sessionFile: string | undefined): string | undefined => {
+  if (!sessionFile) return undefined;
+  const dir = path.dirname(path.resolve(sessionFile));
+  return isDirectory(dir) ? dir : undefined;
+};
+
 /**
- * Enumerate every session JSONL file under the agent dir, newest first by
- * file mtime. Bounded by `maxSessions`. Returns refs with resolved cwd and
- * sessionId from each file header (falling back to the file stem).
+ * Every session JSONL file under the agent dir plus the session dir in use, newest first by
+ * file mtime, deduplicated by path and bounded by `maxSessions`.
  */
-export const enumerateAllSessions = (agentDir: string, maxSessions: number): SessionRef[] => {
+export const enumerateAllSessions = (
+  agentDir: string,
+  maxSessions: number,
+  sessionDir?: string,
+): SessionRef[] => {
+  const files = new Set<string>();
   const root = sessionsDirRoot(agentDir);
-  let projectDirs: string[] = [];
   try {
-    projectDirs = fs
-      .readdirSync(root, { withFileTypes: true })
-      .filter((entry) => entry.isDirectory())
-      .map((entry) => path.join(root, entry.name));
-  } catch {
-    return [];
+    for (
+      const entry of fs.readdirSync(root, { withFileTypes: true }).filter((candidate) =>
+        candidate.isDirectory()
+      )
+    ) {
+      for (const file of listJsonlInDir(path.join(root, entry.name))) files.add(file);
+    }
+  } catch {}
+  if (sessionDir !== undefined) {
+    for (const file of listJsonlInDir(sessionDir)) files.add(file);
   }
-  const files: string[] = [];
-  for (const dir of projectDirs) {
-    for (const file of listJsonlInDir(dir)) files.push(file);
-  }
-  return files
+  return [...files]
     .map(refFromFile)
     .sort(compareRefsByRecency)
     .slice(0, Math.max(1, maxSessions));
-};
-
-const newestSessionInDir = (dir: string): SessionRef | null => {
-  const files = listJsonlInDir(dir);
-  if (files.length === 0) return null;
-  return files
-    .map(refFromFile)
-    .sort(compareRefsByRecency)[0]!;
 };
 
 export class AmbiguousSessionError extends Error {
@@ -115,11 +193,12 @@ export class AmbiguousSessionError extends Error {
 export const resolveSessionTarget = (
   agentDir: string,
   target: string,
+  sessionDir?: string,
 ): SessionRef | null => {
   if (target.endsWith(".jsonl") && fs.existsSync(target)) {
     return refFromFile(path.resolve(target));
   }
-  const all = enumerateAllSessions(agentDir, Number.MAX_SAFE_INTEGER);
+  const all = enumerateAllSessions(agentDir, Number.MAX_SAFE_INTEGER, sessionDir);
   const byId = all.filter((ref) => ref.id === target);
   if (byId.length > 1) throw new AmbiguousSessionError(target, byId.map((ref) => ref.file));
   if (byId.length === 1) return byId[0]!;
@@ -128,38 +207,100 @@ export const resolveSessionTarget = (
   return byStem[0] ?? null;
 };
 
+export interface ScopeResolution {
+  refs: SessionRef[];
+  reasons: string[];
+  candidateDirs: string[];
+  searchedDirs: string[];
+}
+
+const sameProjectCwd = (candidate: string, cwd: string): boolean =>
+  candidate.length > 0 && resolveEquivalentPath(candidate) === resolveEquivalentPath(cwd);
+
+const projectSessions = (
+  input: ResolveScopeInput,
+): { refs: SessionRef[]; candidateDirs: string[]; searchedDirs: string[] } => {
+  const root = sessionsDirRoot(input.agentDir);
+  const names = sessionDirNamesForCwd(input.cwd);
+  const candidateDirs = [names.canonical, ...names.legacy].map((name) => path.join(root, name));
+  const searchedDirs = candidateDirs.filter(isDirectory);
+  const refs: SessionRef[] = [];
+  const seen = new Set<string>();
+  for (const dir of searchedDirs) {
+    for (const file of listJsonlInDir(dir)) {
+      if (seen.has(file)) continue;
+      seen.add(file);
+      refs.push(refFromFile(file));
+    }
+  }
+  const override = overrideSessionDir(input.sessionFile);
+  if (override !== undefined && !searchedDirs.includes(override)) {
+    candidateDirs.push(override);
+    searchedDirs.push(override);
+    for (const file of listJsonlInDir(override)) {
+      if (seen.has(file)) continue;
+      const ref = refFromFile(file);
+      if (!sameProjectCwd(ref.cwd, input.cwd)) continue;
+      seen.add(file);
+      refs.push(ref);
+    }
+  }
+  refs.sort(compareRefsByRecency);
+  return { refs, candidateDirs, searchedDirs };
+};
+
 /**
- * Resolve a scope string into the concrete set of session files to search.
+ * Resolve a scope string into the session files to search plus why the set may be short.
  *
- * - `session` (default): the current session file (from invocation context
- *   if available, else the newest session for the current cwd).
- * - `project`: all sessions stored under the current cwd's default session dir.
+ * - `session` (default): the invoking session file, else the newest session for this cwd.
+ * - `project`: every session OMP stored for this cwd, across current and superseded dir names.
  * - `global`: all sessions under the agent dir, bounded by `maxSessions`.
  * - `session:<id-or-path>`: one specific session by id or file path.
+ *
+ * Project scope reports `PROJECT_SESSION_DIR_MISSING` when no candidate directory exists, so a
+ * caller can tell an unresolvable scope from a searched-but-empty corpus.
  */
-export const resolveScope = (input: ResolveScopeInput): SessionRef[] => {
-  const scope = input.scope?.trim();
-  if (scope.startsWith("session:")) {
-    const target = scope.slice("session:".length).trim();
-    const ref = resolveSessionTarget(input.agentDir, target);
-    return ref ? [ref] : [];
+export const resolveScope = (input: ResolveScopeInput): ScopeResolution => {
+  const scope = input.scope?.trim() ?? "";
+  const sessionDir = overrideSessionDir(input.sessionFile);
+  if (scope.startsWith(SESSION_SCOPE_PREFIX)) {
+    const target = scope.slice(SESSION_SCOPE_PREFIX.length).trim();
+    const ref = resolveSessionTarget(input.agentDir, target, sessionDir);
+    return { refs: ref ? [ref] : [], reasons: [], candidateDirs: [], searchedDirs: [] };
   }
   if (scope === "global") {
-    return enumerateAllSessions(input.agentDir, input.maxSessions);
+    const root = sessionsDirRoot(input.agentDir);
+    const roots = [root, ...(sessionDir !== undefined && sessionDir !== root ? [sessionDir] : [])];
+    return {
+      refs: enumerateAllSessions(input.agentDir, input.maxSessions, sessionDir),
+      reasons: [],
+      candidateDirs: roots,
+      searchedDirs: roots.filter(isDirectory),
+    };
   }
   if (scope === "project") {
-    const dir = sessionDirForCwd(input.cwd, input.agentDir);
-    return listJsonlInDir(dir)
-      .map(refFromFile)
-      .sort(compareRefsByRecency)
-      .slice(0, Math.max(1, input.maxSessions));
+    const found = projectSessions(input);
+    return {
+      refs: found.refs.slice(0, Math.max(1, input.maxSessions)),
+      reasons: found.searchedDirs.length === 0 ? [PROJECT_SESSION_DIR_MISSING] : [],
+      candidateDirs: found.candidateDirs,
+      searchedDirs: found.searchedDirs,
+    };
   }
-  // default: session
   if (input.sessionFile) {
-    const ref = refFromFile(input.sessionFile);
-    return [ref];
+    return {
+      refs: [refFromFile(input.sessionFile)],
+      reasons: [],
+      candidateDirs: [],
+      searchedDirs: [],
+    };
   }
-  const dir = sessionDirForCwd(input.cwd, input.agentDir);
-  const newest = newestSessionInDir(dir);
-  return newest ? [newest] : [];
+  const found = projectSessions(input);
+  const newest = found.refs[0];
+  return {
+    refs: newest ? [newest] : [],
+    reasons: found.searchedDirs.length === 0 ? [PROJECT_SESSION_DIR_MISSING] : [],
+    candidateDirs: found.candidateDirs,
+    searchedDirs: found.searchedDirs,
+  };
 };

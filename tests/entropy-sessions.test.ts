@@ -15,7 +15,7 @@ import {
   trendFromScores,
   type EntropySurfaceSnapshot,
 } from "../src/entropy/index.js";
-import { encodeCwdDir } from "../src/memory/discovery.js";
+import { sessionDirNamesForCwd } from "../src/memory/discovery.js";
 
 const tmpRoots: string[] = [];
 const makeTempDir = (): string => {
@@ -66,7 +66,7 @@ const sessionLine = () =>
   });
 
 const writeSession = (agentDir: string, cwd: string, name: string, mtime: Date): string => {
-  const dir = path.join(agentDir, "sessions", encodeCwdDir(cwd));
+  const dir = path.join(agentDir, "sessions", sessionDirNamesForCwd(cwd).canonical);
   fs.mkdirSync(dir, { recursive: true });
   const file = path.join(dir, name);
   fs.writeFileSync(file, `${sessionLine()}\n`);
@@ -182,7 +182,7 @@ describe("measureSessionCorpus", () => {
     const agentDir = makeTempDir();
     writeSession(agentDir, "/repo", "old.jsonl", new Date(2020, 0, 1));
     writeSession(agentDir, "/repo", "new.jsonl", new Date(2021, 0, 1));
-    const quietDir = path.join(agentDir, "sessions", encodeCwdDir("/repo"));
+    const quietDir = path.join(agentDir, "sessions", sessionDirNamesForCwd("/repo").canonical);
     fs.writeFileSync(path.join(quietDir, "quiet.jsonl"), "no fabric content here\n");
     fs.utimesSync(
       path.join(quietDir, "quiet.jsonl"),
@@ -321,7 +321,7 @@ describe("per-model session attribution", () => {
 
   it("aggregates per-model trends across the session window", () => {
     const agentDir = makeTempDir();
-    const dir = path.join(agentDir, "sessions", encodeCwdDir("/repo"));
+    const dir = path.join(agentDir, "sessions", sessionDirNamesForCwd("/repo").canonical);
     fs.mkdirSync(dir, { recursive: true });
     const write = (name: string, mtime: Date, content: string): void => {
       const file = path.join(dir, name);
@@ -351,7 +351,7 @@ describe("per-model session attribution", () => {
 
   it("merges window traces in one read, newest first", () => {
     const agentDir = makeTempDir();
-    const dir = path.join(agentDir, "sessions", encodeCwdDir("/repo"));
+    const dir = path.join(agentDir, "sessions", sessionDirNamesForCwd("/repo").canonical);
     fs.mkdirSync(dir, { recursive: true });
     const write = (name: string, mtime: Date, content: string): void => {
       const file = path.join(dir, name);
@@ -375,7 +375,7 @@ describe("per-model session attribution", () => {
 
   it("sessionWindowEvidence collects verbatim audit calls", () => {
     const agentDir = makeTempDir();
-    const dir = path.join(agentDir, "sessions", encodeCwdDir("/repo"));
+    const dir = path.join(agentDir, "sessions", sessionDirNamesForCwd("/repo").canonical);
     fs.mkdirSync(dir, { recursive: true });
     const write = (name: string, mtime: Date, content: string): void => {
       const file = path.join(dir, name);

@@ -22,7 +22,7 @@ import type {
   FabricProvider,
 } from "../src/protocol.js";
 import type { FabricMemoryConfig } from "../src/config.js";
-import { encodeCwdDir } from "../src/memory/discovery.js";
+import { sessionDirNamesForCwd } from "../src/memory/discovery.js";
 import {
   sessionHeader,
   userMessage,
@@ -346,7 +346,7 @@ describe("memory.sessions limit", () => {
   const setup = () => {
     agentDir = makeTempDir("agent");
     indexDir = makeTempDir("index");
-    const dir = path.join(agentDir, "sessions", encodeCwdDir(cwd));
+    const dir = path.join(agentDir, "sessions", sessionDirNamesForCwd(cwd).canonical);
     (["a", "b", "c"] as const).forEach((id, offset) => {
       writeSessionFile(dir, `${offset + 1}_${id}.jsonl`, [
         sessionHeader(id, cwd),

@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { FabricMemoryConfig } from "../src/config.js";
-import { encodeCwdDir } from "../src/memory/discovery.js";
+import { sessionDirNamesForCwd } from "../src/memory/discovery.js";
 import { loadShard } from "../src/memory/index.js";
 import { normalizeSession } from "../src/memory/normalize.js";
 import { searchShards } from "../src/memory/search.js";
@@ -72,7 +72,7 @@ describe("memory final integrity guarantees", () => {
     const agentDir = temp("unicode-agent");
     const indexDir = temp("unicode-index");
     const cwd = "/work/unicode";
-    const unicodeFile = writeSessionFile(path.join(agentDir, "sessions", encodeCwdDir(cwd)), "unicode.jsonl", [
+    const unicodeFile = writeSessionFile(path.join(agentDir, "sessions", sessionDirNamesForCwd(cwd).canonical), "unicode.jsonl", [
       sessionHeader("unicode", cwd),
       message("unicode-entry", "a😀b"),
     ]);
@@ -81,7 +81,7 @@ describe("memory final integrity guarantees", () => {
     expect(Buffer.from(normalized.entries[0]!.text, "utf8").toString("utf8")).toBe("a😀");
     expect(normalized.indexCoverage).toEqual({ complete: false, reasons: ["max_entry_chars"] });
 
-    const tailFile = writeSessionFile(path.join(agentDir, "sessions", encodeCwdDir(cwd)), "tail.jsonl", [
+    const tailFile = writeSessionFile(path.join(agentDir, "sessions", sessionDirNamesForCwd(cwd).canonical), "tail.jsonl", [
       sessionHeader("tail", cwd),
       message("tail-entry", "prefix payload rare_tail_token"),
     ]);
@@ -106,7 +106,7 @@ describe("memory final integrity guarantees", () => {
     const agentDir = temp("duplicate-agent");
     const indexDir = temp("duplicate-index");
     const cwd = "/work/duplicates";
-    const file = writeSessionFile(path.join(agentDir, "sessions", encodeCwdDir(cwd)), "duplicates.jsonl", [
+    const file = writeSessionFile(path.join(agentDir, "sessions", sessionDirNamesForCwd(cwd).canonical), "duplicates.jsonl", [
       sessionHeader("duplicates", cwd),
       message("same-entry", "first"),
       message("same-entry", "second", 1),
@@ -143,7 +143,7 @@ describe("memory final integrity guarantees", () => {
       timestamp(offset),
       { ...toolResult("fabric-call", "fabric_exec", "ignored"), details: { trace: recordedIntegrationTrace() } },
     );
-    const file = writeSessionFile(path.join(agentDir, "sessions", encodeCwdDir(cwd)), "operations.jsonl", [
+    const file = writeSessionFile(path.join(agentDir, "sessions", sessionDirNamesForCwd(cwd).canonical), "operations.jsonl", [
       sessionHeader("operations", cwd),
       duplicateResult(0),
       duplicateResult(1),
@@ -217,7 +217,7 @@ describe("memory final integrity guarantees", () => {
       fromId: "nested-source",
       summary: "nested prose must not be parsed",
     } as FixtureEntry;
-    const file = writeSessionFile(path.join(agentDir, "sessions", encodeCwdDir(cwd)), "branch.jsonl", [
+    const file = writeSessionFile(path.join(agentDir, "sessions", sessionDirNamesForCwd(cwd).canonical), "branch.jsonl", [
       sessionHeader("branch", cwd),
       direct,
       nested,
@@ -304,7 +304,7 @@ describe("memory final integrity guarantees", () => {
       args: { path: "src/file.ts" },
       outcome: "succeeded",
     };
-    const file = writeSessionFile(path.join(agentDir, "sessions", encodeCwdDir(cwd)), "duplicate-facts.jsonl", [
+    const file = writeSessionFile(path.join(agentDir, "sessions", sessionDirNamesForCwd(cwd).canonical), "duplicate-facts.jsonl", [
       sessionHeader("duplicate-facts", cwd),
       {
         type: "branch_summary",
@@ -328,7 +328,7 @@ describe("memory final integrity guarantees", () => {
     const agentDir = temp("pagination-agent");
     const indexDir = temp("pagination-index");
     const cwd = "/work/pagination";
-    const directory = path.join(agentDir, "sessions", encodeCwdDir(cwd));
+    const directory = path.join(agentDir, "sessions", sessionDirNamesForCwd(cwd).canonical);
     const cold = writeSessionFile(directory, "cold.jsonl", [
       sessionHeader("cold", cwd),
       message("cold-entry", "shared pagination token"),
@@ -387,7 +387,7 @@ describe("memory final integrity guarantees", () => {
     const agentDir = temp("budget-agent");
     const indexDir = temp("budget-index");
     const cwd = "/work/candidate-budget";
-    const file = writeSessionFile(path.join(agentDir, "sessions", encodeCwdDir(cwd)), "budget.jsonl", [
+    const file = writeSessionFile(path.join(agentDir, "sessions", sessionDirNamesForCwd(cwd).canonical), "budget.jsonl", [
       sessionHeader("budget", cwd),
       message("one", "token one"),
       message("two", "token two", 1),

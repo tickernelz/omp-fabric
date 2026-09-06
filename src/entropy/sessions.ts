@@ -10,7 +10,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { createInterface } from "node:readline";
-import { sessionDirForCwd, sessionsDirRoot } from "../memory/discovery.js";
+import { sessionDirsForCwd, sessionsDirRoot } from "../memory/discovery.js";
 import {
   entropySessionEvidenceFromJsonl,
   entropyTracesFromSessionJsonl,
@@ -118,16 +118,17 @@ export const projectSessionFiles = (
   cwd: string,
   limit = DEFAULT_SESSION_WINDOW,
 ): string[] => {
-  const dir = sessionDirForCwd(cwd, agentDir);
-  let entries: fs.Dirent[] = [];
-  try {
-    entries = fs.readdirSync(dir, { withFileTypes: true });
-  } catch {
-    return [];
-  }
-  const stamped = entries
-    .filter((entry) => entry.isFile() && entry.name.endsWith(".jsonl"))
-    .map((entry) => {
+  const stamped: { file: string; mtime: number }[] = [];
+  for (const dir of sessionDirsForCwd(cwd, agentDir)) {
+    let entries: fs.Dirent[] = [];
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const entry of entries.filter(
+      (candidate) => candidate.isFile() && candidate.name.endsWith(".jsonl"),
+    )) {
       const file = path.join(dir, entry.name);
       let mtime = 0;
       try {
@@ -135,8 +136,9 @@ export const projectSessionFiles = (
       } catch {
         mtime = 0;
       }
-      return { file, mtime };
-    });
+      stamped.push({ file, mtime });
+    }
+  }
   stamped.sort(
     (left, right) =>
       right.mtime - left.mtime || (left.file < right.file ? -1 : left.file > right.file ? 1 : 0),
@@ -218,16 +220,18 @@ export const projectSessionFilesAsync = async (
   cwd: string,
   limit = DEFAULT_SESSION_WINDOW,
 ): Promise<string[]> => {
-  const dir = sessionDirForCwd(cwd, agentDir);
-  let entries: fs.Dirent[];
-  try {
-    entries = await fs.promises.readdir(dir, { withFileTypes: true });
-  } catch {
-    return [];
+  const files: string[] = [];
+  for (const dir of sessionDirsForCwd(cwd, agentDir)) {
+    let entries: fs.Dirent[];
+    try {
+      entries = await fs.promises.readdir(dir, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const entry of entries) {
+      if (entry.isFile() && entry.name.endsWith(".jsonl")) files.push(path.join(dir, entry.name));
+    }
   }
-  const files = entries
-    .filter((entry) => entry.isFile() && entry.name.endsWith(".jsonl"))
-    .map((entry) => path.join(dir, entry.name));
   const stamped = await stampSessionFiles(files);
   stamped.sort(byNewestSession);
   return stamped.slice(0, Math.max(1, limit)).map((entry) => entry.file);

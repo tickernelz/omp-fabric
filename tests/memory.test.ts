@@ -14,7 +14,7 @@ import {
   type FixtureEntry,
 } from "./fixtures/memory.js";
 import { normalizeSession, extractFullText, expandSessionEntry, readSessionHeader } from "../src/memory/normalize.js";
-import { encodeCwdDir, resolveScope, enumerateAllSessions } from "../src/memory/discovery.js";
+import { sessionDirNamesForCwd, resolveScope, enumerateAllSessions } from "../src/memory/discovery.js";
 import { bm25Score, loadShard, loadShards, recentEntries } from "../src/memory/index.js";
 import { searchShards } from "../src/memory/search.js";
 import { MemoryProvider } from "../src/providers/memory-provider.js";
@@ -89,7 +89,7 @@ describe("memory normalize", () => {
   it("reads the session header past OMP's line-0 title slot", () => {
     const cwd = "/home/user/project";
     const file = writeSessionFile(
-      path.join(agentDir, "sessions", encodeCwdDir(cwd)),
+      path.join(agentDir, "sessions", sessionDirNamesForCwd(cwd).canonical),
       "1_session-hdr.jsonl",
       [
         sessionHeader("01a07640-aaaa-bbbb-cccc-ddddeeeeffff", cwd),
@@ -106,7 +106,7 @@ describe("memory normalize", () => {
   it("extracts typed entries from a session JSONL", () => {
     const cwd = "/home/user/project";
     const file = writeSessionFile(
-      path.join(agentDir, "sessions", encodeCwdDir(cwd)),
+      path.join(agentDir, "sessions", sessionDirNamesForCwd(cwd).canonical),
       "1_session-a.jsonl",
       [
         sessionHeader("a", cwd),
@@ -145,7 +145,7 @@ describe("memory normalize", () => {
     const cwd = "/home/user/long";
     const longText = "x".repeat(3_000);
     const file = writeSessionFile(
-      path.join(agentDir, "sessions", encodeCwdDir(cwd)),
+      path.join(agentDir, "sessions", sessionDirNamesForCwd(cwd).canonical),
       "1_long.jsonl",
       [
         sessionHeader("long", cwd),
@@ -162,7 +162,7 @@ describe("memory normalize", () => {
   it("skips structural-only entries (model_change, label, custom)", () => {
     const cwd = "/home/user/skip";
     const file = writeSessionFile(
-      path.join(agentDir, "sessions", encodeCwdDir(cwd)),
+      path.join(agentDir, "sessions", sessionDirNamesForCwd(cwd).canonical),
       "1_skip.jsonl",
       [
         sessionHeader("skip", cwd),
@@ -208,24 +208,24 @@ describe("memory discovery", () => {
   const seed = (cwd: string, name: string, id: string): string => {
     // mtime ordering: write with small delays via utimes
     const file = writeSessionFile(
-      path.join(agentDir, "sessions", encodeCwdDir(cwd)),
+      path.join(agentDir, "sessions", sessionDirNamesForCwd(cwd).canonical),
       name,
       [sessionHeader(id, cwd), msg("e1", null, ts(0), userMessage(`session ${id}`))],
     );
     return file;
   };
 
-  it("encodeCwdDir matches OMP's encoding shape", () => {
-    const cwd = path.resolve(path.sep, "home", "user", "project");
+  it("encodes a cwd outside home and tmp the way OMP names its session dir", () => {
+    const cwd = path.resolve(path.sep, "srv", "checkout", "project");
     const encoded = cwd.replace(/^[/\\]/, "").replace(/[/\\:]/g, "-");
-    expect(encodeCwdDir(cwd)).toBe(`--${encoded}--`);
+    expect(sessionDirNamesForCwd(cwd).canonical).toBe(`--${encoded}--`);
   });
 
   it("project scope lists all sessions for the cwd dir", () => {
     const cwd = "/home/user/proj-a";
     seed(cwd, "1_a.jsonl", "a");
     seed(cwd, "2_b.jsonl", "b");
-    const refs = resolveScope({
+    const { refs } = resolveScope({
       agentDir,
       cwd,
       scope: "project",
@@ -262,7 +262,7 @@ describe("memory discovery", () => {
   it("session:<id> resolves a specific session by id", () => {
     const cwd = "/home/user/spec";
     seed(cwd, "1_target.jsonl", "target-id");
-    const refs = resolveScope({ agentDir, cwd, scope: "session:target-id", maxSessions: 500 });
+    const { refs } = resolveScope({ agentDir, cwd, scope: "session:target-id", maxSessions: 500 });
     expect(refs.length).toBe(1);
     expect(refs[0]!.id).toBe("target-id");
   });
@@ -270,7 +270,7 @@ describe("memory discovery", () => {
   it("session:<path> resolves a specific session by file path", () => {
     const cwd = "/home/user/specpath";
     const file = seed(cwd, "1_p.jsonl", "p");
-    const refs = resolveScope({ agentDir, cwd, scope: `session:${file}`, maxSessions: 500 });
+    const { refs } = resolveScope({ agentDir, cwd, scope: `session:${file}`, maxSessions: 500 });
     expect(refs.length).toBe(1);
     expect(refs[0]!.file).toBe(file);
   });
@@ -281,7 +281,7 @@ describe("memory discovery", () => {
     const fileB = seed(cwd, "2_b.jsonl", "b");
     fs.utimesSync(fileA, Date.now() / 1_000 - 10, Date.now() / 1_000 - 10);
     fs.utimesSync(fileB, Date.now() / 1_000, Date.now() / 1_000);
-    const refs = resolveScope({ agentDir, cwd, scope: "session", maxSessions: 500 });
+    const { refs } = resolveScope({ agentDir, cwd, scope: "session", maxSessions: 500 });
     expect(refs.length).toBe(1);
     expect(refs[0]!.id).toBe("b");
   });
@@ -297,7 +297,7 @@ describe("memory shard index", () => {
   });
 
   const seedSession = (cwd: string, name: string, id: string, messages: FixtureEntry[]): string =>
-    writeSessionFile(path.join(agentDir, "sessions", encodeCwdDir(cwd)), name, [
+    writeSessionFile(path.join(agentDir, "sessions", sessionDirNamesForCwd(cwd).canonical), name, [
       sessionHeader(id, cwd),
       ...messages,
     ]);
@@ -416,7 +416,7 @@ describe("memory search pipeline", () => {
   });
 
   const seedSession = (cwd: string, name: string, id: string, messages: FixtureEntry[]): string =>
-    writeSessionFile(path.join(agentDir, "sessions", encodeCwdDir(cwd)), name, [
+    writeSessionFile(path.join(agentDir, "sessions", sessionDirNamesForCwd(cwd).canonical), name, [
       sessionHeader(id, cwd),
       ...messages,
     ]);
@@ -520,7 +520,7 @@ describe("MemoryProvider", () => {
     agentDir = makeTempDir("agent");
     indexDir = makeTempDir("index");
     cwd = "/home/user/provider-proj";
-    writeSessionFile(path.join(agentDir, "sessions", encodeCwdDir(cwd)), "1_main.jsonl", [
+    writeSessionFile(path.join(agentDir, "sessions", sessionDirNamesForCwd(cwd).canonical), "1_main.jsonl", [
       sessionHeader("main", cwd),
       msg("e1", null, ts(0), userMessage("remember the auth refactor")),
       msg("e2", "e1", ts(1), assistantText("the auth refactor touched login.ts")),
@@ -592,7 +592,7 @@ describe("MemoryProvider", () => {
 
   it("project scope searches all sessions for the cwd", async () => {
     const otherCwd = cwd; // same project dir
-    writeSessionFile(path.join(agentDir, "sessions", encodeCwdDir(otherCwd)), "2_other.jsonl", [
+    writeSessionFile(path.join(agentDir, "sessions", sessionDirNamesForCwd(otherCwd).canonical), "2_other.jsonl", [
       sessionHeader("other", otherCwd),
       msg("e1", null, ts(0), userMessage("auth pipeline note in another session")),
     ]);
@@ -608,7 +608,7 @@ describe("MemoryProvider", () => {
 
   it("expand returns full untruncated text for indices", async () => {
     const longText = "y".repeat(3_000);
-    const file = writeSessionFile(path.join(agentDir, "sessions", encodeCwdDir(cwd)), "3_long.jsonl", [
+    const file = writeSessionFile(path.join(agentDir, "sessions", sessionDirNamesForCwd(cwd).canonical), "3_long.jsonl", [
       sessionHeader("long", cwd),
       msg("e1", null, ts(0), userMessage(longText)),
     ]);
@@ -626,7 +626,7 @@ describe("MemoryProvider", () => {
   });
 
   it("supports explicit all-term and phrase matching", async () => {
-    const file = writeSessionFile(path.join(agentDir, "sessions", encodeCwdDir(cwd)), "2_query-modes.jsonl", [
+    const file = writeSessionFile(path.join(agentDir, "sessions", sessionDirNamesForCwd(cwd).canonical), "2_query-modes.jsonl", [
       sessionHeader("query-modes", cwd),
       msg("root", null, ts(0), userMessage("investigate the browser choice")),
       msg("distractor", "root", ts(1), assistantText("Use the browser already present in Heddlework.")),
@@ -669,7 +669,7 @@ describe("MemoryProvider", () => {
   });
 
   it("ranks human decisions ahead of recall-query plumbing", async () => {
-    const file = writeSessionFile(path.join(agentDir, "sessions", encodeCwdDir(cwd)), "3_provenance.jsonl", [
+    const file = writeSessionFile(path.join(agentDir, "sessions", sessionDirNamesForCwd(cwd).canonical), "3_provenance.jsonl", [
       sessionHeader("provenance", cwd),
       msg("root", null, ts(0), userMessage("choose the desktop engine")),
       msg(
@@ -728,7 +728,7 @@ describe("MemoryProvider", () => {
       parent = id;
     }
     const file = writeSessionFile(
-      path.join(agentDir, "sessions", encodeCwdDir(cwd)),
+      path.join(agentDir, "sessions", sessionDirNamesForCwd(cwd).canonical),
       "3_broad.jsonl",
       entries,
     );
@@ -786,7 +786,7 @@ describe("MemoryProvider", () => {
 
   it("expands nearby context in bounded chunks that continue without JSONL tooling", async () => {
     const longText = `TARGET_CONTEXT_TOKEN ${"z".repeat(55_000)}`;
-    const file = writeSessionFile(path.join(agentDir, "sessions", encodeCwdDir(cwd)), "4_context.jsonl", [
+    const file = writeSessionFile(path.join(agentDir, "sessions", sessionDirNamesForCwd(cwd).canonical), "4_context.jsonl", [
       sessionHeader("context", cwd),
       msg("before", null, ts(0), userMessage("before context")),
       msg("target", "before", ts(1), assistantText(longText)),
@@ -839,7 +839,7 @@ describe("MemoryProvider", () => {
 
   it("invalidates cached expansion pages when the session changes", async () => {
     const file = writeSessionFile(
-      path.join(agentDir, "sessions", encodeCwdDir(cwd)),
+      path.join(agentDir, "sessions", sessionDirNamesForCwd(cwd).canonical),
       "5_stale-expansion.jsonl",
       [
         sessionHeader("stale-expansion", cwd),
@@ -873,7 +873,7 @@ describe("MemoryProvider", () => {
       { length: 20 },
       (_, index) => `/tmp/${index}-${"path".repeat(300)}`,
     );
-    const file = writeSessionFile(path.join(agentDir, "sessions", encodeCwdDir(cwd)), "5_metadata.jsonl", [
+    const file = writeSessionFile(path.join(agentDir, "sessions", sessionDirNamesForCwd(cwd).canonical), "5_metadata.jsonl", [
       sessionHeader("metadata", cwd),
       msg("entry", null, ts(0), {
         role: "assistant",

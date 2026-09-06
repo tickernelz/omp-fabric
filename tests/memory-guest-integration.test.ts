@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, expect, it } from "vitest";
-import { encodeCwdDir } from "../src/memory/discovery.js";
+import { sessionDirNamesForCwd } from "../src/memory/discovery.js";
 import { MemoryProvider } from "../src/providers/memory-provider.js";
 import type { FabricInvocationContext } from "../src/protocol.js";
 import { QuickJsRuntime } from "../src/runtime/quickjs-runtime.js";
@@ -44,7 +44,7 @@ it("lets a guest program page, walk, filter, join, and return a compact result",
   const agentDir = temporaryDirectory();
   const indexDir = temporaryDirectory();
   const cwd = "/project/memory-guest";
-  const sessionDir = path.join(agentDir, "sessions", encodeCwdDir(cwd));
+  const sessionDir = path.join(agentDir, "sessions", sessionDirNamesForCwd(cwd).canonical);
   const alpha = writeSessionFile(sessionDir, "alpha.jsonl", [
     sessionHeader("alpha", cwd),
     messageEntry(

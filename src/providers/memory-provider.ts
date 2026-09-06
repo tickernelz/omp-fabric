@@ -10,9 +10,12 @@ import path from "node:path";
 import {
   AmbiguousSessionError,
   enumerateAllSessions,
+  overrideSessionDir,
+  PROJECT_SESSION_DIR_MISSING,
   resolveScope,
   resolveSessionTarget,
   type ResolveScopeInput,
+  type ScopeResolution,
   type SessionRef,
 } from "../memory/discovery.js";
 import {
@@ -726,7 +729,11 @@ const resolveIndexOptions = (
 });
 
 const resolveTierRefs = (refs: SessionRef[], context: MemoryProviderContext): SessionRef[] => {
-  const all = enumerateAllSessions(context.agentDir, Number.MAX_SAFE_INTEGER);
+  const all = enumerateAllSessions(
+    context.agentDir,
+    Number.MAX_SAFE_INTEGER,
+    overrideSessionDir(context.sessionFile),
+  );
   const known = new Set(all.map((ref) => ref.file));
   for (const ref of refs) {
     if (!known.has(ref.file)) all.push(ref);
@@ -738,7 +745,7 @@ const resolveRefs = (
   scope: string | undefined,
   context: MemoryProviderContext,
   boundedBrowse: boolean,
-): SessionRef[] => {
+): ScopeResolution => {
   const effectiveScope = scope ?? "session";
   const input: ResolveScopeInput = {
     agentDir: context.agentDir,
@@ -784,6 +791,13 @@ const addressError = (message: string, entryCount?: number) => ({
   code: "index_out_of_bounds",
   message,
   ...(entryCount === undefined ? {} : { entryCount }),
+});
+
+const unresolvedScopeError = (resolution: ScopeResolution) => ({
+  code: resolution.reasons[0] ?? PROJECT_SESSION_DIR_MISSING,
+  message:
+    "No session directory exists for this scope, so an empty result is unverified rather than an empty corpus.",
+  candidateDirectories: resolution.candidateDirs,
 });
 
 const recallFailure = (error: { code: string; message: string; [key: string]: unknown }) => ({
@@ -1014,7 +1028,8 @@ export class MemoryProvider implements FabricProvider {
         ? Math.min(Math.floor(args.snippetChars), RECALL_MAX_SNIPPET_CHARS)
         : RECALL_DEFAULT_SNIPPET_CHARS;
 
-    const refs = resolveRefs(scope, this.context, false);
+    const resolution = resolveRefs(scope, this.context, false);
+    const refs = resolution.refs;
     const liveResolver = liveBranchResolver(this.context);
     const options = resolveIndexOptions(
       this.context.config,
@@ -1196,8 +1211,15 @@ export class MemoryProvider implements FabricProvider {
     const result = await searchMemoryIndex(index.shards, index.digests, searchQuery);
     const coverage = {
       ...index.coverage,
-      complete: index.coverage.complete && result.queryCoverage.complete,
-      reasons: [...new Set([...index.coverage.reasons, ...result.queryCoverage.reasons])].sort(),
+      complete: index.coverage.complete && result.queryCoverage.complete
+        && resolution.reasons.length === 0,
+      reasons: [
+        ...new Set([
+          ...index.coverage.reasons,
+          ...result.queryCoverage.reasons,
+          ...resolution.reasons,
+        ]),
+      ].sort(),
       ...(result.queryCoverage.error ? { error: result.queryCoverage.error } : {}),
     };
     const soleRef = refs.length === 1 ? refs[0] : undefined;
@@ -1321,7 +1343,11 @@ export class MemoryProvider implements FabricProvider {
     const maxChars = Math.max(256, numeric(args.maxChars, EXPAND_DEFAULT_MAX_CHARS, EXPAND_MAX_CHARS));
     const maxEntries = Math.max(1, numeric(args.maxEntries, EXPAND_DEFAULT_MAX_ENTRIES, EXPAND_MAX_ENTRIES));
 
-    const ref = resolveSessionTarget(this.context.agentDir, session);
+    const ref = resolveSessionTarget(
+      this.context.agentDir,
+      session,
+      overrideSessionDir(this.context.sessionFile),
+    );
     if (!ref) {
       return {
         session,
@@ -1775,7 +1801,8 @@ export class MemoryProvider implements FabricProvider {
       typeof args.limit === "number" && Number.isSafeInteger(args.limit) && args.limit >= 1
         ? Math.min(args.limit, SESSIONS_MAX)
         : SESSIONS_MAX;
-    const refs = resolveRefs(scope, this.context, true).slice(0, limit);
+    const resolution = resolveRefs(scope, this.context, true);
+    const refs = resolution.refs.slice(0, limit);
     const options = resolveIndexOptions(
       this.context.config,
       this.context.agentDir,
@@ -1800,6 +1827,13 @@ export class MemoryProvider implements FabricProvider {
         lineageFingerprint: shard?.lineageFingerprint ?? digest?.lineageFingerprint ?? null,
       };
     });
-    return { scope: scope ?? "session", branches, sessions };
+    return {
+      scope: scope ?? "session",
+      branches,
+      sessions,
+      ...(resolution.reasons.length > 0
+        ? { error: unresolvedScopeError(resolution) }
+        : {}),
+    };
   }
 }

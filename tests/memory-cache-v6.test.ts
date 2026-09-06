@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { FabricMemoryConfig } from "../src/config.js";
-import { encodeCwdDir, resolveScope } from "../src/memory/discovery.js";
+import { sessionDirNamesForCwd, resolveScope } from "../src/memory/discovery.js";
 import {
   MEMORY_CACHE_VERSION,
   digestPathForSession,
@@ -85,7 +85,7 @@ describe("memory cache V6", () => {
     new MemoryProvider({ agentDir, cwd, config: config(overrides) });
 
   it("searches every eligible session despite maxSessions and ranks the oldest rare fact first", async () => {
-    const sessionDirectory = path.join(agentDir, "sessions", encodeCwdDir(cwd));
+    const sessionDirectory = path.join(agentDir, "sessions", sessionDirNamesForCwd(cwd).canonical);
     const base = Math.floor(Date.now() / 1_000) - 10_000;
     let oldest = "";
     for (let index = 0; index < 1_001; index += 1) {
@@ -153,7 +153,7 @@ describe("memory cache V6", () => {
   }, 30_000);
 
   it("paginates no-query browsing without a pre-pagination session cap while query coverage is complete", async () => {
-    const sessionDirectory = path.join(agentDir, "sessions", encodeCwdDir(cwd));
+    const sessionDirectory = path.join(agentDir, "sessions", sessionDirNamesForCwd(cwd).canonical);
     const base = Math.floor(Date.now() / 1_000) - 100;
     for (let index = 0; index < 20; index += 1) {
       const file = writeSessionFile(sessionDirectory, `${index}.jsonl`, [
@@ -179,14 +179,14 @@ describe("memory cache V6", () => {
   });
 
   it("rebuilds rewritten and V5 caches and removes caches for deleted sources", async () => {
-    const sessionDirectory = path.join(agentDir, "sessions", encodeCwdDir(cwd));
+    const sessionDirectory = path.join(agentDir, "sessions", sessionDirNamesForCwd(cwd).canonical);
     const file = writeSessionFile(sessionDirectory, "rewrite.jsonl", [
       sessionHeader("rewrite", cwd),
       message("same-id", "originalword"),
     ]);
     const oldTime = Math.floor(Date.now() / 1_000) - 100;
     fs.utimesSync(file, oldTime, oldTime);
-    const ref = resolveScope({ agentDir, cwd, scope: "project", maxSessions: 100 })[0]!;
+    const ref = resolveScope({ agentDir, cwd, scope: "project", maxSessions: 100 }).refs[0]!;
     const options = { indexDir, maxEntryChars: 2_000, hotSessions: 0, digestTerms: 2 };
     const first = loadDigest(ref, options);
     const v5 = { ...first, cacheVersion: 5, addresses: first.addresses.map((address) => address.slice(0, 6)) };
@@ -210,7 +210,7 @@ describe("memory cache V6", () => {
     expect(rewritten.length).toBe(original.length);
     fs.writeFileSync(file, rewritten, "utf8");
     fs.utimesSync(file, oldTime, oldTime);
-    const rewrittenRef = resolveScope({ agentDir, cwd, scope: "project", maxSessions: 100 })[0]!;
+    const rewrittenRef = resolveScope({ agentDir, cwd, scope: "project", maxSessions: 100 }).refs[0]!;
     const refreshed = loadDigest(rewrittenRef, options);
     expect(refreshed.sourceHash).not.toBe(first.sourceHash);
     expect(refreshed.vocabulary).toContain("rewrittenxyz");
@@ -234,7 +234,7 @@ describe("memory cache V6", () => {
   });
 
   it("hydrates bounded ranges explicitly and expands by stable entry id", async () => {
-    const sessionDirectory = path.join(agentDir, "sessions", encodeCwdDir(cwd));
+    const sessionDirectory = path.join(agentDir, "sessions", sessionDirNamesForCwd(cwd).canonical);
     const old = writeSessionFile(sessionDirectory, "old.jsonl", [
       sessionHeader("old", cwd),
       message("entry-a", "alpha fact", 0),

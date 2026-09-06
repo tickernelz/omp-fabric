@@ -6,7 +6,7 @@ import { normalizeSession, expandSessionEntries } from "../src/memory/normalize.
 import { loadDigest, loadShard } from "../src/memory/index.js";
 import { searchShards } from "../src/memory/search.js";
 import { MemoryProvider } from "../src/providers/memory-provider.js";
-import { encodeCwdDir } from "../src/memory/discovery.js";
+import { sessionDirNamesForCwd } from "../src/memory/discovery.js";
 import type { FabricInvocationContext } from "../src/protocol.js";
 import type { FabricMemoryConfig } from "../src/config.js";
 import {
@@ -37,7 +37,7 @@ const traceToolResult = (details: unknown): Record<string, unknown> => ({
 });
 
 const fixture = (agentDir: string, cwd: string, details: unknown): string =>
-  writeSessionFile(path.join(agentDir, "sessions", encodeCwdDir(cwd)), "trace.jsonl", [
+  writeSessionFile(path.join(agentDir, "sessions", sessionDirNamesForCwd(cwd).canonical), "trace.jsonl", [
     sessionHeader("trace-session", cwd),
     messageEntry("e1", null, timestamp(1), assistantToolCall(
       "fabric-call",

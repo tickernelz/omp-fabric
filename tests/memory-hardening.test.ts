@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { FabricMemoryConfig } from "../src/config.js";
-import { encodeCwdDir } from "../src/memory/discovery.js";
+import { sessionDirNamesForCwd } from "../src/memory/discovery.js";
 import { digestPathForSession } from "../src/memory/index.js";
 import { planMemoryQuery } from "../src/memory/tokenize.js";
 import { MemoryProvider } from "../src/providers/memory-provider.js";
@@ -79,7 +79,7 @@ describe("memory query and pointer hardening", () => {
     new MemoryProvider({ agentDir, cwd, config: config(overrides) });
 
   const seed = (name: string, id: string, texts: string[], projectCwd = cwd): string =>
-    writeSessionFile(path.join(agentDir, "sessions", encodeCwdDir(projectCwd)), name, [
+    writeSessionFile(path.join(agentDir, "sessions", sessionDirNamesForCwd(projectCwd).canonical), name, [
       sessionHeader(id, projectCwd),
       ...texts.map((text, index) => message(`${id}-${index}`, text, index)),
     ]);

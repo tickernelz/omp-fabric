@@ -4,7 +4,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { normalizeFabricConfig, type FabricMemoryConfig } from "../src/config.js";
 import { foldSessionDigest } from "../src/memory/digest.js";
-import { encodeCwdDir, resolveScope } from "../src/memory/discovery.js";
+import { sessionDirNamesForCwd, resolveScope } from "../src/memory/discovery.js";
 import {
   digestPathForSession,
   loadDigest,
@@ -85,7 +85,7 @@ describe("memory sleep cycle", () => {
 
   const seed = (name: string, id: string, entries: FixtureEntry[], mtime: number): string => {
     const file = writeSessionFile(
-      path.join(agentDir, "sessions", encodeCwdDir(cwd)),
+      path.join(agentDir, "sessions", sessionDirNamesForCwd(cwd).canonical),
       name,
       [sessionHeader(id, cwd), ...entries],
     );
@@ -94,7 +94,7 @@ describe("memory sleep cycle", () => {
   };
 
   const projectRefs = () =>
-    resolveScope({ agentDir, cwd, scope: "project", maxSessions: 500 });
+    resolveScope({ agentDir, cwd, scope: "project", maxSessions: 500 }).refs;
 
   it("demotes the oldest session at the hot boundary and drops its shard", () => {
     const base = Math.floor(Date.now() / 1_000) - 100;
