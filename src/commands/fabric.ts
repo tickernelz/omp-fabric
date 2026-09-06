@@ -495,19 +495,14 @@ export function registerFabricCommand(omp: ExtensionAPI, deps: FabricCommandDeps
       if (command === "prewalk") {
         const option = argumentsList[0];
         if (option === "--disable" || option === "--enable") {
-          // Persistent master switch: saves prewalk.enabled to the same scope
-          // the settings UI writes (project when trusted), reloads config so
-          // the rest of the session agrees, and when disabling also cancels
-          // the live arm so nothing claims mid-change.
           const enabled = option === "--enable";
           try {
-            const projectTrusted = context.isProjectTrusted();
             const saved = saveFabricConfig(
               {
                 cwd: context.cwd,
                 agentDir: resolveAgentDir(),
-                projectTrusted,
-                scope: projectTrusted ? "project" : "global",
+                projectTrusted: context.isProjectTrusted(),
+                scope: "global",
               },
               { prewalk: { enabled } },
             );

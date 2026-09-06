@@ -130,7 +130,7 @@ describe("Fabric configuration migrations", () => {
     fs.writeFileSync(paths.projectPath, JSON.stringify({ subagents: { transport: "screen" } }));
 
     saveFabricConfig(
-      { cwd: paths.cwd, agentDir: paths.agentDir, projectTrusted: true },
+      { cwd: paths.cwd, agentDir: paths.agentDir, projectTrusted: true, scope: "project" },
       { agents: { maxConcurrent: 7 } },
     );
 
@@ -178,7 +178,7 @@ describe("Fabric configuration migrations", () => {
 
     expect(() =>
       saveFabricConfig(
-        { cwd: paths.cwd, agentDir: paths.agentDir, projectTrusted: true },
+        { cwd: paths.cwd, agentDir: paths.agentDir, projectTrusted: true, scope: "project" },
         { prewalk: { enabled: false } },
       )
     ).toThrow(/changed while updating/);
@@ -206,7 +206,7 @@ describe("Fabric configuration migrations", () => {
     });
 
     saveFabricConfig(
-      { cwd: paths.cwd, agentDir: paths.agentDir, projectTrusted: true },
+      { cwd: paths.cwd, agentDir: paths.agentDir, projectTrusted: true, scope: "project" },
       { agents: { maxConcurrent: 7 } },
     );
 

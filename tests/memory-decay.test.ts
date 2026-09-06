@@ -298,11 +298,11 @@ describe("memory sleep cycle", () => {
 
   it("normalizes tier policy defaults and bounds", () => {
     expect(normalizeFabricConfig({}).memory).toEqual(expect.objectContaining({
-      hotSessions: 50,
+      hotSessions: 100,
       digestTerms: 200,
       maxColdVocabularyBytes: 512 * 1024,
       maxColdCacheBytes: 1024 * 1024,
-      indexThinking: false,
+      indexThinking: true,
       indexToolOutput: true,
     }));
     expect(normalizeFabricConfig({

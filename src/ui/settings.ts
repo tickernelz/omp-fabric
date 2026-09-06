@@ -42,6 +42,7 @@ import {
 import { THINKING_LEVELS, thinkingLabel } from "../thinking.js";
 import type { CapturedToolCatalog } from "../capture/catalog.js";
 import type { FabricState } from "../fabric-state.js";
+import { resolveAgentDir } from "../core/agent-dir.js";
 
 const SUBMENU_LAYOUT: SelectListLayoutOptions = {
   minPrimaryColumnWidth: 12,
@@ -860,9 +861,9 @@ export class FabricSettingsComponent extends Container {
     super();
     this.theme = theme;
     this.projectScopeAvailable = options.projectScopeAvailable ?? true;
-    this.saveScope = options.initialSaveScope === "global" || !this.projectScopeAvailable
-      ? "global"
-      : "project";
+    this.saveScope = options.initialSaveScope === "project" && this.projectScopeAvailable
+      ? "project"
+      : "global";
     this.onChange = onChange;
     this.onCancel = onCancel;
     this.onSaveScopeChange = options.onSaveScopeChange ?? (() => {});
@@ -2179,11 +2180,10 @@ export async function openFabricSettings(
   deps: FabricSettingsDeps,
 ): Promise<void> {
   await deps.state.ensure(context);
-  const { getAgentDir } = await import("@oh-my-pi/pi-utils");
-  const agentDir = getAgentDir();
+  const agentDir = resolveAgentDir();
   const projectTrusted = context.isProjectTrusted();
   const configLocation = { cwd: context.cwd, agentDir, projectTrusted };
-  let saveScope: FabricConfigScope = projectTrusted ? "project" : "global";
+  let saveScope: FabricConfigScope = "global";
   let settingsConfig = loadFabricConfigForScope(configLocation, saveScope);
   let rootComponent: FabricSettingsComponent | undefined;
   const changedSections = new Set<string>();

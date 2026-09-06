@@ -320,13 +320,13 @@ export const maxExecutorMemoryLimitBytes = (runtime: FabricExecutorRuntime): num
     : MAX_EXECUTOR_MEMORY_LIMIT_BYTES;
 
 export const DEFAULT_FABRIC_CONFIG: FabricConfig = {
-  fullCodeMode: false,
+  fullCodeMode: true,
   executor: {
     runtime: "quickjs",
     timeoutMs: 120_000,
     maxTimeoutMs: 900_000,
     hostCallTimeouts: {},
-    memoryLimitBytes: 64 * 1024 * 1024,
+    memoryLimitBytes: 256 * 1024 * 1024,
     maxOutputChars: 50_000,
     maxNestedResultChars: 2_000_000,
     resultFormat: "auto",
@@ -342,7 +342,7 @@ export const DEFAULT_FABRIC_CONFIG: FabricConfig = {
     enabled: true,
     disableOAuth: true,
     allowDynamicServers: true,
-    callTimeoutMs: 120_000,
+    callTimeoutMs: 90_000,
     cache: {
       enabled: true,
       revalidate: "changed",
@@ -362,9 +362,9 @@ export const DEFAULT_FABRIC_CONFIG: FabricConfig = {
     claude: { binary: "claude" },
     veda: { binary: "veda", backend: "agy", persona: "navigator-chat" },
     thinking: DEFAULT_FABRIC_THINKING,
-    maxConcurrent: 4,
+    maxConcurrent: 8,
     maxPerExecution: 100,
-    maxDepth: 2,
+    maxDepth: 3,
     timeoutMs: DEFAULT_AGENT_TIMEOUT_MS,
     extensions: true,
     defaultTools: ["read", "bash", "edit", "write", "grep", "find", "ls"],
@@ -400,7 +400,7 @@ export const DEFAULT_FABRIC_CONFIG: FabricConfig = {
   ui: {
     enabled: true,
     widget: "auto",
-    maxRows: 6,
+    maxRows: 10,
     refreshMs: 500,
     eventHistory: 80,
     haltOnEscape: true,
@@ -410,7 +410,7 @@ export const DEFAULT_FABRIC_CONFIG: FabricConfig = {
   },
   compaction: {
     engine: "fabric",
-    targetContextRatio: 0.65,
+    targetContextRatio: 0.75,
     thresholds: {},
     tokenThresholds: {},
   },
@@ -436,9 +436,9 @@ export const DEFAULT_FABRIC_CONFIG: FabricConfig = {
     enabled: true,
     maxSessions: 500,
     maxEntryChars: 2_000,
-    indexThinking: false,
+    indexThinking: true,
     indexToolOutput: true,
-    hotSessions: 50,
+    hotSessions: 100,
     digestTerms: 200,
     maxColdVocabularyBytes: 512 * 1024,
     maxColdCacheBytes: 1024 * 1024,
@@ -465,7 +465,7 @@ export const DEFAULT_FABRIC_CONFIG: FabricConfig = {
   },
   speculation: {
     enabled: true,
-    maxConcurrent: 4,
+    maxConcurrent: 10,
     maxEntries: 64,
     maxBufferBytes: 2 * 1024 * 1024,
     entryTtlMs: 180_000,
@@ -1379,7 +1379,7 @@ export const saveFabricConfig = (
   },
   partial: Record<string, unknown>,
 ): { scope: FabricConfigScope; path: string } => {
-  const scope = options.scope ?? (options.projectTrusted ? "project" : "global");
+  const scope = options.scope ?? "global";
   if (scope === "project" && !options.projectTrusted) {
     throw new Error("Cannot save project Fabric configuration for an untrusted project");
   }

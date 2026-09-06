@@ -108,7 +108,7 @@ describe("FabricSettingsComponent", () => {
     expect(lines.some((line) => line.includes("Type to search"))).toBe(true);
     expect(lines.some((line) => line.includes("Full code mode"))).toBe(true);
     expect(lines.some((line) => line.includes("Executor"))).toBe(true);
-    expect(lines.some((line) => line.includes("Editing: Project overrides (.omp/fabric.json)"))).toBe(true);
+    expect(lines.some((line) => line.includes("Editing: Global defaults (<active OMP agent dir>/fabric.json)"))).toBe(true);
   });
 
   it("toggles save scope with Ctrl+G from the root and active submenus", () => {
@@ -237,17 +237,24 @@ describe("FabricSettingsComponent", () => {
   });
 
   it("exposes the compaction engine", () => {
-    const items = buildItems();
+    const config = structuredClone(DEFAULT_FABRIC_CONFIG);
+    config.compaction.targetContextRatio = 0.5;
+    const items = buildFabricSettingsItems(theme, config, () => {}, {
+      keepVisibleCandidates: ["fabric_exec"],
+      modelSource: fakeModelSource,
+      activeModelKey: "anthropic/claude-sonnet-4-5",
+    });
     const compaction = items.find((item) => item.id === "compaction");
     expect(compaction?.currentValue).toBe("fabric");
-    const lines = compaction!.submenu!("", () => {}).render(80).join("\n");
+    const rows = compaction!.submenu!("", () => {}).render(80);
+    const lines = rows.join("\n");
     expect(lines).toContain("Threshold");
     expect(lines).toContain("OMP default");
     expect(lines).toContain("anthropic/claude-sonnet-4-5");
     expect(lines).toContain("Engine");
     expect(lines).toContain("fabric");
     expect(lines).toContain("Max occupancy");
-    expect(lines).toContain("0.65");
+    expect(rows.find((row) => row.includes("Max occupancy"))).toContain("0.5");
     const section = compaction!.submenu!("", () => {}) as any;
     const target = (section.items as Array<{ id: string; values?: readonly string[] }>).find(
       (item: { id: string }) => item.id === "compaction.targetContextRatio",
@@ -462,9 +469,11 @@ describe("FabricSettingsComponent", () => {
 
   it("persists formatted numeric settings while keeping their normalized labels", () => {
     const applied: Array<{ id: string; value: unknown }> = [];
+    const config = structuredClone(DEFAULT_FABRIC_CONFIG);
+    config.executor.memoryLimitBytes = 64 * 1024 * 1024;
     const items = buildFabricSettingsItems(
       theme,
-      structuredClone(DEFAULT_FABRIC_CONFIG),
+      config,
       (id, value) => applied.push({ id, value }),
       { keepVisibleCandidates: ["fabric_exec"], modelSource: fakeModelSource },
     );
@@ -476,7 +485,7 @@ describe("FabricSettingsComponent", () => {
     const machineCapacity = 24 * 1024 * 1024 * 1024;
     const options = executorMemoryLimitOptions(machineCapacity);
     const targetRank = options.indexOf(128 * 1024 * 1024);
-    const currentRank = options.indexOf(DEFAULT_FABRIC_CONFIG.executor.memoryLimitBytes);
+    const currentRank = options.indexOf(config.executor.memoryLimitBytes);
     for (let steps = 0; steps < targetRank - currentRank; steps += 1) list.handleInput("\x1b[B");
     list.handleInput("\r");
 
@@ -781,6 +790,7 @@ describe("FabricSettingsComponent", () => {
     const inheritedAgentDir = process.env.OMP_FABRIC_AGENT_DIR;
     fs.mkdirSync(cwd, { recursive: true });
     process.env.OMP_FABRIC_AGENT_DIR = agentDir;
+    setAgentDir(agentDir);
     try {
       const config = structuredClone(DEFAULT_FABRIC_CONFIG);
       const applyFabricMode = vi.fn();
@@ -819,8 +829,9 @@ describe("FabricSettingsComponent", () => {
         onConfigApplied,
       });
 
-      expect(JSON.parse(fs.readFileSync(path.join(cwd, ".omp", "fabric.json"), "utf8")))
+      expect(JSON.parse(fs.readFileSync(path.join(agentDir, "fabric.json"), "utf8")))
         .toMatchObject({ ui: { toolDisplay: "full" } });
+      expect(fs.existsSync(path.join(cwd, ".omp", "fabric.json"))).toBe(false);
       expect(config.ui.toolDisplay).toBe("full");
       expect(onConfigApplied).toHaveBeenCalledOnce();
       // The saved setting id flows through so consumers can gate downstream
@@ -834,8 +845,8 @@ describe("FabricSettingsComponent", () => {
     }
   });
 
-  it("persists trusted-project changes globally after Ctrl+G", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-settings-global-"));
+  it("persists trusted-project changes into the project file after Ctrl+G", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-settings-project-"));
     const cwd = path.join(root, "project");
     const agentDir = path.join(root, "agent");
     const inheritedAgentDir = process.env.OMP_FABRIC_AGENT_DIR;
@@ -878,9 +889,11 @@ describe("FabricSettingsComponent", () => {
 
       expect(requestRender).toHaveBeenCalledOnce();
       expect(
-        JSON.parse(fs.readFileSync(path.join(agentDir, "fabric.json"), "utf8")),
+        JSON.parse(fs.readFileSync(path.join(cwd, ".omp", "fabric.json"), "utf8")),
       ).toMatchObject({ fullCodeMode: false });
-      expect(fs.existsSync(path.join(cwd, ".omp", "fabric.json"))).toBe(false);
+      expect(
+        JSON.parse(fs.readFileSync(path.join(agentDir, "fabric.json"), "utf8")),
+      ).toMatchObject({ fullCodeMode: true });
       expect(applyFabricMode).toHaveBeenCalledOnce();
     } finally {
       if (inheritedAgentDir === undefined) delete process.env.OMP_FABRIC_AGENT_DIR;
@@ -919,7 +932,6 @@ describe("FabricSettingsComponent", () => {
           notify: vi.fn(),
           custom: vi.fn(async (factory) => {
             const component = factory({ requestRender: vi.fn() }, theme, {}, () => {}) as FabricSettingsComponent;
-            component.handleInput("\x07");
             component.settingsList.selectItem("fullCodeMode");
             expect(component.settingsList.getSelectedItem()?.currentValue).toBe("true");
             component.settingsList.handleInput("\r");
@@ -980,7 +992,6 @@ describe("FabricSettingsComponent", () => {
           notify: vi.fn(),
           custom: vi.fn(async (factory) => {
             const component = factory({ requestRender }, theme, {}, () => {}) as FabricSettingsComponent;
-            component.handleInput("\x07");
             expect(component.render(140).join("\n")).toContain(
               "project overrides may remain active here",
             );
@@ -1007,7 +1018,7 @@ describe("FabricSettingsComponent", () => {
         .toMatchObject({ fullCodeMode: false });
       expect(JSON.parse(fs.readFileSync(path.join(cwd, ".omp", "fabric.json"), "utf8")))
         .toMatchObject({ fullCodeMode: true });
-      expect(requestRender).toHaveBeenCalledTimes(2);
+      expect(requestRender).toHaveBeenCalledOnce();
       expect(applyFabricMode).toHaveBeenCalledOnce();
     } finally {
       if (inheritedAgentDir === undefined) delete process.env.OMP_FABRIC_AGENT_DIR;
@@ -1025,6 +1036,7 @@ describe("FabricSettingsComponent", () => {
     const inheritedAgentDir = process.env.OMP_FABRIC_AGENT_DIR;
     fs.mkdirSync(cwd, { recursive: true });
     process.env.OMP_FABRIC_AGENT_DIR = agentDir;
+    setAgentDir(agentDir);
     try {
       const location = { cwd, agentDir, projectTrusted: true };
       const config = loadFabricConfig(location);
@@ -1059,8 +1071,9 @@ describe("FabricSettingsComponent", () => {
       });
 
       const saved = JSON.parse(
-        fs.readFileSync(path.join(cwd, ".omp", "fabric.json"), "utf8"),
+        fs.readFileSync(path.join(agentDir, "fabric.json"), "utf8"),
       ) as { prewalk?: { enabled?: unknown } };
+      expect(fs.existsSync(path.join(cwd, ".omp", "fabric.json"))).toBe(false);
       expect(saved.prewalk?.enabled).toBe(false);
       expect(typeof saved.prewalk?.enabled).toBe("boolean");
       expect(loadFabricConfig(location).prewalk.enabled).toBe(false);
@@ -1075,11 +1088,10 @@ describe("FabricSettingsComponent", () => {
 
   it("persists a picked Prewalk thinking level through the real settings dialog flow", async () => {
     const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-settings-thinking-"));
-    // Isolate the agent dir: the settings dialog layers the real global
-    // fabric.json under the project layer, so the developer's global prewalk
-    // config would otherwise leak into the rendered labels.
+    const agentDir = path.join(cwd, "agent");
     const inheritedAgentDir = process.env.OMP_FABRIC_AGENT_DIR;
-    process.env.OMP_FABRIC_AGENT_DIR = path.join(cwd, "agent");
+    process.env.OMP_FABRIC_AGENT_DIR = agentDir;
+    setAgentDir(agentDir);
     try {
       const config = structuredClone(DEFAULT_FABRIC_CONFIG);
       const applyFabricMode = vi.fn();
@@ -1088,7 +1100,7 @@ describe("FabricSettingsComponent", () => {
         ensure: vi.fn().mockResolvedValue(undefined),
         reloadConfig: vi.fn(() => {
           const saved = JSON.parse(
-            fs.readFileSync(path.join(cwd, ".omp", "fabric.json"), "utf8"),
+            fs.readFileSync(path.join(agentDir, "fabric.json"), "utf8"),
           ) as { prewalk?: { thinking?: import("../src/thinking.js").FabricThinking } };
           config.prewalk = {
             ...config.prewalk,
@@ -1128,7 +1140,7 @@ describe("FabricSettingsComponent", () => {
       });
 
       expect(
-        JSON.parse(fs.readFileSync(path.join(cwd, ".omp", "fabric.json"), "utf8")),
+        JSON.parse(fs.readFileSync(path.join(agentDir, "fabric.json"), "utf8")),
       ).toMatchObject({
         prewalk: { thinking: "xhigh" },
       });
@@ -1147,11 +1159,10 @@ describe("FabricSettingsComponent", () => {
 
   it("persists a picked Prewalk model through the real settings dialog flow", async () => {
     const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-settings-model-"));
-    // Isolate the agent dir: the settings dialog layers the real global
-    // fabric.json under the project layer, so the developer's global prewalk
-    // config would otherwise leak into the rendered labels.
+    const agentDir = path.join(cwd, "agent");
     const inheritedAgentDir = process.env.OMP_FABRIC_AGENT_DIR;
-    process.env.OMP_FABRIC_AGENT_DIR = path.join(cwd, "agent");
+    process.env.OMP_FABRIC_AGENT_DIR = agentDir;
+    setAgentDir(agentDir);
     try {
       const config = structuredClone(DEFAULT_FABRIC_CONFIG);
       const applyFabricMode = vi.fn();
@@ -1160,7 +1171,7 @@ describe("FabricSettingsComponent", () => {
         ensure: vi.fn().mockResolvedValue(undefined),
         reloadConfig: vi.fn(() => {
           const saved = JSON.parse(
-            fs.readFileSync(path.join(cwd, ".omp", "fabric.json"), "utf8"),
+            fs.readFileSync(path.join(agentDir, "fabric.json"), "utf8"),
           ) as { prewalk?: { mode?: "in-place" | "trajectory"; model?: string; alwaysRearm?: boolean; compactOnReturn?: boolean; detectShellWrites?: boolean } };
           config.prewalk = {
             mode: saved.prewalk?.mode ?? "in-place",
@@ -1203,7 +1214,7 @@ describe("FabricSettingsComponent", () => {
       });
 
       expect(
-        JSON.parse(fs.readFileSync(path.join(cwd, ".omp", "fabric.json"), "utf8")),
+        JSON.parse(fs.readFileSync(path.join(agentDir, "fabric.json"), "utf8")),
       ).toMatchObject({
         prewalk: { model: "anthropic/claude-sonnet-4-5" },
       });
@@ -1230,6 +1241,7 @@ describe("Fabric RPC settings", () => {
     const inheritedAgentDir = process.env.OMP_FABRIC_AGENT_DIR;
     fs.mkdirSync(cwd, { recursive: true });
     process.env.OMP_FABRIC_AGENT_DIR = agentDir;
+    setAgentDir(agentDir);
     try {
       const config = structuredClone(DEFAULT_FABRIC_CONFIG);
       const applyFabricMode = vi.fn();
@@ -1275,8 +1287,9 @@ describe("Fabric RPC settings", () => {
       });
 
       expect(select.mock.calls.some(([title]) => String(title).startsWith("Fabric settings › UI"))).toBe(true);
-      expect(JSON.parse(fs.readFileSync(path.join(cwd, ".omp", "fabric.json"), "utf8")))
+      expect(JSON.parse(fs.readFileSync(path.join(agentDir, "fabric.json"), "utf8")))
         .toMatchObject({ ui: { toolDisplay: "full" } });
+      expect(fs.existsSync(path.join(cwd, ".omp", "fabric.json"))).toBe(false);
       expect(config.ui.toolDisplay).toBe("full");
       expect(applyFabricMode).toHaveBeenCalledOnce();
       expect(notify).toHaveBeenCalledWith("Fabric settings saved.", "info");
@@ -1294,6 +1307,7 @@ describe("Fabric RPC settings", () => {
     const inheritedAgentDir = process.env.OMP_FABRIC_AGENT_DIR;
     fs.mkdirSync(cwd, { recursive: true });
     process.env.OMP_FABRIC_AGENT_DIR = agentDir;
+    setAgentDir(agentDir);
     try {
       const config = structuredClone(DEFAULT_FABRIC_CONFIG);
       const applyFabricMode = vi.fn();
@@ -1358,7 +1372,7 @@ describe("Fabric RPC settings", () => {
         capturedTools: { list: () => [] } as unknown as CapturedToolCatalog,
       });
 
-      expect(JSON.parse(fs.readFileSync(path.join(cwd, ".omp", "fabric.json"), "utf8")))
+      expect(JSON.parse(fs.readFileSync(path.join(agentDir, "fabric.json"), "utf8")))
         .toMatchObject({
           agents: {
             maxDepth: 64,
@@ -1385,6 +1399,7 @@ describe("Fabric RPC settings", () => {
     const inheritedAgentDir = process.env.OMP_FABRIC_AGENT_DIR;
     fs.mkdirSync(cwd, { recursive: true });
     process.env.OMP_FABRIC_AGENT_DIR = agentDir;
+    setAgentDir(agentDir);
     try {
       const config = structuredClone(DEFAULT_FABRIC_CONFIG);
       let openedAgents = false;
@@ -1434,7 +1449,7 @@ describe("Fabric RPC settings", () => {
 
       expect(config.agents.defaultTools).toContain("read");
       expect(config.agents.defaultTools).not.toContain("ls");
-      expect(JSON.parse(fs.readFileSync(path.join(cwd, ".omp", "fabric.json"), "utf8")))
+      expect(JSON.parse(fs.readFileSync(path.join(agentDir, "fabric.json"), "utf8")))
         .toMatchObject({ agents: { defaultTools: expect.not.arrayContaining(["ls"]) } });
     } finally {
       if (inheritedAgentDir === undefined) delete process.env.OMP_FABRIC_AGENT_DIR;
@@ -1450,6 +1465,7 @@ describe("Fabric RPC settings", () => {
     const inheritedAgentDir = process.env.OMP_FABRIC_AGENT_DIR;
     fs.mkdirSync(cwd, { recursive: true });
     process.env.OMP_FABRIC_AGENT_DIR = agentDir;
+    setAgentDir(agentDir);
     try {
       const config = structuredClone(DEFAULT_FABRIC_CONFIG);
       let openedCompaction = false;
@@ -1494,7 +1510,7 @@ describe("Fabric RPC settings", () => {
       });
 
       expect(config.compaction.thresholds["openai/gpt-5.5"]).toBe(0.73);
-      expect(JSON.parse(fs.readFileSync(path.join(cwd, ".omp", "fabric.json"), "utf8")))
+      expect(JSON.parse(fs.readFileSync(path.join(agentDir, "fabric.json"), "utf8")))
         .toMatchObject({ compaction: { thresholds: { "openai/gpt-5.5": 0.73 } } });
     } finally {
       if (inheritedAgentDir === undefined) delete process.env.OMP_FABRIC_AGENT_DIR;
@@ -1503,7 +1519,7 @@ describe("Fabric RPC settings", () => {
     }
   });
 
-  it("switches trusted projects to global save scope", async () => {
+  it("switches trusted projects to project save scope", async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-rpc-scope-"));
     const cwd = path.join(root, "project");
     const agentDir = path.join(root, "agent");
@@ -1551,10 +1567,11 @@ describe("Fabric RPC settings", () => {
         capturedTools: { list: () => [] } as unknown as CapturedToolCatalog,
       });
 
-      expect(JSON.parse(fs.readFileSync(path.join(agentDir, "fabric.json"), "utf8")))
+      expect(JSON.parse(fs.readFileSync(path.join(cwd, ".omp", "fabric.json"), "utf8")))
         .toMatchObject({ fullCodeMode: false });
-      expect(fs.existsSync(path.join(cwd, ".omp", "fabric.json"))).toBe(false);
+      expect(fs.existsSync(path.join(agentDir, "fabric.json"))).toBe(false);
       expect(select.mock.calls.some(([title]) => String(title).includes("Global defaults"))).toBe(true);
+      expect(select.mock.calls.some(([title]) => String(title).includes("Project overrides"))).toBe(true);
     } finally {
       if (inheritedAgentDir === undefined) delete process.env.OMP_FABRIC_AGENT_DIR;
       else process.env.OMP_FABRIC_AGENT_DIR = inheritedAgentDir;

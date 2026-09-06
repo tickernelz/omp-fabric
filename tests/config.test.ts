@@ -479,8 +479,8 @@ describe("Fabric configuration", () => {
         },
       },
     });
-    expect(normalizeFabricConfig({ schema: { mode: "strict" } }).schema.mode).toBe("off");
-    expect(DEFAULT_FABRIC_CONFIG.schema.mode).toBe("off");
+    expect(normalizeFabricConfig({ schema: { mode: "strict" } }).schema.mode).toBe("audit");
+    expect(DEFAULT_FABRIC_CONFIG.schema.mode).toBe("audit");
   });
 
   it("forces fabric_exec to be the only capture visibility exception in enforce mode", () => {
@@ -620,7 +620,35 @@ describe("Fabric configuration", () => {
     expect(config.approvals.execute).toBe("allow");
   });
 
-  it("saves partial overrides into the project fabric.json when trusted", () => {
+  it("saves into the global fabric.json by default even when the project is trusted", () => {
+    const root = temporaryDirectory();
+    const cwd = path.join(root, "project");
+    const agentDir = path.join(root, "agent");
+    fs.mkdirSync(path.join(cwd, ".omp"), { recursive: true });
+    fs.mkdirSync(agentDir, { recursive: true });
+    const projectPath = path.join(cwd, ".omp", "fabric.json");
+    const projectSource = JSON.stringify({ agents: { transport: "localterm" } });
+    fs.writeFileSync(projectPath, projectSource);
+
+    const result = saveFabricConfig(
+      { cwd, agentDir, projectTrusted: true },
+      { agents: { maxConcurrent: 8 }, fullCodeMode: false },
+    );
+
+    expect(result).toEqual({ scope: "global", path: path.join(agentDir, "fabric.json") });
+    expect(JSON.parse(fs.readFileSync(path.join(agentDir, "fabric.json"), "utf8"))).toEqual({
+      configVersion: 4,
+      agents: { maxConcurrent: 8 },
+      fullCodeMode: false,
+    });
+    expect(fs.readFileSync(projectPath, "utf8")).toBe(projectSource);
+    const config = loadFabricConfig({ cwd, agentDir, projectTrusted: true });
+    expect(config.agents.maxConcurrent).toBe(8);
+    expect(config.agents.transport).toBe("localterm");
+    expect(config.fullCodeMode).toBe(false);
+  });
+
+  it("saves explicit project overrides into the project fabric.json when trusted", () => {
     const root = temporaryDirectory();
     const cwd = path.join(root, "project");
     const agentDir = path.join(root, "agent");
@@ -630,16 +658,22 @@ describe("Fabric configuration", () => {
       path.join(cwd, ".omp", "fabric.json"),
       JSON.stringify({ agents: { transport: "localterm" } }),
     );
+    fs.writeFileSync(
+      path.join(agentDir, "fabric.json"),
+      JSON.stringify({
+        agents: { maxConcurrent: 2 },
+        fullCodeMode: true,
+        executor: { timeoutMs: 45_000 },
+      }),
+    );
 
     const result = saveFabricConfig(
-      { cwd, agentDir, projectTrusted: true },
+      { cwd, agentDir, projectTrusted: true, scope: "project" },
       { agents: { maxConcurrent: 8 }, fullCodeMode: false },
     );
 
-    expect(result.scope).toBe("project");
-    expect(result.path).toBe(path.join(cwd, ".omp", "fabric.json"));
-    const saved = JSON.parse(fs.readFileSync(path.join(cwd, ".omp", "fabric.json"), "utf8"));
-    expect(saved).toEqual({
+    expect(result).toEqual({ scope: "project", path: path.join(cwd, ".omp", "fabric.json") });
+    expect(JSON.parse(fs.readFileSync(path.join(cwd, ".omp", "fabric.json"), "utf8"))).toEqual({
       configVersion: 4,
       agents: { transport: "localterm", maxConcurrent: 8 },
       fullCodeMode: false,
@@ -648,6 +682,7 @@ describe("Fabric configuration", () => {
     expect(config.agents.maxConcurrent).toBe(8);
     expect(config.agents.transport).toBe("localterm");
     expect(config.fullCodeMode).toBe(false);
+    expect(config.executor.timeoutMs).toBe(45_000);
   });
 
   it("saves explicit global overrides from a trusted project", () => {
@@ -768,7 +803,7 @@ describe("Fabric configuration", () => {
     );
 
     saveFabricConfig(
-      { cwd, agentDir, projectTrusted: true },
+      { cwd, agentDir, projectTrusted: true, scope: "project" },
       {
         agents: { defaultTools: ["read", "edit", "grep"] },
         capture: { keepVisible: ["fabric_exec", "custom-tool"] },
@@ -800,7 +835,7 @@ describe("Fabric configuration", () => {
   });
 
   it("accepts arbitrary non-negative safe agent depths", () => {
-    expect(DEFAULT_FABRIC_CONFIG.agents.maxDepth).toBe(2);
+    expect(DEFAULT_FABRIC_CONFIG.agents.maxDepth).toBe(3);
     expect(normalizeFabricConfig({ agents: { maxDepth: 64 } }).agents.maxDepth).toBe(64);
     expect(normalizeFabricConfig({ agents: { maxDepth: -1 } }).agents.maxDepth).toBe(0);
     expect(

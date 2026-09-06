@@ -1,5 +1,7 @@
 import type { ExtensionAPI, ExtensionContext } from "@oh-my-pi/pi-coding-agent";
+import { existsSync } from "node:fs";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { setAgentDir } from "@oh-my-pi/pi-utils";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
@@ -419,8 +421,12 @@ describe("/fabric command", () => {
     expect(refreshToolDisplay).not.toHaveBeenCalled();
   });
 
-  it("persists --disable to project config, cancels the arm, and reloads", async () => {
+  it("persists --disable globally, cancels the arm, and reloads", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "fabric-command-prewalk-"));
+    const agentDir = path.join(root, "agent");
+    const inheritedAgentDir = process.env.OMP_FABRIC_AGENT_DIR;
+    process.env.OMP_FABRIC_AGENT_DIR = agentDir;
+    setAgentDir(agentDir);
     try {
       let handler: ((argumentsText: string, context: ExtensionContext) => Promise<void>) | undefined;
       const omp = {
@@ -463,9 +469,10 @@ describe("/fabric command", () => {
       await handler!("prewalk --disable", context);
 
       const saved = JSON.parse(
-        await readFile(path.join(root, ".omp", "fabric.json"), "utf8"),
+        await readFile(path.join(agentDir, "fabric.json"), "utf8"),
       ) as { prewalk?: { enabled?: boolean } };
       expect(saved.prewalk?.enabled).toBe(false);
+      expect(existsSync(path.join(root, ".omp", "fabric.json"))).toBe(false);
       expect(reloadConfig).toHaveBeenCalledWith(context);
       expect(cancel).toHaveBeenCalled();
       expect(drop).toHaveBeenCalledWith("session-1");
@@ -478,7 +485,7 @@ describe("/fabric command", () => {
       // --enable flips the flag back without touching the live controller.
       await handler!("prewalk --enable", context);
       const enabled = JSON.parse(
-        await readFile(path.join(root, ".omp", "fabric.json"), "utf8"),
+        await readFile(path.join(agentDir, "fabric.json"), "utf8"),
       ) as { prewalk?: { enabled?: boolean } };
       expect(enabled.prewalk?.enabled).toBe(true);
       expect(notify).toHaveBeenCalledWith(
@@ -486,6 +493,8 @@ describe("/fabric command", () => {
         "info",
       );
     } finally {
+      if (inheritedAgentDir === undefined) delete process.env.OMP_FABRIC_AGENT_DIR;
+      else process.env.OMP_FABRIC_AGENT_DIR = inheritedAgentDir;
       await rm(root, { recursive: true, force: true });
     }
   });

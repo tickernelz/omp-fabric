@@ -5,7 +5,7 @@ OMP Fabric reads configuration from two JSON files. Project values override glob
 1. `<active OMP agent dir>/fabric.json`: global defaults.
 2. `<project>/.omp/fabric.json`: project overrides, only for **trusted** projects.
 
-`/fabric settings` opens at project scope in trusted projects and at global scope in untrusted sessions. In a trusted project, press **Ctrl+G** anywhere in the settings view to move both the displayed values and the save destination between `<project>/.omp/fabric.json` and the global `<active OMP agent dir>/fabric.json`. The global view shows global defaults even when a project override stays effective in the current session, and the scope banner marks that precedence. Both views show persisted values. The affected setting notes when a runtime-only environment override still controls the live session. Untrusted sessions remain global-only. RPC hosts expose the same nested settings through standard select/input dialogs and provide a root save-scope action, so no terminal keybinding is required.
+`/fabric settings` opens at global scope in every session. In a trusted project, press **Ctrl+G** anywhere in the settings view to move both the displayed values and the save destination between the global `<active OMP agent dir>/fabric.json` and `<project>/.omp/fabric.json`; project overrides are an explicit opt-in. The global view shows global defaults even when a project override stays effective in the current session, and the scope banner marks that precedence. Both views show persisted values. The affected setting notes when a runtime-only environment override still controls the live session. Untrusted sessions remain global-only. RPC hosts expose the same nested settings through standard select/input dialogs and provide a root save-scope action, so no terminal keybinding is required.
 
 `configVersion` versions each configuration document. Fabric migrates each applicable file independently before it applies global/project precedence, then rewrites migrated files atomically. Version 0, the historical unversioned format, renames `subagents` to `agents`. Versions 2 and 3 rename legacy UI settings. Version 4 repairs `prewalk.enabled` string booleans emitted by the settings UI in affected builds. When both legacy and canonical sections exist, canonical values win conflicts and non-conflicting values survive. Fabric migrates trusted project files, and it never reads or rewrites untrusted project files. Add future schema changes as sequential migrations. Avoid runtime aliases.
 
@@ -50,7 +50,7 @@ where absent values do not participate. Orchestration programs (`agents.run` / `
 ```json
 {
   "configVersion": 4,
-  "fullCodeMode": false,
+  "fullCodeMode": true,
   "executor": {
     "runtime": "quickjs",
     "timeoutMs": 120000,
@@ -189,7 +189,7 @@ Unknown definitions stay visible as waiting. They do not fail the Fabric runtime
 
 ## Prewalk executor
 
-`prewalk.enabled` defaults to `true` and is the persistent master switch. Turn it off under **Prewalk → Enabled** in `/fabric settings`, or run `/fabric prewalk --disable`; both save to project scope in a trusted project and global scope otherwise. Disabling also cancels any live arm. `/fabric prewalk --enable` turns it back on. `/fabric prewalk --off` only cancels the current arm for this session and does not change the saved master switch.
+`prewalk.enabled` defaults to `true` and is the persistent master switch. Turn it off under **Prewalk → Enabled** in `/fabric settings`, or run `/fabric prewalk --disable`; the command always saves to global scope, and the settings view saves to whichever scope it currently targets. Disabling also cancels any live arm. `/fabric prewalk --enable` turns it back on. `/fabric prewalk --off` only cancels the current arm for this session and does not change the saved master switch.
 
 `prewalk.model` is the optional OMP `provider/model` that `/fabric prewalk` selects. `prewalk.mode` chooses how execution continues:
 
@@ -267,7 +267,7 @@ OMP core calls reject when the native tool reports an error. Successful `bash`, 
 
 ### Full code mode
 
-`fullCodeMode: true` is opt-in. OMP keeps its native tools model-facing by default. When enabled, Fabric exposes their implementations through `fabric_exec`; `omp.read()` and the other `omp.*` core calls route through the host adapter.
+`fullCodeMode: true` is the default. Fabric takes OMP's native core tools out of the model-facing set and exposes their implementations through `fabric_exec`; `omp.read()` and the other `omp.*` core calls route through the host adapter.
 
 Fabric records which native core tools were active before it takes ownership. Switching to orchestration-only mode or unloading Fabric restores that selection. Fabric applies full-mode ownership only when the session initializes or the mode changes. It never resets an explicitly selected active tool set from input, agent-start, turn-end, or settled lifecycle hooks. The system prompt carries the full-mode execution rule.
 
@@ -293,7 +293,7 @@ In orchestration-only mode:
 
 ### Where to set `fullCodeMode`
 
-`fullCodeMode` defaults to `false`. Set it in `.omp/fabric.json` for one project, or globally in `<active OMP agent dir>/fabric.json` for every project. `/fabric settings` toggles it as well.
+`fullCodeMode` defaults to `true`. Set it to `false` in `.omp/fabric.json` for one project, or globally in `<active OMP agent dir>/fabric.json` for every project. `/fabric settings` toggles it as well.
 
 ## Captured extension tools
 
@@ -301,7 +301,7 @@ Fabric intercepts OMP's `ExtensionRunner.getAllRegisteredTools()` registry choke
 
 Captured custom tools leave the model's active tool set by default. Their schemas, snippets, and guidelines stop consuming the parent model context, and the model reaches them only through `fabric_exec` when capture hiding is enabled. The tools stay registered in OMP's runtime, so the host tool registry keeps listing them. The owning extension remains loaded: its commands, event handlers, state, and UI continue to work.
 
-The default OMP configuration keeps native OMP tools visible and disables capture. This avoids a second model-facing implementation of the same read, write, shell, search, and task surfaces. `fabric_exec` is additive: it adds batching and typed orchestration without replacing native tools.
+The shipped default enables capture and hands OMP's native core tools to `fabric_exec`. This avoids a second model-facing implementation of the same read, write, shell, search, and task surfaces. Set `fullCodeMode` to `false` to keep those native tools model-facing; `fabric_exec` is then additive and adds batching and typed orchestration without replacing them.
 ```ts
 const matches = await tools.search({ query: "deployment status" });
 const schema = await tools.describe({ ref: matches[0].ref });

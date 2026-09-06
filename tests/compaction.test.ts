@@ -266,9 +266,9 @@ describe("thinking erasure", () => {
 });
 
 describe("compaction config", () => {
-  it("defaults to the fabric engine and a 65% post-compaction ceiling", () => {
+  it("defaults to the fabric engine and a 75% post-compaction ceiling", () => {
     expect(DEFAULT_FABRIC_CONFIG.compaction.engine).toBe("fabric");
-    expect(DEFAULT_FABRIC_CONFIG.compaction.targetContextRatio).toBe(0.65);
+    expect(DEFAULT_FABRIC_CONFIG.compaction.targetContextRatio).toBe(0.75);
   });
 
   it("normalizes the engine escape hatch and bounded occupancy ceiling", () => {
@@ -281,7 +281,7 @@ describe("compaction config", () => {
     expect(normalizeFabricConfig({ compaction: { targetContextRatio: 0.1 } }).compaction.targetContextRatio)
       .toBe(0.25);
     expect(normalizeFabricConfig({ compaction: { targetContextRatio: "large" } }).compaction.targetContextRatio)
-      .toBe(0.65);
+      .toBe(0.75);
   });
 
   it("normalizes model-linked thresholds", () => {
