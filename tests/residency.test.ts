@@ -27,6 +27,25 @@ const repo = process.cwd();
 const hostPath = path.resolve("dist/residency/launcher.js");
 const fakeWorker = path.resolve("tests/fixtures/fake-worker.mjs");
 const hasResidentHost = fs.existsSync(hostPath);
+// The durable E2E starts a real OMP host, which refuses to boot without a
+// resolvable model. Gate on the credential sources the host itself names in
+// that refusal, so a machine with no provider configured skips instead of
+// reporting a Fabric regression.
+const MODEL_KEY_ENV = [
+  "ANTHROPIC_API_KEY",
+  "OPENAI_API_KEY",
+  "GEMINI_API_KEY",
+  "OPENROUTER_API_KEY",
+  "XAI_API_KEY",
+  "GROQ_API_KEY",
+  "DEEPSEEK_API_KEY",
+  "MISTRAL_API_KEY",
+];
+const hostAgentDir = process.env.PI_CODING_AGENT_DIR ?? path.join(os.homedir(), ".omp", "agent");
+const hasHostModel =
+  MODEL_KEY_ENV.some((key) => !!process.env[key]) ||
+  fs.existsSync(path.join(hostAgentDir, "models.yml")) ||
+  fs.existsSync(path.join(hostAgentDir, "agent.db"));
 const roots: string[] = [];
 
 const delay = (ms: number): Promise<void> =>
@@ -242,7 +261,7 @@ describe("durable cwd validation", () => {
 // node_modules shims hangs before the child starts, so the launcher never
 // reaches its spawn trace. Durable residency E2E stays POSIX-only until that
 // spawn path is resolved; the launcher logic tests below run everywhere.
-describe.skipIf(!hasResidentHost || process.platform === "win32")("durable participant residency", () => {
+describe.skipIf(!hasResidentHost || !hasHostModel || process.platform === "win32")("durable participant residency", () => {
   it("keeps a durable actor responsive after its originating Main closes", { timeout: 45_000 }, async () => {
     const state = await rootHarness("resident-actor");
     const agents = new AgentManager(repo, state.config.agents, {
