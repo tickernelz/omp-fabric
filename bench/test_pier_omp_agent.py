@@ -1,9 +1,16 @@
+import importlib
+import importlib.util
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
+import pier_omp_agent
 from pier_omp_agent import collect_omp_session_metrics
+
+HAS_PIER = importlib.util.find_spec("pier") is not None
 
 
 class OMPSessionMetricsTest(unittest.TestCase):
@@ -90,6 +97,43 @@ class OMPSessionMetricsTest(unittest.TestCase):
         self.assertEqual(metrics["bounded_reads"], 1)
         self.assertEqual(metrics["results_over_50kb"], 1)
         self.assertEqual(metrics["summarization_count"], 1)
+
+
+class OMPVersionPinTest(unittest.TestCase):
+    def _reloaded_default(self, env_value: str | None) -> str:
+        with mock.patch.dict(os.environ, {}, clear=False):
+            if env_value is None:
+                os.environ.pop("OMP_BENCH_VERSION", None)
+            else:
+                os.environ["OMP_BENCH_VERSION"] = env_value
+            version = importlib.reload(pier_omp_agent).DEFAULT_OMP_VERSION
+        importlib.reload(pier_omp_agent)
+        return version
+
+    def test_env_var_overrides_pinned_version(self) -> None:
+        self.assertEqual(self._reloaded_default("18.1.12"), "18.1.12")
+
+    def test_falls_back_to_pinned_version(self) -> None:
+        self.assertEqual(self._reloaded_default(None), "18.1.10")
+        self.assertEqual(self._reloaded_default(""), "18.1.10")
+
+
+class ModuleSurfaceTest(unittest.TestCase):
+    def test_unknown_attribute_raises_attribute_error(self) -> None:
+        with self.assertRaises(AttributeError):
+            getattr(pier_omp_agent, "OMPCodingAgentt")
+
+
+@unittest.skipUnless(HAS_PIER, "requires the pier package")
+class OMPCodingAgentClassTest(unittest.TestCase):
+    def test_agent_class_builds_against_pier(self) -> None:
+        from pier.agents.installed.base import BaseInstalledAgent
+
+        agent_class = pier_omp_agent.OMPCodingAgent
+
+        self.assertTrue(issubclass(agent_class, BaseInstalledAgent))
+        self.assertIs(agent_class, pier_omp_agent.OMPCodingAgent)
+        self.assertEqual(agent_class.name(), "omp")
 
 
 if __name__ == "__main__":

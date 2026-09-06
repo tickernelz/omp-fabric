@@ -30,16 +30,27 @@ Per (task, config, rep) cell:
 
 Configs:
 
-- `baseline` — clean stock OMP: `--no-skills --no-extensions`, isolated
-  `PI_CODING_AGENT_DIR` with only the `openai-codex` OAuth entry
+- `baseline` — stock OMP with no extension
 - `fabric-local` — this repo (`-e <repo root>`), what ships right now
-- `fabric-<version>` — vendored published package (e.g. `pi-fabric@0.25.6`,
+- `fabric-<version>` — vendored published package (e.g. `omp-fabric@0.25.6`,
   the version benchmarked in the trajectories repo)
 
-Every arm shares `--no-rules`. OMP exposes no switch for project context files
-(`AGENTS.md` and friends), so a task repo's context files reach baseline and
-fabric arms alike; the paired comparison stays valid but the arms are not
-context-free.
+Every arm shares `--no-rules --no-skills --no-extensions`, so neither arm can
+pick up the caller's rules, skills, or globally installed extensions; the fabric
+arms load their extension through an explicit `-e` path, which those switches
+do not block. OMP exposes no switch for project context files (`AGENTS.md` and
+friends), so a task repo's context files reach baseline and fabric arms alike;
+the paired comparison stays valid but the arms are not context-free.
+
+Model selection is inherited from OMP rather than pinned in the harness:
+
+    BENCH_OMP_CONFIG   extra config.yml overlay passed to --config
+    BENCH_MODEL        explicit model id; empty means whatever OMP resolves
+    BENCH_THINKING     thinking level, default low
+    BENCH_AGENT_DIR    opt-in isolated PI_CODING_AGENT_DIR; needs its own credentials
+    BENCH_RATE_INPUT / BENCH_RATE_CACHED / BENCH_RATE_OUTPUT
+                       per-million USD rates, used only when the session records
+                       carry no provider-reported cost
 
 ## Run
 
@@ -57,11 +68,15 @@ Harbor task images and separate verifier environment. Keep sibling checkouts of
 `datacurve-ai/deep-swe` and `datacurve-ai/pier`, Docker running, and OMP
 credentials in the active agent dir.
 
-The Pier and matrix harnesses are not operational as shipped. OMP keeps
-credentials in `agent.db` rather than the `auth.json` these scripts were
-written against, so the isolated agent dir has no credential-isolation
-strategy and both entry points stop with instructions instead of running.
-Pick one of the two documented approaches before using them.
+The Pier harness is not operational as shipped: it still stops on the
+credential-isolation stub described below. The local matrix runs.
+
+Credentials are no longer extracted or copied. Cells inherit the caller's agent
+dir, so providers resolve exactly as they do in an interactive session, and the
+arms are kept comparable with flags instead of a stripped directory. Set
+`BENCH_AGENT_DIR` to opt into an isolated `PI_CODING_AGENT_DIR`; that directory
+then needs its own authenticated `agent.db`. The Pier entry point still holds
+the older stub and must be given the same treatment before it can run.
 
     PIER_ENVIRONMENT=modal ./run-deepswe-pier.sh bandit-interprocedural-taint-checks baseline
     PIER_ENVIRONMENT=modal ./run-deepswe-pier.sh bandit-interprocedural-taint-checks fabric-local
@@ -87,7 +102,11 @@ whole-file reads, model-visible result volume, and results over 50 KB. Pass addi
 
 Notes:
 
-- Model is pinned to `openai-codex/gpt-5.6-sol` at thinking `low`, matching
-  the trajectories benchmark.
-- Run cells serially: the codex OAuth token is shared and refresh writes race.
+- The trajectories benchmark used `openai-codex/gpt-5.6-sol` at thinking `low`;
+  reproduce it by setting `BENCH_MODEL` to that id. `result.json` records the
+  model the session actually used, not the requested one.
+- `combined_cost_usd` uses the provider-reported cost when the session records
+  carry one, and the `BENCH_RATE_*` rates otherwise; `cost_source` says which.
+- Run cells serially: shared provider rate limits, and OAuth-backed providers
+  also race on refresh writes.
 - `results/`, `.cache/`, `.runtime/` (if any) and `vendor/` are git-ignored.

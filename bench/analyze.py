@@ -57,7 +57,7 @@ def read_metrics(cell, is_fabric):
                 args = item.get("arguments", {}) or {}
                 if not is_fabric and name == "read":
                     reads += 1
-                    if not args.get("offset") and not args.get("limit"):
+                    if "offset" not in args and "limit" not in args:
                         whole += 1
             if msg.get("role") == "toolResult":
                 text = "".join(

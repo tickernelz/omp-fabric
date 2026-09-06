@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Orchestrate a benchmark run: isolated agent dir, optional vendored old fabric,
-# then cells per (task, config, rep). Serial by default to avoid OAuth refresh
-# races on the shared codex token.
+# Orchestrate a benchmark run: optional vendored old fabric, then cells per
+# (task, config, rep). Serial by default so rate-limited providers see one
+# in-flight agent at a time.
 #
 # Usage:
 #   run-matrix.sh [--run-id ID] [--tasks slug,slug] [--configs a,b] [--reps N] [--vendor omp-fabric@0.25.6]
-set -u
+set -euo pipefail
 BENCH="$(cd "$(dirname "$0")" && pwd)"
 RUN_ID="run-$(date +%Y%m%d-%H%M%S)"
 TASKS=""
@@ -45,29 +45,17 @@ if [[ -n "$VENDOR_PKG" ]]; then
   echo "vendored $VENDOR_PKG at $DEST/node_modules/$PKG_NAME"
 fi
 
-# --- isolated agent dir ---
-AGENT_DIR="$BENCH/results/$RUN_ID/agent"
-mkdir -p "$AGENT_DIR"
-python3 - "$AGENT_DIR" <<'PYEOF'
-import json, os, sys
-dst = sys.argv[1]
-source_dir = os.path.expanduser(os.environ.get("PI_CODING_AGENT_DIR", "~/.omp/agent"))
-store = os.path.join(source_dir, "agent.db")
-if not os.path.exists(store):
-    raise SystemExit(f"no OMP credential store at {store}")
-if not os.path.exists(os.path.join(dst, "agent.db")):
-    raise SystemExit(
-        "this harness has no credential-isolation strategy yet.\n"
-        + """OMP stores credentials in agent.db, not auth.json (removed upstream), so the
-Pi-era single-entry extraction is impossible. Choose one and wire it here:
-  1. omp --profile <name>  (host-native isolation for auth/sessions/settings/caches)
-  2. copy the whole credential store with 'sqlite3 <src> "VACUUM INTO <dst>"'
-     (consistent single file, no -wal/-shm siblings; copies every provider)"""
-    )
-json.dump({"defaultModel": "gpt-5.6-sol", "defaultThinkingLevel": "low"},
-          open(os.path.join(dst, "settings.json"), "w"), indent=2)
-print("agent dir prepared:", dst)
-PYEOF
+# --- agent dir ---
+AGENT_DIR=${BENCH_AGENT_DIR:--}
+if [[ "$AGENT_DIR" != "-" ]]; then
+  mkdir -p "$AGENT_DIR"
+  if [[ ! -f "$AGENT_DIR/agent.db" ]]; then
+    echo "BENCH_AGENT_DIR=$AGENT_DIR has no agent.db; authenticate it first with:" >&2
+    echo "  PI_CODING_AGENT_DIR=$AGENT_DIR omp auth login" >&2
+    exit 2
+  fi
+fi
+mkdir -p "$BENCH/results/$RUN_ID"
 
 # --- task list ---
 if [[ -z "$TASKS" ]]; then

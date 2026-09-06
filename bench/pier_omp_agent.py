@@ -1,198 +1,214 @@
 from __future__ import annotations
 
 import json
+import os
 import shlex
+from functools import cache
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from pier.agents.installed.base import BaseInstalledAgent, with_prompt_template
-from pier.environments.base import BaseEnvironment
-from pier.models.agent.context import AgentContext
-from pier.models.agent.install import AgentInstallSpec, InstallStep
-from pier.models.agent.network import NetworkAllowlist
+if TYPE_CHECKING:
+    from pier.environments.base import BaseEnvironment
+    from pier.models.agent.context import AgentContext
+
+DEFAULT_OMP_VERSION = os.environ.get("OMP_BENCH_VERSION") or "18.1.10"
 
 
-class OMPCodingAgent(BaseInstalledAgent):
-    """OMP adapter for paired OMP core and local omp-fabric DeepSWE trials."""
+@cache
+def _omp_coding_agent_class() -> type:
+    from pier.agents.installed.base import BaseInstalledAgent, with_prompt_template
+    from pier.models.agent.install import AgentInstallSpec, InstallStep
+    from pier.models.agent.network import NetworkAllowlist
 
-    SUPPORTS_ATIF = False
+    class OMPCodingAgent(BaseInstalledAgent):
+        """OMP adapter for paired OMP core and local omp-fabric DeepSWE trials."""
 
-    def __init__(
-        self,
-        *args: Any,
-        omp_agent_dir: str,
-        fabric_package_path: str | None = None,
-        thinking_level: str = "low",
-        omp_version: str = "18.1.10",
-        **kwargs: Any,
-    ) -> None:
-        self._omp_agent_dir = Path(omp_agent_dir).resolve()
-        self._fabric_package_path = (
-            Path(fabric_package_path).resolve() if fabric_package_path else None
-        )
-        self._thinking_level = thinking_level
-        self._omp_version = omp_version
-        self._session_logs_dir: Path | None = None
-        if not (self._omp_agent_dir / "agent.db").is_file():
-            raise ValueError(
-                f"OMP credential store (agent.db) not found under {self._omp_agent_dir}"
+        SUPPORTS_ATIF = False
+
+        def __init__(
+            self,
+            *args: Any,
+            omp_agent_dir: str,
+            fabric_package_path: str | None = None,
+            thinking_level: str = "low",
+            omp_version: str = DEFAULT_OMP_VERSION,
+            **kwargs: Any,
+        ) -> None:
+            self._omp_agent_dir = Path(omp_agent_dir).resolve()
+            self._fabric_package_path = (
+                Path(fabric_package_path).resolve() if fabric_package_path else None
             )
-        if self._fabric_package_path and not self._fabric_package_path.is_file():
-            raise ValueError(
-                f"omp-fabric package not found: {self._fabric_package_path}"
-            )
-        super().__init__(*args, version=omp_version, **kwargs)
-
-    @staticmethod
-    def name() -> str:
-        return "omp"
-
-    def get_version_command(self) -> str | None:
-        return "omp --version"
-
-    def network_allowlist(self) -> NetworkAllowlist:
-        return NetworkAllowlist(
-            domains=[
-                "api.openai.com",
-                "auth.openai.com",
-                "chatgpt.com",
-            ]
-        )
-
-    def install_spec(self) -> AgentInstallSpec:
-        package = f"@oh-my-pi/pi-coding-agent@{self._omp_version}"
-        return AgentInstallSpec(
-            agent_name=self.name(),
-            version=self._omp_version,
-            steps=[
-                InstallStep(
-                    user="root",
-                    run=(
-                        "set -euo pipefail; "
-                        "if ! command -v npm >/dev/null; then "
-                        "  echo 'OMP requires Node.js and npm' >&2; exit 1; "
-                        "fi; "
-                        "if ! command -v rg >/dev/null; then "
-                        "  if command -v apt-get >/dev/null; then "
-                        "    apt-get update && apt-get install -y ripgrep; "
-                        "  elif command -v apk >/dev/null; then apk add --no-cache ripgrep; "
-                        "  elif command -v yum >/dev/null; then yum install -y ripgrep; "
-                        "  else echo 'OMP requires ripgrep' >&2; exit 1; fi; "
-                        "fi; "
-                        f"npm install -g --ignore-scripts {shlex.quote(package)}; "
-                        "omp --version"
-                    ),
+            self._thinking_level = thinking_level
+            self._omp_version = omp_version
+            self._session_logs_dir: Path | None = None
+            if not (self._omp_agent_dir / "agent.db").is_file():
+                raise ValueError(
+                    f"OMP credential store (agent.db) not found under {self._omp_agent_dir}"
                 )
-            ],
-            verification_command="omp --version",
-        )
+            if self._fabric_package_path and not self._fabric_package_path.is_file():
+                raise ValueError(
+                    f"omp-fabric package not found: {self._fabric_package_path}"
+                )
+            super().__init__(*args, version=omp_version, **kwargs)
 
-    async def setup(self, environment: BaseEnvironment) -> None:
-        await super().setup(environment)
-        await environment.upload_dir(self._omp_agent_dir, "/tmp/omp-agent")
-        ownership = ""
-        if environment.default_user is not None:
-            user = shlex.quote(str(environment.default_user))
-            ownership = f"chown -R {user} /tmp/omp-agent; "
-        await self.exec_as_root(
-            environment,
-            command=(
-                ownership
-                + "chmod 700 /tmp/omp-agent; "
-                + "find /tmp/omp-agent -type f -exec chmod 600 {} +"
-            ),
-        )
-        await self.exec_as_agent(
-            environment,
-            command=(
-                "git -C /app config user.name 'OMP Agent'; "
-                "git -C /app config user.email 'omp-agent@localhost'"
-            ),
-        )
-        if self._fabric_package_path:
-            await environment.upload_file(
-                self._fabric_package_path, "/tmp/omp-fabric.tgz"
+        @staticmethod
+        def name() -> str:
+            return "omp"
+
+        def get_version_command(self) -> str | None:
+            return "omp --version"
+
+        def network_allowlist(self) -> NetworkAllowlist:
+            return NetworkAllowlist(
+                domains=[
+                    "api.openai.com",
+                    "auth.openai.com",
+                    "chatgpt.com",
+                ]
             )
+
+        def install_spec(self) -> AgentInstallSpec:
+            package = f"@oh-my-pi/pi-coding-agent@{self._omp_version}"
+            return AgentInstallSpec(
+                agent_name=self.name(),
+                version=self._omp_version,
+                steps=[
+                    InstallStep(
+                        user="root",
+                        run=(
+                            "set -euo pipefail; "
+                            "if ! command -v npm >/dev/null; then "
+                            "  echo 'OMP requires Node.js and npm' >&2; exit 1; "
+                            "fi; "
+                            "if ! command -v rg >/dev/null; then "
+                            "  if command -v apt-get >/dev/null; then "
+                            "    apt-get update && apt-get install -y ripgrep; "
+                            "  elif command -v apk >/dev/null; then apk add --no-cache ripgrep; "
+                            "  elif command -v yum >/dev/null; then yum install -y ripgrep; "
+                            "  else echo 'OMP requires ripgrep' >&2; exit 1; fi; "
+                            "fi; "
+                            f"npm install -g --ignore-scripts {shlex.quote(package)}; "
+                            "omp --version"
+                        ),
+                    )
+                ],
+                verification_command="omp --version",
+            )
+
+        async def setup(self, environment: BaseEnvironment) -> None:
+            await super().setup(environment)
+            await environment.upload_dir(self._omp_agent_dir, "/tmp/omp-agent")
+            ownership = ""
+            if environment.default_user is not None:
+                user = shlex.quote(str(environment.default_user))
+                ownership = f"chown -R {user} /tmp/omp-agent; "
             await self.exec_as_root(
                 environment,
-                command="npm install -g --ignore-scripts /tmp/omp-fabric.tgz",
+                command=(
+                    ownership
+                    + "chmod 700 /tmp/omp-agent; "
+                    + "find /tmp/omp-agent -type f -exec chmod 600 {} +"
+                ),
             )
-
-    @with_prompt_template
-    async def run(
-        self,
-        instruction: str,
-        environment: BaseEnvironment,
-        context: AgentContext,
-    ) -> None:
-        if not self.model_name:
-            raise ValueError("OMP agent requires model_name")
-        remote_session_dir = "/tmp/omp-session"
-        local_session_dir = self.logs_dir / "omp-session"
-        self._session_logs_dir = local_session_dir
-        extension_flags = ""
-        if self._fabric_package_path:
-            extension_flags = '-e "$(npm root -g)/omp-fabric"'
-        else:
-            extension_flags = "--no-skills --no-extensions"
-        command = " ".join(
-            [
-                "mkdir -p /tmp/omp-session /logs/agent;",
-                "PI_CODING_AGENT_DIR=/tmp/omp-agent",
-                "omp --print",
-                f"--thinking {shlex.quote(self._thinking_level)}",
-                f"--model {shlex.quote(self.model_name)}",
-                f"--session-dir {remote_session_dir}",
-                "--no-rules",
-                extension_flags,
-                shlex.quote(instruction),
-                "2>&1 </dev/null | tee /logs/agent/omp.txt",
-            ]
-        )
-        try:
             await self.exec_as_agent(
                 environment,
-                command=command,
-                env=self.build_process_env(
-                    {"PI_CODING_AGENT_DIR": "/tmp/omp-agent"}
+                command=(
+                    "git -C /app config user.name 'OMP Agent'; "
+                    "git -C /app config user.email 'omp-agent@localhost'"
                 ),
-                cwd="/app",
             )
-        finally:
-            try:
-                await environment.download_dir(
-                    remote_session_dir, local_session_dir
+            if self._fabric_package_path:
+                await environment.upload_file(
+                    self._fabric_package_path, "/tmp/omp-fabric.tgz"
                 )
-            except Exception as exc:
-                self.logger.warning("Failed to download OMP session: %s", exc)
+                await self.exec_as_root(
+                    environment,
+                    command="npm install -g --ignore-scripts /tmp/omp-fabric.tgz",
+                )
 
-    def populate_context_post_run(self, context: AgentContext) -> None:
-        if not self._session_logs_dir or not self._session_logs_dir.exists():
-            return
-        metrics = collect_omp_session_metrics(self._session_logs_dir)
-        context.n_input_tokens = metrics["input_tokens"]
-        context.n_cache_tokens = metrics["cache_tokens"]
-        context.n_output_tokens = metrics["output_tokens"]
-        context.cost_usd = metrics["cost_usd"]
-        context.peak_context_tokens = metrics["peak_context_tokens"]
-        context.summarization_count = metrics["summarization_count"]
-        context.n_agent_steps = metrics["assistant_turns"]
-        context.metadata = {
-            "combined_total_tokens": metrics["combined_total_tokens"],
-            "fresh_input_tokens": metrics["fresh_input_tokens"],
-            "outer_tool_calls": metrics["outer_tool_calls"],
-            "outer_calls_by_name": metrics["outer_calls_by_name"],
-            "nested_tool_calls": metrics["nested_tool_calls"],
-            "nested_calls_by_ref": metrics["nested_calls_by_ref"],
-            "fabric_failures": metrics["fabric_failures"],
-            "same_file_extra_edits": metrics["same_file_extra_edits"],
-            "model_visible_result_chars": metrics["model_visible_result_chars"],
-            "max_result_chars": metrics["max_result_chars"],
-            "whole_file_reads": metrics["whole_file_reads"],
-            "bounded_reads": metrics["bounded_reads"],
-            "results_over_50kb": metrics["results_over_50kb"],
-            "fabric_enabled": self._fabric_package_path is not None,
-        }
+        @with_prompt_template
+        async def run(
+            self,
+            instruction: str,
+            environment: BaseEnvironment,
+            context: AgentContext,
+        ) -> None:
+            if not self.model_name:
+                raise ValueError("OMP agent requires model_name")
+            remote_session_dir = "/tmp/omp-session"
+            local_session_dir = self.logs_dir / "omp-session"
+            self._session_logs_dir = local_session_dir
+            extension_flags = ""
+            if self._fabric_package_path:
+                extension_flags = '-e "$(npm root -g)/omp-fabric"'
+            else:
+                extension_flags = "--no-skills --no-extensions"
+            command = " ".join(
+                [
+                    "mkdir -p /tmp/omp-session /logs/agent;",
+                    "PI_CODING_AGENT_DIR=/tmp/omp-agent",
+                    "omp --print",
+                    f"--thinking {shlex.quote(self._thinking_level)}",
+                    f"--model {shlex.quote(self.model_name)}",
+                    f"--session-dir {remote_session_dir}",
+                    "--no-rules",
+                    extension_flags,
+                    shlex.quote(instruction),
+                    "2>&1 </dev/null | tee /logs/agent/omp.txt",
+                ]
+            )
+            try:
+                await self.exec_as_agent(
+                    environment,
+                    command=command,
+                    env=self.build_process_env(
+                        {"PI_CODING_AGENT_DIR": "/tmp/omp-agent"}
+                    ),
+                    cwd="/app",
+                )
+            finally:
+                try:
+                    await environment.download_dir(
+                        remote_session_dir, local_session_dir
+                    )
+                except Exception as exc:
+                    self.logger.warning("Failed to download OMP session: %s", exc)
+
+        def populate_context_post_run(self, context: AgentContext) -> None:
+            if not self._session_logs_dir or not self._session_logs_dir.exists():
+                return
+            metrics = collect_omp_session_metrics(self._session_logs_dir)
+            context.n_input_tokens = metrics["input_tokens"]
+            context.n_cache_tokens = metrics["cache_tokens"]
+            context.n_output_tokens = metrics["output_tokens"]
+            context.cost_usd = metrics["cost_usd"]
+            context.peak_context_tokens = metrics["peak_context_tokens"]
+            context.summarization_count = metrics["summarization_count"]
+            context.n_agent_steps = metrics["assistant_turns"]
+            context.metadata = {
+                "combined_total_tokens": metrics["combined_total_tokens"],
+                "fresh_input_tokens": metrics["fresh_input_tokens"],
+                "outer_tool_calls": metrics["outer_tool_calls"],
+                "outer_calls_by_name": metrics["outer_calls_by_name"],
+                "nested_tool_calls": metrics["nested_tool_calls"],
+                "nested_calls_by_ref": metrics["nested_calls_by_ref"],
+                "fabric_failures": metrics["fabric_failures"],
+                "same_file_extra_edits": metrics["same_file_extra_edits"],
+                "model_visible_result_chars": metrics["model_visible_result_chars"],
+                "max_result_chars": metrics["max_result_chars"],
+                "whole_file_reads": metrics["whole_file_reads"],
+                "bounded_reads": metrics["bounded_reads"],
+                "results_over_50kb": metrics["results_over_50kb"],
+                "fabric_enabled": self._fabric_package_path is not None,
+            }
+
+    return OMPCodingAgent
+
+
+def __getattr__(name: str) -> Any:
+    if name == "OMPCodingAgent":
+        return _omp_coding_agent_class()
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 def collect_omp_session_metrics(session_dir: Path) -> dict[str, Any]:

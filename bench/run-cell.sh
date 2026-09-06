@@ -5,7 +5,7 @@
 #
 # Usage: run-cell.sh <task-dir> <config> <rep> <cell-out-dir> <agent-dir>
 #   config: baseline | fabric-local | fabric-0.25.6
-#   agent-dir: isolated PI_CODING_AGENT_DIR (auth + settings) prepared by run-matrix.sh
+#   agent-dir: isolated PI_CODING_AGENT_DIR, or "-" to inherit the caller's
 set -u
 
 TASK_DIR="$1"
@@ -41,10 +41,19 @@ git -C "$WORKDIR" branch -f main "$BASE_REF" 2>/dev/null || true
 git -C "$WORKDIR" checkout --quiet "$BASE_REF"
 
 # --- config flags ---
-COMMON_FLAGS=(--print --thinking low --model openai-codex/gpt-5.6-sol --session-dir "$CELL/session-store" --no-rules)
+BENCH_MODEL=${BENCH_MODEL:-}
+BENCH_THINKING=${BENCH_THINKING:-low}
+BENCH_OMP_CONFIG=${BENCH_OMP_CONFIG:-}
+COMMON_FLAGS=(--print --thinking "$BENCH_THINKING" --session-dir "$CELL/session-store" --no-rules --no-skills --no-extensions)
+if [[ -n "$BENCH_MODEL" ]]; then
+  COMMON_FLAGS+=(--model "$BENCH_MODEL")
+fi
+if [[ -n "$BENCH_OMP_CONFIG" ]]; then
+  COMMON_FLAGS+=(--config "$BENCH_OMP_CONFIG")
+fi
 case "$CONFIG" in
   baseline)
-    CFG_FLAGS=(--no-skills --no-extensions)
+    CFG_FLAGS=()
     ;;
   fabric-local)
     CFG_FLAGS=(-e "$REPO_ROOT")
@@ -66,11 +75,16 @@ case "$CONFIG" in
 esac
 
 # --- agent run with watchdog timeout (macOS lacks GNU timeout) ---
-cd "$WORKDIR"
+cd "$WORKDIR" || { echo "cannot enter workdir: $WORKDIR" >&2; exit 1; }
 START=$(python3 -c 'import time;print(time.time())')
 PROMPT="$(cat "$TASK_DIR/prompt.txt")"
+if [[ "$AGENT_DIR" == "-" ]]; then
+  AGENT_DIR_ENV=()
+else
+  AGENT_DIR_ENV=(env "PI_CODING_AGENT_DIR=$AGENT_DIR")
+fi
 (
-  PI_CODING_AGENT_DIR="$AGENT_DIR" omp "${COMMON_FLAGS[@]}" "${CFG_FLAGS[@]}" "$PROMPT" \
+  "${AGENT_DIR_ENV[@]}" omp "${COMMON_FLAGS[@]}" "${CFG_FLAGS[@]}" "$PROMPT" \
     >"$CELL/logs/omp.stdout.txt" 2>"$CELL/logs/omp.stderr.txt" &
   AGENT_PID=$!
   ( sleep "$AGENT_TIMEOUT"; kill -TERM $AGENT_PID 2>/dev/null; sleep 20; kill -KILL $AGENT_PID 2>/dev/null ) &
@@ -91,10 +105,12 @@ git -C "$WORKDIR" diff --cached "$BASE_REF" -- . ':(exclude)vendor/**' ':(exclud
 (git -C "$WORKDIR" ls-files --cached -- 'vendor/*' '*/node_modules/*' | sed -e 's/.*/[vendored dependency paths omitted from patch]/' | head -1 >> "$CELL/artifacts/model.patch" 2>/dev/null) || true
 
 # --- metrics from session jsonl ---
-python3 - "$CELL" "$WALL" <<'PYEOF'
+python3 - "$CELL" "$WALL" "$BENCH_THINKING" "$BENCH_MODEL" <<'PYEOF'
 import json, glob, os, sys
 cell, wall = sys.argv[1], float(sys.argv[2])
+thinking, requested_model = sys.argv[3], sys.argv[4]
 turns = 0; tool_calls = 0
+models = []
 tot = {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "totalTokens": 0}
 cost_seen = 0.0
 for f in glob.glob(os.path.join(cell, "session", "*.jsonl")):
@@ -107,6 +123,9 @@ for f in glob.glob(os.path.join(cell, "session", "*.jsonl")):
         if msg.get("role") != "assistant":
             continue
         turns += 1
+        seen_model = msg.get("model") or rec.get("model")
+        if seen_model and seen_model not in models:
+            models.append(seen_model)
         u = msg.get("usage") or {}
         for k in tot:
             tot[k] += int(u.get(k) or 0)
@@ -115,16 +134,22 @@ for f in glob.glob(os.path.join(cell, "session", "*.jsonl")):
         for item in msg.get("content", []):
             if isinstance(item, dict) and item.get("type") == "toolCall":
                 tool_calls += 1
-# GPT-5.6 Sol recorded rates (from the trajectories issue): $5/M fresh input,
-# $0.50/M cached input, $30/M output. Cached = cacheRead; cacheWrite billed fresh.
-RATES = {"input": 5.0, "cached": 0.50, "output": 30.0}
+RATES = {
+    "input": float(os.environ.get("BENCH_RATE_INPUT", 5.0)),
+    "cached": float(os.environ.get("BENCH_RATE_CACHED", 0.50)),
+    "output": float(os.environ.get("BENCH_RATE_OUTPUT", 30.0)),
+}
 fresh = tot["input"] + tot["cacheWrite"]
-cost = (fresh * RATES["input"] + tot["cacheRead"] * RATES["cached"] + tot["output"] * RATES["output"]) / 1e6
+estimated = (fresh * RATES["input"] + tot["cacheRead"] * RATES["cached"] + tot["output"] * RATES["output"]) / 1e6
+cost = cost_seen if cost_seen else estimated
 patch_path = os.path.join(cell, "artifacts", "model.patch")
 patch_bytes = os.path.getsize(patch_path) if os.path.exists(patch_path) else 0
 result = {
-    "model": "openai-codex/gpt-5.6-sol",
-    "thinking_level": "low",
+    "model": models[0] if models else (requested_model or "unresolved"),
+    "models_seen": models,
+    "thinking_level": thinking,
+    "cost_source": "reported" if cost_seen else "estimated",
+    "cost_usd_estimated": round(estimated, 4),
     "combined_total_tokens": tot["totalTokens"],
     "tokens_fresh_input": fresh,
     "tokens_cached_input": tot["cacheRead"],
