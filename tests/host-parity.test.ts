@@ -117,9 +117,9 @@ describe("host parity", () => {
     delete process.env.OMP_FABRIC_AGENT_DIR;
     expect(resolveAgentDir()).toBe(getAgentDir());
 
-    setAgentDir("/tmp/omp-agent-parity");
+    setAgentDir(path.resolve(os.tmpdir(), "omp-agent-parity"));
     expect(resolveAgentDir()).toBe(getAgentDir());
-    expect(resolveAgentDir()).toBe("/tmp/omp-agent-parity");
+    expect(resolveAgentDir()).toBe(path.resolve(os.tmpdir(), "omp-agent-parity"));
   });
 
   it("expands a leading tilde in the Fabric agent-dir override", () => {

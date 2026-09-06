@@ -58,7 +58,7 @@ describe("script runtime resolution", () => {
       execPath: "/usr/local/bin/omp",
       env: { PATH: process.env.PATH ?? "" },
     });
-    expect(["node", "bun"]).toContain(path.basename(runtime).replace(/\.exe$/, ""));
+    expect(["node", "bun"]).toContain(path.basename(runtime).toLowerCase().replace(/\.(exe|cmd|bat|com)$/, ""));
     expect(path.isAbsolute(runtime)).toBe(true);
   });
 
