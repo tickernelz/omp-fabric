@@ -16,11 +16,18 @@ import {
 const root = fs.mkdtempSync(path.join(os.tmpdir(), "fabric-runtime-"));
 afterAll(() => fs.rmSync(root, { recursive: true, force: true }));
 
+const runtimeExtension = process.platform === "win32" ? ".EXE" : "";
+
+const runtimeFile = (name: string): string => `${name}${runtimeExtension}`;
+
+const pathEnv = (directory: string): NodeJS.ProcessEnv =>
+  runtimeExtension ? { PATH: directory, PATHEXT: runtimeExtension } : { PATH: directory };
+
 const binDirectory = (name: string, runtimes: string[]): string => {
   const directory = path.join(root, name);
   fs.mkdirSync(directory, { recursive: true });
   for (const runtime of runtimes) {
-    const file = path.join(directory, runtime);
+    const file = path.join(directory, runtimeFile(runtime));
     fs.writeFileSync(file, "#!/bin/sh\nexit 0\n");
     fs.chmodSync(file, 0o755);
   }
@@ -32,24 +39,25 @@ const nodeOnlyOnPath = binDirectory("node-only", ["node"]);
 
 describe("script runtime resolution", () => {
   it("prefers bun over node when both are on PATH", async () => {
-    const env = { PATH: bothOnPath };
+    const env = pathEnv(bothOnPath);
     const execPath = "/usr/local/bin/omp";
-    expect(resolveScriptRuntimeSync({ execPath, env })).toBe(path.join(bothOnPath, "bun"));
-    expect(await resolveScriptRuntime({ execPath, env })).toBe(path.join(bothOnPath, "bun"));
+    const bun = path.join(bothOnPath, runtimeFile("bun"));
+    expect(resolveScriptRuntimeSync({ execPath, env })).toBe(bun);
+    expect(await resolveScriptRuntime({ execPath, env })).toBe(bun);
   });
 
   it("prefers a bun on PATH over a node process.execPath", async () => {
-    const env = { PATH: bothOnPath };
+    const env = pathEnv(bothOnPath);
     expect(resolveScriptRuntimeSync({ execPath: "/usr/local/bin/node", env })).toBe(
-      path.join(bothOnPath, "bun"),
+      path.join(bothOnPath, runtimeFile("bun")),
     );
     expect(await resolveScriptRuntime({ execPath: "/usr/local/bin/node", env })).toBe(
-      path.join(bothOnPath, "bun"),
+      path.join(bothOnPath, runtimeFile("bun")),
     );
   });
 
   it("reuses process.execPath when it is already bun", async () => {
-    const env = { PATH: bothOnPath };
+    const env = pathEnv(bothOnPath);
     expect(resolveScriptRuntimeSync({ execPath: "/usr/local/bin/bun", env })).toBe(
       "/usr/local/bin/bun",
     );
@@ -59,9 +67,9 @@ describe("script runtime resolution", () => {
   });
 
   it("falls back to node when no bun is available", async () => {
-    const env = { PATH: nodeOnlyOnPath };
+    const env = pathEnv(nodeOnlyOnPath);
     expect(resolveScriptRuntimeSync({ execPath: "/usr/local/bin/omp", env })).toBe(
-      path.join(nodeOnlyOnPath, "node"),
+      path.join(nodeOnlyOnPath, runtimeFile("node")),
     );
     expect(resolveScriptRuntimeSync({ execPath: "/usr/local/bin/node", env })).toBe(
       "/usr/local/bin/node",
@@ -71,7 +79,7 @@ describe("script runtime resolution", () => {
   it("lets OMP_FABRIC_NODE_BINARY win over every discovered runtime", async () => {
     const override = "/opt/custom/bun";
     for (const execPath of ["/usr/local/bin/omp", "/usr/local/bin/node", "/usr/local/bin/bun"]) {
-      const env = { PATH: bothOnPath, OMP_FABRIC_NODE_BINARY: override };
+      const env = { ...pathEnv(bothOnPath), OMP_FABRIC_NODE_BINARY: override };
       expect(resolveScriptRuntimeSync({ execPath, env })).toBe(override);
       expect(await resolveScriptRuntime({ execPath, env })).toBe(override);
     }
@@ -81,15 +89,15 @@ describe("script runtime resolution", () => {
     expect(
       resolveScriptRuntimeSync({
         execPath: "/usr/local/bin/omp",
-        env: { PATH: bothOnPath, OMP_FABRIC_NODE_BINARY: "   " },
+        env: { ...pathEnv(bothOnPath), OMP_FABRIC_NODE_BINARY: "   " },
       }),
-    ).toBe(path.join(bothOnPath, "bun"));
+    ).toBe(path.join(bothOnPath, runtimeFile("bun")));
   });
 
   it("keeps requiring node for the node-only executor even when bun is on PATH", () => {
     expect(
-      resolveScriptRuntimeSync({ execPath: "/usr/local/bin/omp", env: { PATH: bothOnPath }, requireNode: true }),
-    ).toBe(path.join(bothOnPath, "node"));
+      resolveScriptRuntimeSync({ execPath: "/usr/local/bin/omp", env: pathEnv(bothOnPath), requireNode: true }),
+    ).toBe(path.join(bothOnPath, runtimeFile("node")));
     expect(resolveScriptRuntimeSync({ execPath: "/usr/local/bin/node", requireNode: true })).toBe(
       "/usr/local/bin/node",
     );

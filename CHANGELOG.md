@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.0.3
+
+### Fixed
+
+- **Reads never paged on Windows.** The guard that decides whether a path is pageable scanned for the last colon in the whole path string, and a Windows drive designator is a colon, so `omp.read` stopped at the host's per-call line cap and reported the wrong reason for stopping. The drive root is now excluded from that scan on every platform. Windows users were getting the truncated reads that 1.0.0 set out to fix.
+- Three test files assumed a POSIX environment: a drive-letter path encoding, two bash fixtures that read `/dev/zero`, and PATH fixtures that Windows could not resolve. All three now run on both platforms with no skips.
+
 ## 1.0.2
 
 ### Fixed

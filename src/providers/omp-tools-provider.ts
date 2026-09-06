@@ -374,6 +374,10 @@ const countLines = (text: string): number => {
 
 const READ_SELECTOR_PATTERN = /:(raw:)?(\d+)(-(\d+)?)?$/i;
 const READ_RAW_SELECTOR_PATTERN = /:raw$/i;
+const WINDOWS_PATH_ROOT_PATTERN = /^(?:\\\\[?.]\\)?[A-Za-z]:(?=[\\/])/;
+
+const withoutWindowsRoot = (rawPath: string): string =>
+  rawPath.slice(WINDOWS_PATH_ROOT_PATTERN.exec(rawPath)?.[0].length ?? 0);
 
 type ReadTarget = { base: string; start: number; endLimit: number; pageable: boolean; selected: boolean };
 
@@ -398,8 +402,9 @@ const parseReadTarget = (rawPath: unknown): ReadTarget | undefined => {
       selected: true,
     };
   }
-  const lastColon = rawPath.lastIndexOf(":");
-  const suffix = lastColon === -1 ? "" : rawPath.slice(lastColon + 1);
+  const body = withoutWindowsRoot(rawPath);
+  const lastColon = body.lastIndexOf(":");
+  const suffix = lastColon === -1 ? "" : body.slice(lastColon + 1);
   const pageable = suffix.length === 0;
   return { base: rawPath, start: 1, endLimit: Number.POSITIVE_INFINITY, pageable, selected: false };
 };

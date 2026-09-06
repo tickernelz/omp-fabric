@@ -80,7 +80,9 @@ describe("project session directory naming", () => {
 
   it("keeps the wrapped absolute form only for paths outside home and tmp", () => {
     const outside = path.resolve(path.sep, "srv", "checkout", "project");
-    expect(sessionDirNamesForCwd(outside).canonical).toBe("--srv-checkout-project--");
+    const drive = /^([A-Za-z]):/.exec(outside)?.[1];
+    const wrapped = drive ? `--${drive}--srv-checkout-project--` : "--srv-checkout-project--";
+    expect(sessionDirNamesForCwd(outside).canonical).toBe(wrapped);
   });
 
   it("never returns the superseded wrapped form for a temp project", () => {

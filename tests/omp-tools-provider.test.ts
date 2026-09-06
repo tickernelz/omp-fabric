@@ -831,7 +831,7 @@ describe("OmpToolsProvider result fidelity", () => {
       async (registry) => {
         const result = (await registry.invoke(
           "omp.bash",
-          { command: "head -c 200000 /dev/zero | tr '\\0' 'Q'; echo" },
+          { command: "seq 1 100000 | tr -d '\\n' | head -c 200000; echo" },
           baseContext,
         )) as { output: string; details: Record<string, unknown> };
 
@@ -847,7 +847,7 @@ describe("OmpToolsProvider result fidelity", () => {
       async (registry) => {
         const result = (await registry.invoke(
           "omp.bash",
-          { command: "head -c 200000 /dev/zero | tr '\\0' 'Q'; echo" },
+          { command: "seq 1 100000 | tr -d '\\n' | head -c 200000; echo" },
           baseContext,
         )) as { output: string; details: Record<string, unknown> };
 
