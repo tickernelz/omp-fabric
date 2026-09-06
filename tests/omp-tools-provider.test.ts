@@ -261,6 +261,52 @@ describe("OmpToolsProvider lifecycle", () => {
     }
   });
 
+  it("returns every line of a long file to a guest read", async () => {
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-guest-read-lines-"));
+    const lines = Array.from({ length: 400 }, (_, index) => `line ${index + 1}`);
+    try {
+      fs.writeFileSync(path.join(cwd, "long.txt"), `${lines.join("\n")}\n`);
+      const registry = new ActionRegistry();
+      registry.register(new OmpToolsProvider(cwd, undefined, undefined));
+      const result = await registry.invoke(
+        "omp.read",
+        { path: "long.txt" },
+        { ...baseContext, cwd, extensionContext: { cwd } as ExtensionContext },
+      ) as string;
+
+      expect(result.split("\n").filter((line) => line.length > 0)).toHaveLength(400);
+      expect(result).toContain("line 400");
+    } finally {
+      fs.rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it("returns full-width lines to a guest read", async () => {
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-guest-read-width-"));
+    const line = "w".repeat(2005);
+    try {
+      fs.writeFileSync(
+        path.join(cwd, "wide.txt"),
+        `${Array.from({ length: 10 }, () => line).join("\n")}\n`,
+      );
+      const registry = new ActionRegistry();
+      registry.register(new OmpToolsProvider(cwd, undefined, undefined));
+      const result = await registry.invoke(
+        "omp.read",
+        { path: "wide.txt" },
+        { ...baseContext, cwd, extensionContext: { cwd } as ExtensionContext },
+      ) as string;
+
+      const returned = result.split("\n").filter((entry) => entry.length > 0);
+      expect(returned).toHaveLength(10);
+      expect(returned[0]).toHaveLength(2005);
+      expect(returned[9]).toHaveLength(2005);
+      expect(result).not.toContain("\u2026");
+    } finally {
+      fs.rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
   it("returns truncated Bash output once while preserving recovery metadata", async () => {
     const registry = new ActionRegistry();
     registry.register(new OmpToolsProvider(process.cwd(), undefined, undefined));

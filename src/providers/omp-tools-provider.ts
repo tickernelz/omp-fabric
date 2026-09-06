@@ -41,6 +41,7 @@ import { createPreviewWriteToolDefinition } from "./write-preview.js";
 import { readChildToolAllowlist } from "../core/child-tool-allowlist.js";
 
 const MAX_RENDERER_ARGUMENT_CHARS = 200_000;
+const GUEST_READ_LINE_LIMIT = 100_000;
 const MAX_REPLACE_ALL_FILE_CHARS = 2_000_000;
 const createNativeSession = (cwd: string, artifactPaths?: Map<string, string>): ToolSession => {
   const artifactRoot = artifactPaths
@@ -52,7 +53,11 @@ const createNativeSession = (cwd: string, artifactPaths?: Map<string, string>): 
     hasEditTool: false,
     getSessionFile: () => null,
     getSessionSpawns: () => null,
-    settings: Settings.isolated({ readLineNumbers: false }),
+    settings: Settings.isolated({
+      readLineNumbers: false,
+      "read.defaultLimit": GUEST_READ_LINE_LIMIT,
+      "tools.outputMaxColumns": 0,
+    }),
     ...(artifactRoot && artifactPaths
       ? {
           allocateOutputArtifact: async (toolType: string) => {
