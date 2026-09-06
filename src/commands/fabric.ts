@@ -208,7 +208,7 @@ export function registerFabricCommand(omp: ExtensionAPI, deps: FabricCommandDeps
     omp.on("session_shutdown", () => unsubscribePrewalkRequests());
   }
 
-  // Peer queuing protocol (used by omp-queue-steer): enumerate live peer root
+  // Peer queuing protocol (used by pi-queue-steer): enumerate live peer root
   // sessions and hold dispatch until they settle on the project mesh.
   const unsubscribePeerCards = omp.events?.on?.(FABRIC_PEER_CARDS_EVENT, (value) => {
     const request = readFabricPeerCardsRequestV1(value);

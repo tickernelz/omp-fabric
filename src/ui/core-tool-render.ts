@@ -625,7 +625,7 @@ const DIFF_REMOVED_CONTEXT_LINES = 512;
 
 /**
  * Resolve surviving compact-diff rows to their post-edit file positions.
- * pi numbers additions on the new side, but context and removals on the old
+ * OMP numbers additions on the new side, but context and removals on the old
  * side. Tracking the line delta is O(visible rows) and lets one existing
  * highlightFileLines request serve every matching row without extra I/O or
  * tokenization.

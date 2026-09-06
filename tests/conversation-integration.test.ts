@@ -274,7 +274,7 @@ afterEach(() => {
 describe("/fabric chat command routing", () => {
   const registerWithMockUi = () => {
     let handler: ((argumentsText: string, context: ExtensionContext) => Promise<void>) | undefined;
-    const pi = {
+    const omp = {
       registerCommand: vi.fn(
         (
           _name: string,
@@ -289,7 +289,7 @@ describe("/fabric chat command routing", () => {
       openDashboard: vi.fn().mockResolvedValue(undefined),
       openConversation: vi.fn().mockResolvedValue(undefined),
     } as unknown as FabricUiController;
-    registerFabricCommand(pi, {
+    registerFabricCommand(omp, {
       state,
       fabricUi,
       capturedTools: {} as CapturedToolCatalog,
@@ -334,7 +334,7 @@ describe("/fabric chat command routing", () => {
     const controller = new FabricUiController(state);
     controllers.push(controller);
     let shortcutHandler: ((context: ExtensionContext) => Promise<void>) | undefined;
-    const pi = {
+    const omp = {
       registerCommand: vi.fn(),
       registerShortcut: vi.fn(
         (_shortcut: string, definition: { handler: (context: ExtensionContext) => Promise<void> }) => {
@@ -342,14 +342,14 @@ describe("/fabric chat command routing", () => {
         },
       ),
     } as unknown as ExtensionAPI;
-    registerFabricCommand(pi, {
+    registerFabricCommand(omp, {
       state,
       fabricUi: controller,
       capturedTools: {} as CapturedToolCatalog,
       applyFabricMode: vi.fn(),
       suspendToolCapture: vi.fn(),
     });
-    expect(vi.mocked(pi.registerShortcut).mock.calls[0]?.[0]).toBe(FABRIC_CONVERSATION_SHORTCUT);
+    expect(vi.mocked(omp.registerShortcut).mock.calls[0]?.[0]).toBe(FABRIC_CONVERSATION_SHORTCUT);
 
     const harness = createHarness(state);
     const pending = shortcutHandler!(harness.context);
@@ -383,14 +383,14 @@ describe("/fabric chat command routing", () => {
     controller.start(context);
 
     let completions: ((prefix: string) => Array<{ value: string; label: string }> | null) | undefined;
-    const pi = {
+    const omp = {
       registerCommand: vi.fn((_name: string, definition: {
         getArgumentCompletions: typeof completions;
       }) => {
         completions = definition.getArgumentCompletions;
       }),
     } as unknown as ExtensionAPI;
-    registerFabricCommand(pi, {
+    registerFabricCommand(omp, {
       state,
       fabricUi: controller,
       capturedTools: {} as CapturedToolCatalog,

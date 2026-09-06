@@ -27,11 +27,19 @@ const textFromContent = (content: AgentToolResult<unknown>["content"]): string =
     .map((part) => part.text)
     .join("\n");
 
+const PACKAGE_SEGMENT = /^(?:omp|pi)-/;
+const SOURCE_DIRECTORIES: Record<string, true> = { src: true, dist: true, lib: true, build: true, esm: true, cjs: true };
+
 const sourceLabel = (sourceInfo: SourceInfo): string => {
   if (sourceInfo.path.startsWith("<")) return sourceInfo.source;
-  const segments = sourceInfo.path.split(/[\\/]/);
-  const packageSegment = [...segments].reverse().find((segment) => segment.startsWith("pi-"));
-  if (packageSegment) return packageSegment;
+  const segments = sourceInfo.path.split(/[\\/]/).slice(0, -1);
+  // Only the entry's own package directory names it, reached through any build
+  // directories it sits under; an ancestor container such as
+  // `omp-extensions/my-tool` must not outrank the package it holds.
+  let index = segments.length - 1;
+  while (index >= 0 && Object.hasOwn(SOURCE_DIRECTORIES, segments[index]!)) index -= 1;
+  const owning = index >= 0 ? segments[index] : undefined;
+  if (owning !== undefined && PACKAGE_SEGMENT.test(owning)) return owning;
   const filename = path.basename(sourceInfo.path).replace(/\.[^.]+$/, "");
   if (filename && filename !== "index") return filename;
   return path.basename(path.dirname(sourceInfo.path)) || sourceInfo.source;

@@ -14,7 +14,7 @@ export const fabricExecutionKernelGuidance = (fullCodeMode: boolean): string =>
 
 export const defaultFabricExecutionGuidance = (fullCodeMode: boolean): string =>
   fullCodeMode
-    ? "Examples and returns: `omp.read('/x')`, `omp.grep('TODO','src')` / `omp.grep({pattern:'TODO', path:'src', ignoreCase:true, context:2})`, `omp.find({pattern:'*.ts', path:'src', limit:20})`, and `omp.ls('src')` return strings; `omp.bash({cmd:'ls'})`, `omp.edit({path:'/x', old:'a', new:'b'})`, and `omp.write({path:'/y', text:'z'})` return `{ok, output, details}` (read `.output`); failed core calls reject, including shell tools on an ordinary nonzero exit; pass `settle: true` to `omp.bash` to get `{ ok: false, exitCode, output, error }` instead. Timeout, cancellation, approval, and security failures still reject.\n`tools` is discovery + generic calls only (`providers`/`catalog`/`list`/`search`/`describe`/`call`/`models`). Call known MCP tools as `mcp.<sanitized_server>.<sanitized_tool>(args)`, captured tools as `extensions.<tool>(args)`, and stable providers as `memory.*`, `state.*`, `schema.*`, or `compact.*`. Use `tools.call({ref,args})` for computed refs. `pi` is the core tools; `omp.<key>` reads named `strings` (not a tool)."
+    ? "Examples and returns: `omp.read('/x')`, `omp.grep('TODO','src')` / `omp.grep({pattern:'TODO', path:'src', ignoreCase:true, context:2})`, `omp.find({pattern:'*.ts', path:'src', limit:20})`, and `omp.ls('src')` return strings; `omp.bash({cmd:'ls'})`, `omp.edit({path:'/x', old:'a', new:'b'})`, and `omp.write({path:'/y', text:'z'})` return `{ok, output, details}` (read `.output`); failed core calls reject, including shell tools on an ordinary nonzero exit; pass `settle: true` to `omp.bash` to get `{ ok: false, exitCode, output, error }` instead. Timeout, cancellation, approval, and security failures still reject.\n`tools` is discovery + generic calls only (`providers`/`catalog`/`list`/`search`/`describe`/`call`/`models`). Call known MCP tools as `mcp.<sanitized_server>.<sanitized_tool>(args)`, captured tools as `extensions.<tool>(args)`, and stable providers as `memory.*`, `state.*`, `schema.*`, or `compact.*`. Use `tools.call({ref,args})` for computed refs. `omp` is the core tools; `omp.<key>` reads a named `payloads` value (not a tool)."
     : "Call known actions through `mcp.<sanitized_server>.<sanitized_tool>(args)`, `memory.*`, `state.*`, `schema.*`, `components.*`, `compact.*`, `agents.*`, or `mesh.*`; use `tools.catalog`/`search`/`describe`/`list` for discovery and `tools.call({ref,args})` for computed refs. Other surfaces are opt-in via user-loaded skills.";
 
 // Shape of CapturedToolCatalog entries this renderer needs (kept structural to avoid a runtime dependency on the capture layer from a guidance module).
@@ -24,7 +24,7 @@ export interface ExtensionRosterToolSource {
 }
 
 // Namespace labels come from the extension package's own identity: the
-// package.json `name` nearest the tool's source file, mirroring how pi names
+// package.json `name` nearest the tool's source file, mirroring how OMP names
 // npm-installed packages. Raw `source` strings are configured specifiers that
 // are often full relative paths, so they are only used when no manifest exists.
 const manifestNameCache = new Map<string, string | undefined>();
@@ -56,7 +56,7 @@ const packageNameFromManifest = (startPath: string | undefined): string | undefi
 // registered extension tools are invisible unless named up front (#69). The
 // roster stays names-only: descriptions and schemas are on demand through the
 // tools.list/search/describe discovery surface, so the standing prompt cost is
-// a bare name index. Core overrides are excluded: they surface as pi.* via
+// a bare name index. Core overrides are excluded: they surface as omp.* via
 // coreOverridePromptGuidance.
 export const extensionToolRosterGuidance = (
   tools: ReadonlyArray<ExtensionRosterToolSource>,

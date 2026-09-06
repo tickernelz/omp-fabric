@@ -52,13 +52,13 @@ describe("Fabric actor host events", () => {
 
   it("registers one asynchronous observer for every supported OMP event", () => {
     const handlers = new Map<string, (event: ExtensionEvent, context: ExtensionContext) => void>();
-    const pi = {
+    const omp = {
       on: vi.fn((event: string, handler: (event: ExtensionEvent, context: ExtensionContext) => void) => {
         handlers.set(event, handler);
       }),
     } as unknown as ExtensionAPI;
     const observer = vi.fn();
-    registerFabricActorHostEventObservers(pi, observer);
+    registerFabricActorHostEventObservers(omp, observer);
 
     expect([...handlers.keys()]).toEqual(FABRIC_ACTOR_OMP_HOST_EVENTS);
     const event = { type: "input", text: "inspect", source: "interactive" } as ExtensionEvent;

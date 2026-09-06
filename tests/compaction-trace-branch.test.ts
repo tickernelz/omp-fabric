@@ -308,10 +308,10 @@ describe("deterministic Fabric branch summaries", () => {
     }));
 
     let handler: ((event: SessionBeforeTreeEvent) => unknown) | undefined;
-    const pi = { on(name: string, candidate: unknown) {
+    const omp = { on(name: string, candidate: unknown) {
       if (name === "session_before_tree") handler = candidate as typeof handler;
     } } as unknown as ExtensionAPI;
-    registerCompactionHook(pi, { getEngine: () => "fabric" });
+    registerCompactionHook(omp, { getEngine: () => "fabric" });
     expect(handler).toBeDefined();
     const preparation = {
       targetId: "target",

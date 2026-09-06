@@ -135,7 +135,7 @@ export interface FabricRegistryInvocationContext extends FabricInvocationContext
 
 /**
  * Prefix omp-fabric prepends to every nested tool-call id it generates inside a
- * fabric_exec run (one per pi., mcp., or agents. invocation). Extensions can
+ * fabric_exec run (one per omp., mcp., or agents. invocation). Extensions can
  * detect that a tool_call/tool_result event came from a nested fabric call —
  * rather than a top-level call the LLM made directly — by checking
  * `event.toolCallId.startsWith(NESTED_TOOL_CALL_ID_PREFIX)`. The LLM's own

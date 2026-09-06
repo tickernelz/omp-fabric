@@ -443,7 +443,7 @@ export class OmpToolsProvider implements FabricProvider {
   }
 
   // Replay the agent-core tool-execution lifecycle for a nested omp.* call, so
-  // extensions that hook tool_call / tool_result / tool_execution_* see pi
+  // extensions that hook tool_call / tool_result / tool_execution_* see OMP
   // core tools invoked through fabric_exec in full-code mode — exactly as
   // they would for a top-level call in the normal (non-codemode) flow, and
   // exactly as CapturedToolsProvider already does for captured extension

@@ -16,7 +16,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
       - name: Install ripgrep
-        # pi's grep tool downloads rg on first use when it is absent; on shared
+        # OMP's grep tool downloads rg on first use when it is absent; on shared
         # runners that ad-hoc GitHub Releases download is rate-limited, so
         # provision rg on PATH up front to keep nested-grep tests hermetic.
         shell: bash

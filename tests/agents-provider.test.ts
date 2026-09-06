@@ -2139,7 +2139,7 @@ describe("AgentsProvider steering", async () => {
     await provider.invoke("stop", { id: handle.id }, context);
   });
 
-  it("compact enqueues a compact entry for a running pi child", async () => {
+  it("compact enqueues a compact entry for a running OMP child", async () => {
     const { provider, root } = setup();
     const handle = (await provider.invoke(
       "spawn",

@@ -238,7 +238,7 @@ describe("durable cwd validation", () => {
   });
 });
 
-// Known Windows limitation: cross-spawn of the pi binary through bun's
+// Known Windows limitation: cross-spawn of the omp binary through bun's
 // node_modules shims hangs before the child starts, so the launcher never
 // reaches its spawn trace. Durable residency E2E stays POSIX-only until that
 // spawn path is resolved; the launcher logic tests below run everywhere.

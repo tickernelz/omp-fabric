@@ -28,7 +28,7 @@ const captured = (name: string, snippet?: string, guidelines?: string[]): ToolDe
 });
 
 describe("core override prompt guidance", () => {
-  it("keeps authored metadata under the pi identity and ignores other captured tools", () => {
+  it("keeps authored metadata under the omp identity and ignores other captured tools", () => {
     const catalog = new CapturedToolCatalog();
     catalog.replace(
       [
@@ -78,7 +78,7 @@ describe("core override prompt guidance", () => {
 
   it("adds the live override guidance to the full-code before-agent prompt", async () => {
     const handlers = new Map<string, Array<(event: unknown, context: unknown) => unknown>>();
-    const pi = {
+    const omp = {
       events: { emit: vi.fn(), on: vi.fn(() => () => {}) },
       getActiveTools: vi.fn(() => ["fabric_exec"]),
       getAllTools: vi.fn(() => []),
@@ -109,7 +109,7 @@ describe("core override prompt guidance", () => {
     });
     try {
       const { default: ompFabric } = await import("../src/index.js");
-      await ompFabric(pi);
+      await ompFabric(omp);
       const handler = handlers.get("before_agent_start")?.[0];
       if (!handler) throw new Error("before_agent_start handler was not registered");
       const result = await handler({

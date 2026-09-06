@@ -488,7 +488,7 @@ export class FabricRuntimeState {
     const enforceSchema = this.#config.schema.mode === "enforce";
     const effectiveFullCodeMode = this.#config.fullCodeMode || enforceSchema;
     // Enforce keeps this provider private to the OMP adapter: core overrides
-    // still resolve through pi.* while the schema authorizer blocks protected
+    // still resolve through omp.* while the schema authorizer blocks protected
     // mutations and external effects. Do not expose the generic extensions.*
     // namespace in enforce mode.
     const capturedToolsProvider =

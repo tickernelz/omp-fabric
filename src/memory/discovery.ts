@@ -22,11 +22,11 @@ const SESSIONS_SUBDIR = "sessions";
 
 const isJsonlFile = (name: string): boolean => name.endsWith(".jsonl");
 
-/** Encode a cwd into the safe directory name pi stores session files under. */
+/** Encode a cwd into the safe directory name OMP stores session files under. */
 export const encodeCwdDir = (cwd: string): string =>
   `--${path.resolve(cwd).replace(/^[/\\]/, "").replace(/[/\\:]/g, "-")}--`;
 
-/** Directory pi stores this project's session JSONL files under. */
+/** Directory OMP stores this project's session JSONL files under. */
 export const sessionDirForCwd = (cwd: string, agentDir: string): string =>
   path.join(agentDir, SESSIONS_SUBDIR, encodeCwdDir(cwd));
 

@@ -6,8 +6,8 @@ import { classifyOmpBashError } from "../src/core/omp-bash-error.js";
 
 const options = { timeoutMs: 5_000, memoryLimitBytes: 32 * 1024 * 1024 };
 
-describe("pi bare-string shorthand", () => {
-  it("type-checks bare-string calls for string-primary pi tools", () => {
+describe("omp bare-string shorthand", () => {
+  it("type-checks bare-string calls for string-primary omp tools", () => {
     const result = typeCheckFabricCode(
       'const a = await omp.bash("echo hi"); const b = await omp.read("x"); const c = await omp.ls("y"); const d = await omp.grep("z"); const e = await omp.find("w"); return { a: a.output, b, c, d, e };',
       GUEST_TYPE_DECLARATIONS,
@@ -93,7 +93,7 @@ describe("pi bare-string shorthand", () => {
   });
 });
 
-describe("pi argument alias flattening", () => {
+describe("omp argument alias flattening", () => {
   it("type-checks common alias keys and the flat edit shape", () => {
     const result = typeCheckFabricCode(
       'const a = await omp.bash({ cmd: "echo hi" });' +
@@ -250,7 +250,7 @@ describe("agents.status debug fields", () => {
   });
 });
 
-describe("pi positional args", () => {
+describe("omp positional args", () => {
   it("type-checks multi-arg positional calls", () => {
     const result = typeCheckFabricCode(
       'const a = await omp.grep("TODO", "src");' +
@@ -362,7 +362,7 @@ describe("pi positional args", () => {
   });
 });
 
-describe("pi expanded argument aliases", () => {
+describe("omp expanded argument aliases", () => {
   it("type-checks expanded alias keys", () => {
     const result = typeCheckFabricCode(
       'const a = await omp.bash({ shell: "ls", timeoutMs: 5 });' +
@@ -430,7 +430,7 @@ describe("pi expanded argument aliases", () => {
 });
 
 describe("tools discovery proxy", () => {
-  it("routes discovery, normalizes search shorthand, and rejects core-tool names with a pi hint", async () => {
+  it("routes discovery, normalizes search shorthand, and rejects core-tool names with an omp hint", async () => {
     const checked = typeCheckFabricCode(
       'return tools.search("fovea");',
       GUEST_TYPE_DECLARATIONS,

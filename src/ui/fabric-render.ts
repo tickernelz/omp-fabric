@@ -242,7 +242,7 @@ const visibleMulticallAudits = (
     .map((auditIndex) => ({ audit: audits[auditIndex]!, auditIndex }));
 };
 
-/** Render the "keybinding to expand" hint, mirroring pi core's native tool previews. */
+/** Render the "keybinding to expand" hint, mirroring OMP core's native tool previews. */
 export function expandHint(theme: Theme): string {
   let keys: string[] = [];
   try {
@@ -1393,7 +1393,7 @@ const lineCountTrimmed = (value: string): number => {
   return end;
 };
 
-// Mirrors pi core's read range notice: surface how many lines a fabric_exec
+// Mirrors OMP core's read range notice: surface how many lines a fabric_exec
 // program sent to the model vs. how many its nested read(s) returned, so
 // sliced reads don't look like full-file reads. The audited body is unchanged.
 export function modelReadHint(

@@ -330,7 +330,7 @@ describe("Fabric dynamic UI", () => {
     expect(widget.render(200).join("\n")).not.toContain(hint);
   });
 
-  it("renders the widget header title and agent names in muted grey, matching pi core status lines", () => {
+  it("renders the widget header title and agent names in muted grey, matching OMP core status lines", () => {
     const recordingTheme = {
       fg: (color: string, text: string) => `<${color}>${text}</>`,
       bg: (_color: string, text: string) => text,

@@ -71,7 +71,7 @@ describe("typeErrorRecoveryHint", () => {
     )).toContain("belongs to `omp.bash`");
   });
 
-  it("falls back to the enclosing pi call for shared-bag type names", () => {
+  it("falls back to the enclosing omp call for shared-bag type names", () => {
     expect(typeErrorRecoveryHint(
       'return omp.write({ path: "x", content: "a", timeout: 5 });',
       [typeError(

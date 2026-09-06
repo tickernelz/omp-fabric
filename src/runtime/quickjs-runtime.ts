@@ -384,7 +384,7 @@ const __ompEnvelopeGuard = (name, value) => {
     },
   });
 };
-// The pi proxy accepts: a bare string (primary field), an options object, a
+// The omp proxy accepts: a bare string (primary field), an options object, a
 // (primary, options) two-arg merge for the string-primary tools, or a
 // positional spread mapped by __ompPositionalFields. 0/1 args preserve the
 // legacy (args = {}) default so existing programs are unchanged.
@@ -393,7 +393,7 @@ globalThis.omp = new Proxy({}, {
     if (property === "then") return undefined;
     const name = String(property);
     // fabric_exec payload values are readable directly on the omp surface
-    // (documented for skills as strings.<key>), while core tool names stay
+    // (documented for skills as payloads.<key>), while core tool names stay
     // callables. Only shadow a payload key that actually exists.
     const payloadValues = (typeof globalThis["payloads"] === "object" && globalThis["payloads"] !== null)
       ? globalThis["payloads"]

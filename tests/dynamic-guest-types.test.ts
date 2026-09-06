@@ -82,7 +82,7 @@ describe("buildDynamicGuestDeclarations", () => {
       /Expected 1 arguments/,
     );
     // A missing required property alone is TS2345 — suppressed by the checker's
-    // deliberate coercion policy (same as pi.* tools) — and is instead caught
+    // deliberate coercion policy (same as omp.* tools) — and is instead caught
     // by the registry's validate stage, covered by the execution-service tests.
     const omittedProp = typeCheckFabricCode(
       'await mcp.github.get_repo({ owner: "octo" }); return "compiles";',

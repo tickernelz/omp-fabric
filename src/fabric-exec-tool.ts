@@ -988,9 +988,9 @@ export const createFabricExecTool = (
       // A nested `omp.read` of an image returns image content blocks that
       // normalizeResult stripped (the sandbox holds text only). The provider
       // handed them out-of-band to each call audit; re-attach them here so
-      // pi core's ToolExecutionComponent renders a kitty image preview — the
+      // OMP core's ToolExecutionComponent renders a kitty image preview — the
       // same path a native `read` takes — for single-call AND multitool
-      // reads. omp-vision-handoff keeps the image in the nested tool_result
+      // reads. pi-vision-handoff keeps the image in the nested tool_result
       // (its `context` hook swaps image→description on the LLM-bound
       // fabric_exec clone), so every read audit carries its image here.
       const mediaBlocks: FabricMediaBlock[] = [];
@@ -1001,7 +1001,7 @@ export const createFabricExecTool = (
       // The read tool's own text note (e.g. "Read image file [image/png]"),
       // captured after the handoff stripped OMP's non-vision note. Used as
       // the single-call body + content text so the preview shows the kitty
-      // image + the clean note (like pi core) instead of the handoff's
+      // image + the clean note (like OMP core) instead of the handoff's
       // verbose description. Multitool renders each read's note as its own
       // call body, so the joined program return suffices as the content text
       // there.
@@ -1014,7 +1014,7 @@ export const createFabricExecTool = (
       }
       const content: Array<{ type: "text"; text: string } | FabricMediaBlock> = [];
       if (mediaBlocks.length > 0) {
-        // Mirror a native `read`: keep the image block(s) for pi core's kitty
+        // Mirror a native `read`: keep the image block(s) for OMP core's kitty
         // render alongside the short note. The handoff's `context` hook
         // swaps each image for its description on the LLM-bound clone, so the
         // text-only model still receives the description while the terminal

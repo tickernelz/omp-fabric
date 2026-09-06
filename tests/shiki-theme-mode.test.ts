@@ -144,14 +144,14 @@ describe("effective shiki theme", () => {
 });
 
 describe("variant-aware diff backgrounds", () => {
-  it("uses light fallbacks after observing a light pi theme", () => {
+  it("uses light fallbacks after observing a light OMP theme", () => {
     observeOmpTheme({ name: "light" });
     const resolve = createDiffBackgroundResolver(undefined, "subtle");
     expect(resolve("add")).toBe("\x1b[48;2;198;230;206m");
     expect(resolve("remove")).toBe("\x1b[48;2;242;206;210m");
   });
 
-  it("uses dark fallbacks after observing a dark pi theme", () => {
+  it("uses dark fallbacks after observing a dark OMP theme", () => {
     observeOmpTheme({ name: "dark" });
     const resolve = createDiffBackgroundResolver(undefined, "medium");
     expect(resolve("add")).toBe("\x1b[48;2;22;68;40m");

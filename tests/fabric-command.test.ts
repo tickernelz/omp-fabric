@@ -16,7 +16,7 @@ import type { FabricUiController } from "../src/ui/controller.js";
 describe("/fabric command", () => {
   it("opens the dashboard when invoked without arguments", async () => {
     let handler: ((argumentsText: string, context: ExtensionContext) => Promise<void>) | undefined;
-    const pi = {
+    const omp = {
       registerCommand: vi.fn(
         (
           _name: string,
@@ -36,7 +36,7 @@ describe("/fabric command", () => {
     } as unknown as FabricUiController;
     const context = {} as ExtensionContext;
 
-    registerFabricCommand(pi, {
+    registerFabricCommand(omp, {
       state,
       fabricUi,
       capturedTools: {} as CapturedToolCatalog,
@@ -54,7 +54,7 @@ describe("/fabric command", () => {
 
   it("keeps the /fabric ui dashboard alias", async () => {
     let handler: ((argumentsText: string, context: ExtensionContext) => Promise<void>) | undefined;
-    const pi = {
+    const omp = {
       registerCommand: vi.fn((_name: string, definition: { handler: typeof handler }) => {
         handler = definition.handler;
       }),
@@ -63,7 +63,7 @@ describe("/fabric command", () => {
     const fabricUi = { openDashboard: vi.fn().mockResolvedValue(undefined) } as unknown as FabricUiController;
     const context = {} as ExtensionContext;
 
-    registerFabricCommand(pi, {
+    registerFabricCommand(omp, {
       state,
       fabricUi,
       capturedTools: {} as CapturedToolCatalog,
@@ -78,7 +78,7 @@ describe("/fabric command", () => {
 
   it("lets the activation hook own reload setup and keeps failure suspended", async () => {
     let handler: ((argumentsText: string, context: ExtensionContext) => Promise<void>) | undefined;
-    const pi = {
+    const omp = {
       registerCommand: vi.fn((_name, command) => { handler = command.handler; }),
     } as unknown as ExtensionAPI;
     const state = {
@@ -91,7 +91,7 @@ describe("/fabric command", () => {
     const autoArmPrewalk = vi.fn(async () => {});
     const context = {} as ExtensionContext;
 
-    registerFabricCommand(pi, {
+    registerFabricCommand(omp, {
       state,
       fabricUi,
       capturedTools: {} as CapturedToolCatalog,
@@ -110,7 +110,7 @@ describe("/fabric command", () => {
 
   it("re-renders existing cards after a successful reload so external edits apply", async () => {
     let handler: ((argumentsText: string, context: ExtensionContext) => Promise<void>) | undefined;
-    const pi = {
+    const omp = {
       registerCommand: vi.fn((_name, command) => { handler = command.handler; }),
     } as unknown as ExtensionAPI;
     const state = {
@@ -124,7 +124,7 @@ describe("/fabric command", () => {
       ui: { notify },
     } as unknown as ExtensionContext;
 
-    registerFabricCommand(pi, {
+    registerFabricCommand(omp, {
       state,
       fabricUi,
       capturedTools: {} as CapturedToolCatalog,
@@ -143,7 +143,7 @@ describe("/fabric command", () => {
     let handler: ((argumentsText: string, context: ExtensionContext) => Promise<void>) | undefined;
     const sendUserMessage = vi.fn();
     const sendMessage = vi.fn();
-    const pi = {
+    const omp = {
       sendUserMessage,
       sendMessage,
       registerCommand: vi.fn((_name: string, definition: { handler: typeof handler }) => {
@@ -166,7 +166,7 @@ describe("/fabric command", () => {
       ui: { setStatus: vi.fn(), notify: vi.fn() },
     } as unknown as ExtensionContext;
 
-    registerFabricCommand(pi, {
+    registerFabricCommand(omp, {
       state,
       fabricUi: {} as FabricUiController,
       capturedTools: {} as CapturedToolCatalog,
@@ -201,7 +201,7 @@ describe("/fabric command", () => {
   it("uses the model picker when prewalk has no configured executor", async () => {
     let handler: ((argumentsText: string, context: ExtensionContext) => Promise<void>) | undefined;
     const sendMessage = vi.fn();
-    const pi = {
+    const omp = {
       sendUserMessage: vi.fn(),
       sendMessage,
       registerCommand: vi.fn((_name: string, definition: { handler: typeof handler }) => {
@@ -232,7 +232,7 @@ describe("/fabric command", () => {
       ui: { select, setStatus: vi.fn(), notify: vi.fn() },
     } as unknown as ExtensionContext;
 
-    registerFabricCommand(pi, {
+    registerFabricCommand(omp, {
       state,
       fabricUi: {} as FabricUiController,
       capturedTools: {} as CapturedToolCatalog,
@@ -267,7 +267,7 @@ describe("/fabric command", () => {
     const unsubscribe = vi.fn();
     const respond = vi.fn();
     const sendMessage = vi.fn();
-    const pi = {
+    const omp = {
       events: {
         on: vi.fn((channel: string, handler: (value: unknown) => void) => {
           if (channel === FABRIC_PREWALK_REQUEST_EVENT) requestHandler = handler;
@@ -297,7 +297,7 @@ describe("/fabric command", () => {
       ui: { setStatus: vi.fn(), notify: vi.fn() },
     } as unknown as ExtensionContext;
 
-    registerFabricCommand(pi, {
+    registerFabricCommand(omp, {
       state,
       fabricUi: {} as FabricUiController,
       capturedTools: {} as CapturedToolCatalog,
@@ -327,7 +327,7 @@ describe("/fabric command", () => {
   it("skips the armed prompt when the identical one already persists", async () => {
     let handler: ((argumentsText: string, context: ExtensionContext) => Promise<void>) | undefined;
     const sendMessage = vi.fn();
-    const pi = {
+    const omp = {
       sendUserMessage: vi.fn(),
       sendMessage,
       registerCommand: vi.fn((_name: string, definition: { handler: typeof handler }) => {
@@ -359,7 +359,7 @@ describe("/fabric command", () => {
       ui: { setStatus: vi.fn(), notify: vi.fn() },
     } as unknown as ExtensionContext;
 
-    registerFabricCommand(pi, {
+    registerFabricCommand(omp, {
       state,
       fabricUi: {} as FabricUiController,
       capturedTools: {} as CapturedToolCatalog,
@@ -376,7 +376,7 @@ describe("/fabric command", () => {
   it("registers no dedicated display subcommand or completion", async () => {
     let handler: ((argumentsText: string, context: ExtensionContext) => Promise<void>) | undefined;
     let completions: ((prefix: string) => Array<{ value: string }> | null) | undefined;
-    const pi = {
+    const omp = {
       registerCommand: vi.fn((_name: string, definition: {
         handler: typeof handler;
         getArgumentCompletions: typeof completions;
@@ -399,7 +399,7 @@ describe("/fabric command", () => {
       ui: { notify },
     } as unknown as ExtensionContext;
 
-    registerFabricCommand(pi, {
+    registerFabricCommand(omp, {
       state,
       fabricUi: {} as FabricUiController,
       capturedTools: {} as CapturedToolCatalog,
@@ -423,7 +423,7 @@ describe("/fabric command", () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "fabric-command-prewalk-"));
     try {
       let handler: ((argumentsText: string, context: ExtensionContext) => Promise<void>) | undefined;
-      const pi = {
+      const omp = {
         registerCommand: vi.fn((_name: string, definition: { handler: typeof handler }) => {
           handler = definition.handler;
         }),
@@ -452,7 +452,7 @@ describe("/fabric command", () => {
         ui: { notify, setStatus },
       } as unknown as ExtensionContext;
 
-      registerFabricCommand(pi, {
+      registerFabricCommand(omp, {
         state,
         fabricUi: {} as FabricUiController,
         capturedTools: {} as CapturedToolCatalog,
@@ -493,7 +493,7 @@ describe("/fabric command", () => {
   it("rejects arming while the prewalk master switch is disabled", async () => {
     let handler: ((argumentsText: string, context: ExtensionContext) => Promise<void>) | undefined;
     const sendUserMessage = vi.fn();
-    const pi = {
+    const omp = {
       sendUserMessage,
       registerCommand: vi.fn((_name: string, definition: { handler: typeof handler }) => {
         handler = definition.handler;
@@ -516,7 +516,7 @@ describe("/fabric command", () => {
       ui: { notify },
     } as unknown as ExtensionContext;
 
-    registerFabricCommand(pi, {
+    registerFabricCommand(omp, {
       state,
       fabricUi: {} as FabricUiController,
       capturedTools: {} as CapturedToolCatalog,

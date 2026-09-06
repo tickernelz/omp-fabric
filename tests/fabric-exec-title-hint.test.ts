@@ -108,7 +108,7 @@ return { g, r, b };`,
     "Read real.ts",
   ],
   [
-    "unknown pi verb is humanized",
+    "unknown omp verb is humanized",
     "return await omp.forgeWorkspace({ path: 'src/x.ts' });",
     "Forge Workspace x.ts",
   ],

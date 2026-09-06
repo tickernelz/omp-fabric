@@ -56,7 +56,7 @@ describe("fabric highlight", () => {
     expect(highlightCode("hello", "totally-not-a-language")).toBeNull();
   });
 
-  it("re-highlights with the new variant after a pi theme flip", async () => {
+  it("re-highlights with the new variant after an OMP theme flip", async () => {
     configureHighlighting("auto", true);
     observeOmpTheme({ name: "dark" });
     await initHighlighting("dark-plus", true);

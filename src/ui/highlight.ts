@@ -281,7 +281,7 @@ const syncEffectiveTheme = (preference: string, variant: ShikiThemeVariant): boo
 };
 
 /**
- * Adopt the variant of the pi theme instance handed to a renderer. When the
+ * Adopt the variant of the OMP theme instance handed to a renderer. When the
  * configured preference follows the variant ("auto" or a "light/dark" pair),
  * the effective shiki theme swaps as OMP auto-switches.
  */

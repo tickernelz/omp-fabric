@@ -140,7 +140,7 @@ export class LiteralCallScanner {
     );
 
     // A local/declared binding that shares a namespace root makes dotted calls
-    // ambiguous (e.g. `const pi = { read: () => ... }`); taint that root for
+    // ambiguous (e.g. `const omp = { read: () => ... }`); taint that root for
     // the rest of the stream.
     for (const statement of source.statements) {
       this.#collectStatementBindings(statement, this.#tainted);

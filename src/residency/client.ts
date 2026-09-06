@@ -26,7 +26,7 @@ import {
   type ResidentOmpModelState,
 } from "./protocol.js";
 
-// One-time cost per resident root: cold-starting the bundled pi binary plus
+// One-time cost per resident root: cold-starting the bundled OMP binary plus
 // extension loading can exceed 10s on slow runners (e.g. CI Windows), so give
 // startup a generous budget. Idle exit still reclaims the processes.
 const STARTUP_TIMEOUT_MS = 30_000;

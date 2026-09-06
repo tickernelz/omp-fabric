@@ -201,6 +201,52 @@ describe("CapturedToolsProvider", async () => {
     );
   });
 
+  it("labels an extension by its own package directory, never an omp- container above it", async () => {
+    const definition = (name: string) => ({
+      name,
+      label: name,
+      description: "Ship the current build",
+      parameters: Type.Object({}),
+      async execute() {
+        return { content: [{ type: "text" as const, text: "shipped" }], details: {} };
+      },
+    });
+    const runner = {
+      createContext: () => ({ cwd: process.cwd() }),
+      getActiveTools: () => [],
+      emit: vi.fn(async () => {}),
+      emitToolCall: vi.fn(async () => undefined),
+      emitToolResult: vi.fn(async () => undefined),
+    } as unknown as ExtensionRunner;
+    const catalog = new CapturedToolCatalog();
+    catalog.replace(
+      [
+        { definition: definition("deploy_release"), extensionPath: "/extensions/omp-deploy/src/index.ts" },
+        { definition: definition("bundled_tool"), extensionPath: "/ext/pi-foo/dist/esm/index.js" },
+        { definition: definition("nested_tool"), extensionPath: "/home/dev/omp-extensions/my-tool/index.ts" },
+        { definition: definition("prototype_tool"), extensionPath: "/ext/omp-proto/constructor/index.js" },
+      ],
+      runner,
+      DEFAULT_FABRIC_CONFIG.capture,
+      "/extensions/omp-fabric/index.ts",
+    );
+    const registry = new ActionRegistry();
+    registry.register(new CapturedToolsProvider(catalog));
+
+    await expect(registry.search("deploy", context)).resolves.toMatchObject([
+      { ref: "extensions.deploy_release", namespace: "extension:omp-deploy" },
+    ]);
+    await expect(registry.search("bundled", context)).resolves.toMatchObject([
+      { ref: "extensions.bundled_tool", namespace: "extension:pi-foo" },
+    ]);
+    await expect(registry.search("nested", context)).resolves.toMatchObject([
+      { ref: "extensions.nested_tool", namespace: "extension:my-tool" },
+    ]);
+    await expect(registry.search("prototype", context)).resolves.toMatchObject([
+      { ref: "extensions.prototype_tool", namespace: "extension:constructor" },
+    ]);
+  });
+
   it("releases scheduler barriers after an aborted non-cooperative tool", async () => {
     const hangingExecute = vi.fn(async (_id: string, _params: Record<string, never>, _signal: AbortSignal | undefined, _onUpdate: unknown, _context: unknown) => new Promise<never>(() => undefined));
     const hanging = ({

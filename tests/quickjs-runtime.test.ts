@@ -1116,7 +1116,7 @@ return { done: true };
   });
 });
 
-describe("pi proxy silent repairs and envelope guard", () => {
+describe("omp proxy silent repairs and envelope guard", () => {
   it("normalizes alias keys and numeric strings before the host call", async () => {
     const hostCall = vi.fn(async (ref: string, _args?: Record<string, unknown>) =>
       ref === "omp.bash" || ref === "omp.write" || ref === "omp.edit"

@@ -187,7 +187,7 @@ export class FabricExecutionService {
       this.registry.unavailableProviders().map((entry) => [entry.name, entry.reason]),
     );
     // Snapshot live mcp/extension tool schemas so the type gate below rejects
-    // argument-shape mistakes on those surfaces pre-execution, the way pi.*
+    // argument-shape mistakes on those surfaces pre-execution, the way omp.*
     // calls already fail. Snapshotting is side-effect-free (cache-warm read);
     // unavailable or cold providers yield empty sources and the loose
     // declarations stand.

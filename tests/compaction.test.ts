@@ -525,10 +525,10 @@ describe("compaction instruction parity", () => {
   it("cancels and emits a bounded notification for a reserved typed decoding error", () => {
     let handler: ((event: SessionBeforeCompactEvent, context: unknown) => unknown) | undefined;
     const notifications: string[] = [];
-    const pi = { on(name: string, candidate: unknown) {
+    const omp = { on(name: string, candidate: unknown) {
       if (name === "session_before_compact") handler = candidate as typeof handler;
     } } as unknown as ExtensionAPI;
-    registerCompactionHook(pi, { getEngine: () => "fabric" });
+    registerCompactionHook(omp, { getEngine: () => "fabric" });
     const event = compactionEvent(
       buildSession(user("real goal"), assistant(textPart("done"))),
       `${FABRIC_COMPACTION_REQUEST_PREFIX}{\"version\":1,\"goal\":\"fake/path.ts\"}`,
@@ -1451,14 +1451,14 @@ describe("continuity-tail compaction budget", () => {
     resetIds();
     resetClock();
     let handler: ((event: SessionBeforeCompactEvent, context: ExtensionContext) => unknown) | undefined;
-    const pi = {
+    const omp = {
       on(name: string, candidate: unknown) {
         if (name === "session_before_compact") {
           handler = candidate as typeof handler;
         }
       },
     } as unknown as ExtensionAPI;
-    registerCompactionHook(pi, {
+    registerCompactionHook(omp, {
       getEngine: () => "fabric",
       getTargetContextRatio: () => 0.65,
     });

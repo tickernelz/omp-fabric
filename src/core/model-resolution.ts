@@ -1,6 +1,6 @@
 const PROVIDER_MODEL_RE = /^[^\s/]+\/[^\s/]+$/;
 
-/** Minimal model view needed for resolution; satisfied by pi Model entries. */
+/** Minimal model view needed for resolution; satisfied by OMP Model entries. */
 export interface FabricModelCandidate {
   provider: string;
   id: string;

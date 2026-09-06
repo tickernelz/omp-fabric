@@ -451,7 +451,7 @@ type OmpFindPatternArgument = { pattern?: string; query?: string; regex?: string
 // aliases belong here (max/start/ctx/ic/...), never primary-field aliases —
 // the primary field comes from the positional string.
 type OmpReadOptions = { offset?: number; limit?: number; start?: number; max?: number };
-// cwd is honored per call by the pi provider, which binds the command to a
+// cwd is honored per call by the omp provider, which binds the command to a
 // shell definition rooted there; relative paths resolve from the session cwd.
 // The alias spellings mirror the shell entries in __ompArgAliases: the
 // runtime repairs them, so the checker has to accept the same spellings or a

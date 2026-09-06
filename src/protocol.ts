@@ -319,7 +319,7 @@ export interface FabricInvocationContext {
   deferHandoff?(args: Record<string, unknown>): Record<string, unknown>;
   // Out-of-band image content blocks a provider (currently only omp.read of an
   // image file) wants attached to the call audit, so the single-call render can
-  // re-attach them to the fabric_exec result content for pi core's kitty image
+  // re-attach them to the fabric_exec result content for OMP core's kitty image
   // preview. Bypasses the result char bound that would truncate the base64.
   // `note` is the read tool's own text output (e.g. "Read image file [image/png]"),
   // captured after any tool_result patch so a handoff that strips OMP's

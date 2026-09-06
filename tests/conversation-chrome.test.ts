@@ -119,8 +119,8 @@ describe("native conversation chrome", () => {
     const agentDir = path.join(root, "agent");
     fs.mkdirSync(path.join(cwd, ".omp"), { recursive: true });
     fs.mkdirSync(agentDir);
-    fs.writeFileSync(path.join(agentDir, "config.yml"), "terminal:\n  showImages: true\nhideThinkingBlock: false\n");
-    fs.writeFileSync(path.join(cwd, ".omp", "config.yml"), "terminal:\n  showImages: false\nhideThinkingBlock: true\n");
+    fs.writeFileSync(path.join(agentDir, "config.yml"), "terminal:\n  showImages: false\nhideThinkingBlock: false\n");
+    fs.writeFileSync(path.join(cwd, ".omp", "config.yml"), "hideThinkingBlock: true\n");
     try {
       await expect(readConversationAppearance(cwd, agentDir, true)).resolves.toMatchObject({
         editorPaddingX: 0,

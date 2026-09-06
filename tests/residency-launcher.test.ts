@@ -43,7 +43,7 @@ describe("resident launcher owner observation", () => {
 });
 
 // The persistent-actor path inherits the owner's environment twice: the
-// launcher spawns the resident host pi with `{ ...process.env }`, and the
+// launcher spawns the resident host omp with `{ ...process.env }`, and the
 // host's AgentManager passes the resolved (shim) binary to the worker, which
 // spawns the child with `{ ...process.env }` again. The launcher link is
 // regression-tested here with a fake host that reports only presence booleans

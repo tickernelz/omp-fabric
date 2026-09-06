@@ -100,7 +100,7 @@ const missingRuntimeError = (execPath: string, requireNode: boolean, requireBun 
 };
 
 // Transports launch the worker (a .js module) as `<runtime> worker.js args`.
-// Under the new Bun-compiled pi binary, process.execPath is the pi executable,
+// Under the Bun-compiled OMP binary, process.execPath is the OMP executable,
 // not node/bun, so it cannot run an arbitrary script. Resolve a real runtime
 // before spawning: reuse process.execPath when it IS node/bun, else fall back
 // to OMP_FABRIC_NODE_BINARY, then the first node/bun on PATH.

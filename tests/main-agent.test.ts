@@ -54,13 +54,13 @@ describe("MainAgentController", () => {
   it("reports live Main state and preserves user versus agent message semantics", () => {
     const sendMessage = vi.fn();
     const sendUserMessage = vi.fn();
-    const pi = {
+    const omp = {
       sendMessage,
       sendUserMessage,
       getThinkingLevel: vi.fn(() => "high"),
     } as unknown as ExtensionAPI;
     const controller = new MainAgentController(
-      pi,
+      omp,
       "session:root",
       true,
       "/tmp/project",
@@ -184,11 +184,11 @@ describe("MainAgentController.switchModel", () => {
       modelRegistry: { find: vi.fn(() => found) },
     }) as unknown as ExtensionContext;
 
-  it("switches through pi.setModel with the registry model", async () => {
+  it("switches through omp.setModel with the registry model", async () => {
     const model = { provider: "google", id: "gemini-2.5-flash", name: "Gemini 2.5 Flash" };
     const setModel = vi.fn(async () => true);
-    const pi = { setModel } as unknown as ExtensionAPI;
-    const controller = new MainAgentController(pi, "session:root", true, "/tmp/project", "root");
+    const omp = { setModel } as unknown as ExtensionAPI;
+    const controller = new MainAgentController(omp, "session:root", true, "/tmp/project", "root");
     const context = buildContext(model);
 
     await expect(
@@ -199,8 +199,8 @@ describe("MainAgentController.switchModel", () => {
 
   it("fails when the registry cannot resolve the model", async () => {
     const setModel = vi.fn(async () => true);
-    const pi = { setModel } as unknown as ExtensionAPI;
-    const controller = new MainAgentController(pi, "session:root", true, "/tmp/project", "root");
+    const omp = { setModel } as unknown as ExtensionAPI;
+    const controller = new MainAgentController(omp, "session:root", true, "/tmp/project", "root");
 
     await expect(
       controller.switchModel({ provider: "cohere", id: "command-r" }, buildContext(undefined)),
@@ -211,8 +211,8 @@ describe("MainAgentController.switchModel", () => {
   it("fails when the host rejects the switch for missing authentication", async () => {
     const model = { provider: "google", id: "gemini-2.5-flash" };
     const setModel = vi.fn(async () => false);
-    const pi = { setModel } as unknown as ExtensionAPI;
-    const controller = new MainAgentController(pi, "session:root", true, "/tmp/project", "root");
+    const omp = { setModel } as unknown as ExtensionAPI;
+    const controller = new MainAgentController(omp, "session:root", true, "/tmp/project", "root");
 
     await expect(
       controller.switchModel({ provider: "google", id: "gemini-2.5-flash" }, buildContext(model)),
@@ -223,8 +223,8 @@ describe("MainAgentController.switchModel", () => {
   });
 
   it("refuses remote Main targets", async () => {
-    const pi = {} as unknown as ExtensionAPI;
-    const controller = new MainAgentController(pi, "session:peer", false, "/tmp/project", "peer");
+    const omp = {} as unknown as ExtensionAPI;
+    const controller = new MainAgentController(omp, "session:peer", false, "/tmp/project", "peer");
 
     await expect(
       controller.switchModel({ provider: "google", id: "gemini-2.5-flash" }, buildContext(undefined)),

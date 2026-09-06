@@ -18,7 +18,7 @@ describe("OMP Fabric extension shutdown", () => {
 
     for (let reload = 0; reload < 3; reload++) {
       const handlers = new Map<string, ExtensionHandler[]>();
-      const pi = {
+      const omp = {
         events,
         getActiveTools: vi.fn(() => []),
         getAllTools: vi.fn(() => []),
@@ -32,7 +32,7 @@ describe("OMP Fabric extension shutdown", () => {
         setActiveTools: vi.fn(),
       } as unknown as ExtensionAPI;
 
-      await ompFabric(pi);
+      await ompFabric(omp);
       expect(providerListeners.size).toBe(1);
 
       const shutdownHandlers = handlers.get("session_shutdown") ?? [];

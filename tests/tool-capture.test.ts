@@ -244,8 +244,8 @@ describe("registered extension tool capture", () => {
     expect(refreshes).toBe(2);
   });
 
-  it("discovers the bundled runtime's distinct ExtensionRunner identity (pi >= 0.84.3)", async () => {
-    // The pi >= 0.84.3 CLI runs from dist/bundle chunks with their own
+  it("discovers the bundled runtime's distinct ExtensionRunner identity", async () => {
+    // The bundled OMP CLI runs from dist/bundle chunks with their own
     // ExtensionRunner class identity; capture must patch that copy or the live
     // host runner's registrations are never observed.
     const bundleDir = await mkdtemp(path.join(tmpdir(), "fabric-bundle-"));

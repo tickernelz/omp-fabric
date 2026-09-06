@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 110 1200 310" width="1200" height="310">
-  <title>omp-fabric — one checked TypeScript program weaving pi core tools, MCP servers, agents, and mesh into a single result</title>
+  <title>omp-fabric — one checked TypeScript program weaving OMP core tools, MCP servers, agents, and mesh into a single result</title>
   <defs>
     <pattern id="warp" width="36" height="36" patternUnits="userSpaceOnUse">
       <path d="M 36 0 H 0 V 36" fill="none" stroke="#21262d" stroke-width="1"/>
@@ -79,7 +79,7 @@
     <animateTransform attributeName="transform" type="translate" from="0 4" to="0 0" dur="0.4s" begin="1.9s" fill="freeze"/>
     <rect x="938" y="122" width="216" height="36" rx="18" fill="#161b22" stroke="#58a6ff" stroke-opacity="0.45"/>
     <circle cx="960" cy="140" r="5" fill="#58a6ff"/>
-    <text x="978" y="145" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="14" fill="#e6edf3"><tspan fill="#58a6ff">pi.*</tspan><tspan dx="8" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="13">core tools</tspan></text>
+    <text x="978" y="145" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="14" fill="#e6edf3"><tspan fill="#58a6ff">omp.*</tspan><tspan dx="8" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="13">core tools</tspan></text>
   </g>
   <g opacity="0">
     <animate attributeName="opacity" from="0" to="1" dur="0.4s" begin="2.03s" fill="freeze"/>

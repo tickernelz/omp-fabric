@@ -59,7 +59,7 @@ async function run(
   catalog.replace(options.captured ? [{
     definition: capturedDefinition as RegisteredTool["definition"],
     extensionPath: "/extensions/bash-override/index.ts",
-  }] : [], runner, DEFAULT_FABRIC_CONFIG.capture, "/extensions/pi-fabric/index.ts");
+  }] : [], runner, DEFAULT_FABRIC_CONFIG.capture, "/extensions/omp-fabric/index.ts");
   const registry = new ActionRegistry();
   registry.register(new OmpToolsProvider(cwd, options.noRunner ? undefined : catalog, new CapturedToolsProvider(catalog)));
   const config = structuredClone(DEFAULT_FABRIC_CONFIG);

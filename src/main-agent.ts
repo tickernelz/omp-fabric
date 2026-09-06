@@ -48,7 +48,7 @@ export interface FabricMainAgentTarget {
   matches(id: string): boolean;
   info(context?: ExtensionContext): FabricMainAgentInfo;
   deliverAgent(request: FabricMainAgentDeliveryRequest): FabricAgentMessageResult;
-  // Switch Main's live session model in place. Only local hosts hold the pi
+  // Switch Main's live session model in place. Only local hosts hold the OMP
   // extension session required for the mutation, so remote targets omit it.
   switchModel?(
     target: { provider: string; id: string },

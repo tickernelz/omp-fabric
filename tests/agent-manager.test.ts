@@ -1174,7 +1174,7 @@ describe("AgentManager Claude runner", async () => {
     const config = {
       ...DEFAULT_FABRIC_CONFIG.agents,
       runner: "claude" as const,
-      model: "openai/pi-only",
+      model: "openai/omp-only",
       claude: { ...DEFAULT_FABRIC_CONFIG.agents.claude, model: "claude/haiku" },
     };
     const manager = new AgentManager(process.cwd(), config, {

@@ -1,4 +1,4 @@
-// Silent repairs for high-frequency unquoted path/URL arguments in pi.*
+// Silent repairs for high-frequency unquoted path/URL arguments in omp.*
 // calls. Models often write `omp.read(/tmp/foo)` or `omp.read(https://…)` which
 // TypeScript parses as regex, division, extra arguments, or invalid
 // characters — a wasted round trip the type gate otherwise spends on 20+

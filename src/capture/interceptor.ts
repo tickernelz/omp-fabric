@@ -63,7 +63,7 @@ const isExtensionRunnerConstructor = (value: unknown): value is ExtensionRunnerC
   typeof ((value as { prototype: Record<string, unknown> }).prototype).getAllRegisteredTools ===
     "function";
 
-// pi >= 0.84.3 loads the CLI from dist/bundle/cli.js, whose rollup chunks carry
+// The bundled OMP CLI loads from dist/bundle/cli.js, whose rollup chunks carry
 // their own ExtensionRunner class identity — the library-level patch alone
 // never fires because the live host runner is an instance of the bundle's copy.
 // Importing each chunk inside the running CLI is a Node module-cache hit, so

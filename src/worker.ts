@@ -947,7 +947,7 @@ const main = async (): Promise<void> => {
   }
 
   // Tail a control file (steer.jsonl) the parent appends to and forward each
-  // queued command to the child pi over its RPC stdin. This is the fabric
+  // queued command to the child OMP over its RPC stdin. This is the fabric
   // steering channel: the orchestrator (or any peer via the mesh relay) can
   // interject a steer / follow_up / queue-mode command between the child's
   // turns without stopping and respawning it, preserving its context. The
@@ -1040,7 +1040,7 @@ const main = async (): Promise<void> => {
           } else if (options.runner === "veda") {
             // Steering is unsupported for the veda runner: Veda executes one
             // headless prompt per invocation. The command is dropped, never
-            // forwarded to pi-style stdin frames.
+            // forwarded to OMP-style stdin frames.
           } else if (command.type === "steer" && typeof command.message === "string") {
             child.stdin?.write(JSON.stringify({ type: "steer", message: command.message }) + "\n");
           } else if (command.type === "follow_up" && typeof command.message === "string") {

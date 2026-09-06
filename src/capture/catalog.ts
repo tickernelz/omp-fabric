@@ -18,9 +18,9 @@ export class CapturedToolCatalog {
   readonly #listeners = new Set<() => void>();
   // The ExtensionRunner observed during the last tool refresh. Stored even
   // when capture is disabled so OmpToolsProvider can replay the tool-execution
-  // lifecycle (tool_call/tool_result/tool_execution_*) for nested pi.* calls
+  // lifecycle (tool_call/tool_result/tool_execution_*) for nested omp.* calls
   // in full-code mode — without it, extensions that hook those events
-  // (pi-vision-handoff, auditors, etc.) would never fire for pi core tools.
+  // (pi-vision-handoff, auditors, etc.) would never fire for OMP core tools.
   #runner: ExtensionRunner | undefined;
   #suspended = false;
 
@@ -92,7 +92,7 @@ export class CapturedToolCatalog {
   // the hub listener fires while capture is still suspended, so the catalog
   // replaces with enabled:false and ends up empty once session_start
   // re-enables it (#73). This forces a fresh replace with the active policy
-  // without waiting for pi to call getAllRegisteredTools() again.
+  // without waiting for OMP to call getAllRegisteredTools() again.
   refresh(): void {
     this.#runner?.getAllRegisteredTools();
   }

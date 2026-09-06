@@ -65,7 +65,7 @@ const configPath = parseConfigPath(process.argv);
 try {
   const config = readConfig(configPath);
   // Lifecycle trace: the launcher can otherwise fail silently (broken args,
-  // an unspawnable pi binary), leaving the client to guess at the cause.
+  // an unspawnable OMP binary), leaving the client to guess at the cause.
   const trace = (event: string, extra: Record<string, unknown> = {}): void => {
     try {
       const dir = path.dirname(configPath);

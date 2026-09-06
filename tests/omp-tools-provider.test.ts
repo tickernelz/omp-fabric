@@ -47,7 +47,7 @@ const registerWithRunner = (runner: ExtensionRunner) => {
     [],
     runner,
     DEFAULT_FABRIC_CONFIG.capture,
-    "/extensions/pi-fabric/index.ts",
+    "/extensions/omp-fabric/index.ts",
   );
   const registry = new ActionRegistry();
   registry.register(new OmpToolsProvider(process.cwd(), catalog, undefined));
@@ -55,7 +55,7 @@ const registerWithRunner = (runner: ExtensionRunner) => {
 };
 
 describe("OmpToolsProvider lifecycle", () => {
-  it("fires the full tool-execution lifecycle for a pi core tool", async () => {
+  it("fires the full tool-execution lifecycle for an omp core tool", async () => {
     const events: string[] = [];
     const runner = makeRunner({
       emit: vi.fn(async (event: { type: string }) => {
@@ -203,7 +203,7 @@ describe("OmpToolsProvider lifecycle", () => {
 
   it("preserves shell cwd through host argument preparation", async () => {
     const root = fs.realpathSync.native(
-      fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-provider-cwd-")),
+      fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-provider-cwd-")),
     );
     const nested = path.join(root, "nested");
     fs.mkdirSync(nested);
@@ -233,7 +233,7 @@ describe("OmpToolsProvider lifecycle", () => {
 
 
   it("expands explicit skill-dir markers only for SKILL.md reads", async () => {
-    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-skill-dir-"));
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-skill-dir-"));
     const skillDir = path.join(cwd, "installed", "duplicate-name");
     const skillPath = path.join(skillDir, "SKILL.md");
     const referencePath = path.join(skillDir, "reference.md");
@@ -296,7 +296,7 @@ describe("OmpToolsProvider lifecycle", () => {
   });
 
   it("applies all repeated edit anchors through one native mutation", async () => {
-    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-edit-all-"));
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-edit-all-"));
     const filePath = path.join(cwd, "example.txt");
     try {
       fs.writeFileSync(filePath, "header\nneedle one\nneedle two\n");
@@ -327,7 +327,7 @@ describe("OmpToolsProvider lifecycle", () => {
   });
 
   it("leaves the file unchanged when any replace-all anchor is missing", async () => {
-    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-edit-all-atomic-"));
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-edit-all-atomic-"));
     const filePath = path.join(cwd, "example.txt");
     const before = "needle one\nneedle two\n";
     try {
@@ -358,7 +358,7 @@ describe("OmpToolsProvider lifecycle", () => {
   });
 
   it("captures pre-write content out of band without changing the sandbox result", async () => {
-    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-fabric-write-preview-"));
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-write-preview-"));
     const before = `const value = 1;
 `;
     const after = `export const value = "é${"x".repeat(20_000)}";

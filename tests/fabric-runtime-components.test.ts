@@ -25,7 +25,7 @@ describe("Fabric runtime provider components", () => {
     let runtime!: FabricRuntimeState;
     const discoverySnapshots: Array<{ initialized: boolean; active: string[] }> = [];
     let componentDiscovery: FabricComponentDiscovery | undefined;
-    const pi = {
+    const omp = {
       events: {
         emit: vi.fn((event: string, payload: unknown) => {
           if (event === FABRIC_COMPONENT_DISCOVER_EVENT) {
@@ -97,7 +97,7 @@ describe("Fabric runtime provider components", () => {
     });
     const fixture = path.join(cwd, "unused.mjs");
     fs.writeFileSync(fixture, "export default {};");
-    runtime = new FabricRuntimeState(pi, new CapturedToolCatalog(), {
+    runtime = new FabricRuntimeState(omp, new CapturedToolCatalog(), {
       paths: {
         extension: fixture,
         worker: fixture,
@@ -193,7 +193,7 @@ describe("Fabric runtime provider components", () => {
     vi.stubEnv("OMP_FABRIC_AGENT_DIR", path.join(cwd, "agent"));
     vi.stubEnv("OMP_FABRIC_PROJECT_ROOT", cwd);
 
-    const pi = {
+    const omp = {
       events: { emit: vi.fn() },
       getThinkingLevel: vi.fn(() => "off"),
       sendMessage: vi.fn(),
@@ -226,7 +226,7 @@ describe("Fabric runtime provider components", () => {
     });
     const fixture = path.join(cwd, "unused.mjs");
     fs.writeFileSync(fixture, "export default {};");
-    const runtime = new FabricRuntimeState(pi, capturedTools, {
+    const runtime = new FabricRuntimeState(omp, capturedTools, {
       paths: {
         extension: fixture,
         worker: fixture,

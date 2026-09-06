@@ -10,7 +10,7 @@ const ITERATIONS = 50;
 const refs = ["omp.grep", "omp.read", "agents.run", "memory.recall"];
 
 const descriptors = {
-  pi: [
+  omp: [
     {
       name: "grep",
       description: "Search source files for matching text",

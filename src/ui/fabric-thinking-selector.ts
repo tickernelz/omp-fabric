@@ -39,7 +39,7 @@ export interface FabricThinkingSelectorOptions {
 
 /**
  * A compact picker for an actor's thinking (reasoning effort) level. Pins an
- * "Inherit" row on top (use the Fabric default) followed by the seven pi
+ * "Inherit" row on top (use the Fabric default) followed by the seven OMP
  * thinking levels in order. The current value is marked with a trailing check.
  * Mirrors the look of FabricModelSelector but uses pi-tui's SelectList since
  * the level set is small and fixed (no fuzzy search needed).

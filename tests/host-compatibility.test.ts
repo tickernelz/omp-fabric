@@ -12,7 +12,7 @@ import {
 const roots: string[] = [];
 
 const fakeHost = (version: string): string => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-host-version-"));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-host-version-"));
   roots.push(root);
   const dist = path.join(root, "dist");
   fs.mkdirSync(dist);
