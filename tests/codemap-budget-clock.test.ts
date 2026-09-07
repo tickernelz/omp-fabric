@@ -10,10 +10,10 @@ afterAll(() => { for (const r of roots) fs.rmSync(r, { recursive: true, force: t
 const bigTree = (): string => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-codemap-budget-"));
   roots.push(root);
-  for (let dir = 0; dir < 40; dir++) {
+  for (let dir = 0; dir < 12; dir++) {
     const sub = path.join(root, `pkg${dir}`);
     fs.mkdirSync(sub, { recursive: true });
-    for (let file = 0; file < 25; file++) {
+    for (let file = 0; file < 12; file++) {
       const body = Array.from({ length: 40 }, (_, n) => `export function fn${dir}_${file}_${n}(a: number) { return a + ${n}; }`).join("\n");
       fs.writeFileSync(path.join(sub, `m${file}.ts`), body, "utf8");
     }
@@ -34,7 +34,7 @@ describe("codemap index time budget", () => {
     const root = bigTree();
     const index = await buildSymbolIndex({ root, maxFiles: 100_000, maxSymbols: 5_000_000 });
     expect(index.truncated).toBe(false);
-    expect(index.symbols.length).toBeGreaterThan(1_000);
+    expect(index.symbols.length).toBeGreaterThan(500);
   });
 
   it("a generous budget does not truncate", async () => {

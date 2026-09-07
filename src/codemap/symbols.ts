@@ -358,6 +358,17 @@ const KIND_RANK: Record<CodeSymbolKind, number> = {
 };
 
 const MATCH_TIMEOUT_MS = 120_000;
+
+const isBudgetTimeout = (
+  error: unknown,
+  budgetMs: number | undefined,
+  startedAt: number,
+): boolean => {
+  if (budgetMs === undefined) return false;
+  if (Date.now() - startedAt >= budgetMs) return true;
+  const message = error instanceof Error ? error.message : String(error);
+  return /timeout/i.test(message);
+};
 const MAX_FALLBACK_BYTES = 2_000_000;
 
 const extensionOf = (file: string): string | undefined => {
@@ -755,7 +766,7 @@ export async function buildSymbolIndex(request: SymbolIndexRequest): Promise<Sym
       });
     } catch (error) {
       throwIfAborted(signal);
-      if (budgetMs === undefined) throw error;
+      if (!isBudgetTimeout(error, budgetMs, startedAt)) throw error;
       truncated = true;
       break;
     }
