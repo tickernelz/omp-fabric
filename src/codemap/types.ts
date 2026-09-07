@@ -30,6 +30,7 @@ export interface SymbolIndexRequest {
   glob?: string;
   maxFiles: number;
   maxSymbols: number;
+  maxMs?: number;
   signal?: AbortSignal;
 }
 

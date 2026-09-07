@@ -126,6 +126,7 @@ export interface FabricCodemapConfig {
   enabled: boolean;
   maxFiles: number;
   maxSymbols: number;
+  maxMs: number;
   defaultMaxTokens: number;
   cascadeCommits: number;
   cascadeLimit: number;
@@ -378,6 +379,7 @@ export const DEFAULT_FABRIC_CONFIG: FabricConfig = {
     enabled: true,
     maxFiles: 4_000,
     maxSymbols: 40_000,
+    maxMs: 30_000,
     defaultMaxTokens: 8_000,
     cascadeCommits: 600,
     cascadeLimit: 24,
@@ -919,6 +921,12 @@ export const normalizeFabricConfig = (input: Record<string, unknown>): FabricCon
         DEFAULT_FABRIC_CONFIG.codemap.maxSymbols,
         1,
         5_000_000,
+      ),
+      maxMs: boundedInteger(
+        codemap.maxMs,
+        DEFAULT_FABRIC_CONFIG.codemap.maxMs,
+        1_000,
+        600_000,
       ),
       defaultMaxTokens: boundedInteger(
         codemap.defaultMaxTokens,

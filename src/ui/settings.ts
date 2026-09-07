@@ -351,7 +351,7 @@ const summaryFor = (id: string, config: FabricConfig): string => {
       return `${config.prewalk.enabled === false ? "off · " : ""}${config.prewalk.mode} · ${config.prewalk.model || PREWALK_MODEL_UNSET_LABEL}${config.prewalk.thinking ? ` · ${thinkingLabel(config.prewalk.thinking)}` : ""}${config.prewalk.alwaysRearm ? " · repeat" : ""}`;
     case "codemap":
       return config.codemap.enabled
-        ? `${config.codemap.defaultMaxTokens} tok · ${config.codemap.cascadeCommits} commits`
+        ? `${config.codemap.defaultMaxTokens} tok · ${formatMs(config.codemap.maxMs)}`
         : "disabled";
     case "agents":
       return `${config.agents.runner}/${config.agents.transport}`;
@@ -1437,6 +1437,15 @@ export const buildFabricSettingsItems = (
               theme,
               "Code map symbol ceiling",
               "Symbols retained for one index build. Enter any integer from 1 to 5000000.",
+            ),
+          }),
+          setting("codemap.maxMs", "Time budget", formatMs(config.codemap.maxMs), {
+            description:
+              "Wall-clock ceiling for one index build. A session directory that is not a project can otherwise crawl for minutes; when the budget bites the map returns what it has with truncated set.",
+            submenu: nonNegativeIntegerSubmenu(
+              theme,
+              "Code map time budget",
+              "Milliseconds allowed for one index build. Enter any integer from 1000 to 600000.",
             ),
           }),
           setting(

@@ -44,6 +44,8 @@ Inside a git repository the file list comes from `git ls-files --cached --others
 
 This matters more than it sounds. Indexing this repository at its root without the git filter found 3,425 files, most of them gitignored benchmark checkouts; with the filter it finds 542.
 
+A directory that is not a project has no such structure to exploit, so the index also carries a wall-clock ceiling, `codemap.maxMs`, defaulting to 30 seconds. It bounds the filesystem walk, each native pattern pass, and the fallback pass, and a pass cut short by the ceiling yields a partial map with `truncated` set, never an error. Measured against `/tmp`: 94.4 seconds unbounded, and 30.1, 10.0, 5.1 and 2.0 seconds at ceilings of 30s, 10s, 5s and 2s. This repository indexes in 3.8 seconds, so the default never bites on a real project.
+
 ## Budgeted disclosure
 
 A full index of a large repository does not fit a sensible context slice, so `codemap.map` ranks before it spends:
@@ -85,6 +87,7 @@ When the workspace is not a git repository, or history is empty, the call return
     "enabled": true,
     "maxFiles": 4000,
     "maxSymbols": 40000,
+    "maxMs": 30000,
     "defaultMaxTokens": 8000,
     "cascadeCommits": 600,
     "cascadeLimit": 24

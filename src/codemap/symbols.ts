@@ -473,12 +473,14 @@ const walkFiles = async (
   root: string,
   matcher: RegExp | undefined,
   signal: AbortSignal | undefined,
+  expired?: () => boolean,
 ): Promise<string[]> => {
   const found: string[] = [];
   const pending: string[] = [""];
   while (pending.length > 0) {
     const directory = pending.pop() ?? "";
     throwIfAborted(signal);
+    if (expired?.() === true) break;
     let entries;
     try {
       entries = await readdir(directory === "" ? root : path.join(root, directory), {
@@ -508,8 +510,9 @@ const discoverFiles = async (
   root: string,
   matcher: RegExp | undefined,
   signal: AbortSignal | undefined,
+  expired?: () => boolean,
 ): Promise<string[]> =>
-  await gitTrackedFiles(root, matcher, signal) ?? await walkFiles(root, matcher, signal);
+  await gitTrackedFiles(root, matcher, signal) ?? await walkFiles(root, matcher, signal, expired);
 
 const COMMENT_HEAD = /^(?:\/\/|\/\*|\*|#|--|<!--|;|%)/;
 const IMPORT_HEAD = /^(?:import|from|require|include|use|using|package|open|load|source)\b/;
@@ -685,14 +688,21 @@ const compareSymbols = (left: CodeSymbol, right: CodeSymbol): number => {
 
 export async function buildSymbolIndex(request: SymbolIndexRequest): Promise<SymbolIndex> {
   const startedAt = Date.now();
+  const budgetMs = request.maxMs !== undefined && request.maxMs > 0 ? request.maxMs : undefined;
+  const remainingMs = (): number | undefined =>
+    budgetMs === undefined ? undefined : Math.max(0, budgetMs - (Date.now() - startedAt));
+  const outOfTime = (): boolean => {
+    const left = remainingMs();
+    return left !== undefined && left <= 0;
+  };
   const signal = request.signal;
   throwIfAborted(signal);
   const root = path.resolve(request.root);
   const matcher = request.glob === undefined ? undefined : globToRegExp(request.glob);
-  const discovered = await discoverFiles(root, matcher, signal);
+  const discovered = await discoverFiles(root, matcher, signal, outOfTime);
   discovered.sort();
 
-  let truncated = false;
+  let truncated = outOfTime();
   let files = discovered;
   if (files.length > request.maxFiles) {
     files = discovered.slice(0, request.maxFiles);
@@ -724,19 +734,31 @@ export async function buildSymbolIndex(request: SymbolIndexRequest): Promise<Sym
   for (const spec of LANGUAGE_SPECS) {
     if (!activeSpecs.has(spec.id)) continue;
     throwIfAborted(signal);
+    if (outOfTime()) {
+      truncated = true;
+      break;
+    }
     const scoped: string[] = [];
     for (const [file, id] of assigned) if (id === spec.id) scoped.push(file);
     const prefix = commonDirectory(scoped);
-    const result = await natives.astGrep({
-      patterns: spec.patterns,
-      lang: spec.lang,
-      path: prefix === "" ? root : path.join(root, prefix),
-      glob: spec.glob,
-      includeMeta: true,
-      limit: matchLimit,
-      timeoutMs: MATCH_TIMEOUT_MS,
-      ...(signal ? { signal } : {}),
-    });
+    let result: AstFindResult;
+    try {
+      result = await natives.astGrep({
+        patterns: spec.patterns,
+        lang: spec.lang,
+        path: prefix === "" ? root : path.join(root, prefix),
+        glob: spec.glob,
+        includeMeta: true,
+        limit: matchLimit,
+        timeoutMs: Math.min(MATCH_TIMEOUT_MS, remainingMs() ?? MATCH_TIMEOUT_MS),
+        ...(signal ? { signal } : {}),
+      });
+    } catch (error) {
+      throwIfAborted(signal);
+      if (budgetMs === undefined) throw error;
+      truncated = true;
+      break;
+    }
     if (result.limitReached) truncated = true;
     for (const match of result.matches) {
       const relative = toPosix(match.path);
@@ -757,6 +779,10 @@ export async function buildSymbolIndex(request: SymbolIndexRequest): Promise<Sym
 
   for (const file of fallbackFiles) {
     throwIfAborted(signal);
+    if (outOfTime()) {
+      truncated = true;
+      break;
+    }
     let code: string;
     try {
       code = await readFile(path.join(root, file), "utf8");

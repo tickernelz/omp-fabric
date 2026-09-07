@@ -167,6 +167,7 @@ export class CodemapProvider implements FabricProvider {
       ...(glob !== undefined ? { glob } : {}),
       maxFiles: this.config.maxFiles,
       maxSymbols: this.config.maxSymbols,
+      maxMs: this.config.maxMs,
       ...(signal !== undefined ? { signal } : {}),
     });
     this.#cache.set(key, { index, at: Date.now() });

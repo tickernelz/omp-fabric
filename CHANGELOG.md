@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.3.1
+
+### Fixed
+
+- **A code map built outside a project could crawl for minutes.** `codemap.cascade` degrades when the workspace is not a git repository; the symbol index had no equivalent bound and was limited only by `maxFiles`. Indexing `/tmp` took 94.4 seconds. A wall-clock ceiling, `codemap.maxMs`, now bounds the filesystem walk, each native pattern pass and the fallback pass: measured at 30.1, 10.0, 5.1 and 2.0 seconds against ceilings of 30s, 10s, 5s and 2s, an overshoot of 0 to 2 percent. A pass cut short yields a partial map with `truncated` set; it does not raise. The 30-second default never bites on a real project, which indexes in 3.8 seconds here.
+
+  Bounding the passes between calls was not enough on its own: a single native pass over 4,000 files outran the whole budget, so the remaining budget is now passed to the native call as its own timeout, and enumeration is bounded too. Without both, a 5-second ceiling still took 8.8 seconds.
+
+### Notes
+
+- The global actor `cwd` threading shipped in 1.3.0 without a negative control. It has one now: removing the `toRequest` spread turns `tests/global-actor-cwd.test.ts` red, so the round-trip test defends the fix rather than passing incidentally.
+
 ## 1.3.0
 
 Three read-only audits went looking for places where an agent is blocked by a parameter the underlying tool already supports. Every change below is additive: each new parameter is optional and omitting it reproduces 1.2.0 behaviour.
