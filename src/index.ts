@@ -90,6 +90,7 @@ import { FabricState } from "./fabric-state.js";
 import { classifyToolResult } from "./repairs/classify.js";
 import { getActiveRepairCompiler } from "./repairs/active.js";
 import { ompHostCompatibilityWarning } from "./host-compatibility.js";
+import { scheduleFabricUpdateCheck } from "./update/check.js";
 import {
   FABRIC_COMPONENT_REGISTER_EVENT,
   FABRIC_PROVIDER_REGISTER_EVENT,
@@ -166,6 +167,7 @@ export default async function ompFabric(omp: ExtensionAPI): Promise<void> {
   const codePreviewSettings = defaultCodePreviewSettings();
   const decorateShell: FabricToolShellDecorator = withCodePreviewShell;
   let compatibilityWarningShown = false;
+  let updateCheckStarted = false;
   configureHighlighting(
     codePreviewSettings.shikiTheme,
     codePreviewSettings.syntaxHighlighting,
@@ -503,6 +505,13 @@ export default async function ompFabric(omp: ExtensionAPI): Promise<void> {
     await state.bootstrap(context);
     refreshCodePreviewSettings();
     applyFabricMode();
+    if (!updateCheckStarted) {
+      updateCheckStarted = true;
+      void scheduleFabricUpdateCheck(context, {
+        enabled: state.config.update.check,
+        agentDir: resolveAgentDir(),
+      });
+    }
     if (state.shouldEagerlyActivate(context)) await state.ensure(context);
   });
 

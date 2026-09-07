@@ -233,6 +233,10 @@ interface FabricEntropyConfig {
   compile: boolean;
 }
 
+interface FabricUpdateConfig {
+  check: boolean;
+}
+
 export interface FabricMemoryConfig {
   enabled: boolean;
   indexDir?: string;
@@ -296,6 +300,7 @@ export interface FabricConfig {
   memory: FabricMemoryConfig;
   entropy: FabricEntropyConfig;
   repairs: FabricRepairsConfig;
+  update: FabricUpdateConfig;
   schema: FabricSchemaConfig;
   speculation: FabricSpeculationConfig;
   codePreview: CodePreviewSettings;
@@ -455,6 +460,9 @@ export const DEFAULT_FABRIC_CONFIG: FabricConfig = {
   },
   repairs: {
     enabled: true,
+  },
+  update: {
+    check: true,
   },
   schema: {
     mode: "off",
@@ -647,6 +655,7 @@ export const normalizeFabricConfig = (input: Record<string, unknown>): FabricCon
   const memory = objectValue(input.memory);
   const entropy = objectValue(input.entropy);
   const repairs = objectValue(input.repairs);
+  const update = objectValue(input.update);
   const modelsSection = objectValue(input.models);
   const schema = objectValue(input.schema);
   const schemaMode = schemaModeValue(schema.mode, DEFAULT_FABRIC_CONFIG.schema.mode);
@@ -1146,6 +1155,9 @@ export const normalizeFabricConfig = (input: Record<string, unknown>): FabricCon
     },
     repairs: {
       enabled: booleanValue(repairs.enabled, DEFAULT_FABRIC_CONFIG.repairs.enabled),
+    },
+    update: {
+      check: booleanValue(update.check, DEFAULT_FABRIC_CONFIG.update.check),
     },
     schema: {
       mode: schemaMode,

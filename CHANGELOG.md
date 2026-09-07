@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.1.0
+
+### Added
+
+- **Update notice in the TUI.** Fabric now tells you when a newer release is published, as a quiet status line naming both versions and the command that works: `omp plugin install omp-fabric`. The host's own auto-update covers marketplace plugins only, and `omp plugin upgrade` rejects npm plugins, so an npm install had no notification path at all.
+- The check reaches the network at most once every 24 hours, caches to `<agent dir>/fabric/update-check.json`, announces a version once and then stays quiet, and is silent on every failure: offline, non-200, malformed payload, or an unwritable cache. It is skipped entirely when the session has no UI and inside spawned child agents, so headless runs and subagents cost nothing. Turn it off with `update.check: false`.
+- This is the extension's first outbound network call. Before it, `src/` contained none.
+
 ## 1.0.5
 
 ### Fixed

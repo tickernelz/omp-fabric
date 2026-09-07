@@ -490,3 +490,17 @@ The deterministic, LLM-free compaction engine is on by default. It keeps OMP's b
 Silent invocation repairs are on by default. `repairs.enabled` controls the catalog-scoped table at `<active OMP agent dir>/fabric/repairs/current.json`. Inspect it with `/fabric repairs`. See [catalog repairs](repairs.md).
 
 Continual entropy reduction is on by default. `entropy.compile` controls the autonomous compile loop and its enforcement: every turn with new `fabric_exec` evidence runs measure → propose → apply → gate against the live session window, and a passing compile persists `<agent dir>/fabric/entropy/compiled.json` beside the repair table. Inspect it with `/fabric entropy`. See [tool entropy](entropy.md).
+
+## Update notice
+
+Fabric watches npm for a newer published `omp-fabric` and shows one status line while the installed version is behind. `update.check` (default `true`) masters the check. The line names both versions and the upgrade command:
+
+```text
+omp-fabric 1.0.5 → 1.1.0 · omp plugin install omp-fabric
+```
+
+The check makes at most one plain GET to `https://registry.npmjs.org/omp-fabric/latest` per day, with no query parameters and no identifiers. Its cache lives at `<active OMP agent dir>/fabric/update-check.json` and records the last check time, the latest published version, and the version already announced. A session inside that 24-hour window reads the cache and reaches the network zero times.
+
+Every failure path stays quiet. An offline machine, a DNS failure, a non-200 answer, a throttled registry, malformed JSON, and an unwritable cache all leave the session exactly as it was. A version equal to or newer than the published one stays quiet too, which is the normal case for a local checkout loaded with `-e`.
+
+Fabric announces each version one time. Later sessions on the same published version stay quiet until a newer version appears. Sessions with no UI (print and RPC mode), spawned child agents, and actor runtimes skip the check. It starts at session start and never delays the first turn.

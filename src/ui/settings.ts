@@ -1656,6 +1656,11 @@ export const buildFabricSettingsItems = (
               "Number of mesh events kept in the dashboard history.",
             ),
           }),
+          setting("update.check", "Update notice", config.update.check ? "true" : "false", {
+            description:
+              "Show a status line when a newer omp-fabric is published on npm. One npm registry request per day, cached under the agent dir.",
+            values: BOOLEANS,
+          }),
         ],
         persist,
       ),
