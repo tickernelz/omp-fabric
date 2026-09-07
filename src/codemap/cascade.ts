@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, realpathSync } from "node:fs";
 import path from "node:path";
 import { promisify } from "node:util";
 import type { CoChangeEdge, CoChangeGraph, CoChangeRequest } from "./types.js";
@@ -64,13 +64,26 @@ const unquoteGitPath = (raw: string): string => {
   return Buffer.from(bytes).toString("utf8");
 };
 
+const realPath = (value: string): string => {
+  try {
+    return realpathSync.native(value);
+  } catch {
+    return value;
+  }
+};
+
 const relativeSeed = (root: string, top: string, seed: string): string | undefined => {
   const absolute = path.isAbsolute(seed) ? seed : path.resolve(root, seed);
-  const relative = path.relative(top, absolute);
-  if (!relative || relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
-    return undefined;
+  for (const base of new Set([top, realPath(top)])) {
+    for (const candidate of new Set([absolute, realPath(absolute), path.resolve(realPath(root), seed)])) {
+      const relative = path.relative(base, candidate);
+      if (!relative || relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+        continue;
+      }
+      return toPosix(relative);
+    }
   }
-  return toPosix(relative);
+  return undefined;
 };
 
 const emptyGraph = (seeds: string[], unavailable: string): CoChangeGraph => ({
