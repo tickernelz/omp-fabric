@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.5
+
+### Fixed
+
+- **Full code mode hid every skill from the model.** The host renders its `<skills>` listing only when the native `read` tool is active (`system-prompt.ts`), and full code mode removes `read`, so the whole block was dropped. Fabric's compensation read the skill list from `event.systemPromptOptions.skills`, a field the host does not have, so it always rebuilt from an empty array. Measured on a machine with 562 skills on disk: the model saw 0 with Fabric loaded and 394 without it. Agents therefore fell back to globbing the filesystem for `SKILL.md` files instead of loading `skill://<name>`. The listing is now rebuilt from the host's own `getActiveSkills()` registry, honours the `skillful` setting and the host's `hide` filter, and carries a load instruction naming the mechanism that works under full code mode.
+
 ## 1.0.4
 
 ### Fixed

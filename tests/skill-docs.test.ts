@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { loadSkillsFromDir } from "@oh-my-pi/pi-coding-agent";
-import { formatSkillsForPrompt } from "../src/core/skill-block.js";
+import { formatSkillsSection } from "../src/core/skill-block.js";
 import { describe, expect, it } from "vitest";
 import { GUEST_TYPE_DECLARATIONS } from "../src/runtime/guest-types.js";
 import { typeCheckFabricCode } from "../src/runtime/type-checker.js";
@@ -219,10 +219,10 @@ describe("fabric-exec skill provider contracts", () => {
     );
     expect(fabricSkills.filter((skill) => !skill.hide)
       .map((skill) => skill.name)).toEqual(["fabric-exec"]);
-    const prompt = formatSkillsForPrompt(fabricSkills);
+    const prompt = formatSkillsSection(fabricSkills, "Matching skill");
     expect(prompt).toContain("fabric-exec");
     for (const skill of fabricSkills.filter((skill) => skill.hide)) {
-      expect(prompt).not.toContain(`<name>${skill.name}</name>`);
+      expect(prompt).not.toContain(`- ${skill.name}:`);
     }
 
     const guide = fs.readFileSync("skills/fabric-guide/SKILL.md", "utf8");

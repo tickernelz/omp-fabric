@@ -2,7 +2,6 @@ import type { Usage } from "@oh-my-pi/pi-ai";
 import type {
   ExtensionAPI,
   ExtensionContext,
-  Skill,
 } from "@oh-my-pi/pi-coding-agent";
 import { defaultCodePreviewSettings } from "./ui/code-preview.js";
 import {
@@ -69,7 +68,11 @@ import {
   FABRIC_EXECUTION_GUIDANCE_SLOT,
   resolveFabricModelGuidance,
 } from "./components/model-guidance.js";
-import { restoreSkillsForFullCodePrompt } from "./core/skill-prompt.js";
+import {
+  activeSkills,
+  listableSkills,
+  restoreSkillsForFullCodePrompt,
+} from "./core/skill-prompt.js";
 import {
   formatProxyContractReminder,
   PROXY_CONTRACT_CUSTOM_TYPE,
@@ -733,12 +736,13 @@ export default async function ompFabric(omp: ExtensionAPI): Promise<void> {
     reassertToolOwnership();
     const effectiveFullCodeMode = fullCodeMode || schemaMode === "enforce";
     if (!omp.getActiveTools().includes("fabric_exec")) return;
-    const skills = (event as typeof event & {
-      systemPromptOptions?: { skills?: Skill[] };
-    }).systemPromptOptions?.skills ?? [];
+    const skills = activeSkills();
     const captureSnapshot = state.cwd ? capturePolicy() : undefined;
     const systemPrompt = effectiveFullCodeMode
-      ? restoreSkillsForFullCodePrompt(event.systemPrompt.join("\n"), skills)
+      ? restoreSkillsForFullCodePrompt(
+        event.systemPrompt.join("\n"),
+        listableSkills(skills),
+      )
       : event.systemPrompt.join("\n");
     // OMP expands the invoked skill into the user message, but wrappers may
     // delegate by name. Resolve only explicit invocation lines so full code

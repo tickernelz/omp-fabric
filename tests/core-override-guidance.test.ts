@@ -1,6 +1,8 @@
 import {
   type ExtensionAPI,
   type ExtensionRunner,
+  setActiveSkills,
+  type Skill,
   type ToolDefinition,
 } from "@oh-my-pi/pi-coding-agent";
 import { Type } from "@oh-my-pi/omptype/typebox";
@@ -115,7 +117,6 @@ describe("core override prompt guidance", () => {
       const result = await handler({
         systemPrompt: ["base system"],
         prompt: "inspect source",
-        systemPromptOptions: { skills: [] },
       }, {});
       const prompt = (result as { systemPrompt: string[] }).systemPrompt[0]!;
       expect(prompt).toContain("omp.read");
@@ -147,19 +148,27 @@ describe("core override prompt guidance", () => {
         },
       ]);
       try {
-        const skills = [
-          { name: "active", description: "Active workflow", filePath: "/skills/active/SKILL.md" },
+        const skills: Skill[] = [
+          {
+            name: "active",
+            description: "Active workflow",
+            filePath: "/skills/active/SKILL.md",
+            baseDir: "/skills/active",
+            source: "test",
+          },
           {
             name: "dependency",
             description: "Required dependency",
             filePath: "/skills/dependency/SKILL.md",
+            baseDir: "/skills/dependency",
+            source: "test",
           },
         ];
+        setActiveSkills(skills);
         const modelContext = { model: { provider: "deepseek", id: "deepseek-chat" } };
         const guidedEvent = {
           systemPrompt: ["base system"],
           prompt: "inspect source",
-          systemPromptOptions: { skills },
         };
         const guidedResult = await handler(guidedEvent, modelContext);
         const repeatedResult = await handler(guidedEvent, modelContext);
@@ -203,7 +212,6 @@ describe("core override prompt guidance", () => {
         const enforcedResult = await handler({
           systemPrompt: ["base system"],
           prompt: "inspect source",
-          systemPromptOptions: { skills: [] },
         }, {});
         const enforcedPrompt = (enforcedResult as { systemPrompt: string[] }).systemPrompt[0]!;
         expect(enforcedPrompt).toContain("structure-aware reads");

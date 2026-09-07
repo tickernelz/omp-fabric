@@ -8,7 +8,7 @@ const skills: SkillReference[] = [
   {
     name: "grill-me",
     filePath: "/skills/grill-me/SKILL.md",
-    disableModelInvocation: true,
+    hide: true,
   },
   {
     name: "grilling",
@@ -21,7 +21,7 @@ const skills: SkillReference[] = [
   {
     name: "private-flow",
     filePath: "/skills/private-flow/SKILL.md",
-    disableModelInvocation: true,
+    hide: true,
   },
 ];
 

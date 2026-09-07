@@ -1,7 +1,7 @@
 export interface SkillReference {
   name: string;
   filePath: string;
-  disableModelInvocation?: boolean;
+  hide?: boolean;
 }
 
 const INVOCATION_VERB =
@@ -38,7 +38,7 @@ export const buildSkillReferenceGuidance = (
   const referenced = skills.filter(
     (skill) =>
       skill.name !== active.name &&
-      skill.disableModelInvocation !== true &&
+      skill.hide !== true &&
       invocationLines.some((line) => referencesSkill(line, skill.name)),
   );
   if (referenced.length === 0) return undefined;
