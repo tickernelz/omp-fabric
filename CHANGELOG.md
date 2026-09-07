@@ -8,9 +8,12 @@
 
   Bounding the passes between calls was not enough on its own: a single native pass over 4,000 files outran the whole budget, so the remaining budget is now passed to the native call as its own timeout, and enumeration is bounded too. Without both, a 5-second ceiling still took 8.8 seconds.
 
+  Only a genuine timeout counts as truncation. The first cut caught every error from the pattern pass and reported a partial map whenever a budget was set, which would have hidden a real fault behind a plausible-looking result; anything that is not a timeout now propagates.
+
 ### Notes
 
-- The global actor `cwd` threading shipped in 1.3.0 without a negative control. It has one now: removing the `toRequest` spread turns `tests/global-actor-cwd.test.ts` red, so the round-trip test defends the fix rather than passing incidentally.
+- The global actor `cwd` threading shipped in 1.3.0 without a negative control. It has one now: removing the `toRequest` spread turns `tests/global-actor-cwd.test.ts` red, so the round-trip test defends the fix and does not pass incidentally.
+- A windows-latest failure in the budget tests was fixed by two changes in one commit, the narrowed catch and smaller fixtures, so which one cured it is not established. The narrowed catch is correct on its own terms: masking an arbitrary failure as a partial result is wrong whether or not it was the cause here.
 
 ## 1.3.0
 
