@@ -59,6 +59,12 @@ const map = await codemap.map({ focus: "compaction threshold", maxTokens: 4000 }
 const related = await codemap.cascade({ seeds: ["src/core/compact-controller.ts"] });
 ```
 
+Both actions take an optional `path`. It defaults to the session directory; relative values resolve against it, absolute values are taken as given, and a path that is missing or is not a directory is rejected with a named error. Point it at a project root when the session runs somewhere else: mapping a scratch directory indexes whatever happens to be there, which on one measured run meant 4,000 unrelated files and 93 seconds. `map` returns the `root` it used.
+
+```ts
+const other = await codemap.map({ path: "/home/me/projects/service", focus: "retry policy" });
+```
+
 ## Co-change ranking
 
 `codemap.cascade` reads bounded `git log` history and scores candidates by symmetric affinity in place of raw co-occurrence:

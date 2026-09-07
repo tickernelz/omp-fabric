@@ -5,6 +5,7 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { BashTool } from "@oh-my-pi/pi-coding-agent/tools/bash";
 import { EditTool } from "@oh-my-pi/pi-coding-agent/edit";
+import { GlobTool } from "@oh-my-pi/pi-coding-agent/tools/glob";
 import { GrepTool, MULTI_FILE_PER_FILE_MATCHES, SINGLE_FILE_MATCHES } from "@oh-my-pi/pi-coding-agent/tools/grep";
 import { ReadTool } from "@oh-my-pi/pi-coding-agent/tools/read";
 import { piEscapeRegexLiteral, piJoinPath } from "@oh-my-pi/pi-ai/providers/cursor-pi-args";
@@ -129,12 +130,39 @@ const GREP_SKIP_PROPERTY = {
   description: "Files to skip before collecting results — paginate when a search hit the file limit",
 } as const;
 
-const withGrepSkipSchema = (document: unknown): unknown => {
-  const schema = asRecord(document);
+const GITIGNORE_PROPERTY = {
+  type: "boolean",
+  description: "Respect gitignore rules; pass false to search ignored files such as build output or .env",
+} as const;
+
+const HIDDEN_PROPERTY = {
+  type: "boolean",
+  description: "Include dotfiles and hidden directories",
+} as const;
+
+const withExtraProperties = (
+  document: unknown,
+  extras: Record<string, unknown>,
+): unknown => {
+  const source = typeof document === "function" && "toJsonSchema" in document
+    ? (document as { toJsonSchema(): unknown }).toJsonSchema()
+    : document;
+  const schema = asRecord(source);
   const properties = asRecord(schema?.properties);
-  if (!schema || !properties || Object.hasOwn(properties, "skip")) return document;
-  return { ...schema, properties: { ...properties, skip: GREP_SKIP_PROPERTY } };
+  if (!schema || !properties) return document;
+  const additions: Record<string, unknown> = {};
+  for (const [name, property] of Object.entries(extras)) {
+    if (!Object.hasOwn(properties, name)) additions[name] = property;
+  }
+  if (Object.keys(additions).length === 0) return document;
+  return { ...schema, properties: { ...properties, ...additions } };
 };
+
+const withGrepSkipSchema = (document: unknown): unknown =>
+  withExtraProperties(document, { skip: GREP_SKIP_PROPERTY, gitignore: GITIGNORE_PROPERTY });
+
+const withFindFilterSchema = (document: unknown): unknown =>
+  withExtraProperties(document, { gitignore: GITIGNORE_PROPERTY, hidden: HIDDEN_PROPERTY });
 
 const grepSession = (cwd: string, context?: number): ToolSession =>
   ({
@@ -170,6 +198,37 @@ const createGrepDefinitionWithSkip = (cwd: string): ToolDefinition<any, any> => 
           path: glob ? piJoinPath(searchPath, glob) : searchPath,
           case: record.ignoreCase === true ? false : undefined,
           ...(skip === undefined ? {} : { skip }),
+          ...(typeof record.gitignore === "boolean" ? { gitignore: record.gitignore } : {}),
+        } as never,
+        signal,
+        onUpdate as never,
+        context as never,
+      );
+    },
+  };
+};
+
+const createFindDefinitionWithFilters = (cwd: string): ToolDefinition<any, any> => {
+  const legacy = createFindToolDefinition(cwd);
+  const tool = new GlobTool(grepSession(cwd));
+  return {
+    ...legacy,
+    parameters: withFindFilterSchema(legacy.parameters) as ToolDefinition<any, any>["parameters"],
+    execute: (toolCallId, params, signal, onUpdate, context) => {
+      const record = asRecord(params) ?? {};
+      if (typeof record.gitignore !== "boolean" && typeof record.hidden !== "boolean") {
+        return legacy.execute(toolCallId, params as never, signal, onUpdate as never, context as never);
+      }
+      const pattern = typeof record.pattern === "string" ? record.pattern : undefined;
+      const searchPath = typeof record.path === "string" ? record.path : undefined;
+      const limit = typeof record.limit === "number" ? record.limit : undefined;
+      return tool.execute(
+        toolCallId,
+        {
+          path: piJoinPath(searchPath ?? ".", pattern ?? "*"),
+          ...(limit === undefined ? {} : { limit }),
+          ...(typeof record.gitignore === "boolean" ? { gitignore: record.gitignore } : {}),
+          ...(typeof record.hidden === "boolean" ? { hidden: record.hidden } : {}),
         } as never,
         signal,
         onUpdate as never,
@@ -733,7 +792,7 @@ export class OmpToolsProvider implements FabricProvider {
       edit: createNativeReplaceEditToolDefinition(cwd),
       write: createPreviewWriteToolDefinition(cwd),
       grep: createGrepDefinitionWithSkip(cwd),
-      find: createFindToolDefinition(cwd),
+      find: createFindDefinitionWithFilters(cwd),
       ls: createLsToolDefinition(cwd),
     };
     this.#catalog = catalog;

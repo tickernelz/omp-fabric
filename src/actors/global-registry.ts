@@ -181,6 +181,7 @@ export class GlobalActorRegistry {
       ...(patch.thinking !== undefined ? { thinking: patch.thinking } : existing.thinking ? { thinking: existing.thinking } : {}),
       ...(patch.tools !== undefined ? { tools: patch.tools } : existing.tools ? { tools: existing.tools } : {}),
       ...(patch.transport !== undefined ? { transport: patch.transport } : existing.transport ? { transport: existing.transport } : {}),
+      ...(patch.cwd !== undefined ? { cwd: patch.cwd } : existing.cwd ? { cwd: existing.cwd } : {}),
       ...(patch.timeoutMs !== undefined ? { timeoutMs: patch.timeoutMs } : existing.timeoutMs ? { timeoutMs: existing.timeoutMs } : {}),
       ...(patch.extensions !== undefined
         ? { extensions: patch.extensions }
@@ -244,6 +245,7 @@ export class GlobalActorRegistry {
       ...(def.thinking ? { thinking: def.thinking } : {}),
       ...(def.tools ? { tools: [...def.tools] } : {}),
       ...(def.transport ? { transport: def.transport } : {}),
+      ...(def.cwd ? { cwd: def.cwd } : {}),
       ...(def.timeoutMs ? { timeoutMs: def.timeoutMs } : {}),
       ...(typeof def.extensions === "boolean" ? { extensions: def.extensions } : {}),
       ...(def.validWhile ? { validWhile: clone(def.validWhile) } : {}),
@@ -289,6 +291,7 @@ export class GlobalActorRegistry {
       : undefined;
     const transport =
       def.transport !== undefined && TRANSPORTS.has(def.transport) ? def.transport : undefined;
+    const cwd = typeof def.cwd === "string" && def.cwd.trim().length > 0 ? def.cwd : undefined;
     const timeoutMs = typeof def.timeoutMs === "number" ? def.timeoutMs : undefined;
     const extensions = typeof def.extensions === "boolean" ? def.extensions : undefined;
     const requires = normalizeRequirements(def.requires);
@@ -314,6 +317,7 @@ export class GlobalActorRegistry {
       ...(thinking ? { thinking } : {}),
       ...(tools ? { tools } : {}),
       ...(transport ? { transport } : {}),
+      ...(cwd ? { cwd } : {}),
       ...(timeoutMs ? { timeoutMs } : {}),
       ...(extensions !== undefined ? { extensions } : {}),
       ...(requires && requires.length > 0 ? { requires } : {}),
@@ -373,6 +377,7 @@ export class GlobalActorRegistry {
         : undefined;
       const transport: FabricAgentTransport | undefined =
         record.transport !== undefined && TRANSPORTS.has(record.transport) ? record.transport : undefined;
+      const cwd = typeof record.cwd === "string" && record.cwd.trim().length > 0 ? record.cwd : undefined;
       const timeoutMs = typeof record.timeoutMs === "number" ? record.timeoutMs : undefined;
       const extensions = typeof record.extensions === "boolean" ? record.extensions : undefined;
       let requires: FabricCapabilityRequirement[] | undefined;
@@ -404,6 +409,7 @@ export class GlobalActorRegistry {
         ...(thinking ? { thinking } : {}),
         ...(tools ? { tools } : {}),
         ...(transport ? { transport } : {}),
+        ...(cwd ? { cwd } : {}),
         ...(timeoutMs ? { timeoutMs } : {}),
         ...(extensions !== undefined ? { extensions } : {}),
         ...(requires && requires.length > 0 ? { requires } : {}),

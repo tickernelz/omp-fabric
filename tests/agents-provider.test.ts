@@ -931,7 +931,7 @@ describe("AgentsProvider runner support", async () => {
     expect(schema.properties).not.toHaveProperty("checkpoint");
   });
 
-  it("exposes cwd on one-shot schemas but not handoff or actor definitions", async () => {
+  it("exposes cwd on one-shot and actor schemas but not handoff", async () => {
     const { provider } = setup();
     const run = await provider.describe("run", context);
     const spawn = await provider.describe("spawn", context);
@@ -943,7 +943,7 @@ describe("AgentsProvider runner support", async () => {
     expect(properties(run)).toHaveProperty("cwd");
     expect(properties(spawn)).toHaveProperty("cwd");
     expect(properties(handoff)).not.toHaveProperty("cwd");
-    expect(properties(create)).not.toHaveProperty("cwd");
+    expect(properties(create)).toHaveProperty("cwd");
   });
 
   it("rejects durable recursive cwd before the provider can transfer ownership", async () => {
@@ -1294,11 +1294,11 @@ describe("AgentsProvider runner support", async () => {
     });
   });
 
-  it("ignores actor timeout overrides below the configured default", async () => {
+  it("carries actor timeout overrides in both directions", async () => {
     const { provider, actors } = setup();
-    const inherited = (await provider.invoke(
+    const shorter = (await provider.invoke(
       "create",
-      { ...createRequest, name: "inherited-timeout", timeoutMs: 240_000 },
+      { ...createRequest, name: "shorter-timeout", timeoutMs: 240_000 },
       context,
     )) as { id: string };
     const longer = (await provider.invoke(
@@ -1307,7 +1307,7 @@ describe("AgentsProvider runner support", async () => {
       context,
     )) as { id: string };
 
-    expect(actors.definition(inherited.id)).not.toHaveProperty("timeoutMs");
+    expect(actors.definition(shorter.id).timeoutMs).toBe(240_000);
     expect(actors.definition(longer.id).timeoutMs).toBe(7_200_000);
   });
 

@@ -94,16 +94,13 @@ export const effectiveAgentTimeoutMs = (
   configuredTimeoutMs: number,
   requestedTimeoutMs?: number,
 ): number => {
-  const configured = Math.max(
-    MIN_AGENT_TIMEOUT_MS,
-    Math.min(Math.floor(configuredTimeoutMs), MAX_AGENT_TIMEOUT_MS),
-  );
-  if (requestedTimeoutMs === undefined || !Number.isFinite(requestedTimeoutMs)) {
-    return configured;
-  }
+  const selected =
+    requestedTimeoutMs === undefined || !Number.isFinite(requestedTimeoutMs)
+      ? configuredTimeoutMs
+      : requestedTimeoutMs;
   return Math.max(
-    configured,
-    Math.min(Math.floor(requestedTimeoutMs), MAX_AGENT_TIMEOUT_MS),
+    MIN_AGENT_TIMEOUT_MS,
+    Math.min(Math.floor(selected), MAX_AGENT_TIMEOUT_MS),
   );
 };
 
@@ -1438,9 +1435,10 @@ export class AgentManager {
   }
 
   #childTools(request: AgentRunRequest, runner: FabricAgentRunner): string[] {
-    const tools = [...(request.tools ?? this.config.defaultTools)].filter(
-      (tool) => tool !== "fabric_exec",
-    );
+    const tools = [
+      ...(request.tools ?? this.config.defaultTools),
+      ...(request.addTools ?? []),
+    ].filter((tool) => tool !== "fabric_exec");
     const extensions = request.recursive === true
       ? true
       : (request.extensions ?? this.config.extensions);

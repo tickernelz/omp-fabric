@@ -33,10 +33,30 @@ const runProperties = {
     enum: ["off", "minimal", "low", "medium", "high", "xhigh", "max"],
   },
   tools: { type: "array", items: { type: "string" } },
+  addTools: {
+    type: "array",
+    items: { type: "string" },
+    description:
+      "Extra tools merged onto the resolved tool list instead of replacing it; use with or without tools.",
+  },
+  images: {
+    type: "array",
+    description: "Image blocks delivered with the task on the child agent's first turn.",
+    items: {
+      type: "object",
+      properties: {
+        type: { const: "image" },
+        data: { type: "string", description: "Base64-encoded image bytes." },
+        mimeType: { type: "string" },
+      },
+      required: ["type", "data", "mimeType"],
+      additionalProperties: false,
+    },
+  },
   timeoutMs: {
     type: "number",
     description:
-      "Optional longer wall-clock limit in milliseconds. Omit to use agents.timeoutMs (60 minutes by default); values below the configured default are ignored.",
+      "Optional wall-clock limit in milliseconds, raising or lowering agents.timeoutMs (60 minutes by default). Clamped to the supported range of 1 second to 24 hours.",
   },
   extensions: { type: "boolean" },
   recursive: { type: "boolean" },
@@ -347,6 +367,11 @@ export const AGENTS_ACTION_DESCRIPTORS: FabricActionDescriptor[] = [
         thinking: runProperties.thinking,
         tools: runProperties.tools,
         transport: runProperties.transport,
+        cwd: {
+          ...runProperties.cwd,
+          description:
+            "Filesystem execution directory for every activation; relative paths resolve from the host cwd. An OMP actor must also pass extensions: false, because recursive Fabric activations do not support cwd.",
+        },
         timeoutMs: runProperties.timeoutMs,
         extensions: runProperties.extensions,
         requires: {

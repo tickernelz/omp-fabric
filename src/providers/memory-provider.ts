@@ -9,6 +9,7 @@ import fs from "node:fs";
 import path from "node:path";
 import {
   AmbiguousSessionError,
+  InvalidProjectScopeError,
   enumerateAllSessions,
   overrideSessionDir,
   PROJECT_SESSION_DIR_MISSING,
@@ -416,6 +417,9 @@ const sessionsOutputSchema: Record<string, unknown> = {
   properties: {
     scope: { type: "string" },
     branches: { type: "string", enum: ["active", "all"] },
+    offset: { type: "number" },
+    total: { type: "number" },
+    truncated: { type: "boolean" },
     sessions: {
       type: "array",
       items: {
@@ -483,7 +487,7 @@ const descriptors: FabricActionDescriptor[] = [
         scope: {
           type: "string",
           description:
-            "session | project | global | session:<id-or-path>. Defaults to session.",
+            "session | project | project:<path> | global | session:<id-or-path>. Defaults to session.",
         },
         offset: {
           type: "number",
@@ -644,7 +648,11 @@ const descriptors: FabricActionDescriptor[] = [
     inputSchema: {
       type: "object",
       properties: {
-        scope: { type: "string" },
+        scope: {
+          type: "string",
+          description:
+            "session | project | project:<path> | global | session:<id-or-path>. Defaults to session.",
+        },
         branches: {
           type: "string",
           enum: ["active", "all"],
@@ -654,6 +662,11 @@ const descriptors: FabricActionDescriptor[] = [
           type: "number",
           minimum: 1,
           description: "Maximum sessions returned; capped at the internal session ceiling.",
+        },
+        offset: {
+          type: "number",
+          minimum: 0,
+          description: "Number of sessions to skip; advance it by limit to page through total.",
         },
       },
       additionalProperties: false,
@@ -948,13 +961,24 @@ export class MemoryProvider implements FabricProvider {
           throw new Error(`Unknown memory action: ${actionName}`);
       }
     } catch (error) {
-      if (error instanceof AmbiguousSessionError) {
-        const detail = {
-          code: error.code,
-          message: error.message,
-          session: error.session,
-          candidates: error.candidates,
-        };
+      const detail =
+        error instanceof AmbiguousSessionError
+          ? {
+              code: error.code,
+              message: error.message,
+              session: error.session,
+              candidates: error.candidates,
+            }
+          : error instanceof InvalidProjectScopeError
+            ? {
+                code: error.code,
+                message: error.message,
+                project: error.project,
+                projectPath: error.projectPath,
+                reason: error.reason,
+              }
+            : undefined;
+      if (detail) {
         if (actionName === "recall") return recallFailure(detail);
         if (actionName === "expand") return { entries: [], next: null, error: detail };
         return { error: detail };
@@ -1801,8 +1825,13 @@ export class MemoryProvider implements FabricProvider {
       typeof args.limit === "number" && Number.isSafeInteger(args.limit) && args.limit >= 1
         ? Math.min(args.limit, SESSIONS_MAX)
         : SESSIONS_MAX;
-    const resolution = resolveRefs(scope, this.context, true);
-    const refs = resolution.refs.slice(0, limit);
+    const offset =
+      typeof args.offset === "number" && Number.isSafeInteger(args.offset) && args.offset >= 0
+        ? args.offset
+        : 0;
+    const resolution = resolveRefs(scope, this.context, false);
+    const total = resolution.refs.length;
+    const refs = resolution.refs.slice(offset, offset + limit);
     const options = resolveIndexOptions(
       this.context.config,
       this.context.agentDir,
@@ -1830,6 +1859,9 @@ export class MemoryProvider implements FabricProvider {
     return {
       scope: scope ?? "session",
       branches,
+      offset,
+      total,
+      truncated: offset + sessions.length < total,
       sessions,
       ...(resolution.reasons.length > 0
         ? { error: unresolvedScopeError(resolution) }

@@ -1,6 +1,6 @@
 // Adapted from pi-code-previews with Fabric result isolation; see THIRD_PARTY_NOTICES.md.
 import { homedir } from "node:os";
-import { dirname, isAbsolute, resolve } from "node:path";
+import { dirname, isAbsolute, resolve, win32 } from "node:path";
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import type { ToolDefinition } from "@oh-my-pi/pi-coding-agent";
 import { Type } from "@oh-my-pi/pi-coding-agent/extensibility/legacy-typebox";
@@ -27,9 +27,36 @@ type ExistingFilePreview =
       sizeExceeded?: boolean;
     };
 
+const URI_LIKE_WRITE_TARGET_RE = /^([a-z][a-z0-9+.-]*):\/{1,2}/i;
+
+class OmpWriteUriTargetError extends Error {
+  readonly path: string;
+
+  constructor(message: string, path: string) {
+    super(message);
+    this.name = "OmpWriteUriTargetError";
+    this.path = path;
+  }
+}
+
+const assertFilesystemWriteTarget = (candidate: string, reported: string): void => {
+  const trimmed = candidate.trim();
+  if (win32.isAbsolute(trimmed)) return;
+  const scheme = URI_LIKE_WRITE_TARGET_RE.exec(trimmed)?.[1]?.toLowerCase();
+  if (scheme === undefined) return;
+  const guidance = scheme === "xd"
+    ? "Tool devices are dispatched by the top-level `write` tool, which carries the xd:// transport; omp.write writes files."
+    : "omp.write resolves filesystem paths only.";
+  throw new OmpWriteUriTargetError(
+    `Refusing to write '${reported}': '${scheme}://' is a URI scheme, not a directory. ${guidance} Prefix the path with './' to create a literal file by that name.`,
+    reported,
+  );
+};
+
 const resolvePreviewPath = (filePath: string, cwd: string): string => {
   let expanded = filePath.startsWith("@") ? filePath.slice(1) : filePath;
   expanded = expanded.replace(/[\u00a0\u2000-\u200a\u202f\u205f\u3000]/g, " ");
+  assertFilesystemWriteTarget(expanded, filePath);
   if (expanded === "~") expanded = homedir();
   else if (expanded.startsWith("~/")) expanded = homedir() + expanded.slice(1);
   return isAbsolute(expanded) ? expanded : resolve(cwd, expanded);

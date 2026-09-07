@@ -49,6 +49,7 @@ export interface AgentRunRequest {
   persona?: string;
   thinking?: FabricThinking;
   tools?: string[];
+  addTools?: string[];
   timeoutMs?: number;
   extensions?: boolean;
   recursive?: boolean;

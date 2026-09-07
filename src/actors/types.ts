@@ -148,6 +148,7 @@ export interface FabricActorRequest {
   thinking?: FabricThinking;
   tools?: string[];
   transport?: FabricAgentTransport;
+  cwd?: string;
   timeoutMs?: number;
   /**
    * Fabric capability for the actor. Defaults to true (today's behavior: an OMP

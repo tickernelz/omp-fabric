@@ -82,6 +82,11 @@ const descriptors: FabricActionDescriptor[] = [
         },
         includeStale: { type: "boolean" },
         limit: { type: "number", minimum: 1 },
+        withTotal: {
+          type: "boolean",
+          description:
+            "Return { members, total, truncated } instead of a bare array, so a clipped page is distinguishable from a complete one.",
+        },
       },
       additionalProperties: false,
     },
@@ -108,6 +113,11 @@ const descriptors: FabricActionDescriptor[] = [
       properties: {
         prefix: { type: "string" },
         limit: { type: "number", minimum: 1 },
+        withTotal: {
+          type: "boolean",
+          description:
+            "Return { entries, total, truncated } instead of a bare array, so a clipped page is distinguishable from a complete one.",
+        },
       },
       additionalProperties: false,
     },
@@ -235,13 +245,15 @@ export class MeshProvider implements FabricProvider {
             ? args.scope
             : "project";
         const limit = Math.max(1, Math.floor(typeof args.limit === "number" ? args.limit : 100));
-        return this.participants
-          .list({
-            scope,
-            ...(kinds ? { kinds } : {}),
-            ...(args.includeStale === true ? { includeStale: true } : {}),
-          })
-          .slice(0, limit);
+        const matched = this.participants.list({
+          scope,
+          ...(kinds ? { kinds } : {}),
+          ...(args.includeStale === true ? { includeStale: true } : {}),
+        });
+        const members = matched.slice(0, limit);
+        return args.withTotal === true
+          ? { members, total: matched.length, truncated: matched.length > members.length }
+          : members;
       }
       case "get": {
         const key = String(args.key);
@@ -258,15 +270,18 @@ export class MeshProvider implements FabricProvider {
             this.store.maxReadEvents,
           ),
         );
-        return this.store
+        const matched = this.store
           .listAll(prefix)
           .filter(
             (entry) =>
               !PRIVATE_STATE_PREFIXES.some((privatePrefix) =>
                 entry.key.startsWith(privatePrefix),
               ),
-          )
-          .slice(0, limit);
+          );
+        const entries = matched.slice(0, limit);
+        return args.withTotal === true
+          ? { entries, total: matched.length, truncated: matched.length > entries.length }
+          : entries;
       }
       case "put": {
         const key = String(args.key);

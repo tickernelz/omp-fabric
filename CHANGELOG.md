@@ -1,5 +1,35 @@
 # Changelog
 
+## 1.3.0
+
+Three read-only audits went looking for places where an agent is blocked by a parameter the underlying tool already supports. Every change below is additive: each new parameter is optional and omitting it reproduces 1.2.0 behaviour.
+
+### Fixed
+
+- **`omp.write` reported success for a device it never called.** `omp.write({ path: "xd://recall", text: "..." })` answered `Successfully wrote 2 bytes to xd://recall` while actually creating a literal `xd:` directory under the session cwd, because `resolve(cwd, "xd://x")` collapses the scheme into a path segment. An unknown device name reported success too. URI-like targets are now rejected with a named error pointing at the top-level `write` tool, which carries the `xd://` transport even under full code mode. Device dispatch itself is not reachable from an extension: it needs the host `ToolSession.xdev` map, and Fabric's synthetic session has none.
+- **`omp.grep` dropped `gitignore` and `omp.find` dropped `gitignore` and `hidden`.** Both were discarded while rebuilding arguments, so searching build output or a vendored tree from a repository root returned nothing and reported no matches. `grep` now forwards the flag, and `find` routes through the host `GlobTool` when either filter is present.
+- **`omp.bash` accepted `env` at runtime but the guest declaration rejected it.** The type checker does not suppress TS2353, so a supported parameter failed before execution with `'env' does not exist in type`. `env` and `pty` are now declared.
+- **A per-call agent `timeoutMs` below the configured default was discarded.** Fanning out cheap probes with a short deadline was impossible: a hung child held the parent and a concurrency slot for the full configured timeout. The value is now clamped into the supported range in both directions.
+
+### Added
+
+- **`codemap.map` and `codemap.cascade` take a `path`.** They previously indexed the session directory and nothing else; running from a scratch directory indexed 4,000 unrelated files in 93 seconds. Relative values resolve against the session directory, absolute values are taken as given, and a missing path or a file is rejected by name. `map` reports the `root` it used.
+- **`memory` gained a `project:<path>` scope.** `recall` and `sessions` could only reach the project the session runs in. The new form is parallel to the existing `session:<id-or-path>`, and a bad path raises `InvalidProjectScopeError` rather than returning an empty result that reads like an answer.
+- **`agents.create` accepts `cwd`.** One-shot agents already did; a persistent actor could never be pinned to another checkout.
+- **`agents.run` and `agents.spawn` accept `images` and `addTools`.** The image pipeline existed end to end and only the provider translation dropped it. `addTools` merges onto the resolved tool list, so asking for the defaults plus one more no longer means restating every default.
+- **`mcp.$call` accepts `timeoutMs`**, clamped to a 15-minute ceiling and defaulting to the configured call timeout.
+- **`mesh.list` and `mesh.members` accept `withTotal`.** Both truncated silently with no way to tell a complete answer from a clipped one. With the flag they return the page plus `total` and `truncated`; without it the return shape is unchanged.
+- **`memory.sessions` accepts `offset`** and reports `total` and `truncated`, so a caller can page past the 500-session cap.
+
+- **`memory.sessions` reported a capped count as the total.** The browse was bounded by `memory.maxSessions` (500), so a project with more sessions read `total: 500` with `truncated: false` and looked complete. The count is now unbounded, which is also what makes `offset` able to page.
+- **The new `gitignore` and `hidden` filters were absent from the published descriptors.** The schema augmentation ran against a callable omptype schema instead of a JSON document and silently returned it unchanged, so `tools.describe`, `tools.list` and the action catalog never saw them. The pre-existing `skip` parameter had been invisible the same way.
+- **A global actor template dropped `cwd`.** `agents.create` validated and accepted it for every scope, but `GlobalActorRegistry` carried no such field, so a global template silently lost the directory and still reported success. It now round-trips through save, load and `toRequest`.
+
+### Notes
+
+- Two audit findings were rejected after probing rather than shipped: `omp.read` does honour `offset`/`limit`, and `omp.grep` does search a gitignored tree when the path points directly at it. The grep defect is real only from a parent directory, which is how the flag reaches the host at all.
+- A review finding was rejected with evidence: the `omp.write` rejection message points at the top-level `write` tool, which stays reachable under full code mode because the host keeps it as an `xd://` transport tool rather than an ordinary core tool.
+
 ## 1.2.0
 
 ### Added

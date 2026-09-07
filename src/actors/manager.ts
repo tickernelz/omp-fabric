@@ -85,6 +85,7 @@ interface ManagedActor {
   thinking?: FabricThinking;
   tools?: string[];
   transport?: FabricAgentTransport;
+  cwd?: string;
   timeoutMs?: number;
   extensions?: boolean;
   requirements: FabricCapabilityRequirement[];
@@ -465,6 +466,7 @@ export class ActorManager {
       ...(request.thinking ? { thinking: request.thinking } : {}),
       ...(request.tools ? { tools: [...new Set(request.tools)] } : {}),
       ...(request.transport ? { transport: request.transport } : {}),
+      ...(request.cwd ? { cwd: request.cwd } : {}),
       ...(request.timeoutMs ? { timeoutMs: request.timeoutMs } : {}),
       ...(typeof request.extensions === "boolean" ? { extensions: request.extensions } : {}),
       requirements,
@@ -854,6 +856,7 @@ export class ActorManager {
       ...(actor.thinking ? { thinking: actor.thinking } : {}),
       ...(actor.tools ? { tools: [...actor.tools] } : {}),
       ...(actor.transport ? { transport: actor.transport } : {}),
+      ...(actor.cwd ? { cwd: actor.cwd } : {}),
       ...(actor.timeoutMs ? { timeoutMs: actor.timeoutMs } : {}),
       ...(typeof actor.extensions === "boolean" ? { extensions: actor.extensions } : {}),
       ...(actor.requirements.length > 0
@@ -1554,6 +1557,7 @@ export class ActorManager {
       ...(item.binding.thinking ? { thinking: item.binding.thinking } : {}),
       ...(actor.tools ? { tools: actor.tools } : {}),
       ...(actor.transport ? { transport: actor.transport } : {}),
+      ...(actor.cwd ? { cwd: actor.cwd } : {}),
       ...(actor.timeoutMs ? { timeoutMs: actor.timeoutMs } : {}),
     };
   }
@@ -1985,6 +1989,7 @@ export class ActorManager {
       ...(actor.thinking ? { thinking: actor.thinking } : {}),
       ...(actor.tools ? { tools: actor.tools } : {}),
       ...(actor.transport ? { transport: actor.transport } : {}),
+      ...(actor.cwd ? { cwd: actor.cwd } : {}),
       ...(actor.timeoutMs ? { timeoutMs: actor.timeoutMs } : {}),
       ...(typeof actor.extensions === "boolean" ? { extensions: actor.extensions } : {}),
       requirements: actor.requirements,
@@ -2232,6 +2237,7 @@ export class ActorManager {
         record.transport === "herdr"
           ? { transport: record.transport }
           : {}),
+        ...(typeof record.cwd === "string" ? { cwd: record.cwd } : {}),
         ...(typeof record.timeoutMs === "number" ? { timeoutMs: record.timeoutMs } : {}),
         ...(typeof record.extensions === "boolean" ? { extensions: record.extensions } : {}),
         requirements,

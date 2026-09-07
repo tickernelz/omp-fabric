@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { SessionManager } from "@oh-my-pi/pi-coding-agent";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { DEFAULT_FABRIC_CONFIG } from "../src/config.js";
+import { DEFAULT_FABRIC_CONFIG, MIN_AGENT_TIMEOUT_MS } from "../src/config.js";
 import type { FabricLifecyclePublishRequest } from "../src/lifecycle/types.js";
 import { snapshotHandoffSession } from "../src/agents/handoff.js";
 import {
@@ -93,16 +93,21 @@ afterAll(() => {
 });
 
 describe("effectiveAgentTimeoutMs", async () => {
-  it("ignores per-call timeouts below the configured default", async () => {
-    expect(effectiveAgentTimeoutMs(3_600_000, 240_000)).toBe(3_600_000);
+  it("honours a per-call timeout below the configured default", async () => {
+    expect(effectiveAgentTimeoutMs(3_600_000, 240_000)).toBe(240_000);
+  });
+
+  it("clamps a per-call timeout to the supported floor", async () => {
+    expect(effectiveAgentTimeoutMs(3_600_000, 500)).toBe(MIN_AGENT_TIMEOUT_MS);
   });
 
   it("accepts per-call timeouts above the configured default", async () => {
     expect(effectiveAgentTimeoutMs(3_600_000, 7_200_000)).toBe(7_200_000);
   });
 
-  it("respects a configured default below 60 minutes", async () => {
-    expect(effectiveAgentTimeoutMs(1_800_000, 900_000)).toBe(1_800_000);
+  it("applies a configured default below 60 minutes only when no timeout is requested", async () => {
+    expect(effectiveAgentTimeoutMs(1_800_000)).toBe(1_800_000);
+    expect(effectiveAgentTimeoutMs(1_800_000, 900_000)).toBe(900_000);
     expect(effectiveAgentTimeoutMs(1_800_000, 2_400_000)).toBe(2_400_000);
   });
 });

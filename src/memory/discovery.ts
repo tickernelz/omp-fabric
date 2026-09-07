@@ -22,6 +22,7 @@ export interface ResolveScopeInput {
 }
 
 const SESSION_SCOPE_PREFIX = "session:";
+const PROJECT_SCOPE_PREFIX = "project:";
 
 /** Project scope matched no session directory at all, so its emptiness is unverified. */
 export const PROJECT_SESSION_DIR_MISSING = "project_session_dir_missing";
@@ -217,11 +218,43 @@ export interface ScopeResolution {
 const sameProjectCwd = (candidate: string, cwd: string): boolean =>
   candidate.length > 0 && resolveEquivalentPath(candidate) === resolveEquivalentPath(cwd);
 
+export class InvalidProjectScopeError extends Error {
+  readonly code = "invalid_project_scope";
+
+  constructor(
+    readonly project: string,
+    readonly projectPath: string,
+    readonly reason: "missing" | "not_a_directory",
+  ) {
+    super(
+      reason === "missing"
+        ? `Project scope path ${JSON.stringify(projectPath)} does not exist.`
+        : `Project scope path ${JSON.stringify(projectPath)} is not a directory.`,
+    );
+    this.name = "InvalidProjectScopeError";
+  }
+}
+
+const resolveProjectScopeTarget = (target: string, cwd: string): string => {
+  const resolved = path.resolve(cwd, target);
+  let stats: fs.Stats;
+  try {
+    stats = fs.statSync(resolved);
+  } catch {
+    throw new InvalidProjectScopeError(target, resolved, "missing");
+  }
+  if (!stats.isDirectory()) {
+    throw new InvalidProjectScopeError(target, resolved, "not_a_directory");
+  }
+  return resolved;
+};
+
 const projectSessions = (
   input: ResolveScopeInput,
+  projectCwd: string,
 ): { refs: SessionRef[]; candidateDirs: string[]; searchedDirs: string[] } => {
   const root = sessionsDirRoot(input.agentDir);
-  const names = sessionDirNamesForCwd(input.cwd);
+  const names = sessionDirNamesForCwd(projectCwd);
   const candidateDirs = [names.canonical, ...names.legacy].map((name) => path.join(root, name));
   const searchedDirs = candidateDirs.filter(isDirectory);
   const refs: SessionRef[] = [];
@@ -240,7 +273,7 @@ const projectSessions = (
     for (const file of listJsonlInDir(override)) {
       if (seen.has(file)) continue;
       const ref = refFromFile(file);
-      if (!sameProjectCwd(ref.cwd, input.cwd)) continue;
+      if (!sameProjectCwd(ref.cwd, projectCwd)) continue;
       seen.add(file);
       refs.push(ref);
     }
@@ -254,6 +287,9 @@ const projectSessions = (
  *
  * - `session` (default): the invoking session file, else the newest session for this cwd.
  * - `project`: every session OMP stored for this cwd, across current and superseded dir names.
+ * - `project:<path>`: the same, for another project directory; relative paths resolve against
+ *   `cwd`, and an empty suffix means this cwd. Throws `InvalidProjectScopeError` when the path
+ *   is missing or is not a directory.
  * - `global`: all sessions under the agent dir, bounded by `maxSessions`.
  * - `session:<id-or-path>`: one specific session by id or file path.
  *
@@ -278,8 +314,12 @@ export const resolveScope = (input: ResolveScopeInput): ScopeResolution => {
       searchedDirs: roots.filter(isDirectory),
     };
   }
-  if (scope === "project") {
-    const found = projectSessions(input);
+  if (scope === "project" || scope.startsWith(PROJECT_SCOPE_PREFIX)) {
+    const target = scope.startsWith(PROJECT_SCOPE_PREFIX)
+      ? scope.slice(PROJECT_SCOPE_PREFIX.length).trim()
+      : "";
+    const projectCwd = target === "" ? input.cwd : resolveProjectScopeTarget(target, input.cwd);
+    const found = projectSessions(input, projectCwd);
     return {
       refs: found.refs.slice(0, Math.max(1, input.maxSessions)),
       reasons: found.searchedDirs.length === 0 ? [PROJECT_SESSION_DIR_MISSING] : [],
@@ -295,7 +335,7 @@ export const resolveScope = (input: ResolveScopeInput): ScopeResolution => {
       searchedDirs: [],
     };
   }
-  const found = projectSessions(input);
+  const found = projectSessions(input, input.cwd);
   const newest = found.refs[0];
   return {
     refs: newest ? [newest] : [],

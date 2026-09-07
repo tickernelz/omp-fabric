@@ -1,3 +1,5 @@
+import { statSync } from "node:fs";
+import path from "node:path";
 import { Type } from "@oh-my-pi/pi-coding-agent/extensibility/legacy-typebox";
 import { validateJsonSchemaValue } from "@oh-my-pi/pi-ai/utils/schema";
 import { assembleMap } from "../codemap/budget.js";
@@ -15,7 +17,14 @@ import { actionArgNormalizer } from "./arg-normalization.js";
 
 const INDEX_TTL_MS = 30_000;
 
+const pathField = Type.Optional(Type.String({
+  maxLength: 4096,
+  description:
+    "Directory to index. Relative paths resolve against the session directory; defaults to it. Point this at a project root when the session runs elsewhere.",
+}));
+
 const mapSchema = Type.Object({
+  path: pathField,
   maxTokens: Type.Optional(Type.Number({
     minimum: 200,
     maximum: 200_000,
@@ -39,6 +48,7 @@ const mapSchema = Type.Object({
 }, { additionalProperties: false });
 
 const cascadeSchema = Type.Object({
+  path: pathField,
   seeds: Type.Array(Type.String({ maxLength: 1024 }), {
     minItems: 1,
     maxItems: 32,
@@ -49,6 +59,7 @@ const cascadeSchema = Type.Object({
 }, { additionalProperties: false });
 
 interface MapArguments {
+  path?: string;
   maxTokens?: number;
   glob?: string;
   focus?: string;
@@ -57,6 +68,7 @@ interface MapArguments {
 }
 
 interface CascadeArguments {
+  path?: string;
   seeds: string[];
   limit?: number;
   maxCommits?: number;
@@ -69,6 +81,25 @@ const checked = <T>(action: string, schema: { toJsonSchema(): unknown }, args: R
     throw new Error(`Invalid codemap.${action} arguments: ${message}`);
   }
   return args as T;
+};
+
+const resolveRoot = (requested: string | undefined, cwd: string): string => {
+  if (requested === undefined) return cwd;
+  const trimmed = requested.trim();
+  if (trimmed.length === 0) {
+    throw new Error("Invalid codemap path: expected a non-empty directory");
+  }
+  const resolved = path.isAbsolute(trimmed) ? trimmed : path.resolve(cwd, trimmed);
+  let stats;
+  try {
+    stats = statSync(resolved);
+  } catch {
+    throw new Error(`Invalid codemap path: ${resolved} does not exist`);
+  }
+  if (!stats.isDirectory()) {
+    throw new Error(`Invalid codemap path: ${resolved} is not a directory`);
+  }
+  return resolved;
 };
 
 const descriptors: FabricActionDescriptor[] = [
@@ -150,11 +181,12 @@ export class CodemapProvider implements FabricProvider {
     switch (actionName) {
       case "map": {
         const input = checked<MapArguments>("map", mapSchema, args);
-        const index = await this.#index(context.cwd, input.glob, input.refresh === true, context.signal);
+        const target = resolveRoot(input.path, context.cwd);
+        const index = await this.#index(target, input.glob, input.refresh === true, context.signal);
         let cascade: CoChangeGraph | undefined;
         if (input.seeds && input.seeds.length > 0) {
           cascade = await coChange({
-            root: context.cwd,
+            root: target,
             seeds: input.seeds,
             maxCommits: this.config.cascadeCommits,
             limit: this.config.cascadeLimit,
@@ -174,6 +206,7 @@ export class CodemapProvider implements FabricProvider {
         });
         return {
           ...budgeted,
+          root: index.root,
           indexed: {
             files: index.files.length,
             symbols: index.symbols.length,
@@ -188,7 +221,7 @@ export class CodemapProvider implements FabricProvider {
       case "cascade": {
         const input = checked<CascadeArguments>("cascade", cascadeSchema, args);
         const graph = await coChange({
-          root: context.cwd,
+          root: resolveRoot(input.path, context.cwd),
           seeds: input.seeds,
           maxCommits: input.maxCommits ?? this.config.cascadeCommits,
           limit: input.limit ?? this.config.cascadeLimit,

@@ -48,8 +48,14 @@ interface FabricAction {
   namespace?: string;
   effect?: FabricActionEffect;
 }
+interface FabricImageContent {
+  type: "image";
+  data: string;
+  mimeType: string;
+}
 interface FabricAgentRequest {
   task: string;
+  images?: FabricImageContent[];
   name?: string;
   runner?: FabricAgentRunner;
   transport?: FabricTransport;
@@ -57,6 +63,7 @@ interface FabricAgentRequest {
   persona?: string;
   thinking?: FabricThinking;
   tools?: string[];
+  addTools?: string[];
   timeoutMs?: number;
   extensions?: boolean;
   recursive?: boolean;
@@ -459,10 +466,11 @@ type OmpReadOptions = { offset?: number; limit?: number; start?: number; max?: n
 type OmpShellOptions = {
   timeout?: number; timeoutMs?: number; settle?: boolean;
   cwd?: string; workdir?: string; directory?: string; workingDirectory?: string;
+  env?: Record<string, string>; pty?: boolean;
 };
 type OmpBashOptions = OmpShellOptions;
-type OmpGrepOptions = { path?: string; glob?: string; globPattern?: string; ignoreCase?: boolean; ic?: boolean; caseInsensitive?: boolean; literal?: boolean; context?: number; ctx?: number; skip?: number };
-type OmpFindOptions = { path?: string; limit?: number; max?: number };
+type OmpGrepOptions = { path?: string; glob?: string; globPattern?: string; ignoreCase?: boolean; ic?: boolean; caseInsensitive?: boolean; literal?: boolean; context?: number; ctx?: number; skip?: number; gitignore?: boolean };
+type OmpFindOptions = { path?: string; limit?: number; max?: number; gitignore?: boolean; hidden?: boolean };
 type OmpLsOptions = { limit?: number; max?: number };
 type OmpReadArgument = string | (OmpPathArgument & OmpReadOptions);
 type OmpBashArgument = string | (OmpCommandArgument & OmpBashOptions);
@@ -565,6 +573,7 @@ interface FabricActorRequestBase {
   thinking?: FabricThinking;
   tools?: string[];
   transport?: FabricTransport;
+  cwd?: string;
   timeoutMs?: number;
   timeout_ms?: number;
   extensions?: boolean;
@@ -735,7 +744,7 @@ interface FabricMcpManagement {
     env?: Record<string, string>;
     overwrite?: boolean;
   }): Promise<{ registered: string }>;
-  call(args: { server: string; tool: string; args?: Record<string, unknown> }): Promise<unknown>;
+  call(args: { server: string; tool: string; args?: Record<string, unknown>; timeoutMs?: number }): Promise<unknown>;
 }
 // Loose static surface: any server/tool name compiles and argument shapes are
 // enforced at dispatch by the registry. With descriptor data available the
@@ -787,9 +796,11 @@ interface FabricMeshApi {
   self(): Promise<FabricMeshIdentity>;
   publish(args: { topic: string; kind?: string; to?: string; text?: string; data?: unknown; message?: string; body?: string }): Promise<FabricMeshEvent>;
   read(args?: { after?: number; topic?: string; to?: string; limit?: number; max?: number }): Promise<FabricMeshEvent[]>;
-  members(args?: { scope?: FabricParticipantScope; kinds?: FabricParticipantKind[]; includeStale?: boolean; limit?: number; max?: number; include_stale?: boolean }): Promise<FabricParticipantInfo[]>;
+  members(args: { scope?: FabricParticipantScope; kinds?: FabricParticipantKind[]; includeStale?: boolean; limit?: number; max?: number; include_stale?: boolean; withTotal: true }): Promise<{ members: FabricParticipantInfo[]; total: number; truncated: boolean }>;
+  members(args?: { scope?: FabricParticipantScope; kinds?: FabricParticipantKind[]; includeStale?: boolean; limit?: number; max?: number; include_stale?: boolean; withTotal?: false }): Promise<FabricParticipantInfo[]>;
   get<T = unknown>(args: { key: string }): Promise<FabricMeshStateEntry<T> | null>;
-  list<T = unknown>(args?: { prefix?: string; limit?: number; max?: number }): Promise<Array<FabricMeshStateEntry<T>>>;
+  list<T = unknown>(args: { prefix?: string; limit?: number; max?: number; withTotal: true }): Promise<{ entries: Array<FabricMeshStateEntry<T>>; total: number; truncated: boolean }>;
+  list<T = unknown>(args?: { prefix?: string; limit?: number; max?: number; withTotal?: false }): Promise<Array<FabricMeshStateEntry<T>>>;
   put<T = unknown>(args: { key: string; value: T; ifVersion?: number; if_version?: number; version?: number }): Promise<FabricMeshStateEntry<T>>;
   delete(args: { key: string; ifVersion?: number; if_version?: number; version?: number }): Promise<{ deleted: boolean; version?: number }>;
 }
@@ -992,9 +1003,13 @@ interface FabricMemoryApi {
     branches?: FabricMemoryBranches;
     limit?: number;
     max?: number;
+    offset?: number;
   }): Promise<{
     scope?: string;
     branches?: FabricMemoryBranches;
+    offset?: number;
+    total?: number;
+    truncated?: boolean;
     sessions?: FabricMemorySessionInfo[];
     error?: FabricMemoryError;
   }>;
@@ -1254,6 +1269,7 @@ interface FabricCodemapCascade {
 }
 interface FabricCodemapApi {
   map(args?: {
+    path?: string;
     maxTokens?: number;
     glob?: string;
     focus?: string;
@@ -1261,6 +1277,7 @@ interface FabricCodemapApi {
     refresh?: boolean;
   }): Promise<{
     text: string;
+    root: string;
     tokensEstimated: number;
     filesShown: number;
     symbolsShown: number;
@@ -1271,6 +1288,7 @@ interface FabricCodemapApi {
     cascade?: FabricCodemapCascade;
   }>;
   cascade(args: {
+    path?: string;
     seeds: string[];
     limit?: number;
     maxCommits?: number;

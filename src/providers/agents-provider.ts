@@ -1,3 +1,4 @@
+import type { ImageContent } from "@oh-my-pi/pi-ai";
 import { ActorManager, ActorRegistryOwnershipError } from "../actors/manager.js";
 import { GlobalActorRegistry } from "../actors/global-registry.js";
 import { isFabricActorHostEvent } from "../actors/types.js";
@@ -161,13 +162,26 @@ const actorRunBinding = (args: Record<string, unknown>): FabricActorRunBinding =
   ...(isFabricThinking(args.thinking) ? { thinking: args.thinking } : {}),
 });
 
-const longerTimeoutOverride = (
+const imageContents = (value: unknown): ImageContent[] | undefined => {
+  if (!Array.isArray(value)) return undefined;
+  const images = value.filter(
+    (entry): entry is ImageContent =>
+      typeof entry === "object" &&
+      entry !== null &&
+      !Array.isArray(entry) &&
+      (entry as { type?: unknown }).type === "image" &&
+      typeof (entry as { data?: unknown }).data === "string" &&
+      typeof (entry as { mimeType?: unknown }).mimeType === "string",
+  );
+  return images.length > 0 ? images : undefined;
+};
+
+const boundedTimeoutOverride = (
   value: unknown,
   manager: AgentManager,
 ): number | undefined => {
   if (typeof value !== "number" || !Number.isFinite(value)) return undefined;
-  const effective = effectiveAgentTimeoutMs(manager.config.timeoutMs, value);
-  return effective > manager.config.timeoutMs ? effective : undefined;
+  return effectiveAgentTimeoutMs(manager.config.timeoutMs, value);
 };
 
 const runRequest = (
@@ -187,7 +201,9 @@ const runRequest = (
       : undefined;
   const thinking = isFabricThinking(args.thinking) ? args.thinking : undefined;
   const tools = stringArray(args.tools);
-  const timeoutMs = longerTimeoutOverride(args.timeoutMs, manager);
+  const addTools = stringArray(args.addTools);
+  const images = imageContents(args.images);
+  const timeoutMs = boundedTimeoutOverride(args.timeoutMs, manager);
   const runner =
     args.runner === "omp" || args.runner === "claude" || args.runner === "veda"
       ? args.runner
@@ -199,6 +215,7 @@ const runRequest = (
   return {
     task: String(args.task),
     runner,
+    ...(images ? { images } : {}),
     ...(typeof args.name === "string" ? { name: args.name } : {}),
     ...(transport ? { transport } : {}),
     ...(typeof args.model === "string"
@@ -211,6 +228,7 @@ const runRequest = (
       : {}),
     ...(thinking ? { thinking } : {}),
     ...(tools ? { tools } : {}),
+    ...(addTools ? { addTools } : {}),
     ...(timeoutMs !== undefined ? { timeoutMs } : {}),
     ...(typeof args.extensions === "boolean" ? { extensions: args.extensions } : {}),
     ...(typeof args.recursive === "boolean" ? { recursive: args.recursive } : {}),
@@ -293,7 +311,7 @@ const actorRequest = (
         [],
       )
     : undefined;
-  const timeoutMs = longerTimeoutOverride(args.timeoutMs, manager);
+  const timeoutMs = boundedTimeoutOverride(args.timeoutMs, manager);
   const validWhile = typeof args.validWhile === "object" && args.validWhile !== null &&
     !Array.isArray(args.validWhile) &&
     (args.validWhile as { version?: unknown }).version === 1 &&
@@ -309,6 +327,12 @@ const actorRequest = (
       'The Veda runner does not support persistent actors: Veda executes one headless prompt per invocation. Use an OMP or Claude actor, or agents.run({ runner: "veda" }).',
     );
   }
+  const requestedCwd = typeof args.cwd === "string" ? args.cwd : undefined;
+  validateAgentCwdRequest({
+    ...(requestedCwd === undefined ? {} : { cwd: requestedCwd }),
+    recursive: (typeof args.extensions === "boolean" ? args.extensions : true) && runner === "omp",
+  });
+  const cwd = requestedCwd === undefined ? undefined : manager.resolveCwd(requestedCwd);
   const inheritedModel =
     inheritModel && runner === "omp" && !manager.config.model && context.extensionContext.model
       ? `${context.extensionContext.model.provider}/${context.extensionContext.model.id}`
@@ -349,6 +373,7 @@ const actorRequest = (
     args.transport === "herdr"
       ? { transport: args.transport }
       : {}),
+    ...(cwd ? { cwd } : {}),
     ...(timeoutMs !== undefined ? { timeoutMs } : {}),
     ...(typeof args.extensions === "boolean" ? { extensions: args.extensions } : {}),
     ...(requires ? { requires } : {}),

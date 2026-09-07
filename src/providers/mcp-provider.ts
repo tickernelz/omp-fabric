@@ -32,6 +32,7 @@ const MIN_REVALIDATE_SERVER_TIMEOUT_MS = 5_000;
 const NOTIFY_DEBOUNCE_MS = 100;
 const PERSIST_DEBOUNCE_MS = 150;
 const COLD_LIST_WAIT_MS = 2_500;
+const MAX_CALL_TIMEOUT_MS = 900_000;
 
 const emptyObjectSchema = {
   type: "object",
@@ -85,6 +86,11 @@ const managementDescriptors: FabricActionDescriptor[] = [
         server: { type: "string" },
         tool: { type: "string" },
         args: { type: "object", additionalProperties: true },
+        timeoutMs: {
+          type: "number",
+          minimum: 1,
+          description: `Per-call timeout overriding mcp.callTimeoutMs, clamped to ${MAX_CALL_TIMEOUT_MS}ms.`,
+        },
       },
       required: ["server", "tool"],
       additionalProperties: false,
@@ -93,6 +99,11 @@ const managementDescriptors: FabricActionDescriptor[] = [
     namespace: "management",
   },
 ];
+
+const resolveMcpCallTimeoutMs = (value: unknown, fallback: number): number =>
+  typeof value === "number" && Number.isFinite(value) && value >= 1
+    ? Math.min(Math.floor(value), MAX_CALL_TIMEOUT_MS)
+    : fallback;
 
 const normalizeSchema = (schema: unknown): Record<string, unknown> =>
   typeof schema === "object" && schema !== null && !Array.isArray(schema)
@@ -361,7 +372,13 @@ export class McpProvider implements FabricProvider {
         typeof args.args === "object" && args.args !== null && !Array.isArray(args.args)
           ? (args.args as Record<string, unknown>)
           : {};
-      return this.#call(server, tool, toolArgs, context.signal);
+      return this.#call(
+        server,
+        tool,
+        toolArgs,
+        context.signal,
+        resolveMcpCallTimeoutMs(args.timeoutMs, this.config.callTimeoutMs),
+      );
     }
     const parsed = this.#parseToolName(actionName);
     if (!parsed) throw new Error(`Invalid MCP action: ${actionName}`);
@@ -448,8 +465,9 @@ export class McpProvider implements FabricProvider {
     toolName: string,
     args: Record<string, unknown>,
     signal?: AbortSignal,
+    timeoutMs?: number,
   ): Promise<unknown> {
-    if (!this.#cacheOn) return this.#callLegacy(serverName, toolName, args, signal);
+    if (!this.#cacheOn) return this.#callLegacy(serverName, toolName, args, signal, timeoutMs);
     if (signal?.aborted) throw new Error("MCP call cancelled");
     await this.#hydrate();
     const server = await this.#resolveKnownServer(serverName);
@@ -467,7 +485,7 @@ export class McpProvider implements FabricProvider {
     if (firstContact) this.#recontacted.add(server);
     const operation = runtime.callTool(server, tool.name, {
       args,
-      timeoutMs: this.config.callTimeoutMs,
+      timeoutMs: timeoutMs ?? this.config.callTimeoutMs,
       disableOAuth: this.config.disableOAuth,
     });
     try {
@@ -999,6 +1017,7 @@ export class McpProvider implements FabricProvider {
     toolName: string,
     args: Record<string, unknown>,
     signal?: AbortSignal,
+    timeoutMs?: number,
   ): Promise<unknown> {
     if (signal?.aborted) throw new Error("MCP call cancelled");
     const runtime = await this.#getRuntime();
@@ -1009,7 +1028,7 @@ export class McpProvider implements FabricProvider {
     if (!tool) throw new Error(`Unknown MCP tool: ${serverName}.${toolName}`);
     const operation = runtime.callTool(server, tool.name, {
       args,
-      timeoutMs: this.config.callTimeoutMs,
+      timeoutMs: timeoutMs ?? this.config.callTimeoutMs,
       disableOAuth: this.config.disableOAuth,
     });
     try {
