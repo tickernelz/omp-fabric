@@ -172,18 +172,24 @@ describe("Fabric configuration", () => {
       model: "anthropic/executor",
       alwaysRearm: false,
       compactOnReturn: true,
+      handoffRetirement: true,
+      handoffRetirementKeep: 3,
       detectShellWrites: true,
     });
     expect(normalizeFabricConfig({ prewalk: { model: "   " } }).prewalk).toEqual({
       mode: "in-place",
       alwaysRearm: false,
       compactOnReturn: true,
+      handoffRetirement: true,
+      handoffRetirementKeep: 3,
       detectShellWrites: true,
     });
     expect(normalizeFabricConfig({ prewalk: { alwaysRearm: true } }).prewalk).toEqual({
       mode: "in-place",
       alwaysRearm: true,
       compactOnReturn: true,
+      handoffRetirement: true,
+      handoffRetirementKeep: 3,
       detectShellWrites: true,
     });
     expect(normalizeFabricConfig({ prewalk: { mode: "trajectory" } }).prewalk.mode).toBe(
@@ -784,6 +790,8 @@ describe("Fabric configuration", () => {
       mode: "in-place",
       alwaysRearm: false,
       compactOnReturn: true,
+      handoffRetirement: true,
+      handoffRetirementKeep: 3,
       detectShellWrites: true,
     });
   });

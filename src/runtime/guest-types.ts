@@ -1232,6 +1232,51 @@ interface FabricCompactApi {
   cancel(): Promise<{ cancelled: true }>;
 }
 
+interface FabricCodemapSymbolCounts {
+  files: number;
+  symbols: number;
+  languages: Record<string, number>;
+  fallbackFiles: number;
+  truncated: boolean;
+  elapsedMs: number;
+}
+interface FabricCodemapCascadeEdge {
+  file: string;
+  score: number;
+  commits: number;
+}
+interface FabricCodemapCascade {
+  seeds: string[];
+  edges: FabricCodemapCascadeEdge[];
+  commitsScanned: number;
+  truncated: boolean;
+  unavailable?: string;
+}
+interface FabricCodemapApi {
+  map(args?: {
+    maxTokens?: number;
+    glob?: string;
+    focus?: string;
+    seeds?: string[];
+    refresh?: boolean;
+  }): Promise<{
+    text: string;
+    tokensEstimated: number;
+    filesShown: number;
+    symbolsShown: number;
+    omittedFiles: number;
+    omittedSymbols: number;
+    truncated: boolean;
+    indexed: FabricCodemapSymbolCounts;
+    cascade?: FabricCodemapCascade;
+  }>;
+  cascade(args: {
+    seeds: string[];
+    limit?: number;
+    maxCommits?: number;
+  }): Promise<FabricCodemapCascade>;
+}
+
 interface FabricWorkflowAgentOptions extends Omit<FabricAgentRequest, "task"> {
   label?: string;
 }
@@ -1285,6 +1330,7 @@ declare const state: FabricStateApi;
 declare const schema: FabricSchemaApi;
 declare const components: FabricComponentsApi;
 declare const compact: FabricCompactApi;
+declare const codemap: FabricCodemapApi;
 declare const council: FabricCouncilApi;
 declare const workflow: FabricWorkflowApi;
 declare function agent<T = string>(prompt: string, options?: FabricWorkflowAgentOptions): Promise<T>;

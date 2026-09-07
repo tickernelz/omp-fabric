@@ -1,6 +1,6 @@
 {
   "name": "omp-fabric",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "A programmable tool and agent runtime for Oh My Pi (OMP)",
   "type": "module",
   "main": "./dist/index.js",
@@ -35,6 +35,7 @@
     "certify:entropy": "bun run build && bun scripts/certify-entropy.mjs",
     "benchmark:real-resume": "bun run build && node scripts/benchmark-real-resume.mjs",
     "benchmark:memory-heads": "bun run build && node scripts/benchmark-memory-heads.mjs",
+    "benchmark:codemap": "bun scripts/benchmark-codemap.mjs",
     "lint:dead": "knip --no-gitignore",
     "check": "bun run typecheck && bun run build && bun run assert:lazy-graph && bun run test && bun run lint:dead",
     "assert:lazy-graph": "node scripts/assert-lazy-graph-host-free.mjs",
@@ -95,10 +96,12 @@
   },
   "peerDependencies": {
     "@oh-my-pi/pi-coding-agent": ">=18.1.10",
+    "@oh-my-pi/pi-natives": ">=18.1.10",
     "@oh-my-pi/pi-tui": ">=18.1.10"
   },
   "devDependencies": {
     "@oh-my-pi/pi-coding-agent": "18.1.10",
+    "@oh-my-pi/pi-natives": "18.1.10",
     "@oh-my-pi/pi-tui": "18.1.10",
     "@types/cross-spawn": "^6.0.6",
     "@types/node": "^26.1.2",

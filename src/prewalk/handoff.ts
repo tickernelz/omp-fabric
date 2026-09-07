@@ -27,6 +27,7 @@ import {
 } from "../agents/thinking-transfer.js";
 import type { FabricPrewalkClaim, PrewalkController } from "./controller.js";
 import type { PrewalkFsDrift } from "./fs-drift.js";
+import { retireHandoffSeed, type RetirementOptions } from "./retirement.js";
 
 const PREWALK_CONTINUE_PROMPT = [
   "Continue the existing task in this same session under the new executor model.",
@@ -531,6 +532,7 @@ export const runFabricHandoffAtBoundary = async (
   outerToolResult: AgentToolResultMessage,
   context: ExtensionContext,
   activity?: (update: FabricInvocationActivityUpdate) => void,
+  retirement: RetirementOptions = {},
 ): Promise<Record<string, unknown>> => {
   const model = String(pending.args.model ?? "");
   const inPlace = pending.kind === "prewalk-in-place";
@@ -548,11 +550,15 @@ export const runFabricHandoffAtBoundary = async (
       return result;
     }
 
-    const seed = snapshotHandoffSession(
-      context.sessionManager,
-      context.model,
-      outerToolResult,
-      outerToolResult.toolCallId,
+    const retired = retireHandoffSeed(
+      snapshotHandoffSession(
+        context.sessionManager,
+        context.model,
+        outerToolResult,
+        outerToolResult.toolCallId,
+        retirement.handoffRetirement === true,
+      ),
+      retirement,
     );
     const invocation: FabricInvocationContext = {
       cwd: context.cwd,
@@ -569,7 +575,10 @@ export const runFabricHandoffAtBoundary = async (
         pending.audit.preview = preview;
       },
     };
-    const result = await runner.executeHandoff(pending.args, invocation, seed);
+    const executorSeed: AgentSessionSeed = retired.plan.retired.length > 0
+      ? { ...retired.seed, sourceBranchRetired: true }
+      : retired.seed;
+    const result = await runner.executeHandoff(pending.args, invocation, executorSeed);
     const completed = result.completed === true;
     pending.audit.success = completed;
     pending.audit.result = result;
@@ -607,7 +616,20 @@ export const runFabricHandoffAtBoundary = async (
     );
     return {
       ...(pending.kind === "prewalk-trajectory"
-        ? { prewalk: true, mode: "trajectory", trigger: prewalkTriggerField(pending) }
+        ? {
+            prewalk: true,
+            mode: "trajectory",
+            trigger: prewalkTriggerField(pending),
+            ...(retired.plan.retired.length > 0
+              ? {
+                  retirement: {
+                    results: retired.plan.retired.length,
+                    bytes: retired.plan.bytesRetired,
+                    markerBytes: retired.plan.markerBytes,
+                  },
+                }
+              : {}),
+          }
         : {}),
       ...result,
     };

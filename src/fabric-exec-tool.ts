@@ -227,7 +227,7 @@ export const createFabricExecTool = (
     parameters: Type.Object({
       code: Type.String({
         description:
-        "TypeScript function body. Top-level await and return are supported. Globals include `tools`, `mcp`, `memory`, `state`, `schema`, `compact`, `agents`, `mesh`, `print`, and `omp`; full-code mode adds `omp` and `extensions`. Payloads contains only the exact keys supplied by this call."
+        "TypeScript function body. Top-level await and return are supported. Globals include `tools`, `mcp`, `memory`, `state`, `schema`, `compact`, `codemap`, `agents`, `mesh`, `print`, and `omp`; full-code mode adds `omp` and `extensions`. Payloads contains only the exact keys supplied by this call."
       }),
       payloads: Type.Optional(
         Type.Record(Type.String(), Type.String(), {

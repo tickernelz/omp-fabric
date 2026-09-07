@@ -136,6 +136,7 @@ export const snapshotHandoffSession = (
   currentModel: CurrentModel | undefined,
   outerToolResult: AgentToolResultMessage,
   outerToolCallId: string,
+  carryBranch = false,
 ): AgentSessionSeed => {
   if (
     outerToolResult.toolCallId !== outerToolCallId ||
@@ -167,7 +168,7 @@ export const snapshotHandoffSession = (
     sourceSessionId: source.getSessionId(),
     ...(sourceSessionFile ? { sourceSessionFile } : {}),
     sourceBranchLeafId: active.id,
-    ...(!sourceSessionFile ? { sourceBranch: structuredClone(branch) } : {}),
+    ...(!sourceSessionFile || carryBranch ? { sourceBranch: structuredClone(branch) } : {}),
     ...(model ? { sourceModel: model } : {}),
     ...(thinkingLevel ? { sourceThinkingLevel: thinkingLevel } : {}),
     outerToolResult: structuredClone(outerToolResult),
@@ -269,9 +270,13 @@ export const writeHandoffSession = async (
   let report: ThinkingTransferReport | undefined;
   let digest: { content: string; citedBlocks: number } | undefined;
   if (!transfer || policy === "preserved") {
-    session = await forkBranch(seed, cwd, directory);
+    session = seed.sourceBranchRetired && seed.sourceBranch
+      ? await materializeBranch(seed, cwd, directory)
+      : await forkBranch(seed, cwd, directory);
   } else {
-    const rawBranch = seed.sourceSessionFile
+    const rawBranch = seed.sourceBranchRetired && seed.sourceBranch
+      ? structuredClone(seed.sourceBranch)
+      : seed.sourceSessionFile
       ? await persistedBranch(seed, cwd, directory)
       : structuredClone(seed.sourceBranch ?? (() => {
           throw new Error("Trajectory handoff transfer is missing its source branch");

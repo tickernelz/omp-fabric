@@ -165,6 +165,7 @@ describe("FabricSettingsComponent", () => {
       "Approvals",
       "MCP",
       "Prewalk",
+      "Code map",
       "Agents",
       "Capture",
       "UI",
@@ -175,7 +176,7 @@ describe("FabricSettingsComponent", () => {
     ]) {
       expect(labels).toContain(label);
     }
-    expect(items.length).toBe(13);
+    expect(items.length).toBe(14);
   });
 
   it("marks submenu rows with a drill-in marker and leaves inline toggles plain", () => {
@@ -678,7 +679,7 @@ describe("FabricSettingsComponent", () => {
   it("exposes a dedicated prewalk executor model picker", () => {
     const config = {
       ...DEFAULT_FABRIC_CONFIG,
-      prewalk: { mode: "in-place" as const, model: "anthropic/claude-sonnet-4-5", alwaysRearm: false, compactOnReturn: true, detectShellWrites: true },
+      prewalk: { mode: "in-place" as const, model: "anthropic/claude-sonnet-4-5", alwaysRearm: false, compactOnReturn: true, detectShellWrites: true, handoffRetirement: true, handoffRetirementKeep: 3 },
     };
     const items = buildFabricSettingsItems(theme, config, () => {}, {
       keepVisibleCandidates: ["fabric_exec"],
@@ -1172,13 +1173,15 @@ describe("FabricSettingsComponent", () => {
         reloadConfig: vi.fn(() => {
           const saved = JSON.parse(
             fs.readFileSync(path.join(agentDir, "fabric.json"), "utf8"),
-          ) as { prewalk?: { mode?: "in-place" | "trajectory"; model?: string; alwaysRearm?: boolean; compactOnReturn?: boolean; detectShellWrites?: boolean } };
+          ) as { prewalk?: { mode?: "in-place" | "trajectory"; model?: string; alwaysRearm?: boolean; compactOnReturn?: boolean; detectShellWrites?: boolean; handoffRetirement?: boolean; handoffRetirementKeep?: number } };
           config.prewalk = {
             mode: saved.prewalk?.mode ?? "in-place",
             ...(saved.prewalk?.model ? { model: saved.prewalk.model } : {}),
             alwaysRearm: saved.prewalk?.alwaysRearm === true,
             compactOnReturn: saved.prewalk?.compactOnReturn !== false,
             detectShellWrites: saved.prewalk?.detectShellWrites !== false,
+            handoffRetirement: saved.prewalk?.handoffRetirement !== false,
+            handoffRetirementKeep: saved.prewalk?.handoffRetirementKeep ?? 3,
           };
         }),
         agents: { claudeModels: vi.fn().mockResolvedValue([]) },

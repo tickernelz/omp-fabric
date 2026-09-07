@@ -119,6 +119,7 @@ describe("Fabric runtime provider components", () => {
         initialized: true,
         active: [
           "fabric.provider.agents",
+          "fabric.provider.codemap",
           "fabric.provider.compact",
           "fabric.provider.extensions",
           "fabric.provider.mcp",
@@ -150,6 +151,7 @@ describe("Fabric runtime provider components", () => {
             "state",
             "schema",
             "compact",
+            "codemap",
             "agents",
             "memory",
           ].map((name) => expect.objectContaining({

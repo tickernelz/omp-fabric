@@ -105,6 +105,7 @@ import {
 } from "./main-agent.js";
 import { AgentsProvider } from "./providers/agents-provider.js";
 import { CapturedToolsProvider } from "./providers/captured-tools-provider.js";
+import { CodemapProvider } from "./providers/codemap-provider.js";
 import { CompactProvider } from "./providers/compact-provider.js";
 import { ComponentsProvider } from "./providers/components-provider.js";
 import {
@@ -635,6 +636,19 @@ export class FabricRuntimeState {
       description: "Host context compaction controller",
       create: () => new CompactProvider(this.#compact!),
     }));
+    if (this.#config.codemap.enabled) {
+      const codemapConfig = this.#config.codemap;
+      await installBuiltin(createProviderComponent({
+        provider: "codemap",
+        description: "Structural repo map and git co-change ranking",
+        create: () => new CodemapProvider(codemapConfig),
+      }));
+    } else {
+      this.#registry.markUnavailable(
+        "codemap",
+        'disabled by configuration (codemap.enabled=false); set "codemap": { "enabled": true } in .omp/fabric.json or the agent fabric.json to enable codemap.* actions',
+      );
+    }
     const agentConfig = enforceSchema
       ? { ...this.#config.agents, enabled: false }
       : this.#config.agents;
@@ -958,6 +972,7 @@ export class FabricRuntimeState {
       ...(this.#config.mesh.enabled ? ["mesh", "state"] : []),
       "schema",
       "compact",
+      ...(this.#config.codemap.enabled ? ["codemap"] : []),
       "agents",
       ...(this.#config.memory.enabled ? ["memory"] : []),
     ]);
@@ -1130,6 +1145,12 @@ export class FabricRuntimeState {
       outerToolResult,
       context,
       (update) => this.activity.updateCall(runId, callId, update),
+      {
+        handoffRetirement: this.#config?.prewalk.handoffRetirement
+          ?? DEFAULT_FABRIC_CONFIG.prewalk.handoffRetirement,
+        handoffRetirementKeep: this.#config?.prewalk.handoffRetirementKeep
+          ?? DEFAULT_FABRIC_CONFIG.prewalk.handoffRetirementKeep,
+      },
     );
     const succeeded = result.completed === true || result.continued === true;
     const error = typeof result.error === "string" ? result.error : undefined;

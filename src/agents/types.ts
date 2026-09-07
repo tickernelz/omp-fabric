@@ -31,8 +31,8 @@ export interface AgentSessionSeed {
   sourceSessionId: string;
   sourceSessionFile?: string;
   sourceBranchLeafId: string;
-  /** Present only when the source session is in memory and must be materialized. */
   sourceBranch?: SessionEntry[];
+  sourceBranchRetired?: boolean;
   sourceModel?: { provider: string; modelId: string };
   sourceThinkingLevel?: string;
   outerToolResult: AgentToolResultMessage;

@@ -118,6 +118,17 @@ interface FabricPrewalkConfig {
   detectShellWrites: boolean;
   // Reasoning effort for the trajectory executor; unset inherits agents.thinking.
   thinking?: FabricThinking;
+  handoffRetirement: boolean;
+  handoffRetirementKeep: number;
+}
+
+export interface FabricCodemapConfig {
+  enabled: boolean;
+  maxFiles: number;
+  maxSymbols: number;
+  defaultMaxTokens: number;
+  cascadeCommits: number;
+  cascadeLimit: number;
 }
 
 export interface FabricAgentConfig {
@@ -289,6 +300,7 @@ export interface FabricConfig {
   approvals: FabricApprovalConfig;
   mcp: FabricMcpConfig;
   prewalk: FabricPrewalkConfig;
+  codemap: FabricCodemapConfig;
   agents: FabricAgentConfig;
   models: FabricModelsConfig;
   components: FabricComponentEntry[];
@@ -359,6 +371,16 @@ export const DEFAULT_FABRIC_CONFIG: FabricConfig = {
     alwaysRearm: false,
     compactOnReturn: true,
     detectShellWrites: true,
+    handoffRetirement: true,
+    handoffRetirementKeep: 3,
+  },
+  codemap: {
+    enabled: true,
+    maxFiles: 4_000,
+    maxSymbols: 40_000,
+    defaultMaxTokens: 8_000,
+    cascadeCommits: 600,
+    cascadeLimit: 24,
   },
   agents: {
     enabled: true,
@@ -643,6 +665,7 @@ export const normalizeFabricConfig = (input: Record<string, unknown>): FabricCon
   const mcp = objectValue(input.mcp);
   const mcpCache = objectValue(mcp.cache);
   const prewalk = objectValue(input.prewalk);
+  const codemap = objectValue(input.codemap);
   const agents = objectValue(input.agents);
   const claude = objectValue(agents.claude);
   const veda = objectValue(agents.veda);
@@ -868,9 +891,52 @@ export const normalizeFabricConfig = (input: Record<string, unknown>): FabricCon
         prewalk.compactOnReturn,
         DEFAULT_FABRIC_CONFIG.prewalk.compactOnReturn,
       ),
+      handoffRetirement: booleanValue(
+        prewalk.handoffRetirement,
+        DEFAULT_FABRIC_CONFIG.prewalk.handoffRetirement,
+      ),
+      handoffRetirementKeep: boundedInteger(
+        prewalk.handoffRetirementKeep,
+        DEFAULT_FABRIC_CONFIG.prewalk.handoffRetirementKeep,
+        0,
+        64,
+      ),
       detectShellWrites: booleanValue(
         prewalk.detectShellWrites,
         DEFAULT_FABRIC_CONFIG.prewalk.detectShellWrites,
+      ),
+    },
+    codemap: {
+      enabled: booleanValue(codemap.enabled, DEFAULT_FABRIC_CONFIG.codemap.enabled),
+      maxFiles: boundedInteger(
+        codemap.maxFiles,
+        DEFAULT_FABRIC_CONFIG.codemap.maxFiles,
+        1,
+        1_000_000,
+      ),
+      maxSymbols: boundedInteger(
+        codemap.maxSymbols,
+        DEFAULT_FABRIC_CONFIG.codemap.maxSymbols,
+        1,
+        5_000_000,
+      ),
+      defaultMaxTokens: boundedInteger(
+        codemap.defaultMaxTokens,
+        DEFAULT_FABRIC_CONFIG.codemap.defaultMaxTokens,
+        200,
+        200_000,
+      ),
+      cascadeCommits: boundedInteger(
+        codemap.cascadeCommits,
+        DEFAULT_FABRIC_CONFIG.codemap.cascadeCommits,
+        10,
+        20_000,
+      ),
+      cascadeLimit: boundedInteger(
+        codemap.cascadeLimit,
+        DEFAULT_FABRIC_CONFIG.codemap.cascadeLimit,
+        1,
+        200,
       ),
     },
     agents: {

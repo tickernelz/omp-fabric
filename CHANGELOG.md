@@ -1,5 +1,25 @@
 # Changelog
 
+## 1.2.0
+
+### Added
+
+- **Code map (`codemap.map`).** A repo-wide symbol index disclosed under an explicit token budget. It is built from the host's native ast-grep binding with `$NAME` metavariable capture, so it needs no extra dependency, and it emits `<line> <letter> <name>` under a bare file header with a one-line legend. Measured on this repository at the tag, 293 TypeScript files and 3,412,131 raw bytes: the map is 210,675 bytes, a 16.20x compression, against 313,626 bytes and 10.88x for the `ast-grep outline` CLI. Languages with no pattern entry fall back to filtered `summarizeCode`, so coverage extends past the pattern table. Reproduce with `bun run benchmark:codemap`, which fails below a 15x floor.
+- **Co-change ranking (`codemap.cascade`).** Ranks files by how often they changed in the same commits as a seed, scored as `shared / sqrt(seedCommits * candidateCommits)`. Raw counting would put lockfiles and changelogs first; the normalisation removes that bias. Merge commits and commits touching more than 100 files are excluded so vendored sweeps and formatter runs invent no affinity. A non-git workspace returns an empty graph with `unavailable` set and never throws. This answers which files a change drags along, which `grep`, `ast_grep`, and `lsp` cannot.
+- **Budget spending that ranks before it spends.** `focus` scores files by query relevance, `seeds` folds in co-change affinity so a historically related file surfaces even when its name shares nothing with the query, and with neither the order is deterministic. Exported symbols win the last slots inside a file that does not fit whole. `omittedFiles` and `omittedSymbols` report exactly what was left out.
+- **`prewalk.handoffRetirement`.** When an executor handoff goes live, the planner's stale successful `read`, `grep`, `find`, and `ls` results are replaced with a compact marker naming the tool, the target, and the original size, so the executor does not re-ingest exploration it will not use. Failed results, mutating tools, user messages, results carrying images, and the most recent `prewalk.handoffRetirementKeep` reads are never touched. The marker stamps OMP's existing `prunedAt` field, which makes retirement idempotent.
+
+### Fixed
+
+- The symbol index enumerated gitignored files. Indexing this repository at its root found 3,425 files, most of them gitignored benchmark checkouts; it now uses `git ls-files --cached --others --exclude-standard` and finds 542, falling back to a filesystem walk outside a git repository.
+- A scoped `codemap.map` scanned the whole workspace anyway. The caller's glob filtered results after the native pass, so it narrowed nothing; the scan is now rooted at the common directory of the selected files. Indexing `src/codemap/**/*.ts` on this repository went from 3,553 ms to 54 ms.
+- The six new numeric settings rows carried no editor, so they rendered as editable and did nothing on Enter. Each now opens an integer editor bounded to the range `normalizeFabricConfig` enforces.
+
+### Notes
+
+- `handoffRetirement` applies to the trajectory handoff, where Fabric materializes the executor's session. The in-place path leaves OMP's own append-only log as ground truth, which an extension cannot rewrite; `prewalk.compactOnReturn` remains the mechanism there.
+- Retirement reaches file-backed sessions on every thinking-transfer policy. A first cut honoured the pruned branch only when planner and executor shared a provider; every cross-provider handoff, which is the ordinary case, re-read the unpruned branch from disk and discarded the pruning while still reporting the bytes it claimed to save. `tests/prewalk-handoff-seam.test.ts` drives the real `writeHandoffSession` across all three policies, and the two cross-provider cases fail without the fix.
+
 ## 1.1.0
 
 ### Added

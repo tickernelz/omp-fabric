@@ -349,6 +349,10 @@ const summaryFor = (id: string, config: FabricConfig): string => {
       return config.mcp.enabled ? "enabled" : "disabled";
     case "prewalk":
       return `${config.prewalk.enabled === false ? "off · " : ""}${config.prewalk.mode} · ${config.prewalk.model || PREWALK_MODEL_UNSET_LABEL}${config.prewalk.thinking ? ` · ${thinkingLabel(config.prewalk.thinking)}` : ""}${config.prewalk.alwaysRearm ? " · repeat" : ""}`;
+    case "codemap":
+      return config.codemap.enabled
+        ? `${config.codemap.defaultMaxTokens} tok · ${config.codemap.cascadeCommits} commits`
+        : "disabled";
     case "agents":
       return `${config.agents.runner}/${config.agents.transport}`;
     case "capture":
@@ -1330,6 +1334,30 @@ export const buildFabricSettingsItems = (
             },
           ),
           setting(
+            "prewalk.handoffRetirement",
+            "Retire planning reads",
+            config.prewalk.handoffRetirement ? "true" : "false",
+            {
+              description:
+                "Once the executor handoff is live, replace the planner's stale successful read / grep / find / ls results with a compact marker naming the tool and target, so the executor does not re-ingest exploration it will not use. Failed results, mutating tools, user messages, and the most recent reads are never retired.",
+              values: BOOLEANS,
+            },
+          ),
+          setting(
+            "prewalk.handoffRetirementKeep",
+            "Keep recent reads",
+            String(config.prewalk.handoffRetirementKeep),
+            {
+              description:
+                "How many of the most recent read-only results stay untouched when retiring, so the executor still sees what the planner just looked at.",
+              submenu: nonNegativeIntegerSubmenu(
+                theme,
+                "Keep recent reads",
+                "Most-recent read-only results never retired. Enter any integer from 0 to 64.",
+              ),
+            },
+          ),
+          setting(
             "prewalk.thinking",
             "Thinking",
             config.prewalk.thinking
@@ -1365,6 +1393,74 @@ export const buildFabricSettingsItems = (
               ),
             },
           ),
+        ],
+        persist,
+      ),
+    }),
+    setting("codemap", "Code map", summaryFor("codemap", config), {
+      description: "Structural repo map and git co-change ranking under an explicit token budget.",
+      submenu: sectionSubmenu(
+        theme,
+        "Code map",
+        "Symbol index and co-change ranking exposed to fabric_exec as codemap.*.",
+        [
+          setting("codemap.enabled", "Enabled", config.codemap.enabled ? "true" : "false", {
+            description:
+              "Expose codemap.map and codemap.cascade inside fabric_exec. The index is built with the host's native ast-grep binding and cached per workspace root.",
+            values: BOOLEANS,
+          }),
+          setting(
+            "codemap.defaultMaxTokens",
+            "Default budget",
+            String(config.codemap.defaultMaxTokens),
+            {
+              description:
+                "Token ceiling applied to codemap.map when the call does not pass maxTokens. The map is ranked before the budget is spent, so a small ceiling still returns the most relevant files.",
+              submenu: nonNegativeIntegerSubmenu(
+                theme,
+                "Code map budget",
+                "Token ceiling for codemap.map when a call omits maxTokens. Enter any integer from 200 to 200000.",
+              ),
+            },
+          ),
+          setting("codemap.maxFiles", "Max files", String(config.codemap.maxFiles), {
+            description: "Upper bound on files enumerated for one index build.",
+            submenu: nonNegativeIntegerSubmenu(
+              theme,
+              "Code map file ceiling",
+              "Files enumerated for one index build. Enter any integer from 1 to 1000000.",
+            ),
+          }),
+          setting("codemap.maxSymbols", "Max symbols", String(config.codemap.maxSymbols), {
+            description: "Upper bound on symbols retained for one index build.",
+            submenu: nonNegativeIntegerSubmenu(
+              theme,
+              "Code map symbol ceiling",
+              "Symbols retained for one index build. Enter any integer from 1 to 5000000.",
+            ),
+          }),
+          setting(
+            "codemap.cascadeCommits",
+            "Cascade history",
+            String(config.codemap.cascadeCommits),
+            {
+              description:
+                "How many recent commits codemap.cascade scans when ranking co-change. Merge commits and bulk commits are excluded so vendored or generated sweeps do not create false affinity.",
+              submenu: nonNegativeIntegerSubmenu(
+                theme,
+                "Cascade history",
+                "Commits scanned when ranking co-change. Enter any integer from 10 to 20000.",
+              ),
+            },
+          ),
+          setting("codemap.cascadeLimit", "Cascade results", String(config.codemap.cascadeLimit), {
+            description: "Maximum related files returned by codemap.cascade.",
+            submenu: nonNegativeIntegerSubmenu(
+              theme,
+              "Cascade results",
+              "Related files returned by codemap.cascade. Enter any integer from 1 to 200.",
+            ),
+          }),
         ],
         persist,
       ),
