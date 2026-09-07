@@ -810,6 +810,51 @@ describe("OmpToolsProvider result fidelity", () => {
     );
   });
 
+  it("marks an ls clamped by the host entry cap", async () => {
+    await withFixtures(
+      (dir) => {
+        for (let index = 0; index < 620; index++) {
+          fs.writeFileSync(path.join(dir, `e${String(index).padStart(4, "0")}.txt`), "x");
+        }
+      },
+      async (registry, dir) => {
+        const result = String(await registry.invoke("omp.ls", { path: dir }, baseContext));
+        const lines = result.split("\n").filter((line) => line.length > 0);
+
+        expect(lines.at(-1)?.startsWith(TRUNCATION_MARKER)).toBe(true);
+        expect(result.indexOf(TRUNCATION_MARKER)).toBe(result.lastIndexOf(TRUNCATION_MARKER));
+        expect(parseMarker(result)).toEqual({
+          tool: "ls",
+          partial: true,
+          reasons: ["entryLimit"],
+          entryLimit: 500,
+          continue: { limit: 1000 },
+          note:
+            "The host stopped the listing at 500 entries; re-run omp.ls with limit=1000 — the host does not clamp a larger ls limit — or enumerate with omp.bash.",
+        });
+        expect(lines.filter((line) => line.endsWith(".txt"))).toHaveLength(500);
+
+        const raised = String(await registry.invoke("omp.ls", { path: dir, limit: 1000 }, baseContext));
+        expect(raised).not.toContain(TRUNCATION_MARKER);
+        expect(raised.split("\n")).toHaveLength(620);
+      },
+    );
+  });
+
+  it("leaves a complete ls byte-faithful and unmarked", async () => {
+    await withFixtures(
+      (dir) => {
+        for (const name of ["a.txt", "b.txt", "c.txt"]) fs.writeFileSync(path.join(dir, name), "x");
+      },
+      async (registry, dir) => {
+        const result = String(await registry.invoke("omp.ls", { path: dir }, baseContext));
+
+        expect(result).toBe("a.txt\nb.txt\nc.txt");
+        expect(result).not.toContain(TRUNCATION_MARKER);
+      },
+    );
+  });
+
   it("forwards grep skip to the underlying tool", async () => {
     await withFixtures(
       (dir) => {

@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.4
+
+### Fixed
+
+- `omp.ls` was the one core tool that never emitted the partial-result marker, so a listing the host clamped at its entry cap looked complete to any program following the documented contract. It now carries the same marker, and its continuation is real: the host does not clamp a larger `ls` limit, so the marker offers one that returns the rest.
+
 ## 1.0.3
 
 ### Fixed

@@ -560,6 +560,20 @@ const findTruncationSignal = (details: unknown): Record<string, unknown> | undef
   };
 };
 
+const lsTruncationSignal = (details: unknown): Record<string, unknown> | undefined => {
+  const reached = finiteNumber(asRecord(details)?.entryLimitReached);
+  if (reached === undefined) return undefined;
+  const next = reached * 2;
+  return {
+    tool: "ls",
+    partial: true,
+    reasons: ["entryLimit"],
+    entryLimit: reached,
+    continue: { limit: next },
+    note: `The host stopped the listing at ${reached} entries; re-run omp.ls with limit=${next} — the host does not clamp a larger ls limit — or enumerate with omp.bash.`,
+  };
+};
+
 const resultHasTruncation = (details: unknown): boolean => {
   if (details === null || typeof details !== "object" || Array.isArray(details)) return false;
   const meta = Reflect.get(details, "meta");
@@ -601,7 +615,10 @@ const normalizeResult = (
     const signal = findTruncationSignal(result.details);
     return signal ? appendTruncationMarker(text, signal) : text;
   }
-  if (name === "ls") return text;
+  if (name === "ls") {
+    const signal = lsTruncationSignal(result.details);
+    return signal ? appendTruncationMarker(text, signal) : text;
+  }
   let details = result.details;
   let output = text;
   if (isOmpShellToolName(name) && details && typeof details === "object" && !Array.isArray(details)) {
