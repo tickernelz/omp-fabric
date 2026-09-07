@@ -320,7 +320,7 @@ describe("memory.sessions paging", () => {
     expect(result.error).toMatchObject({
       code: "invalid_project_scope",
       project: "./absent",
-      projectPath: path.join(cwd, "absent"),
+      projectPath: path.resolve(cwd, "absent"),
     });
   });
 

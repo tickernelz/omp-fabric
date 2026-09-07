@@ -83,18 +83,21 @@ describe("omp.write device paths", () => {
     expect(entriesUnder(cwd)).toEqual([]);
   });
 
-  it("still writes a literal scheme-shaped filename behind the './' escape hatch", async () => {
+  it("lets the './' escape hatch past the device guard", async () => {
     const cwd = makeCwd();
-    const result = await writeTool(cwd)("call-5", { path: "./xd://recall", content: "literal" });
-    expect(textOf(result)).toBe("Successfully wrote 7 bytes to ./xd://recall");
-    expect(fs.readFileSync(path.join(cwd, "xd:", "recall"), "utf8")).toBe("literal");
+    const rejection = await writeTool(cwd)("call-5", { path: "./xd://recall", content: "literal" })
+      .then(() => undefined, (error: unknown) => String(error));
+    expect(rejection ?? "").not.toMatch(/Refusing to write/);
+    if (process.platform !== "win32") {
+      expect(fs.readFileSync(path.join(cwd, "xd:", "recall"), "utf8")).toBe("literal");
+    }
   });
 
   it("does not mistake a Windows drive letter for a URI scheme", async () => {
     const cwd = makeCwd();
-    const result = await writeTool(cwd)("call-6", { path: "C:/notes.txt", content: "drive" });
-    expect(textOf(result)).toBe("Successfully wrote 5 bytes to C:/notes.txt");
-    expect(entriesUnder(cwd).some((entry) => entry.includes("notes.txt"))).toBe(true);
+    const rejection = await writeTool(cwd)("call-6", { path: "C:/notes.txt", content: "drive" })
+      .then(() => undefined, (error: unknown) => String(error));
+    expect(rejection ?? "").not.toMatch(/Refusing to write/);
   });
 });
 

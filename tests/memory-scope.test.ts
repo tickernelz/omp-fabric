@@ -193,9 +193,9 @@ describe("project path scope failures", () => {
     expect(caught).toBeInstanceOf(InvalidProjectScopeError);
     const failure = caught as InvalidProjectScopeError;
     expect(failure.project).toBe("./gone");
-    expect(failure.projectPath).toBe(path.join(here, "gone"));
+    expect(failure.projectPath).toBe(path.resolve(here, "gone"));
     expect(failure.project).not.toBe(failure.projectPath);
-    expect(failure.message).toContain(path.join(here, "gone"));
+    expect(failure.message).toContain(JSON.stringify(path.resolve(here, "gone")));
     expect(failure.message).not.toContain("./gone");
   });
 });
