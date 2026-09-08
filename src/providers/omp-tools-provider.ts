@@ -47,6 +47,18 @@ import { readChildToolAllowlist } from "../core/child-tool-allowlist.js";
 const MAX_RENDERER_ARGUMENT_CHARS = 200_000;
 const GUEST_READ_LINE_LIMIT = 100_000;
 const MAX_REPLACE_ALL_FILE_CHARS = 2_000_000;
+export interface OmpSessionIdentity {
+  getSessionId?: () => string | null;
+  getArtifactsDir?: () => string | null;
+  getSessionFile?: () => string | null;
+}
+
+let sessionIdentity: OmpSessionIdentity | undefined;
+
+export const setOmpSessionIdentity = (identity: OmpSessionIdentity | undefined): void => {
+  sessionIdentity = identity;
+};
+
 const createNativeSession = (cwd: string, artifactPaths?: Map<string, string>): ToolSession => {
   const artifactRoot = artifactPaths
     ? mkdtempSync(path.join(os.tmpdir(), "omp-fabric-bash-"))
@@ -55,7 +67,9 @@ const createNativeSession = (cwd: string, artifactPaths?: Map<string, string>): 
     cwd,
     hasUI: false,
     hasEditTool: false,
-    getSessionFile: () => null,
+    getSessionFile: () => sessionIdentity?.getSessionFile?.() ?? null,
+    getSessionId: () => sessionIdentity?.getSessionId?.() ?? null,
+    getArtifactsDir: () => sessionIdentity?.getArtifactsDir?.() ?? null,
     getSessionSpawns: () => null,
     settings: Settings.isolated({
       readLineNumbers: false,

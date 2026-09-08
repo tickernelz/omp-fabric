@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.3.3
+
+### Fixed
+
+- **A `local://` write and a `local://` read still disagreed after 1.3.2.** Delegating to the host write tool stopped the literal `local:` directory, but the two sides derived different roots. `resolveLocalRoot` prefers `getArtifactsDir()` and falls back to `<tmp>/omp-local/<sessionId>`; the read path takes its options from the main session in the global agent registry, so it always used the real artifacts directory, while Fabric's core tools ran on a synthetic session that supplied neither accessor and landed in the fallback. Measured: the write reported success at `/tmp/omp-local/session/rt.md`, the file existed there, and reading the same URL raised `Local file not found`.
+
+  Fabric's synthetic session now carries the host session's identity, so `omp.read` and `omp.write` resolve one `local://` URL to one path. Verified live: the write lands in the session artifacts directory and the read returns the bytes.
+
+### Notes
+
+- 1.3.2 was released as verified on a smoke test whose read-back had been dropped from the probe, so only half the round-trip was exercised. The first attempt at that smoke did surface the mismatch and filed it, and the report was not read before shipping.
+
 ## 1.3.2
 
 ### Fixed

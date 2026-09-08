@@ -116,7 +116,7 @@ import {
 import { McpProvider, type McpProviderHooks } from "./providers/mcp-provider.js";
 import { MemoryProvider, type MemoryProviderContext } from "./providers/memory-provider.js";
 import { MeshProvider } from "./providers/mesh-provider.js";
-import { OmpToolsProvider } from "./providers/omp-tools-provider.js";
+import { OmpToolsProvider, setOmpSessionIdentity } from "./providers/omp-tools-provider.js";
 import { SchemaProvider } from "./providers/schema-provider.js";
 import { StateProvider } from "./providers/state-provider.js";
 import { SchemaController } from "./schema/controller.js";
@@ -502,6 +502,11 @@ export class FabricRuntimeState {
         ? new CapturedToolsProvider(this.capturedTools)
         : undefined;
     if (effectiveFullCodeMode) {
+      setOmpSessionIdentity({
+        getSessionId: () => context.sessionManager.getSessionId(),
+        getArtifactsDir: () => context.sessionManager.getArtifactsDir(),
+        getSessionFile: () => context.sessionManager.getSessionFile() ?? null,
+      });
       await installBuiltin(createProviderComponent({
         provider: "omp",
         description: "OMP core tools adapter",

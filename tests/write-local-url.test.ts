@@ -4,6 +4,8 @@ import path from "node:path";
 import { Settings, type ToolSession } from "@oh-my-pi/pi-coding-agent";
 import { afterAll, describe, expect, it } from "vitest";
 import { createPreviewWriteToolDefinition } from "../src/providers/write-preview.js";
+import { OmpToolsProvider, setOmpSessionIdentity } from "../src/providers/omp-tools-provider.js";
+import type { FabricInvocationContext } from "../src/protocol.js";
 
 const roots: string[] = [];
 afterAll(() => { for (const r of roots) fs.rmSync(r, { recursive: true, force: true }); });
@@ -75,5 +77,41 @@ describe("omp.write internal URLs", () => {
     );
 
     expect(entriesUnder(cwd)).toEqual([path.join("notes", "plain.md")]);
+  });
+});
+
+describe("local:// root follows the host session", () => {
+  it("writes under the artifacts dir the host read resolver uses", async () => {
+    const cwd = scratch();
+    const artifacts = scratch();
+    setOmpSessionIdentity({
+      getSessionId: () => "unit-session",
+      getArtifactsDir: () => artifacts,
+      getSessionFile: () => null,
+    });
+    try {
+      const provider = await OmpToolsProvider.create(cwd);
+      const context = {
+        cwd,
+        signal: undefined,
+        parentToolCallId: "t",
+        nestedToolCallId: "n",
+        extensionContext: {} as never,
+        update() {},
+        activity() {},
+      } as unknown as FabricInvocationContext;
+
+      const written = await provider.invoke(
+        "write",
+        { path: "local://scoped.md", content: "scoped" },
+        context,
+      ) as { output?: string };
+      expect(JSON.stringify(written)).toContain(path.join(artifacts, "local"));
+      expect(fs.readFileSync(path.join(artifacts, "local", "scoped.md"), "utf8")).toBe("scoped");
+
+      expect(entriesUnder(cwd)).toEqual([]);
+    } finally {
+      setOmpSessionIdentity(undefined);
+    }
   });
 });
