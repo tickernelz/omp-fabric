@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.3.4
+
+### Fixed
+
+- The 1.3.3 regression test compared a Windows path against a JSON-escaped message string, so windows-latest failed on backslash doubling and the `RUNNER~1` short path while the behaviour under test was correct. It now asserts on the filesystem: the file exists under the artifacts root and does not exist under the fallback root. 1.3.3 was tagged before that job reported, which is why a release carries a red Windows check.
+
 ## 1.3.3
 
 ### Fixed

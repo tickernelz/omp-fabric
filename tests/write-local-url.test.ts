@@ -84,8 +84,9 @@ describe("local:// root follows the host session", () => {
   it("writes under the artifacts dir the host read resolver uses", async () => {
     const cwd = scratch();
     const artifacts = scratch();
+    const sessionId = `unit-${process.pid}-${Date.now()}`;
     setOmpSessionIdentity({
-      getSessionId: () => "unit-session",
+      getSessionId: () => sessionId,
       getArtifactsDir: () => artifacts,
       getSessionFile: () => null,
     });
@@ -101,13 +102,13 @@ describe("local:// root follows the host session", () => {
         activity() {},
       } as unknown as FabricInvocationContext;
 
-      const written = await provider.invoke(
+      await provider.invoke(
         "write",
         { path: "local://scoped.md", content: "scoped" },
         context,
-      ) as { output?: string };
-      expect(JSON.stringify(written)).toContain(path.join(artifacts, "local"));
+      );
       expect(fs.readFileSync(path.join(artifacts, "local", "scoped.md"), "utf8")).toBe("scoped");
+      expect(fs.existsSync(path.join(os.tmpdir(), "omp-local", sessionId))).toBe(false);
 
       expect(entriesUnder(cwd)).toEqual([]);
     } finally {
