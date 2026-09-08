@@ -45,6 +45,8 @@ import {
   effectiveToolCaptureConfig,
 } from "./config.js";
 import { registerCompactionHook } from "./compaction/hook.js";
+import { LcmRuntime } from "./compaction/lcm-runtime.js";
+import { canonicalProjectIdentity } from "./storage/lcm-ledger.js";
 import { compactAtConfiguredThreshold } from "./compaction/threshold.js";
 import {
   createToolOwnershipReassertion,
@@ -174,13 +176,19 @@ export default async function ompFabric(omp: ExtensionAPI): Promise<void> {
   );
   const capturedTools = new CapturedToolCatalog();
   const proxyContract = new ProxyContractLedger();
-  const state = new FabricState(omp, capturedTools, { paths: FABRIC_RUNTIME_PATHS });
+  const state = new FabricState(omp, capturedTools, {
+    paths: FABRIC_RUNTIME_PATHS,
+    lcmContext: () => lcmRuntime?.memoryContext(),
+  });
   const directToolApproval = new FabricDirectToolApproval(
     omp,
     () => state.config,
     state.sessionApprovals,
   );
   const pendingHandoffs = new Map<string, PendingFabricHandoff>();
+  let lcmRuntime: LcmRuntime | undefined;
+  let lcmCwd: string | undefined;
+  let lcmProjectKey: string | undefined;
   const toolOwnership = new FabricToolOwnership(omp);
   const fabricUi = new FabricUiController(state, codePreviewSettings, {
     getToolDefinition: (name) => name === "fabric_exec" ? fabricTool : capturedTools.get(name)?.definition,
@@ -503,6 +511,27 @@ export default async function ompFabric(omp: ExtensionAPI): Promise<void> {
       }
     }
     await state.bootstrap(context);
+    const recordedCwd = context.sessionManager.getRecordedCwd?.() || context.cwd;
+    const projectKey = canonicalProjectIdentity({ liveCwd: recordedCwd }).key;
+    if (lcmRuntime && (lcmCwd !== context.cwd || lcmProjectKey !== projectKey || state.config.compaction.engine !== "lcm")) {
+      await lcmRuntime.shutdown();
+      lcmRuntime = undefined;
+      lcmCwd = undefined;
+      lcmProjectKey = undefined;
+    }
+    if (state.config.compaction.engine === "lcm" && !lcmRuntime) {
+      lcmRuntime = new LcmRuntime(context, {
+        ...(state.config.compaction.summaryModel ? { summaryModel: state.config.compaction.summaryModel } : {}),
+        maxLeafEntries: state.config.compaction.lcmMaxLeafEntries,
+        maxCondenseChildren: state.config.compaction.lcmMaxCondenseChildren,
+        lcmMaxInputChars: state.config.compaction.lcmMaxInputChars,
+        lcmMaxOutputTokens: state.config.compaction.lcmMaxOutputTokens,
+        lcmMaxOutputChars: state.config.compaction.lcmMaxOutputChars,
+      });
+      lcmCwd = context.cwd;
+      lcmProjectKey = lcmRuntime.projectKey;
+    }
+    if (state.config.compaction.engine === "lcm" && lcmRuntime) await lcmRuntime.reconcileSelectedSession();
     refreshCodePreviewSettings();
     applyFabricMode();
     if (!updateCheckStarted) {
@@ -556,6 +585,7 @@ export default async function ompFabric(omp: ExtensionAPI): Promise<void> {
 
   omp.on("agent_end", async (event, context) => {
     if (event.willContinue === true) return;
+    await lcmRuntime?.syncAndSchedule();
     if (!state.initialized) {
       await compactAtConfiguredThreshold(context, state.config);
       return;
@@ -637,6 +667,10 @@ export default async function ompFabric(omp: ExtensionAPI): Promise<void> {
     return changed ? { content } : undefined;
   });
 
+  omp.on("message_end", () => {
+    lcmRuntime?.markDirty();
+  });
+
   omp.on("message_end", (event) => {
     if (event.message.role !== "toolResult") return;
     const message = event.message as AgentToolResultMessage & { usage?: Usage };
@@ -687,6 +721,7 @@ export default async function ompFabric(omp: ExtensionAPI): Promise<void> {
   });
 
   omp.on("session_compact", async (event, context) => {
+    await lcmRuntime?.syncAndSchedule();
     if (!state.initialized) return;
     await state.publishHostLifecycle("omp.session_compact", event);
   });
@@ -697,12 +732,15 @@ export default async function ompFabric(omp: ExtensionAPI): Promise<void> {
   registerCompactionHook(omp, {
     getEngine: () =>
       state.cwd
-        ? state.config.compaction.engine === "omp" ? "omp" : "fabric"
-        : DEFAULT_FABRIC_CONFIG.compaction.engine === "omp" ? "omp" : "fabric",
+        ? state.config.compaction.engine
+        : DEFAULT_FABRIC_CONFIG.compaction.engine,
     getTargetContextRatio: () =>
       state.cwd
         ? state.config.compaction.targetContextRatio
         : DEFAULT_FABRIC_CONFIG.compaction.targetContextRatio,
+    lcm: {
+      compact: (input) => lcmRuntime?.compact(input),
+    },
   });
 
   omp.on("context", (event, context) => {
@@ -860,6 +898,10 @@ export default async function ompFabric(omp: ExtensionAPI): Promise<void> {
     directToolApproval.clear();
     toolDisplay.clear();
     try {
+      await lcmRuntime?.shutdown();
+      lcmRuntime = undefined;
+      lcmCwd = undefined;
+      lcmProjectKey = undefined;
       await state.shutdown();
     } finally {
       uninstallHaltOnEscape();

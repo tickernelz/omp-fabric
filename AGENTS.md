@@ -51,3 +51,17 @@ lockfile.
 
 Use conventional commits (commitlint): `feat(scope): ...`, `fix(scope): ...`,
 `chore(release): <version>` for version bumps.
+
+## Agent skills
+
+### Issue tracker
+
+GitHub Issues in tickernelz/omp-fabric. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Default Matt Pocock labels. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context layout. See `docs/agents/domain.md`.

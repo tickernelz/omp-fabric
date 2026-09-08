@@ -914,7 +914,16 @@ interface FabricMemoryRecallSessionHit {
   matchedStructuralEntries: number;
   follow: FabricMemoryCall<"memory.recall", FabricMemoryRecallArgs>;
 }
-type FabricMemoryRecallHit = FabricMemoryRecallEntryHit | FabricMemoryRecallSessionHit;
+interface FabricLcmMemoryHit {
+  kind: "lcm.raw" | "lcm.summary";
+  sessionId: string;
+  score: number;
+  snippet: string;
+  truncated: boolean;
+  source: { kind: "raw" | "summary"; projectKey: string; sessionId: string; entryId?: string; revision?: number; contentHash?: string; nodeId?: string; sourceHash: string };
+  follow: FabricMemoryCall<"memory.expand", FabricMemoryExpandArgs>;
+}
+type FabricMemoryRecallHit = FabricMemoryRecallEntryHit | FabricMemoryRecallSessionHit | FabricLcmMemoryHit;
 interface FabricMemoryError {
   code: string;
   message: string;
@@ -957,6 +966,7 @@ interface FabricMemoryExpandedEntry {
   filesTouched?: Array<string | null>;
   operation?: unknown;
   branchFact?: unknown;
+  structuredContent?: unknown;
   structuredTruncated?: boolean;
   factAddress?: string | null;
   carrierEntryId?: string | null;

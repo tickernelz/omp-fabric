@@ -56,7 +56,7 @@ const memoryStore = (): CompactOutcomeStore & { rows: Map<string, CompactLastCom
   };
 };
 
-const settings = () => ({ engine: "fabric", targetContextRatio: 0.75 });
+const settings = () => ({ engine: "lcm", targetContextRatio: 0.75 });
 
 const invocation = (extensionContext: ExtensionContext): FabricInvocationContext => ({
   cwd: process.cwd(),
@@ -82,7 +82,7 @@ describe("compact.status occupancy visibility", () => {
       percent: 48,
       remainingTokens: 104_000,
     });
-    expect(status.engine).toBe("fabric");
+    expect(status.engine).toBe("lcm");
     expect(status.targetContextRatio).toBe(0.75);
     expect(status.model).toBe("sub2api-claude/claude-opus-5");
     expect(status.sessionId).toBe("session-under-test");
@@ -273,7 +273,7 @@ describe("CompactProvider status surface", () => {
     };
     expect(before.context?.known).toBe(true);
     expect(before.context?.percent).toBe(85);
-    expect(before.engine).toBe("fabric");
+    expect(before.engine).toBe("lcm");
     expect(before.targetContextRatio).toBe(0.75);
 
     await provider.invoke("request", { reason: "over target" }, invocation(context));

@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.4.0
+
+### Added
+
+- Replaced active Fabric compaction with durable LCM context management using a SQLite raw ledger, hierarchical leaf and condensed summaries, source lineage, bounded emergency reduction, and exact memory recovery.
+- Added on-demand reconciliation for the selected resumed OMP session; unrelated sessions are not imported during startup.
+- Added bounded summary-model maintenance with public OMP model resolution, lease fencing, retry limits, daily usage budgets, branch isolation, and operational backup/deletion safeguards.
+
+### Changed
+
+- `compaction.engine` now accepts `lcm` or explicit `omp`; persisted `fabric` values migrate to `lcm`.
+- `memory.recall` and `memory.expand` can use the lifecycle-owned LCM ledger while preserving bounded active-branch recovery.
+
 ## 1.3.4
 
 ### Fixed

@@ -11,7 +11,7 @@ import { buildSessionContext, sessionEntryToContextMessages } from "../core/sess
 import { clipUtf8, MAX_SUMMARY_BYTES } from "./bounds.js";
 import { modelCompactionKey } from "./threshold.js";
 import { NO_BUILTIN_ENRICHERS, runEnrichers, type CompactionEnricher } from "./enrichers.js";
-import { compileFabricBranchSummary } from "./branch-summary.js";
+import { compileLcmBranchSummary } from "./branch-summary.js";
 import {
   decodeCompactionInstructions,
   type CompactionInstructionDecodeError,
@@ -25,7 +25,7 @@ import {
 } from "./projections.js";
 import { renderSummary } from "./render.js";
 
-type CompactionEngine = "omp" | "fabric";
+type CompactionEngine = "omp" | "lcm";
 
 interface LiveEntry {
   entry: SessionEntry;
@@ -797,10 +797,33 @@ const SECTION_HEADERS: { key: keyof Sections; header: string }[] = [
   { key: "status", header: "[Current Status]" },
 ];
 
+export interface LcmCompactionInput {
+  branchEntries: readonly SessionEntry[];
+  sessionId: string;
+  branch: string | null;
+  firstKeptEntryId: string;
+  tokensBefore: number;
+  customInstructions?: string;
+}
+
+export interface LcmCompactionOutput {
+  summary: string;
+  firstKeptEntryId: string;
+  tokensBefore: number;
+  source: "ready-frontier" | "emergency";
+  branch: string | null;
+  details?: unknown;
+}
+
+interface LcmCompactionOptions {
+  compact: (input: LcmCompactionInput) => LcmCompactionOutput | undefined;
+}
+
 export interface CompactionHookOptions {
   getEngine: () => CompactionEngine;
   getTargetContextRatio?: () => number;
   enrichers?: readonly CompactionEnricher[];
+  lcm?: LcmCompactionOptions;
 }
 
 const notifyInstructionError = (
@@ -813,34 +836,63 @@ const notifyInstructionError = (
 
 export const registerCompactionHook = (omp: ExtensionAPI, options: CompactionHookOptions): void => {
   omp.on("session_before_compact", (event: SessionBeforeCompactEvent, context: ExtensionContext) => {
-    if (options.getEngine() !== "fabric") return;
-    const { preparation, branchEntries } = event;
-    const contextWindow = context?.model?.contextWindow;
-    const targetContextRatio = options.getTargetContextRatio?.();
-    const settings = preparation.settings ?? DEFAULT_COMPACTION_SETTINGS;
-    const budget = typeof contextWindow === "number" && Number.isFinite(contextWindow) && contextWindow > 0
-      && typeof targetContextRatio === "number" && Number.isFinite(targetContextRatio)
-      ? { contextWindow, targetContextRatio, reserveTokens: settings.reserveTokens ?? DEFAULT_COMPACTION_SETTINGS.reserveTokens, keepRecentTokens: settings.keepRecentTokens }
-      : undefined;
-    const result = compileFabricSummary(branchEntries ?? [], preparation.tokensBefore, options.enrichers, event.customInstructions, budget);
-    if ("cancel" in result) {
-      if (result.instructionError) {
-        notifyInstructionError(context, result.instructionError);
-        return { cancel: true };
-      }
+    if (options.getEngine() === "omp") return;
+    if (!options.lcm) return { cancel: true };
+    const instructions = decodeCompactionInstructions(event.customInstructions);
+    if (!instructions.ok) {
+      notifyInstructionError(context, instructions.error);
       return { cancel: true };
     }
-    (event as SessionBeforeCompactEvent & { _fabricCompaction?: boolean })._fabricCompaction = true;
-    return { compaction: result.compaction };
+    const branchEntries = event.branchEntries ?? [];
+    const sessionManager = context?.sessionManager;
+    const sessionId = sessionManager?.getSessionId?.() ?? "";
+    const branch = sessionManager?.getLeafId?.() ?? null;
+    let output: LcmCompactionOutput | undefined;
+    try {
+      output = options.lcm.compact({
+        branchEntries,
+        sessionId,
+        branch,
+        firstKeptEntryId: event.preparation.firstKeptEntryId,
+        tokensBefore: event.preparation.tokensBefore,
+        ...(event.customInstructions === undefined ? {} : { customInstructions: event.customInstructions }),
+      });
+    } catch {
+      return { cancel: true };
+    }
+    if (!output || typeof output.summary !== "string" || output.summary.length === 0
+      || (output.source !== "ready-frontier" && output.source !== "emergency")
+      || output.tokensBefore !== event.preparation.tokensBefore
+      || output.branch !== branch
+      || typeof output.firstKeptEntryId !== "string"
+      || branchEntries.length === 0
+      || (output.firstKeptEntryId.length > 0 && !branchEntries.some((entry) => entry.id === output.firstKeptEntryId))) {
+      return { cancel: true };
+    }
+    return {
+      compaction: {
+        summary: output.summary,
+        firstKeptEntryId: output.firstKeptEntryId,
+        tokensBefore: output.tokensBefore,
+        details: {
+          compactor: "lcm",
+          source: output.source,
+          branch,
+          ...(output.details && typeof output.details === "object" ? output.details : {}),
+        },
+      },
+    };
   });
 
-  omp.on("session_before_tree", (event: SessionBeforeTreeEvent, context: ExtensionContext) => {
-    if (options.getEngine() !== "fabric") return;
-    const { preparation } = event;
-    if (!preparation.userWantsSummary) return;
-    const compiled = compileFabricBranchSummary(preparation.entriesToSummarize, undefined, options.enrichers, preparation.oldLeafId);
+  omp.on("session_before_tree", (event: SessionBeforeTreeEvent) => {
+    if (options.getEngine() !== "lcm" || !event.preparation.userWantsSummary) return;
+    const compiled = compileLcmBranchSummary(
+      event.preparation.entriesToSummarize,
+      undefined,
+      options.enrichers,
+      event.preparation.oldLeafId,
+    );
     if (!compiled) return;
     return { summary: compiled };
   });
 };
-

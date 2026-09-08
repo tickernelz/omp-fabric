@@ -1,4 +1,4 @@
-export const CURRENT_FABRIC_CONFIG_VERSION = 4;
+export const CURRENT_FABRIC_CONFIG_VERSION = 5;
 
 export interface FabricConfigMigrationResult {
   document: Record<string, unknown>;
@@ -103,6 +103,18 @@ const migrations: readonly FabricConfigMigration[] = [
           ...prewalk,
           enabled: prewalk.enabled === "true",
         };
+      }
+      return migrated;
+    },
+  },
+  {
+    from: 4,
+    to: 5,
+    migrate(document) {
+      const migrated = { ...document };
+      const compaction = migrated.compaction;
+      if (isObject(compaction) && compaction.engine === "fabric") {
+        migrated.compaction = { ...compaction, engine: "lcm" };
       }
       return migrated;
     },

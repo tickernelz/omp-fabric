@@ -42,12 +42,13 @@ import type {
   FabricComponentDefinition,
   FabricProvider,
 } from "./protocol.js";
-import type { FabricRuntimeState } from "./fabric-runtime-state.js";
+import type { FabricRuntimeState, FabricRuntimeStateOptions } from "./fabric-runtime-state.js";
 import type { FabricRuntimePaths } from "./runtime-paths.js";
 
 export interface FabricStateOptions {
   paths?: FabricRuntimePaths;
   runtimeLoader?: () => Promise<typeof import("./fabric-runtime-state.js")>;
+  lcmContext?: FabricRuntimeStateOptions["lcmContext"];
 }
 
 type ActivationHook = (context: ExtensionContext) => void | Promise<void>;
@@ -445,6 +446,7 @@ export class FabricState {
         prewalkDrift: this.prewalkDrift,
         sessionApprovals: this.sessionApprovals,
         ...(this.#options.paths ? { paths: this.#options.paths } : {}),
+        ...(this.#options.lcmContext ? { lcmContext: this.#options.lcmContext } : {}),
       },
     );
   }

@@ -158,7 +158,7 @@ where absent values do not participate. Orchestration programs (`agents.run` / `
     "updateDebounceMs": 100
   },
   "compaction": {
-    "engine": "fabric"
+    "engine": "lcm"
   },
   "retention": {
     "orphanedTempRunMs": 21600000,
@@ -238,7 +238,7 @@ Each in-place handoff captures Main's active model at the boundary and restores 
 
 `executor.resultFormat` sets the default for `fabric_exec` return values. Find it under `/fabric settings` → **Executor**. `"auto"` keeps strings as text and renders structured values as syntax-highlighted YAML. `"yaml"`, `"json"`, and `"text"` each force their named behavior. A call-level `resultFormat` parameter overrides the configured default.
 
-Configure the compaction engine under `/fabric settings` → **Compaction**. Select `"fabric"` for deterministic compaction or `"omp"` to hand compaction to OMP core.
+Configure compaction under `/fabric settings` → **Compaction**. Select `"lcm"` for durable hierarchical context or `"omp"` to hand compaction to OMP core.
 
 ## Code modes
 
@@ -483,7 +483,7 @@ Mesh topics, shared state, and the participant directory remain project-scoped. 
 
 ## Compaction
 
-The deterministic, LLM-free compaction engine is on by default. It keeps OMP's bounded `keepRecentTokens` continuity tail. `compaction.targetContextRatio` sets a hard occupancy ceiling. Set `compaction.engine` to `"omp"` to use OMP's native compaction or `"fabric"` to use Fabric's deterministic summary. See [compaction](compaction.md) for invariants, loss guarantees, sections, and limits.
+The LCM compaction engine is on by default. It keeps OMP's bounded `keepRecentTokens` continuity tail and assembles durable summary nodes. `compaction.targetContextRatio` sets a hard occupancy ceiling. Set `compaction.engine` to `"omp"` to use OMP's native compaction. See [compaction](compaction.md) for invariants, loss guarantees, sections, and limits.
 
 ## Catalog repairs
 

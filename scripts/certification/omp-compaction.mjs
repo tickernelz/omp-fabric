@@ -5,6 +5,18 @@ import * as OMP from "@oh-my-pi/pi-coding-agent";
 import { estimateTokens } from "@oh-my-pi/pi-coding-agent/extensibility/legacy-pi-coding-agent-shim";
 import { prepareCompaction, shouldCompact } from "@oh-my-pi/pi-agent-core/compaction";
 import { registerCompactionHook } from "../../dist/compaction/hook.js";
+const emergencyReduce = (input, limit) => {
+  const header = "[Nonsemantic deterministic excerpt; not a model summary]\\n";
+  const room = Math.max(0, limit - Buffer.byteLength(header, "utf8"));
+  if (Buffer.byteLength(input, "utf8") <= room) return header + input;
+  const marker = "\\n...\\n";
+  const available = Math.max(0, room - Buffer.byteLength(marker, "utf8"));
+  const left = Math.floor(available / 2);
+  const right = available - left;
+  let result = header + input.slice(0, left) + marker + input.slice(-right);
+  while (Buffer.byteLength(result, "utf8") > limit) result = result.slice(0, -1);
+  return result;
+};
 
 const HOST_PACKAGE = "@oh-my-pi/pi-coding-agent";
 const CORE_COMPACTION_MODULE = "@oh-my-pi/pi-agent-core/compaction";
@@ -163,16 +175,51 @@ export const prepareEligibleCompaction = (
   };
 };
 
-let fabricHandler;
+let lcmHandler;
 const fakeOMP = {
   on(name, handler) {
-    if (name === "session_before_compact") fabricHandler = handler;
+    if (name === "session_before_compact") lcmHandler = handler;
   },
 };
-registerCompactionHook(fakeOMP, { getEngine: () => "fabric" });
-if (typeof fabricHandler !== "function") throw new Error("Fabric compaction hook was not registered");
+const deterministicLcm = {
+  compact: ({ branchEntries, firstKeptEntryId, tokensBefore, branch }) => {
+    const candidateIndex = firstKeptEntryId ? branchEntries.findIndex((entry) => entry.id === firstKeptEntryId) : -1;
+    const spans = new Map();
+    branchEntries.forEach((entry, index) => {
+      if (entry.type !== "message" || !Array.isArray(entry.message.content)) return;
+      for (const part of entry.message.content) {
+        if (part?.type === "toolCall" && typeof part.id === "string") {
+          const span = spans.get(part.id) ?? { first: index, last: index }; span.first = Math.min(span.first, index); span.last = Math.max(span.last, index); spans.set(part.id, span);
+        }
+      }
+      if (entry.message.role === "toolResult" && typeof entry.message.toolCallId === "string") {
+        const span = spans.get(entry.message.toolCallId) ?? { first: index, last: index }; span.first = Math.min(span.first, index); span.last = Math.max(span.last, index); spans.set(entry.message.toolCallId, span);
+      }
+    });
+    const split = candidateIndex > 0 && [...spans.values()].some((span) => span.first < candidateIndex && span.last >= candidateIndex);
+    const safeFirstKeptEntryId = candidateIndex > 0 && !split ? firstKeptEntryId : branchEntries.at(-1)?.id ?? "";
+    const boundary = safeFirstKeptEntryId ? branchEntries.findIndex((entry) => entry.id === safeFirstKeptEntryId) : branchEntries.length;
+    const sourceEntries = branchEntries.slice(0, boundary >= 0 ? boundary : branchEntries.length).filter((entry) => entry.type !== "compaction");
+    if (sourceEntries.length === 0) return undefined;
+    const first = sourceEntries[0]?.id ?? "";
+    const last = sourceEntries.at(-1)?.id ?? "";
+    return {
+      summary: emergencyReduce(sourceEntries.map((entry) => JSON.stringify(entry)).join("\\n"), 32 * 1024),
+      firstKeptEntryId: safeFirstKeptEntryId,
+      tokensBefore,
+      source: "emergency",
+      branch,
+      details: {
+        coverage: { cumulativeSourceRange: { first, last }, liveCutRange: { first, last } },
+        stableAddresses: { cumulativeSourceRange: { first, last }, recall: "session-entry-id-range" },
+      },
+    };
+  },
+};
+registerCompactionHook(fakeOMP, { getEngine: () => "lcm", lcm: deterministicLcm });
+if (typeof lcmHandler !== "function") throw new Error("LCM compaction hook was not registered");
 
-export const invokeRegisteredFabricCompactor = ({ preparation, branchEntries, customInstructions }) => {
+export const invokeRegisteredLcmCompactor = async ({ preparation, branchEntries, customInstructions }) => {
   let previousSummaryReads = 0;
   const instrumentedPreparation = new Proxy(preparation, {
     get(target, property, receiver) {
@@ -187,7 +234,7 @@ export const invokeRegisteredFabricCompactor = ({ preparation, branchEntries, cu
     ...(customInstructions === undefined ? {} : { customInstructions }),
     signal: new AbortController().signal,
   };
-  const result = fabricHandler(event, undefined);
+  const result = await Promise.resolve(lcmHandler(event, undefined));
   return {
     event,
     result,
@@ -198,7 +245,7 @@ export const invokeRegisteredFabricCompactor = ({ preparation, branchEntries, cu
   };
 };
 
-export const appendFabricCompaction = (manager, compaction, summary = compaction.summary) =>
+export const appendLcmCompaction = (manager, compaction, summary = compaction.summary) =>
   manager.appendCompaction(
     summary,
     compaction.shortSummary,

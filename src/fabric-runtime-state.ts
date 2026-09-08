@@ -160,6 +160,7 @@ export interface FabricRuntimeStateOptions {
   prewalkDrift?: PrewalkDriftTracker;
   sessionApprovals?: FabricSessionApprovals;
   paths?: FabricRuntimePaths;
+  lcmContext?: () => MemoryProviderContext["lcm"];
 }
 
 export class FabricRuntimeState {
@@ -197,6 +198,7 @@ export class FabricRuntimeState {
   readonly prewalk: PrewalkController;
   readonly prewalkDrift: PrewalkDriftTracker;
   readonly sessionApprovals: FabricSessionApprovals;
+  readonly #lcmContext: FabricRuntimeStateOptions["lcmContext"];
   readonly #paths: FabricRuntimePaths | undefined;
   #widgetDismissedAt = 0;
   #suppressResidentGuidanceSync = false;
@@ -210,6 +212,7 @@ export class FabricRuntimeState {
     this.prewalk = options.prewalk ?? new PrewalkController();
     this.prewalkDrift = options.prewalkDrift ?? new PrewalkDriftTracker();
     this.sessionApprovals = options.sessionApprovals ?? new FabricSessionApprovals();
+    this.#lcmContext = options.lcmContext;
     this.#paths = options.paths;
   }
 
@@ -948,6 +951,7 @@ export class FabricRuntimeState {
     }));
     if (this.#config.memory.enabled) {
       const sessionFile = context.sessionManager.getSessionFile();
+      const lcmContext = this.#lcmContext?.();
       const memoryContext: MemoryProviderContext = {
         agentDir: resolveAgentDir(),
         cwd: context.cwd,
@@ -958,6 +962,7 @@ export class FabricRuntimeState {
           entries: context.sessionManager.getBranch(),
           leafId: context.sessionManager.getLeafId(),
         }),
+        ...(lcmContext ? { lcm: lcmContext } : {}),
       };
       await installBuiltin(createProviderComponent({
         provider: "memory",

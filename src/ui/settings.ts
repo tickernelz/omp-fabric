@@ -58,7 +58,7 @@ const TOOL_DISPLAY_MODES = ["full", "compact"] as const;
 const RESULT_FORMATS = ["auto", "yaml", "json", "text"] as const;
 const EXECUTOR_RUNTIMES = ["quickjs", "node-process", "bun-process"] as const;
 const SCHEMA_MODES = ["off", "audit", "enforce"] as const;
-const COMPACTION_ENGINES = ["fabric", "omp"] as const;
+const COMPACTION_ENGINES = ["lcm", "omp"] as const;
 const COMPACTION_THRESHOLD_SETTING_ID = "compaction.threshold";
 const COMPACTION_DEFAULT_THRESHOLD_LABEL = "OMP default";
 const COMPACTION_PERCENT_OPTION_LABEL = "Custom percent…";
@@ -1775,7 +1775,7 @@ export const buildFabricSettingsItems = (
       submenu: sectionSubmenu(
         theme,
         "Compaction",
-        "Choose Fabric deterministic compaction or OMP core model-driven compaction.",
+        "Choose LCM context compaction or OMP core model-driven compaction.",
         [
           ...(options.activeModelKey
             ? [setting(
@@ -1791,7 +1791,7 @@ export const buildFabricSettingsItems = (
             : []),
           setting("compaction.engine", "Engine", config.compaction.engine, {
             description:
-              "Fabric uses deterministic branch summaries; OMP delegates compaction to OMP core.",
+              "LCM assembles durable hierarchical context; OMP delegates compaction to OMP core.",
             values: COMPACTION_ENGINES,
           }),
           setting(
@@ -1800,7 +1800,7 @@ export const buildFabricSettingsItems = (
             String(config.compaction.targetContextRatio),
             {
               description:
-                "Hard post-compaction occupancy ceiling; Fabric normally keeps OMP's bounded recent-token tail instead.",
+                "Hard post-compaction occupancy ceiling used by LCM context assembly.",
               values: COMPACTION_TARGET_RATIOS,
             },
           ),

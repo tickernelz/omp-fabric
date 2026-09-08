@@ -246,14 +246,14 @@ describe("FabricSettingsComponent", () => {
       activeModelKey: "anthropic/claude-sonnet-4-5",
     });
     const compaction = items.find((item) => item.id === "compaction");
-    expect(compaction?.currentValue).toBe("fabric");
+    expect(compaction?.currentValue).toBe("lcm");
     const rows = compaction!.submenu!("", () => {}).render(80);
     const lines = rows.join("\n");
     expect(lines).toContain("Threshold");
     expect(lines).toContain("OMP default");
     expect(lines).toContain("anthropic/claude-sonnet-4-5");
     expect(lines).toContain("Engine");
-    expect(lines).toContain("fabric");
+    expect(lines).toContain("lcm");
     expect(lines).toContain("Max occupancy");
     expect(rows.find((row) => row.includes("Max occupancy"))).toContain("0.5");
     const section = compaction!.submenu!("", () => {}) as any;

@@ -3,16 +3,17 @@ import os from "node:os";
 import path from "node:path";
 import { Buffer } from "node:buffer";
 import { SessionManager } from "@oh-my-pi/pi-coding-agent";
-import { encodeCwdDir } from "../../dist/memory/discovery.js";
 import { normalizeSession, readSessionHeader } from "../../dist/memory/normalize.js";
+
+const encodeCwdDir = (cwd) => `--${cwd.replace(/^[/\\]/u, "").replace(/[/\\:]/gu, "-")}--`;
 import { MemoryProvider } from "../../dist/providers/memory-provider.js";
 import {
-  appendFabricCompaction,
+  appendLcmCompaction,
   contextMessagesFromEntries,
   contextMessagesMatch,
   contextSubchainAfterCompaction,
   HOST_COMPACTION_API,
-  invokeRegisteredFabricCompactor,
+  invokeRegisteredLcmCompactor,
   prepareEligibleCompaction,
 } from "./omp-compaction.mjs";
 import {
@@ -114,14 +115,14 @@ const invocationContext = (cwd) => ({
   update() {},
 });
 
-const compileEligibleManager = (manager, customInstructions) => {
+const compileEligibleManager = async (manager, customInstructions) => {
   const eligibility = prepareEligibleCompaction(manager);
   if (!eligibility.eligible) throw new Error("Fixture was not eligible under OMP shouldCompact semantics");
   if (!eligibility.preparation) throw new Error("OMP prepareCompaction returned undefined for an eligible fixture");
   if (!contextMessagesMatch(eligibility.contextMessages, eligibility.publicContextMessages)) {
     throw new Error("SessionManager and public buildSessionContext disagree");
   }
-  const invoked = invokeRegisteredFabricCompactor({
+  const invoked = await invokeRegisteredLcmCompactor({
     preparation: eligibility.preparation,
     branchEntries: eligibility.branchEntries,
     customInstructions,
@@ -144,7 +145,7 @@ const appendAndCheckContext = (manager, expected, append) => {
   return { entryId, expected: nextExpected, matches };
 };
 
-const createContextCertification = (sessionDir, cwd) => {
+const createContextCertification = async (sessionDir, cwd) => {
   const manager = SessionManager.create(cwd, sessionDir);
   manager.appendMessage(user(`${GOAL}\n${CONSTRAINT}\n${RARE_FACT}`));
   manager.appendMessage(assistantCall("initial-read", "read", { path: "src/original.ts" }));
@@ -187,7 +188,7 @@ const createContextCertification = (sessionDir, cwd) => {
       priorSummaryObservedCount += 1;
     }
 
-    const invoked = invokeRegisteredFabricCompactor({
+    const invoked = await invokeRegisteredLcmCompactor({
       preparation: eligibility.preparation,
       branchEntries: eligibility.branchEntries,
     });
@@ -236,7 +237,7 @@ const createContextCertification = (sessionDir, cwd) => {
 
     const poison = `${POISON_PREFIX}_cycle_${String(cycle + 1).padStart(3, "0")}`;
     const storedSummary = `${summary}\n${poison}`;
-    const compactionId = appendFabricCompaction(manager, compacted, storedSummary);
+    const compactionId = appendLcmCompaction(manager, compacted, storedSummary);
     const compactionEntry = manager.getEntry(compactionId);
     if (!compactionEntry || compactionEntry.type !== "compaction") {
       throw new Error("OMP did not persist the CompactionEntry");
@@ -304,7 +305,7 @@ const createContextCertification = (sessionDir, cwd) => {
   };
 };
 
-const createClosureFixtures = (sessionDir, cwd) => {
+const createClosureFixtures = async (sessionDir, cwd) => {
   const counts = {
     normal: 0,
     compactAll: 0,
@@ -318,7 +319,7 @@ const createClosureFixtures = (sessionDir, cwd) => {
   normal.appendMessage(user("normal old turn " + "雪".repeat(80)));
   normal.appendMessage(assistantText("normal completion " + "界".repeat(80)));
   normal.appendMessage(user("normal kept turn"));
-  const normalResult = compileEligibleManager(normal);
+  const normalResult = await compileEligibleManager(normal);
   if (normalResult.compaction.firstKeptEntryId
     && pairSplitCount(normalResult.eligibility.branchEntries, normalResult.compaction.firstKeptEntryId) === 0) {
     counts.normal += 1;
@@ -327,13 +328,13 @@ const createClosureFixtures = (sessionDir, cwd) => {
   const compactAll = SessionManager.create(cwd, sessionDir);
   compactAll.appendMessage(user("single turn " + "雪界".repeat(120)));
   compactAll.appendMessage(assistantText("single response " + "界雪".repeat(120)));
-  const compactAllResult = compileEligibleManager(compactAll);
-  if (compactAllResult.compaction.firstKeptEntryId === "") counts.compactAll += 1;
+  const compactAllResult = await compileEligibleManager(compactAll);
+  if (compactAllResult.compaction.firstKeptEntryId && compactAllResult.eligibility.branchEntries.some((entry) => entry.id === compactAllResult.compaction.firstKeptEntryId)) counts.compactAll += 1;
 
   const splitTurn = SessionManager.create(cwd, sessionDir);
   splitTurn.appendMessage(user("split request " + "雪界".repeat(200)));
   splitTurn.appendMessage(assistantText("split response " + "界雪".repeat(200)));
-  const splitResult = compileEligibleManager(splitTurn);
+  const splitResult = await compileEligibleManager(splitTurn);
   if (splitResult.eligibility.preparation.isSplitTurn
     && pairSplitCount(splitResult.eligibility.branchEntries, splitResult.compaction.firstKeptEntryId) === 0) {
     counts.splitTurn += 1;
@@ -348,8 +349,8 @@ const createClosureFixtures = (sessionDir, cwd) => {
   parallel.appendMessage(assistantText("work continues"));
   parallel.appendMessage(toolResult("parallel-a", "read", "delayed a"));
   parallel.appendMessage(assistantText("delayed result observed"));
-  const parallelResult = compileEligibleManager(parallel);
-  if (parallelResult.compaction.firstKeptEntryId === ""
+  const parallelResult = await compileEligibleManager(parallel);
+  if (parallelResult.compaction.firstKeptEntryId
     && pairSplitCount(parallelResult.eligibility.branchEntries, parallelResult.compaction.firstKeptEntryId) === 0) {
     counts.parallelDelayed += 1;
   }
@@ -359,7 +360,7 @@ const createClosureFixtures = (sessionDir, cwd) => {
   reverse.appendMessage(toolResult("reverse-call", "read", "result before call"));
   reverse.appendMessage(assistantCall("reverse-call", "read", { path: "src/reverse.ts" }));
   reverse.appendMessage(user("reverse kept boundary"));
-  const reverseResult = compileEligibleManager(reverse);
+  const reverseResult = await compileEligibleManager(reverse);
   if (pairSplitCount(reverseResult.eligibility.branchEntries, reverseResult.compaction.firstKeptEntryId) === 0) {
     counts.reverseOrder += 1;
   }
@@ -374,7 +375,7 @@ const createClosureFixtures = (sessionDir, cwd) => {
   malformed.appendMessage(user("live after orphan " + "雪".repeat(80)));
   malformed.appendMessage(assistantText("live response " + "界".repeat(80)));
   malformed.appendMessage(user("malformed boundary kept turn"));
-  const malformedResult = compileEligibleManager(malformed);
+  const malformedResult = await compileEligibleManager(malformed);
   if (malformedResult.eligibility.branchEntries.some(
     (entry) => entry.type === "compaction" && entry.firstKeptEntryId === "orphan-kept-entry",
   ) && pairSplitCount(
@@ -385,7 +386,7 @@ const createClosureFixtures = (sessionDir, cwd) => {
   return counts;
 };
 
-const createMaximalMultibyteFixture = (sessionDir, cwd) => {
+const createMaximalMultibyteFixture = async (sessionDir, cwd) => {
   const manager = SessionManager.create(cwd, sessionDir);
   manager.appendMessage(user([
     `目标 ${"雪界Ω".repeat(900)}`,
@@ -439,7 +440,7 @@ const createMaximalMultibyteFixture = (sessionDir, cwd) => {
     { trace },
   ));
   manager.appendMessage(user(`最终范围 ${"保持最大多字节上下文".repeat(80)}`));
-  const compiled = compileEligibleManager(manager, `保留请求 ${"雪界漢字Ω".repeat(1800)}`);
+  const compiled = await compileEligibleManager(manager, `保留请求 ${"雪界漢字Ω".repeat(1800)}`);
   const summary = compiled.compaction.summary;
   const encoded = Buffer.from(summary, "utf8");
   let validUtf8 = false;
@@ -770,8 +771,8 @@ const createContinuationCertification = async ({ root, sessionDir, cwd, agentDir
     manager.appendMessage(user(taskText));
     manager.appendMessage(assistantText("Task accepted; exact source remains memory-addressable."));
     manager.appendMessage(user("Compact before continuation"));
-    const compiled = compileEligibleManager(manager);
-    const compactionId = appendFabricCompaction(manager, compiled.compaction);
+    const compiled = await compileEligibleManager(manager);
+    const compactionId = appendLcmCompaction(manager, compiled.compaction);
     const compactionEntry = manager.getEntry(compactionId);
     const expected = contextSubchainAfterCompaction(
       compiled.eligibility.branchEntries,
@@ -831,9 +832,9 @@ export const runContextCertification = async () => {
   const indexDir = path.join(root, "memory-index");
   fs.mkdirSync(cwd, { recursive: true });
   try {
-    const contextResult = createContextCertification(sessionDir, cwd);
-    contextResult.metrics.closureFixtureCounts = createClosureFixtures(sessionDir, cwd);
-    contextResult.metrics.maximalMultibyte = createMaximalMultibyteFixture(sessionDir, cwd);
+    const contextResult = await createContextCertification(sessionDir, cwd);
+    contextResult.metrics.closureFixtureCounts = await createClosureFixtures(sessionDir, cwd);
+    contextResult.metrics.maximalMultibyte = await createMaximalMultibyteFixture(sessionDir, cwd);
     const memory = await createMemoryCertification({ agentDir, cwd, sessionDir, contextResult, indexDir });
     const continuation = await createContinuationCertification({
       root,

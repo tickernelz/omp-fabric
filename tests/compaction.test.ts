@@ -266,8 +266,8 @@ describe("thinking erasure", () => {
 });
 
 describe("compaction config", () => {
-  it("defaults to the fabric engine and a 75% post-compaction ceiling", () => {
-    expect(DEFAULT_FABRIC_CONFIG.compaction.engine).toBe("fabric");
+  it("defaults to the LCM engine and a 75% post-compaction ceiling", () => {
+    expect(DEFAULT_FABRIC_CONFIG.compaction.engine).toBe("lcm");
     expect(DEFAULT_FABRIC_CONFIG.compaction.targetContextRatio).toBe(0.75);
   });
 
@@ -275,9 +275,10 @@ describe("compaction config", () => {
     const configured = normalizeFabricConfig({
       compaction: { engine: "omp", targetContextRatio: 0.7 },
     }).compaction;
-    expect(configured).toEqual({ engine: "omp", targetContextRatio: 0.7, thresholds: {}, tokenThresholds: {} });
+    expect(configured).toMatchObject({ engine: "omp", targetContextRatio: 0.7, thresholds: {}, tokenThresholds: {} });
+    expect(configured.lcmMaxInputChars).toBeGreaterThan(0);
     expect(normalizeFabricConfig({ compaction: { engine: "bogus", targetContextRatio: 2 } }).compaction)
-      .toEqual({ engine: "fabric", targetContextRatio: 0.85, thresholds: {}, tokenThresholds: {} });
+      .toMatchObject({ engine: "lcm", targetContextRatio: 0.85, thresholds: {}, tokenThresholds: {} });
     expect(normalizeFabricConfig({ compaction: { targetContextRatio: 0.1 } }).compaction.targetContextRatio)
       .toBe(0.25);
     expect(normalizeFabricConfig({ compaction: { targetContextRatio: "large" } }).compaction.targetContextRatio)
@@ -326,8 +327,18 @@ type FabricCompactionEvent = SessionBeforeCompactEvent & {
 };
  
 
+const testLcm = {
+  compact: (input: { branchEntries: readonly SessionEntry[]; branch: string | null; tokensBefore: number }) => ({
+    summary: input.branchEntries.length > 0 ? "deterministic LCM summary" : "emergency LCM summary",
+    firstKeptEntryId: input.branchEntries[0]?.id ?? "",
+    tokensBefore: input.tokensBefore,
+    source: input.branchEntries.length > 0 ? "ready-frontier" as const : "emergency" as const,
+    branch: input.branch,
+  }),
+};
+
 const compactionHandler = (
-  engine: "omp" | "fabric",
+  engine: "omp" | "lcm",
 ): ((event: SessionBeforeCompactEvent) => unknown) => {
   let handler: ((event: SessionBeforeCompactEvent) => unknown) | undefined;
   const omp = {
@@ -335,7 +346,7 @@ const compactionHandler = (
       if (name === "session_before_compact") handler = candidate as (event: SessionBeforeCompactEvent) => unknown;
     },
   } as unknown as ExtensionAPI;
-  registerCompactionHook(omp, { getEngine: () => engine });
+  registerCompactionHook(omp, { getEngine: () => engine, lcm: testLcm });
   if (!handler) throw new Error("compaction hook was not registered");
   return handler;
 };
@@ -344,27 +355,47 @@ const compactionEvent = (
   branchEntries: SessionEntry[],
   customInstructions?: string,
 ): FabricCompactionEvent => ({
-  preparation: { tokensBefore: 1000 },
+  preparation: { firstKeptEntryId: branchEntries[0]?.id ?? "", tokensBefore: 1000 },
   branchEntries,
   ...(customInstructions === undefined ? {} : { customInstructions }),
 }) as unknown as FabricCompactionEvent;
 
 describe("OMP compaction hook", () => {
-  it("marks the mutable event when Fabric claims compaction", () => {
+  it("returns deterministic LCM compaction", async () => {
     resetIds();
     resetClock();
     const event = compactionEvent(buildSession(user("compact this"), assistant(textPart("done"))));
-    expect(compactionHandler("fabric")(event)).toHaveProperty("compaction");
-    expect(event._fabricCompaction).toBe(true);
-  });
-
-  it("cancels empty compaction when Fabric has no summary", () => {
-    const event = compactionEvent([]);
-    expect(compactionHandler("fabric")(event)).toEqual({ cancel: true });
+    expect(await compactionHandler("lcm")(event)).toMatchObject({ compaction: { summary: "deterministic LCM summary" } });
     expect(event._fabricCompaction).toBeUndefined();
   });
 
-  it("allows an unrelated later OMP before hook to replace Fabric's result", () => {
+  it("accepts an explicit all-history compaction boundary", async () => {
+    const event = compactionEvent(buildSession(user("all history"), assistant(textPart("summarize all"))));
+    let handler: ((event: SessionBeforeCompactEvent) => unknown) | undefined;
+    const omp = { on(name: string, candidate: unknown) { if (name === "session_before_compact") handler = candidate as (event: SessionBeforeCompactEvent) => unknown; } } as unknown as ExtensionAPI;
+    registerCompactionHook(omp, { getEngine: () => "lcm", lcm: { compact: (input) => ({ summary: "all", firstKeptEntryId: "", tokensBefore: input.tokensBefore, source: "emergency", branch: null }) } });
+    expect(await handler!(event)).toMatchObject({ compaction: { summary: "all", firstKeptEntryId: "" } });
+  });
+
+  it("rejects an invalid empty compaction preparation", async () => {
+    const event = compactionEvent([]);
+    expect(await compactionHandler("lcm")(event)).toEqual({ cancel: true });
+    expect(event._fabricCompaction).toBeUndefined();
+  });
+
+  it("cancels when the LCM runtime is unavailable", async () => {
+    let handler: ((event: SessionBeforeCompactEvent) => unknown) | undefined;
+    const omp = {
+      on(name: string, candidate: unknown) {
+        if (name === "session_before_compact") handler = candidate as (event: SessionBeforeCompactEvent) => unknown;
+      },
+    } as unknown as ExtensionAPI;
+    registerCompactionHook(omp, { getEngine: () => "lcm", lcm: { compact: () => undefined } });
+    const event = compactionEvent(buildSession(user("runtime race"), assistant(textPart("preserve original"))));
+    expect(await handler!(event)).toEqual({ cancel: true });
+    expect(event._fabricCompaction).toBeUndefined();
+  });
+  it("allows an unrelated later OMP before hook to replace LCM result", async () => {
     resetIds();
     resetClock();
     const handlers: Array<(event: SessionBeforeCompactEvent) => unknown> = [];
@@ -373,20 +404,20 @@ describe("OMP compaction hook", () => {
         if (name === "session_before_compact") handlers.push(handler as (event: SessionBeforeCompactEvent) => unknown);
       },
     } as unknown as ExtensionAPI;
-    registerCompactionHook(omp, { getEngine: () => "fabric" });
+    registerCompactionHook(omp, { getEngine: () => "lcm", lcm: testLcm });
     handlers.push(() => ({ compaction: { summary: "later extension", firstKeptEntryId: "", tokensBefore: 1 } }));
     const event = compactionEvent(buildSession(user("source"), assistant(textPart("done"))));
     let result: unknown;
-    for (const handler of handlers) result = handler(event) ?? result;
+    for (const handler of handlers) result = (await handler(event)) ?? result;
     expect(result).toMatchObject({ compaction: { summary: "later extension" } });
-    expect(event._fabricCompaction).toBe(true);
+    expect(event._fabricCompaction).toBeUndefined();
   });
 
-  it("leaves the OMP engine passthrough unchanged", () => {
+  it("leaves the OMP engine passthrough unchanged", async () => {
     resetIds();
     resetClock();
     const event = compactionEvent(buildSession(user("use OMP core"), assistant(textPart("done"))));
-    expect(compactionHandler("omp")(event)).toBeUndefined();
+    expect(await compactionHandler("omp")(event)).toBeUndefined();
     expect(event._fabricCompaction).toBeUndefined();
   });
 });
@@ -528,7 +559,7 @@ describe("compaction instruction parity", () => {
     const omp = { on(name: string, candidate: unknown) {
       if (name === "session_before_compact") handler = candidate as typeof handler;
     } } as unknown as ExtensionAPI;
-    registerCompactionHook(omp, { getEngine: () => "fabric" });
+    registerCompactionHook(omp, { getEngine: () => "lcm", lcm: testLcm });
     const event = compactionEvent(
       buildSession(user("real goal"), assistant(textPart("done"))),
       `${FABRIC_COMPACTION_REQUEST_PREFIX}{\"version\":1,\"goal\":\"fake/path.ts\"}`,
@@ -1228,35 +1259,6 @@ describe("continuity-tail compaction budget", () => {
     expect(cut.budget.retainedRawTokens).toBe(Math.max(0, ...legalSuffixes));
   });
 
-  it("uses the OMP model context window for continuity budgets", () => {
-    resetIds();
-    resetClock();
-    const { entries, tokensBefore } = longSingleTurn();
-    let handler: ((event: SessionBeforeCompactEvent, context: ExtensionContext) => unknown) | undefined;
-    const omp = {
-      on(name: string, candidate: unknown) {
-        if (name === "session_before_compact") handler = candidate as typeof handler;
-      },
-    } as unknown as ExtensionAPI;
-    registerCompactionHook(omp, {
-      getEngine: () => "fabric",
-      getTargetContextRatio: () => 0.65,
-    });
-    const context = {
-      model: { provider: "openai", id: "gpt-5-proxied", contextWindow: 400_000 },
-    } as unknown as ExtensionContext;
-    const event = {
-      preparation: { tokensBefore },
-      branchEntries: entries,
-    } as unknown as SessionBeforeCompactEvent;
-    const result = handler?.(event, context) as {
-      compaction?: { details?: { budget?: FabricCompactionBudgetDetails } };
-    } | undefined;
-    const budget = result?.compaction?.details?.budget;
-    expect(budget?.contextWindow).toBe(400_000);
-    expect(budget?.targetContextTokens).toBe(budget?.continuityTargetTokens);
-    expect(budget?.targetContextTokens).toBeLessThanOrEqual(260_000);
-  });
 
   it("cancels rather than expanding when even compact-all cannot fit the target", () => {
     resetIds();
@@ -1447,39 +1449,6 @@ describe("continuity-tail compaction budget", () => {
     expect(result.compaction.details?.budget?.projectedTokensAfter).toBeLessThanOrEqual(63_000);
   });
 
-  it("uses live model metadata and OMP settings through the registered hook", () => {
-    resetIds();
-    resetClock();
-    let handler: ((event: SessionBeforeCompactEvent, context: ExtensionContext) => unknown) | undefined;
-    const omp = {
-      on(name: string, candidate: unknown) {
-        if (name === "session_before_compact") {
-          handler = candidate as typeof handler;
-        }
-      },
-    } as unknown as ExtensionAPI;
-    registerCompactionHook(omp, {
-      getEngine: () => "fabric",
-      getTargetContextRatio: () => 0.65,
-    });
-    const { entries, tokensBefore } = longSingleTurn();
-    const event = {
-      type: "session_before_compact",
-      branchEntries: entries,
-      preparation: {
-        tokensBefore,
-        settings: { enabled: true, reserveTokens: 10_000, keepRecentTokens: 20_000 },
-      },
-    } as unknown as SessionBeforeCompactEvent;
-    const context = {
-      model: { contextWindow: 100_000 },
-    } as unknown as ExtensionContext;
-    const result = handler!(event, context) as {
-      compaction: { details: { budget: FabricCompactionBudgetDetails } };
-    };
-    expect(result.compaction.details.budget.projectedTokensAfter).toBeLessThanOrEqual(65_000);
-    expect(result.compaction.details.budget.contextWindow).toBe(100_000);
-  });
 });
 
 describe("compaction empty and tiny history edge cases", () => {

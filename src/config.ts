@@ -32,7 +32,7 @@ export type FabricResultFormat = "auto" | "yaml" | "json" | "text";
 export type FabricPrewalkMode = "in-place" | "trajectory";
 export type FabricExecutorRuntime = "quickjs" | "node-process" | "bun-process";
 export type FabricConfigScope = "global" | "project";
-type FabricCompactionEngine = "omp" | "fabric";
+type FabricCompactionEngine = "lcm" | "omp";
 type FabricActorScope = "project" | "session";
 
 interface FabricExecutorConfig {
@@ -197,9 +197,15 @@ interface FabricUiConfig {
 
 interface FabricCompactionConfig {
   engine: FabricCompactionEngine;
+  summaryModel?: string;
   targetContextRatio: number;
   thresholds: Record<string, number>;
   tokenThresholds: Record<string, number>;
+  lcmMaxInputChars: number;
+  lcmMaxOutputTokens: number;
+  lcmMaxOutputChars: number;
+  lcmMaxLeafEntries: number;
+  lcmMaxCondenseChildren: number;
 }
 
 export const MIN_COMPACTION_TOKEN_THRESHOLD = 1_000;
@@ -438,10 +444,15 @@ export const DEFAULT_FABRIC_CONFIG: FabricConfig = {
     updateDebounceMs: 100,
   },
   compaction: {
-    engine: "fabric",
+    engine: "lcm",
     targetContextRatio: 0.75,
     thresholds: {},
     tokenThresholds: {},
+    lcmMaxInputChars: 48_000,
+    lcmMaxOutputTokens: 4_096,
+    lcmMaxOutputChars: 16_384,
+    lcmMaxLeafEntries: 8,
+    lcmMaxCondenseChildren: 4,
   },
   retention: {
     orphanedTempRunMs: 6 * 60 * 60 * 1_000,
@@ -632,7 +643,7 @@ const compactionEngineValue = (
   value: unknown,
   fallback: FabricCompactionEngine,
 ): FabricCompactionEngine =>
-  value === "omp" || value === "fabric" ? value : fallback;
+  value === "omp" || value === "lcm" ? value : fallback;
 
 const actorScopeValue = (value: unknown, fallback: FabricActorScope): FabricActorScope =>
   value === "project" || value === "session" ? value : fallback;
@@ -675,6 +686,7 @@ export const normalizeFabricConfig = (input: Record<string, unknown>): FabricCon
   const toolPolicy = objectValue(input.toolPolicy);
   const ui = objectValue(input.ui);
   const compaction = objectValue(input.compaction);
+  const summaryModel = stringValue(compaction.summaryModel);
   const retention = objectValue(input.retention);
   const mesh = objectValue(input.mesh);
   const memory = objectValue(input.memory);
@@ -1061,6 +1073,7 @@ export const normalizeFabricConfig = (input: Record<string, unknown>): FabricCon
     },
     compaction: {
       engine: compactionEngineValue(compaction.engine, DEFAULT_FABRIC_CONFIG.compaction.engine),
+      ...(summaryModel !== undefined ? { summaryModel } : {}),
       targetContextRatio: boundedFloat(
         compaction.targetContextRatio,
         DEFAULT_FABRIC_CONFIG.compaction.targetContextRatio,
@@ -1069,6 +1082,11 @@ export const normalizeFabricConfig = (input: Record<string, unknown>): FabricCon
       ),
       thresholds: compactionThresholds,
       tokenThresholds: compactionTokenThresholds,
+      lcmMaxInputChars: boundedInteger(compaction.lcmMaxInputChars, DEFAULT_FABRIC_CONFIG.compaction.lcmMaxInputChars, 1_024, 1_000_000),
+      lcmMaxOutputTokens: boundedInteger(compaction.lcmMaxOutputTokens, DEFAULT_FABRIC_CONFIG.compaction.lcmMaxOutputTokens, 128, 32_768),
+      lcmMaxOutputChars: boundedInteger(compaction.lcmMaxOutputChars, DEFAULT_FABRIC_CONFIG.compaction.lcmMaxOutputChars, 1_024, 131_072),
+      lcmMaxLeafEntries: boundedInteger(compaction.lcmMaxLeafEntries, DEFAULT_FABRIC_CONFIG.compaction.lcmMaxLeafEntries, 1, 128),
+      lcmMaxCondenseChildren: boundedInteger(compaction.lcmMaxCondenseChildren, DEFAULT_FABRIC_CONFIG.compaction.lcmMaxCondenseChildren, 2, 32),
     },
     retention: {
       orphanedTempRunMs: boundedInteger(
@@ -1448,11 +1466,6 @@ export const loadFabricConfig = (options: {
   projectTrusted: boolean;
 }): FabricConfig => {
   const config = resolveFabricConfig(options, options.projectTrusted, true);
-  if (config.compaction.engine === "fabric") {
-    process.env.OMP_FABRIC_COMPACTION_ENGINE = "fabric";
-  } else {
-    delete process.env.OMP_FABRIC_COMPACTION_ENGINE;
-  }
   return config;
 };
 

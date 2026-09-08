@@ -197,7 +197,7 @@ export interface FabricBranchSummaryCompilation {
   details: FabricBranchSummaryDetailsV2;
 }
 
-export const compileFabricBranchSummary = (
+export const compileLcmBranchSummary = (
   entriesToSummarize: SessionEntry[],
   customInstructions?: string,
   enrichers: readonly CompactionEnricher[] = NO_BUILTIN_ENRICHERS,

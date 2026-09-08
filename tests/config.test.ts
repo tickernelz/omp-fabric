@@ -575,20 +575,9 @@ describe("Fabric configuration", () => {
     }
   });
 
-  it("updates the compaction engine environment across config re-initialization", () => {
-    const root = temporaryDirectory();
-    const cwd = path.join(root, "project");
-    const agentDir = path.join(root, "agent");
-    const projectConfig = path.join(cwd, ".omp", "fabric.json");
-    fs.mkdirSync(path.dirname(projectConfig), { recursive: true });
-    fs.mkdirSync(agentDir, { recursive: true });
-    fs.writeFileSync(projectConfig, JSON.stringify({ compaction: { engine: "fabric" } }));
-
-    loadFabricConfig({ cwd, agentDir, projectTrusted: true });
-    expect(process.env.OMP_FABRIC_COMPACTION_ENGINE).toBe("fabric");
-
-    fs.writeFileSync(projectConfig, JSON.stringify({ compaction: { engine: "omp" } }));
-    loadFabricConfig({ cwd, agentDir, projectTrusted: true });
+  it("does not set a compaction engine environment override", () => {
+    const config = normalizeFabricConfig({ compaction: { engine: "fabric" } });
+    expect(config.compaction.engine).toBe("lcm");
     expect(process.env.OMP_FABRIC_COMPACTION_ENGINE).toBeUndefined();
   });
 
@@ -643,7 +632,7 @@ describe("Fabric configuration", () => {
 
     expect(result).toEqual({ scope: "global", path: path.join(agentDir, "fabric.json") });
     expect(JSON.parse(fs.readFileSync(path.join(agentDir, "fabric.json"), "utf8"))).toEqual({
-      configVersion: 4,
+      configVersion: 5,
       agents: { maxConcurrent: 8 },
       fullCodeMode: false,
     });
@@ -680,7 +669,7 @@ describe("Fabric configuration", () => {
 
     expect(result).toEqual({ scope: "project", path: path.join(cwd, ".omp", "fabric.json") });
     expect(JSON.parse(fs.readFileSync(path.join(cwd, ".omp", "fabric.json"), "utf8"))).toEqual({
-      configVersion: 4,
+      configVersion: 5,
       agents: { transport: "localterm", maxConcurrent: 8 },
       fullCodeMode: false,
     });
@@ -707,7 +696,7 @@ describe("Fabric configuration", () => {
 
     expect(result).toEqual({ scope: "global", path: path.join(agentDir, "fabric.json") });
     expect(JSON.parse(fs.readFileSync(path.join(agentDir, "fabric.json"), "utf8"))).toEqual({
-      configVersion: 4,
+      configVersion: 5,
       executor: { timeoutMs: 45_000 },
     });
     expect(JSON.parse(fs.readFileSync(projectPath, "utf8"))).toEqual({ fullCodeMode: false });
@@ -753,7 +742,7 @@ describe("Fabric configuration", () => {
     expect(result.path).toBe(path.join(agentDir, "fabric.json"));
     expect(fs.existsSync(path.join(cwd, ".omp", "fabric.json"))).toBe(false);
     const saved = JSON.parse(fs.readFileSync(path.join(agentDir, "fabric.json"), "utf8"));
-    expect(saved).toEqual({ configVersion: 4, executor: { timeoutMs: 30_000 } });
+    expect(saved).toEqual({ configVersion: 5, executor: { timeoutMs: 30_000 } });
   });
 
   it("rejects explicit project saves for untrusted projects", () => {

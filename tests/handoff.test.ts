@@ -334,7 +334,7 @@ describe("trajectory handoff sessions", async () => {
     expect(child.getHeader()?.parentSession).toBe(source.getSessionFile());
   });
 
-  it("compacts the inherited trajectory with Fabric's deterministic compactor", async () => {
+  it("compacts the inherited trajectory with LCM's deterministic emergency reducer", async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-handoff-"));
     roots.push(root);
     const source = SessionManager.create(root, path.join(root, "source"));
@@ -381,10 +381,8 @@ describe("trajectory handoff sessions", async () => {
       "toolResult",
     ]);
     const summary = JSON.stringify(messages[0]);
-    expect(summary).toContain("[Session Goal]");
+    expect(summary).toContain("Nonsemantic deterministic excerpt");
     expect(summary).toContain("Implement the token guard 43117");
-    expect(summary).toContain("[Compaction Request]");
-    expect(summary).toContain("Threshold is 90 percent of the context window");
     // Projected one-liners clip long scratch text out of the live context...
     expect(JSON.stringify(messages)).not.toContain("SCRATCH_TAIL_99231");
     // ...while the append-only file retains the raw branch underneath the compaction marker.
@@ -399,7 +397,7 @@ describe("trajectory handoff sessions", async () => {
     });
     expect(
       (compactionEntry as { details?: Record<string, unknown> } | undefined)?.details,
-    ).toMatchObject({ compactor: "fabric", version: 2 });
+    ).toMatchObject({ compactor: "lcm", source: "handoff" });
     expect(child.getEntries().at(-1)).toMatchObject({
       type: "custom",
       customType: "omp-fabric-handoff",
@@ -408,7 +406,7 @@ describe("trajectory handoff sessions", async () => {
     expect(messages.at(-1)).toEqual(result);
   });
 
-  it("applies the default compaction for a bare compact request", async () => {
+  it("applies LCM compaction for a bare compact request", async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-handoff-"));
     roots.push(root);
     const source = SessionManager.inMemory(root);
@@ -444,7 +442,7 @@ describe("trajectory handoff sessions", async () => {
       "assistant",
       "toolResult",
     ]);
-    expect(JSON.stringify(messages[0])).not.toContain("[Compaction Request]");
+    expect(JSON.stringify(messages[0])).toContain("Nonsemantic deterministic excerpt");
     expect(child.getEntries().at(-1)).toMatchObject({
       type: "custom",
       customType: "omp-fabric-handoff",
@@ -452,7 +450,7 @@ describe("trajectory handoff sessions", async () => {
     });
   });
 
-  it("summarizes the whole trajectory when no turn boundary qualifies to keep", async () => {
+  it("uses LCM emergency compaction for a single trajectory", async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-handoff-"));
     roots.push(root);
     const source = SessionManager.inMemory(root);
@@ -478,6 +476,8 @@ describe("trajectory handoff sessions", async () => {
     const child = await SessionManager.open(sessionFile);
 
     const compactionEntry = child.getEntries().find((entry) => entry.type === "compaction");
+    const compactionSummary = child.buildSessionContext().messages.find((message) => message.role === "compactionSummary");
+    expect(JSON.stringify(compactionSummary)).not.toContain("@0:");
     expect(compactionEntry).toMatchObject({
       type: "compaction",
       fromExtension: true,

@@ -7,7 +7,7 @@ import type {
   SessionMessageEntry,
 } from "@oh-my-pi/pi-coding-agent";
 import {
-  compileFabricBranchSummary,
+  compileLcmBranchSummary,
 } from "../src/compaction/branch-summary.js";
 import {
   FABRIC_BRANCH_SUMMARY_MAX_BYTES,
@@ -293,8 +293,8 @@ describe("Fabric execution trace compaction", () => {
 describe("deterministic Fabric branch summaries", () => {
   it("compiles and hooks only requested active branch entries while treating instructions as opaque", () => {
     const abandoned = traceHistory().slice(0, 3);
-    const first = compileFabricBranchSummary(abandoned, "OMP opaque instruction");
-    const second = compileFabricBranchSummary(abandoned, "OMP opaque instruction");
+    const first = compileLcmBranchSummary(abandoned, "OMP opaque instruction");
+    const second = compileLcmBranchSummary(abandoned, "OMP opaque instruction");
     expect(second).toEqual(first);
     expect(first?.summary).toContain("OMP opaque instruction");
     expect(first?.summary).toContain("[Fabric Activity]");
@@ -311,7 +311,18 @@ describe("deterministic Fabric branch summaries", () => {
     const omp = { on(name: string, candidate: unknown) {
       if (name === "session_before_tree") handler = candidate as typeof handler;
     } } as unknown as ExtensionAPI;
-    registerCompactionHook(omp, { getEngine: () => "fabric" });
+    registerCompactionHook(omp, {
+      getEngine: () => "lcm",
+      lcm: {
+        compact: (input) => ({
+          summary: "test",
+          firstKeptEntryId: input.branchEntries[0]?.id ?? "",
+          tokensBefore: input.tokensBefore,
+          source: "emergency" as const,
+          branch: input.branch,
+        }),
+      },
+    });
     expect(handler).toBeDefined();
     const preparation = {
       targetId: "target",
@@ -332,12 +343,12 @@ describe("deterministic Fabric branch summaries", () => {
   });
 
   it("keeps strict v1 branch envelopes readable without accepting v2 run facts as v1", () => {
-    const compiled = compileFabricBranchSummary(traceHistory().slice(0, 3));
+    const compiled = compileLcmBranchSummary(traceHistory().slice(0, 3));
     if (!compiled) throw new Error("expected branch summary");
     const legacy = {
       ...structuredClone(compiled.details),
       version: 1,
-      facts: compiled.details.facts.filter((fact) => fact.kind !== "fabricRun"),
+      facts: compiled.details.facts.filter((fact: typeof compiled.details.facts[number]) => fact.kind !== "fabricRun"),
     };
     expect(readFabricBranchSummaryDetailsV1(legacy)).toEqual(legacy);
     expect(readFabricBranchSummaryDetailsV2(legacy)).toBeUndefined();
@@ -345,7 +356,7 @@ describe("deterministic Fabric branch summaries", () => {
     expect(readFabricBranchSummaryDetailsV1(compiled.details)).toBeUndefined();
 
     const oversized = structuredClone(compiled.details);
-    const run = oversized.facts.find((fact) => fact.kind === "fabricRun");
+    const run = oversized.facts.find((fact: typeof oversized.facts[number]) => fact.kind === "fabricRun");
     if (!run || run.kind !== "fabricRun") throw new Error("expected run fact");
     run.name = "n".repeat(257);
     expect(readFabricBranchSummaryDetailsV2(oversized)).toBeUndefined();
@@ -357,7 +368,18 @@ describe("deterministic Fabric branch summaries", () => {
     const omp = { on(name: string, candidate: unknown) {
       if (name === "session_before_tree") handler = candidate as typeof handler;
     } } as unknown as ExtensionAPI;
-    registerCompactionHook(omp, { getEngine: () => "fabric" });
+    registerCompactionHook(omp, {
+      getEngine: () => "lcm",
+      lcm: {
+        compact: (input) => ({
+          summary: "test",
+          firstKeptEntryId: input.branchEntries[0]?.id ?? "",
+          tokensBefore: input.tokensBefore,
+          source: "emergency" as const,
+          branch: input.branch,
+        }),
+      },
+    });
     const result = handler!({
       type: "session_before_tree",
       preparation: {
@@ -374,23 +396,23 @@ describe("deterministic Fabric branch summaries", () => {
 
   it("preserves typed and plain branch instructions while rejecting malformed payloads", () => {
     const abandoned = traceHistory().slice(0, 3);
-    const typed = compileFabricBranchSummary(abandoned, encodeCompactionRequest({
+    const typed = compileLcmBranchSummary(abandoned, encodeCompactionRequest({
       instructions: "Keep typed branch context",
       preserve: ["EXPLICIT_COMMIT_abc1234", "src/typed.ts"],
     }));
     expect(typed?.summary).toContain("Keep typed branch context");
     expect(typed?.summary).toContain("EXPLICIT_COMMIT_abc1234");
     expect(typed?.summary).toContain("src/typed.ts");
-    const plainInstruction = compileFabricBranchSummary(abandoned, "plain tree instruction");
+    const plainInstruction = compileLcmBranchSummary(abandoned, "plain tree instruction");
     expect(plainInstruction?.summary).toContain("plain tree instruction");
     const malformed = `${FABRIC_COMPACTION_REQUEST_PREFIX}${JSON.stringify({
       version: 1,
       goal: "FAKE_BRANCH_GOAL",
       preserve: ["fake/branch.ts"],
     })}`;
-    expect(compileFabricBranchSummary(abandoned, malformed)).toBeUndefined();
+    expect(compileLcmBranchSummary(abandoned, malformed)).toBeUndefined();
     const duplicate = `${FABRIC_COMPACTION_REQUEST_PREFIX}{"version":1,"ver\\u0073ion":1}`;
-    expect(compileFabricBranchSummary(abandoned, duplicate)).toBeUndefined();
+    expect(compileLcmBranchSummary(abandoned, duplicate)).toBeUndefined();
   });
 
   it("preserves custom-message facts through branch summaries and forks", () => {
@@ -405,7 +427,7 @@ describe("deterministic Fabric branch summaries", () => {
         "c1",
       ),
     ];
-    const compiled = compileFabricBranchSummary(source, undefined, [], "c2");
+    const compiled = compileLcmBranchSummary(source, undefined, [], "c2");
     if (!compiled) throw new Error("expected branch summary");
     expect(compiled.details.source.oldLeafId).toBe("c2");
     expect(compiled.details.facts).toContainEqual(expect.objectContaining({
@@ -424,13 +446,13 @@ describe("deterministic Fabric branch summaries", () => {
       summary: "CUSTOM_BRANCH_PROSE_POISON",
       details: compiled.details,
     } as SessionEntry;
-    const nested = compileFabricBranchSummary([summaryEntry, user("c4", "Fork continuation", "c3")]);
+    const nested = compileLcmBranchSummary([summaryEntry, user("c4", "Fork continuation", "c3")]);
     expect(nested?.summary).toContain("CUSTOM_BRANCH_FACT_41");
     expect(nested?.summary).not.toContain("CUSTOM_BRANCH_PROSE_POISON");
   });
 
   it("fails safely on malformed prior custom-message branch facts", () => {
-    const compiled = compileFabricBranchSummary([
+    const compiled = compileLcmBranchSummary([
       customMessage("m1", "safe", "SAFE_PRIOR_CUSTOM", true, { status: "ok" }),
     ]);
     if (!compiled) throw new Error("expected branch summary");
@@ -457,7 +479,7 @@ describe("deterministic Fabric branch summaries", () => {
 
   it("reuses active and nested branch facts structurally without sibling contamination, including a forked path", () => {
     const abandoned = traceHistory().slice(0, 3);
-    const compiled = compileFabricBranchSummary(abandoned);
+    const compiled = compileLcmBranchSummary(abandoned);
     if (!compiled) throw new Error("expected branch summary");
     const root = user("b1", "Active root");
     const branchSummary = {
@@ -483,7 +505,7 @@ describe("deterministic Fabric branch summaries", () => {
     if (!("compaction" in siblingResult)) throw new Error("expected sibling compaction");
     expect(siblingResult.compaction.summary).not.toContain("write.ts");
 
-    const nested = compileFabricBranchSummary([branchSummary, user("n1", "Nested branch", "b2")]);
+    const nested = compileLcmBranchSummary([branchSummary, user("n1", "Nested branch", "b2")]);
     if (!nested) throw new Error("expected nested branch summary");
     const nestedEntry = {
       type: "branch_summary",
@@ -516,8 +538,8 @@ describe("deterministic Fabric branch summaries", () => {
         fabricResult(`z${index * 2 + 2}`, `c${index}`, { trace }, "fake output"),
       );
     }
-    const first = compileFabricBranchSummary(entries);
-    const second = compileFabricBranchSummary(entries);
+    const first = compileLcmBranchSummary(entries);
+    const second = compileLcmBranchSummary(entries);
     expect(second).toEqual(first);
     expect(first!.details.facts.length).toBeLessThanOrEqual(FABRIC_BRANCH_SUMMARY_MAX_FACTS);
     expect(first!.details.omittedFacts).toBeGreaterThan(0);

@@ -7,7 +7,9 @@ import {
   type SessionEntry,
   type SessionMessageEntry,
 } from "@oh-my-pi/pi-coding-agent";
-import { compileFabricSummary, rawContextTokens } from "../compaction/hook.js";
+import { rawContextTokens } from "../compaction/hook.js";
+import { emergencyReduce } from "../compaction/lcm-model.js";
+import { canonicalLcmPayload } from "../storage/lcm-ledger.js";
 import {
   compactionRequestBoundsError,
   encodeCompactionRequest,
@@ -293,34 +295,44 @@ export const writeHandoffSession = async (
   let compactionOutcome: HandoffCompactionOutcome | undefined;
   if (compaction) {
     const branchEntries = session.getBranch();
-    const customInstructions = compaction.preserve
-      ? encodeCompactionRequest({
-          ...(compaction.instructions !== undefined
-            ? { instructions: compaction.instructions }
-            : {}),
-          preserve: compaction.preserve,
-        })
-      : compaction.instructions;
     const tokensBefore = rawContextTokens(branchEntries);
-    const compiled = compileFabricSummary(branchEntries, tokensBefore, undefined, customInstructions);
-    if ("cancel" in compiled) {
-      compactionOutcome = { applied: false, reason: compiled.reason };
+    const firstKeptEntryId = [...branchEntries].reverse().find((entry) =>
+      entry.type === "message" && entry.message.role === "user"
+    )?.id ?? "";
+    if (branchEntries.length === 0) {
+      compactionOutcome = { applied: false, reason: "lcm: nothing to compact" };
     } else {
-      session.appendCompaction(
-        compiled.compaction.summary,
-        undefined,
-        compiled.compaction.firstKeptEntryId,
-        tokensBefore,
-        compiled.compaction.details
-          ? { details: compiled.compaction.details, fromExtension: true }
-          : { fromExtension: true },
-      );
-      compactionOutcome = {
-        applied: true,
-        sections: compiled.compaction.details?.sections ?? [],
-        tokensBefore,
-        firstKeptEntryId: compiled.compaction.firstKeptEntryId,
+      const customInstructions = compaction.preserve
+        ? encodeCompactionRequest({
+            ...(compaction.instructions !== undefined ? { instructions: compaction.instructions } : {}),
+            preserve: compaction.preserve,
+          })
+        : compaction.instructions;
+      const keptIndex = firstKeptEntryId
+        ? branchEntries.findIndex((entry) => entry.id === firstKeptEntryId)
+        : branchEntries.length;
+      const summarizedEntries = branchEntries.slice(0, Math.max(0, keptIndex));
+      const payloadEntries = summarizedEntries.map((entry) => {
+        if (entry.type !== "message" || entry.message.role !== "assistant" || !Array.isArray(entry.message.content)) return entry;
+        const content = entry.message.content.filter((part) =>
+          typeof part !== "object" || part === null || !("type" in part) ||
+          (part.type !== "text" && part.type !== "thinking")
+        );
+        return content.length === entry.message.content.length
+          ? entry
+          : { ...entry, message: { ...entry.message, content } };
+      });
+      const payload = [customInstructions, ...payloadEntries.map((entry) => canonicalLcmPayload(entry))]
+        .filter((value): value is string => value !== undefined)
+        .join("\n");
+      const sourceSessionId = session.getSessionId();
+      const summary = emergencyReduce(payload, 4096);
+      const details = {
+        compactor: "lcm", source: "handoff", firstKeptEntryId, sourceSessionId,
+        sourceRange: { first: summarizedEntries[0]?.id ?? "", last: summarizedEntries.at(-1)?.id ?? "", count: summarizedEntries.length },
       };
+      session.appendCompaction(summary, undefined, firstKeptEntryId, tokensBefore, { details, fromExtension: true });
+      compactionOutcome = { applied: true, sections: ["[LCM Handoff]"], tokensBefore, firstKeptEntryId };
     }
   }
   synchronizeSourceSettings(session, seed);

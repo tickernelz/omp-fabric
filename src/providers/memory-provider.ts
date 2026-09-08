@@ -55,6 +55,7 @@ import {
   type SearchResult,
 } from "../memory/search.js";
 import type { MemoryQueryMatch, MemoryQueryMode } from "../memory/tokenize.js";
+import { LcmMemoryAdapter, type LcmBranchBinding, type LcmMemoryLedger, type LcmSummaryReader } from "../memory/lcm-adapter.js";
 import { actionArgNormalizer, type ArgNormalizationSpec } from "./arg-normalization.js";
 
 const EXPAND_DEFAULT_MAX_CHARS = 20_000;
@@ -331,6 +332,20 @@ const recallSessionOutputSchema = {
   ],
 };
 
+const lcmRecallOutputSchema: Record<string, unknown> = {
+  type: "object",
+  properties: {
+    kind: { type: "string", enum: ["lcm.raw", "lcm.summary"] },
+    sessionId: { type: "string" },
+    score: { type: "number" },
+    snippet: { type: "string" },
+    truncated: { type: "boolean" },
+    source: { type: "object" },
+    follow: callOutputSchema("memory.expand"),
+  },
+  required: ["kind", "sessionId", "score", "snippet", "truncated", "source", "follow"],
+};
+
 const recallOutputSchema: Record<string, unknown> = {
   type: "object",
   description: "Bounded ranked memory hits with uniform follow and pagination calls.",
@@ -339,7 +354,7 @@ const recallOutputSchema: Record<string, unknown> = {
     hits: {
       type: "array",
       description: "Call tools.call(hit.follow) to expand an entry or resolve a cold session.",
-      items: { oneOf: [recallEntryOutputSchema, recallSessionOutputSchema] },
+      items: { oneOf: [recallEntryOutputSchema, recallSessionOutputSchema, lcmRecallOutputSchema] },
     },
     next: {
       oneOf: [callOutputSchema("memory.recall"), { type: "null" }],
@@ -710,6 +725,13 @@ export interface MemoryProviderContext {
   sessionId?: string;
   sessionFile?: string;
   getLiveBranch?: () => LiveSessionBranch;
+  lcm?: {
+    ledger: LcmMemoryLedger;
+    summaries: LcmSummaryReader;
+    projectKey?: string;
+    currentSessionId?: string;
+    branchForSession?: (sessionId: string) => LcmBranchBinding | undefined;
+  };
 }
 
 const parseBranches = (value: unknown, action: string): MemoryBranches => {
@@ -950,6 +972,10 @@ export class MemoryProvider implements FabricProvider {
     invocationContext: FabricInvocationContext,
   ): Promise<unknown> {
     try {
+      if (this.context.lcm && (actionName === "recall" || actionName === "expand")) {
+        const adapter = new LcmMemoryAdapter(this.context.lcm);
+        return actionName === "recall" ? adapter.recall(args) : adapter.expand(args);
+      }
       switch (actionName) {
         case "recall":
           return await this.recall(args, invocationContext);
