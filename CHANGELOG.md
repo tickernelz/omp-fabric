@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.3.2
+
+### Fixed
+
+- **`omp.write` never resolved an internal URL, so `local://` writes landed in a literal `local:` directory.** Fabric replaces the host's write tool with its own implementation to attach diff previews, and that replacement carried no internal-URL handling: `resolve(cwd, "local://notes.md")` collapses the scheme into a path segment and produced `<cwd>/local:/notes.md`. Subagents are instructed to exchange findings through `local://` files, so a real project accumulated one of these directories with five files in it. Meanwhile `omp.read` resolves `local://` correctly, because Fabric binds the host's read tool unchanged, so a write and a read of the same URL disagreed about where the file was.
+
+  URI-like write targets are now delegated to the host's write tool, which resolves them: `local://round-trip.md` writes to the session's local root under `omp-local`, `xd://` reports that no device is mounted, `artifact://` reports that it is read-only for writes, and an unknown scheme keeps the host's own guidance. Ordinary filesystem writes keep the diff preview.
+
+  1.3.0 turned the silent mis-write into a refusal, which stopped the stray directories but left agents unable to write `local://` at all under full code mode, since the top-level write tool only accepts `local://` during plan mode. This completes that fix.
+
+### Notes
+
+- A directory literally named `local:` inside a project is the signature of this defect from any Fabric before 1.3.0. Its contents are real files and can be moved or deleted; nothing reads them at that path.
+
 ## 1.3.1
 
 ### Fixed

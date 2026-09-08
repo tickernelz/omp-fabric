@@ -790,7 +790,7 @@ export class OmpToolsProvider implements FabricProvider {
       read: createNativeReadToolDefinition(cwd),
       bash: createNativeBashToolDefinition(cwd, this.#artifactPaths),
       edit: createNativeReplaceEditToolDefinition(cwd),
-      write: createPreviewWriteToolDefinition(cwd),
+      write: createPreviewWriteToolDefinition(cwd, createNativeSession(cwd)),
       grep: createGrepDefinitionWithSkip(cwd),
       find: createFindDefinitionWithFilters(cwd),
       ls: createLsToolDefinition(cwd),

@@ -2,8 +2,9 @@
 import { homedir } from "node:os";
 import { dirname, isAbsolute, resolve, win32 } from "node:path";
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
-import type { ToolDefinition } from "@oh-my-pi/pi-coding-agent";
+import type { ToolDefinition, ToolSession } from "@oh-my-pi/pi-coding-agent";
 import { Type } from "@oh-my-pi/pi-coding-agent/extensibility/legacy-typebox";
+import { WriteTool } from "@oh-my-pi/pi-coding-agent/tools/write";
 import { MAX_WRITE_DIFF_BYTES, writeContentForPreview } from "./write-diff-limits.js";
 
 const mutationQueues = new Map<string, Promise<void>>();
@@ -29,34 +30,20 @@ type ExistingFilePreview =
 
 const URI_LIKE_WRITE_TARGET_RE = /^([a-z][a-z0-9+.-]*):\/{1,2}/i;
 
-class OmpWriteUriTargetError extends Error {
-  readonly path: string;
-
-  constructor(message: string, path: string) {
-    super(message);
-    this.name = "OmpWriteUriTargetError";
-    this.path = path;
-  }
-}
-
-const assertFilesystemWriteTarget = (candidate: string, reported: string): void => {
+const uriLikeScheme = (candidate: string): string | undefined => {
   const trimmed = candidate.trim();
-  if (win32.isAbsolute(trimmed)) return;
-  const scheme = URI_LIKE_WRITE_TARGET_RE.exec(trimmed)?.[1]?.toLowerCase();
-  if (scheme === undefined) return;
-  const guidance = scheme === "xd"
-    ? "Tool devices are dispatched by the top-level `write` tool, which carries the xd:// transport; omp.write writes files."
-    : "omp.write resolves filesystem paths only.";
-  throw new OmpWriteUriTargetError(
-    `Refusing to write '${reported}': '${scheme}://' is a URI scheme, not a directory. ${guidance} Prefix the path with './' to create a literal file by that name.`,
-    reported,
-  );
+  if (win32.isAbsolute(trimmed)) return undefined;
+  return URI_LIKE_WRITE_TARGET_RE.exec(trimmed)?.[1]?.toLowerCase();
+};
+
+const isUriLikeWriteTarget = (filePath: string): boolean => {
+  const expanded = filePath.startsWith("@") ? filePath.slice(1) : filePath;
+  return uriLikeScheme(expanded.replace(/[\u00a0\u2000-\u200a\u202f\u205f\u3000]/g, " ")) !== undefined;
 };
 
 const resolvePreviewPath = (filePath: string, cwd: string): string => {
   let expanded = filePath.startsWith("@") ? filePath.slice(1) : filePath;
   expanded = expanded.replace(/[\u00a0\u2000-\u200a\u202f\u205f\u3000]/g, " ");
-  assertFilesystemWriteTarget(expanded, filePath);
   if (expanded === "~") expanded = homedir();
   else if (expanded.startsWith("~/")) expanded = homedir() + expanded.slice(1);
   return isAbsolute(expanded) ? expanded : resolve(cwd, expanded);
@@ -110,6 +97,7 @@ const readExistingFileForPreview = async (
 
 export const createPreviewWriteToolDefinition = (
   cwd: string,
+  session?: ToolSession,
 ): ToolDefinition => {
   const original = {
     name: "write", label: "Write", description: "Write a file",
@@ -124,6 +112,20 @@ export const createPreviewWriteToolDefinition = (
       signal: AbortSignal | undefined,
     ) {
       const { path, content } = params;
+      if (isUriLikeWriteTarget(path)) {
+        if (session === undefined) {
+          throw new Error(
+            `Refusing to write '${path}': URI-like targets need a host session to resolve. Prefix the path with './' to create a literal file by that name.`,
+          );
+        }
+        return await new WriteTool(session).execute(
+          _toolCallId,
+          params as never,
+          signal as never,
+          (() => {}) as never,
+          { signal } as never,
+        );
+      }
       const absolutePath = resolvePreviewPath(path, cwd);
       return withFileMutationQueue(absolutePath, async () => {
         const throwIfAborted = (): void => {

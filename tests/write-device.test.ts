@@ -61,18 +61,15 @@ describe("omp.write device paths", () => {
     expect(entriesUnder(cwd)).toEqual([]);
   });
 
-  it("names the offending path and points at the device transport", async () => {
+  it("names the offending path when no host session can resolve it", async () => {
     const cwd = makeCwd();
     const captured = await writeTool(cwd)("call-3", { path: "xd://ast_grep", content: "{}" }).then(
       () => undefined,
       (thrown: unknown) => thrown,
     );
     expect(captured).toBeInstanceOf(Error);
-    const error = captured as Error & { path?: string };
-    expect(error.name).toBe("OmpWriteUriTargetError");
-    expect(error.path).toBe("xd://ast_grep");
-    expect(error.message).toContain("'xd://ast_grep'");
-    expect(error.message).toContain("top-level `write` tool");
+    expect((captured as Error).message).toContain("'xd://ast_grep'");
+    expect(entriesUnder(cwd)).toEqual([]);
   });
 
   it("refuses any other URI scheme that would become a stray directory", async () => {
