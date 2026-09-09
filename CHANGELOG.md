@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.8.3
+
+### Fixed
+
+- The compaction line in `/fabric status` read `6/24 model summaries`, which looks like a quota of 24. It was the share of ready nodes the model wrote, and model calls carry no quota. The line now reads `24 nodes (6 by model, 18 excerpt)`.
+
 ## 1.8.2
 
 ### Fixed

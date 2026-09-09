@@ -1228,7 +1228,7 @@ export function registerFabricCommand(omp: ExtensionAPI, deps: FabricCommandDeps
             const summaries = report.modelNodes + report.emergencyNodes;
             const model = report.summaryModel || "inherit";
             const calls = Number.isFinite(report.budget.calls) ? `${report.usage.calls}/${report.budget.calls}` : `${report.usage.calls}`;
-            return `compaction: lcm · ${report.state} · model ${model} · ${report.rawEntries} entries · ${report.modelNodes}/${summaries} model summaries · today ${calls} calls, ${Math.round(report.usage.wallMs / 1000)}s${report.degraded ? ` · degraded: ${report.degraded}` : ""}`;
+            return `compaction: lcm · ${report.state} · model ${model} · ${report.rawEntries} entries · ${summaries} nodes (${report.modelNodes} by model, ${report.emergencyNodes} excerpt) · today ${calls} calls, ${Math.round(report.usage.wallMs / 1000)}s${report.degraded ? ` · degraded: ${report.degraded}` : ""}`;
           })(),
           `MCP: ${config.mcp.enabled ? "enabled" : "disabled"}`,
           `UI: ${config.ui.enabled ? `${config.ui.widget} widget above chat` : "disabled"}`,
