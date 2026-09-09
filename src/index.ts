@@ -45,8 +45,9 @@ import {
   effectiveToolCaptureConfig,
 } from "./config.js";
 import { registerCompactionHook } from "./compaction/hook.js";
-import { LcmRuntime } from "./compaction/lcm-runtime.js";
-import { canonicalProjectIdentity } from "./storage/lcm-ledger.js";
+import type { LcmRuntime } from "./compaction/lcm-runtime.js";
+import { createLcmRuntimeLoader } from "./compaction/lcm-loader.js";
+import { canonicalProjectIdentity } from "./storage/lcm-identity.js";
 import { compactAtConfiguredThreshold } from "./compaction/threshold.js";
 import {
   createToolOwnershipReassertion,
@@ -187,6 +188,7 @@ export default async function ompFabric(omp: ExtensionAPI): Promise<void> {
   );
   const pendingHandoffs = new Map<string, PendingFabricHandoff>();
   let lcmRuntime: LcmRuntime | undefined;
+  const lcmLoader = createLcmRuntimeLoader();
   let lcmCwd: string | undefined;
   let lcmProjectKey: string | undefined;
   const toolOwnership = new FabricToolOwnership(omp);
@@ -520,7 +522,8 @@ export default async function ompFabric(omp: ExtensionAPI): Promise<void> {
       lcmProjectKey = undefined;
     }
     if (state.config.compaction.engine === "lcm" && !lcmRuntime) {
-      lcmRuntime = new LcmRuntime(context, () => ({
+      const LcmRuntimeClass = await lcmLoader.load(context);
+      if (LcmRuntimeClass) lcmRuntime = new LcmRuntimeClass(context, () => ({
         ...(state.config.compaction.summaryModel ? { summaryModel: state.config.compaction.summaryModel } : {}),
         maxLeafEntries: state.config.compaction.lcmMaxLeafEntries,
         maxCondenseChildren: state.config.compaction.lcmMaxCondenseChildren,
@@ -529,8 +532,8 @@ export default async function ompFabric(omp: ExtensionAPI): Promise<void> {
         lcmMaxOutputTokens: state.config.compaction.lcmMaxOutputTokens,
         lcmMaxOutputChars: state.config.compaction.lcmMaxOutputChars,
       }));
-      lcmCwd = context.cwd;
-      lcmProjectKey = lcmRuntime.projectKey;
+      lcmCwd = lcmRuntime ? context.cwd : undefined;
+      lcmProjectKey = lcmRuntime?.projectKey;
     }
     if (state.config.compaction.engine === "lcm" && lcmRuntime) await lcmRuntime.reconcileSelectedSession();
     refreshCodePreviewSettings();
@@ -732,9 +735,11 @@ export default async function ompFabric(omp: ExtensionAPI): Promise<void> {
   // OMP's own summarization proceeds normally.
   registerCompactionHook(omp, {
     getEngine: () =>
-      state.cwd
-        ? state.config.compaction.engine
-        : DEFAULT_FABRIC_CONFIG.compaction.engine,
+      lcmLoader.unavailable
+        ? "omp"
+        : state.cwd
+          ? state.config.compaction.engine
+          : DEFAULT_FABRIC_CONFIG.compaction.engine,
     getTargetContextRatio: () =>
       state.cwd
         ? state.config.compaction.targetContextRatio

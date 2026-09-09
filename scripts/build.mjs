@@ -24,6 +24,7 @@ const primaryEntryPoints = [
 // after the installed package is replaced, while preserving lazy evaluation.
 const lazyEntryPoints = [
   "src/agents/claude-cli.ts",
+  "src/compaction/lcm-runtime.ts",
   "src/agents/compact-control.ts",
   "src/agents/veda-cli.ts",
   "src/fabric-runtime-state.ts",

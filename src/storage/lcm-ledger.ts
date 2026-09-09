@@ -2,30 +2,16 @@ import { DatabaseSync } from "node:sqlite";
 import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
+import { canonicalLcmPayload, canonicalProjectIdentity, createDeleteConfirmationToken, defaultLedgerPath, hash, hashLcmPayload, type DeleteConfirmationToken, type ProjectIdentity, type ProjectIdentityInput, type RawEntry, type SessionEntry } from "./lcm-identity.js";
 
-export interface ProjectIdentityInput { recordedCwd?: string; liveCwd?: string }
-export interface ProjectIdentity { version: 1; key: string; canonicalPath?: string; device?: number; inode?: number; aliases: string[] }
+export { canonicalLcmPayload, canonicalProjectIdentity, createDeleteConfirmationToken, defaultLedgerPath, hashLcmPayload };
+export type { DeleteConfirmationToken, ProjectIdentity, RawEntry, SessionEntry };
 const LCM_LEDGER_WARNING_BYTES = 8 * 1024 ** 3;
 const LCM_LEDGER_MAINTENANCE_BYTES = 10 * 1024 ** 3;
 export interface LedgerOptions { dbPath?: string; rootDir?: string; project?: ProjectIdentityInput; now?: () => number; warningBytes?: number; maintenanceBytes?: number }
 export type OperationalState = "healthy" | "warning" | "maintenance" | "degraded";
 export interface CheckpointMetrics { mode: "passive" | "truncate"; busy: number; logPages: number; checkpointedPages: number; truncated: boolean }
 export interface BackupManifest { format: "lcm-ledger-backup"; version: 1; source: string; destination: string; sourceSha256: string; backupSha256: string; sourceStateSha256: string; rowCounts: Record<string, number>; integrity: "ok" | string; createdAt: number }
-export interface DeleteConfirmationToken { readonly projectKey: string; readonly value: string; readonly __brand: "DeleteConfirmationToken" }
-export function createDeleteConfirmationToken(projectKey: string): DeleteConfirmationToken { return { projectKey, value: hash(`delete:${projectKey}`), __brand: "DeleteConfirmationToken" }; }
-export interface SessionEntry { projectKey: string; sessionId: string; entryId: string; revision?: number; role: string; content: string; payloadJson: string; parentEntryId?: string | null; branch?: string | null; recordedCwd?: string; createdAt?: number }
-export interface RawEntry extends SessionEntry { revision: number; contentHash: string; payloadHash: string; createdAt: number }
-
-export function canonicalLcmPayload(value: unknown): string {
-  const normalized: unknown = JSON.parse(JSON.stringify(value));
-  const encode = (item: unknown): string => {
-    if (Array.isArray(item)) return `[${item.map(encode).join(",")}]`;
-    if (item !== null && typeof item === "object") return `{${Object.keys(item).sort().map(key => `${JSON.stringify(key)}:${encode((item as Record<string, unknown>)[key])}`).join(",")}}`;
-    return JSON.stringify(item);
-  };
-  return encode(normalized);
-}
-export function hashLcmPayload(value: unknown): string { return crypto.createHash("sha256").update(canonicalLcmPayload(value), "utf8").digest("hex"); }
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS schema_metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -41,7 +27,6 @@ CREATE TABLE IF NOT EXISTS maintenance_usage (project_key TEXT NOT NULL, day TEX
 CREATE INDEX IF NOT EXISTS raw_entries_lookup ON raw_entries(project_key, session_id, entry_id, revision);
 `;
 
-const hash = (s: string) => crypto.createHash("sha256").update(s).digest("hex");
 const fileHash = (file: string) => crypto.createHash("sha256").update(fs.readFileSync(file)).digest("hex");
 const snapshotHash = (db: DatabaseSync): string => {
   const digest = crypto.createHash("sha256");
@@ -51,23 +36,6 @@ const snapshotHash = (db: DatabaseSync): string => {
   }
   return digest.digest("hex");
 };
-const normalize = (p: string) => path.normalize(path.resolve(p));
-const statIdentity = (p: string) => { try { const s = fs.statSync(p); return { device: Number(s.dev), inode: Number(s.ino) }; } catch { return {}; } };
-
-export function canonicalProjectIdentity(input: ProjectIdentityInput): ProjectIdentity {
-  const source = input.recordedCwd?.trim() || input.liveCwd?.trim();
-  if (!source) throw new Error("project cwd is required");
-  const normalized = normalize(source);
-  let canonicalPath = normalized;
-  try { canonicalPath = fs.realpathSync.native(normalized); } catch {}
-  const ids = statIdentity(canonicalPath);
-  const key = ids.device !== undefined && ids.inode !== undefined ? `v1:devino:${ids.device}:${ids.inode}` : `v1:path:${canonicalPath}`;
-  return { version: 1, key, canonicalPath, ...ids, aliases: [normalized, canonicalPath] };
-}
-
-export function defaultLedgerPath(rootDir = path.join(process.env.XDG_STATE_HOME || path.join(process.env.HOME || ".", ".local", "state"), "omp-fabric", "lcm"), projectKey = "default"): string {
-  return path.join(rootDir, `${hash(projectKey).slice(0, 24)}.sqlite`);
-}
 
 class LedgerDegradedError extends Error { constructor(message: string, public readonly cause?: unknown) { super(message); this.name = "LedgerDegradedError"; } }
 

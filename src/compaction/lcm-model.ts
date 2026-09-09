@@ -1,6 +1,6 @@
 import { completeSimple, type Model } from "@oh-my-pi/pi-ai";
 import type { ExtensionContext } from "@oh-my-pi/pi-coding-agent";
-import { hashLcmPayload } from "../storage/lcm-ledger.js";
+import { hashLcmPayload } from "../storage/lcm-identity.js";
 import { clipUtf8 } from "./bounds.js";
 
 const LCM_MAX_INPUT_CHARS = 1_000_000;

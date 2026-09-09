@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.4.6
+
+### Fixed
+
+- Installing or loading the extension failed outright on runtimes without `node:sqlite` (`Failed to load extension: Could not resolve: "node:sqlite"`), which took down every Fabric feature rather than only LCM. The entry bundle pulled the ledger in statically through `src/index.ts`, `src/agents/handoff.ts`, and the memory provider. The sqlite-free identity and payload helpers now live in `src/storage/lcm-identity.ts`, the LCM runtime loads from the stable lazy entry `dist/compaction/lcm-runtime.js` only when compaction needs it, and a runtime that cannot resolve `node:sqlite` keeps the extension running with compaction delegated to OMP core plus one warning. `bun run build` now fails when anything in the startup static graph imports `node:sqlite`.
+
 ## 1.4.5
 
 ### Added

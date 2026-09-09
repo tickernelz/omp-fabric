@@ -9,7 +9,7 @@ import {
 } from "@oh-my-pi/pi-coding-agent";
 import { rawContextTokens } from "../compaction/hook.js";
 import { emergencyReduce } from "../compaction/lcm-model.js";
-import { canonicalLcmPayload } from "../storage/lcm-ledger.js";
+import { canonicalLcmPayload } from "../storage/lcm-identity.js";
 import {
   compactionRequestBoundsError,
   encodeCompactionRequest,

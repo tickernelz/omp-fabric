@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
-import { hashLcmPayload, type LcmLedger, type RawEntry } from "../storage/lcm-ledger.js";
+import { hashLcmPayload, type RawEntry } from "../storage/lcm-identity.js";
+import type { LcmLedger } from "../storage/lcm-ledger.js";
 import { buildLcmPrompt, emergencyReduce, type LcmModelResult, type LcmSummarizer } from "./lcm-model.js";
 
 type LcmNodeState = "pending" | "ready" | "running" | "failed";

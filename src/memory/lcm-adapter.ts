@@ -1,4 +1,4 @@
-import { hashLcmPayload, type RawEntry } from "../storage/lcm-ledger.js";
+import { hashLcmPayload, type RawEntry } from "../storage/lcm-identity.js";
 
 export interface LcmSummaryNode {
   nodeId: string;

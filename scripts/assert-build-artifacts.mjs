@@ -91,6 +91,14 @@ for (const forbidden of ["src/fabric-runtime-state.ts", "src/ui/settings.ts", "s
     throw new Error(`Startup static graph contains lazy module marker: ${forbidden}`);
   }
 }
+const sqliteImporters = [...startupFiles].filter((file) =>
+  /(?:from|import)\s*\(?\s*["']node:sqlite["']/u.test(readFileSync(file, "utf8")),
+);
+if (sqliteImporters.length > 0) {
+  throw new Error(
+    `Startup static graph requires node:sqlite, so the extension cannot load on runtimes without it:\n${sqliteImporters.join("\n")}`,
+  );
+}
 const lazyFiles = staticClosure(lazy.map((file) => join(dist, file)));
 const lazySource = [...lazyFiles].map((file) => readFileSync(file, "utf8")).join("\n");
 for (const expected of ["src/fabric-runtime-state.ts", "src/ui/settings.ts", 'import("mcporter")']) {
