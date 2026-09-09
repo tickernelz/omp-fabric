@@ -1667,7 +1667,7 @@ export class FabricDashboard implements Component, Focusable {
       return [
         title,
         this.theme.fg("dim", summaryText || "No Fabric activity yet"),
-        this.theme.fg("dim", "1 activity · 2 topology · arrows move · esc close"),
+        this.theme.fg("dim", "1 activity · 2 topology · 3 lcm · arrows move · esc close"),
       ]
         .slice(0, overlayRows)
         .map((line) => truncateToWidth(line, width, ""));
@@ -1814,8 +1814,8 @@ export class FabricDashboard implements Component, Focusable {
       this.overviewView === "topology"
         ? this.graphReplayIndex !== undefined
           ? `replay ${this.graphReplayIndex + 1}/${Math.max(1, this.graphReplayLength)}${this.graphReplayLabel ? ` · ${safeText(this.graphReplayLabel)}` : ""} · r live · space ${this.graphReplayPlaying ? "pause" : "play"} · ←/→ step · +/- speed:${this.graphReplaySpeed}× · H history · M motion:${this.graphReducedMotion ? "reduced" : "full"} · ? help`
-          : `arrows/h/l move · j/k order · r replay · H history · M motion:${this.graphReducedMotion ? "reduced" : "full"} · f filter:${this.filter} · 1 activity · ? help`
-        : `↑↓/jk select · ←→/tab pane · enter inspect · f filter:${this.filter} · 2 topology · [ older · ] newer · ? help`;
+          : `arrows/h/l move · j/k order · r replay · H history · M motion:${this.graphReducedMotion ? "reduced" : "full"} · f filter:${this.filter} · 1 activity · 3 lcm · ? help`
+        : `↑↓/jk select · ←→/tab pane · enter inspect · f filter:${this.filter} · 2 topology · 3 lcm · [ older · ] newer · ? help`;
     lines.push(this.row(width, this.theme.fg("dim", navigationHint)));
     const selectedEntity = entities[this.entityIndex];
     const actionHint =

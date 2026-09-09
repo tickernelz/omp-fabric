@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.10.1
+
+### Fixed
+
+- The Activity and Topology footers now list `3 lcm`. The view shipped in 1.10.0 but only the `?` help screen named its key, so from the two views that can reach it the ledger was invisible. A test fails if either footer stops advertising it.
+
 ## 1.10.0
 
 ### Added

@@ -343,4 +343,15 @@ describe("Fabric dashboard LCM view", () => {
       dashboard.dispose();
     }
   });
+
+  it("advertises the LCM view from the views that can reach it", () => {
+    const { source } = stub({});
+    const dashboard = new FabricDashboard(tui(), theme, snapshot, vi.fn(), {
+      lcmStatus: () => source,
+    });
+    expect(dashboard.render(160).join("\n")).toContain("3 lcm");
+
+    dashboard.handleInput("2");
+    expect(dashboard.render(160).join("\n")).toContain("3 lcm");
+  });
 });
