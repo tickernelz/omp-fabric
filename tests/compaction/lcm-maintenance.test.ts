@@ -1,17 +1,15 @@
-import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { LcmLedger, canonicalLcmPayload } from "../../src/storage/lcm-ledger.js";
+import { canonicalLcmPayload } from "../../src/storage/lcm-ledger.js";
+import { openLedger, releaseTemp, tempRoot } from "../fixtures/lcm-temp.js";
 import { LcmMaintenance } from "../../src/compaction/lcm-maintenance.js";
 import { emergencyReduce, type LcmModelResult, type LcmSummarizer } from "../../src/compaction/lcm-model.js";
 
-const dirs: string[] = [];
 const raw = (projectKey: string, sessionId: string, entryId: string, text: string, branch: string | null) => ({ projectKey, sessionId, entryId, role: "user", content: text, payloadJson: canonicalLcmPayload({ type: "message", id: entryId, parentId: null, timestamp: "2026-09-01T00:00:00.000Z", message: { role: "user", content: [{ type: "text", text }] } }), parentEntryId: null, branch, createdAt: 0 });
 const result = (text: string): LcmModelResult => ({ text, inputTokens: 1, outputTokens: 1, cost: 0, wallMs: 1, modelHash: "test" });
 const model = (value: LcmModelResult): LcmSummarizer => ({ modelHash: value.modelHash, generate: async () => value });
-const open = () => { const root = fs.mkdtempSync(path.join(os.tmpdir(), "lcm-maintenance-")); dirs.push(root); const ledger = new LcmLedger({ dbPath: path.join(root, "db.sqlite"), project: { liveCwd: root } }); return { ledger, maintenance: new LcmMaintenance(ledger) }; };
-afterEach(() => { for (const dir of dirs.splice(0)) fs.rmSync(dir, { recursive: true, force: true }); });
+const open = () => { const root = tempRoot("lcm-maintenance-"); const ledger = openLedger({ dbPath: path.join(root, "db.sqlite"), project: { liveCwd: root } }); return { ledger, maintenance: new LcmMaintenance(ledger) }; };
+afterEach(releaseTemp);
 
 describe("LCM maintenance branch isolation", () => {
   it("selects only summaries whose source refs are on the active branch", async () => {
@@ -37,7 +35,7 @@ describe("LCM maintenance branch isolation", () => {
     ledger.close();
   });
   it("rejects forged maintenance identifiers across projects", () => {
-    const firstRoot = fs.mkdtempSync(path.join(os.tmpdir(), "lcm-maintenance-project-")); const secondRoot = fs.mkdtempSync(path.join(os.tmpdir(), "lcm-maintenance-project-")); dirs.push(firstRoot, secondRoot); const dbPath = path.join(firstRoot, "shared.sqlite"); const firstLedger = new LcmLedger({ dbPath, project: { liveCwd: firstRoot } }); const secondLedger = new LcmLedger({ dbPath, project: { liveCwd: secondRoot } }); const secondMaintenance = new LcmMaintenance(secondLedger); const source = secondLedger.appendRaw(raw(secondLedger.project.key, "payload", "foreign", "foreign", "main")); const node = secondMaintenance.createLeaf([source]); if (!node) throw new Error("missing foreign leaf"); const job = secondMaintenance.listJobs()[0]; if (!job) throw new Error("missing foreign job"); const firstMaintenance = new LcmMaintenance(firstLedger); expect(() => firstMaintenance.createLeaf([source])).toThrow("entry project does not match ledger project"); expect(firstMaintenance.getNode(node.nodeId)).toBeUndefined(); expect(() => firstMaintenance.claim(job.jobId)).toThrow("job not found"); expect(() => firstMaintenance.completeEmergency({ ...job, projectKey: firstLedger.project.key }, "forged")).toThrow("job not found"); firstLedger.close(); secondLedger.close();
+    const firstRoot = tempRoot("lcm-maintenance-project-"); const secondRoot = tempRoot("lcm-maintenance-project-"); const dbPath = path.join(firstRoot, "shared.sqlite"); const firstLedger = openLedger({ dbPath, project: { liveCwd: firstRoot } }); const secondLedger = openLedger({ dbPath, project: { liveCwd: secondRoot } }); const secondMaintenance = new LcmMaintenance(secondLedger); const source = secondLedger.appendRaw(raw(secondLedger.project.key, "payload", "foreign", "foreign", "main")); const node = secondMaintenance.createLeaf([source]); if (!node) throw new Error("missing foreign leaf"); const job = secondMaintenance.listJobs()[0]; if (!job) throw new Error("missing foreign job"); const firstMaintenance = new LcmMaintenance(firstLedger); expect(() => firstMaintenance.createLeaf([source])).toThrow("entry project does not match ledger project"); expect(firstMaintenance.getNode(node.nodeId)).toBeUndefined(); expect(() => firstMaintenance.claim(job.jobId)).toThrow("job not found"); expect(() => firstMaintenance.completeEmergency({ ...job, projectKey: firstLedger.project.key }, "forged")).toThrow("job not found"); firstLedger.close(); secondLedger.close();
   });
   it("scopes leaf identity by branch and policy", () => {
     const { ledger } = open(); const source = ledger.appendRaw(raw(ledger.project.key, "s", "same", "same", "left"));
@@ -46,7 +44,7 @@ describe("LCM maintenance branch isolation", () => {
     expect(leftNode.nodeId).not.toBe(rightNode.nodeId); expect(leftNode.branch).toBe("left"); expect(rightNode.branch).toBe("right"); expect(() => left.createLeaf([source, { ...source, branch: "right" }])).toThrow("cross-branch ranges"); ledger.close();
   });
   it("recovers a failed leaf through the emergency lease", () => {
-    let now = 1_000; const root = fs.mkdtempSync(path.join(os.tmpdir(), "lcm-maintenance-")); dirs.push(root); const ledger = new LcmLedger({ dbPath: path.join(root, "db.sqlite"), project: { liveCwd: root } }); const maintenance = new LcmMaintenance(ledger, { now: () => now }); const source = ledger.appendRaw(raw(ledger.project.key, "s", "a", "A", "main")); const node = maintenance.createLeaf([source]); if (!node) throw new Error("missing leaf"); let job = maintenance.listJobs()[0]; if (!job) throw new Error("missing job");
+    let now = 1_000; const root = tempRoot("lcm-maintenance-"); const ledger = openLedger({ dbPath: path.join(root, "db.sqlite"), project: { liveCwd: root } }); const maintenance = new LcmMaintenance(ledger, { now: () => now }); const source = ledger.appendRaw(raw(ledger.project.key, "s", "a", "A", "main")); const node = maintenance.createLeaf([source]); if (!node) throw new Error("missing leaf"); let job = maintenance.listJobs()[0]; if (!job) throw new Error("missing job");
     for (let attempt = 0; attempt < 3; attempt += 1) { job = maintenance.fail(maintenance.claim(job.jobId), "model failed"); now += 1_000_000; }
     const ready = maintenance.completeEmergency(maintenance.claimEmergency(job.jobId), "fallback"); expect(ready.state).toBe("ready"); expect(ready.text).toBe("fallback"); expect(maintenance.listJobs()[0]?.state).toBe("completed"); ledger.close();
   });
@@ -112,10 +110,9 @@ describe("LCM maintenance branch isolation", () => {
   });
 
   it("reclaims an expired lease with a different owner", () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "lcm-maintenance-"));
-    dirs.push(root);
+    const root = tempRoot("lcm-maintenance-");
     let now = 1_000;
-    const ledger = new LcmLedger({ dbPath: path.join(root, "ledger.sqlite"), project: { liveCwd: root } });
+    const ledger = openLedger({ dbPath: path.join(root, "ledger.sqlite"), project: { liveCwd: root } });
     const maintenance = new LcmMaintenance(ledger, { now: () => now });
     const source = ledger.appendRaw(raw(ledger.project.key, "s", "a", "A", "main"));
     const node = maintenance.createLeaf([source]);

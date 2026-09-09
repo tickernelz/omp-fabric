@@ -1,13 +1,12 @@
-import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { DEFAULT_FABRIC_CONFIG } from "../src/config.js";
-import { canonicalLcmPayload, LcmLedger } from "../src/storage/lcm-ledger.js";
+import { canonicalLcmPayload } from "../src/storage/lcm-ledger.js";
+import type { LcmLedger } from "../src/storage/lcm-ledger.js";
 import { MemoryProvider } from "../src/providers/memory-provider.js";
+import { openLedger, releaseTemp, tempRoot } from "./fixtures/lcm-temp.js";
 import type { FabricInvocationContext } from "../src/protocol.js";
 
-const roots: string[] = [];
 const context = {} as FabricInvocationContext;
 const capability = (ledger: LcmLedger) => ({
   projectKey: ledger.project.key,
@@ -15,15 +14,12 @@ const capability = (ledger: LcmLedger) => ({
   readRawPage: (sessionId?: string, offset?: number, limit?: number) => ledger.readRawPage(ledger.project.key, sessionId, offset, limit),
   readRawEntry: (sessionId: string, entryId: string, revision: number) => ledger.readRawEntry(ledger.project.key, sessionId, entryId, revision),
 });
-afterEach(() => {
-  for (const root of roots.splice(0)) fs.rmSync(root, { recursive: true, force: true });
-});
+afterEach(releaseTemp);
 
 describe("MemoryProvider LCM seam", () => {
   it("routes recall and exact expansion through the shared ledger", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "lcm-provider-"));
-    roots.push(root);
-    const ledger = new LcmLedger({ dbPath: path.join(root, "ledger.sqlite"), project: { liveCwd: root } });
+    const root = tempRoot("lcm-provider-");
+    const ledger = openLedger({ dbPath: path.join(root, "ledger.sqlite"), project: { liveCwd: root } });
     const payload = {
       type: "message",
       id: "entry-1",
@@ -62,6 +58,5 @@ describe("MemoryProvider LCM seam", () => {
       entries: Array<{ structuredContent: unknown }>;
     };
     expect(expanded.entries[0]?.structuredContent).toEqual(payload);
-    ledger.close();
   });
 });

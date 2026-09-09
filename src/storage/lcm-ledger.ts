@@ -81,6 +81,7 @@ export class LcmLedger {
   private readonly maintenanceBytes: number;
   private writeChain: Promise<void> = Promise.resolve();
   private transactionDepth = 0;
+  private closed = false;
   constructor(options: LedgerOptions = {}) {
     this.now = options.now ?? Date.now;
     this.warningBytes = options.warningBytes ?? LCM_LEDGER_WARNING_BYTES;
@@ -213,5 +214,5 @@ export class LcmLedger {
     fs.writeFileSync(`${backupManifest.destination}.delete-manifest.json`, JSON.stringify(audit), { mode: 0o600 });
   }
   private serializeSync<T>(operation: () => T): T { this.guard(); return operation(); }
-  close() { this.db.close(); }
+  close() { if (this.closed) return; this.db.close(); this.closed = true; }
 }
