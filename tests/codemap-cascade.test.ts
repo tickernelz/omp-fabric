@@ -58,11 +58,11 @@ beforeAll(() => {
 
   plainDirectory = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-cascade-plain-")));
   roots.push(plainDirectory);
-});
+}, 60_000);
 
 afterAll(() => {
   for (const root of roots.splice(0)) fs.rmSync(root, { recursive: true, force: true });
-});
+}, 60_000);
 
 describe("coChange", () => {
   it("ranks a true co-change partner above a ubiquitous file", async () => {
