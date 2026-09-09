@@ -79,6 +79,40 @@ describe("LCM runtime", () => {
     await runtime.shutdown();
   });
 
+  it("calls the model without a limit until one is configured", async () => {
+    const root = makeRoot();
+    const runtime = openRuntime(makeContext(root, [makeEntry("a", "unlimited source")]), { rootDir: root });
+    const budget = runtime.maintenance.budgetPolicy();
+    expect(budget.calls).toBe(Number.POSITIVE_INFINITY);
+    expect(budget.sessionCalls).toBe(Number.POSITIVE_INFINITY);
+    expect(budget.wallMs).toBe(Number.POSITIVE_INFINITY);
+    await runtime.shutdown();
+  });
+
+  it("upgrades a deterministic node once the model answers again", async () => {
+    const root = makeRoot();
+    const entries = [makeEntry("a", "first source"), makeEntry("b", "second source", "a")];
+    const runtime = openRuntime(makeContext(root, entries), { rootDir: root });
+    await runtime.readback();
+    const rows = runtime.raw("session-1");
+    const leaf = runtime.maintenance.createLeaf(rows);
+    const job = runtime.maintenance.listJobs().find((item) => item.nodeId === leaf?.nodeId);
+    runtime.maintenance.completeEmergency(runtime.maintenance.claimEmergency(job!.jobId), "[Nonsemantic deterministic excerpt; not a model summary]\nfallback");
+    expect(runtime.maintenance.getNode(leaf!.nodeId)?.modelHash).toBe("emergency");
+    expect(runtime.maintenance.selectUpgrades("session-1", undefined, "branch-a", 5).map((node) => node.nodeId)).toEqual([leaf!.nodeId]);
+
+    const reopened = runtime.maintenance.reopen(leaf!.nodeId);
+    const claimed = runtime.maintenance.claim(reopened.jobId);
+    const upgraded = runtime.maintenance.complete(claimed, { text: "a real model summary", inputTokens: 10, outputTokens: 5, cost: 0, wallMs: 12, modelHash: "model-abc" });
+
+    expect(upgraded.nodeId).toBe(leaf!.nodeId);
+    expect(upgraded.text).toBe("a real model summary");
+    expect(upgraded.modelHash).toBe("model-abc");
+    expect(runtime.maintenance.selectUpgrades("session-1", undefined, "branch-a", 5)).toHaveLength(0);
+    expect(() => runtime.maintenance.reopen(leaf!.nodeId)).toThrow("node already carries a model summary");
+    await runtime.shutdown();
+  });
+
   it("spends the configured model wall-time budget before falling back", async () => {
     const spend = (runtime: LcmRuntime, wallMs: number): void => {
       runtime.ledger.transaction((db) => {

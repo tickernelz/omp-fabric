@@ -207,6 +207,7 @@ interface FabricCompactionConfig {
   lcmMaxLeafEntries: number;
   lcmMaxCondenseChildren: number;
   lcmMaintenancePasses: number;
+  lcmModelSummaries: boolean;
   lcmMaxDailyModelCalls: number;
   lcmMaxSessionModelCalls: number;
   lcmMaxDailyModelSeconds: number;
@@ -458,9 +459,10 @@ export const DEFAULT_FABRIC_CONFIG: FabricConfig = {
     lcmMaxLeafEntries: 32,
     lcmMaxCondenseChildren: 4,
     lcmMaintenancePasses: 8,
-    lcmMaxDailyModelCalls: 512,
-    lcmMaxSessionModelCalls: 256,
-    lcmMaxDailyModelSeconds: 7200,
+    lcmModelSummaries: true,
+    lcmMaxDailyModelCalls: 0,
+    lcmMaxSessionModelCalls: 0,
+    lcmMaxDailyModelSeconds: 0,
   },
   retention: {
     orphanedTempRunMs: 6 * 60 * 60 * 1_000,
@@ -1096,9 +1098,10 @@ export const normalizeFabricConfig = (input: Record<string, unknown>): FabricCon
       lcmMaxLeafEntries: boundedInteger(compaction.lcmMaxLeafEntries, DEFAULT_FABRIC_CONFIG.compaction.lcmMaxLeafEntries, 1, 128),
       lcmMaxCondenseChildren: boundedInteger(compaction.lcmMaxCondenseChildren, DEFAULT_FABRIC_CONFIG.compaction.lcmMaxCondenseChildren, 2, 32),
       lcmMaintenancePasses: boundedInteger(compaction.lcmMaintenancePasses, DEFAULT_FABRIC_CONFIG.compaction.lcmMaintenancePasses, 1, 64),
-      lcmMaxDailyModelCalls: boundedInteger(compaction.lcmMaxDailyModelCalls, DEFAULT_FABRIC_CONFIG.compaction.lcmMaxDailyModelCalls, 1, 4_096),
-      lcmMaxSessionModelCalls: boundedInteger(compaction.lcmMaxSessionModelCalls, DEFAULT_FABRIC_CONFIG.compaction.lcmMaxSessionModelCalls, 1, 4_096),
-      lcmMaxDailyModelSeconds: boundedInteger(compaction.lcmMaxDailyModelSeconds, DEFAULT_FABRIC_CONFIG.compaction.lcmMaxDailyModelSeconds, 30, 86_400),
+      lcmModelSummaries: booleanValue(compaction.lcmModelSummaries, DEFAULT_FABRIC_CONFIG.compaction.lcmModelSummaries),
+      lcmMaxDailyModelCalls: boundedInteger(compaction.lcmMaxDailyModelCalls, DEFAULT_FABRIC_CONFIG.compaction.lcmMaxDailyModelCalls, 0, 100_000),
+      lcmMaxSessionModelCalls: boundedInteger(compaction.lcmMaxSessionModelCalls, DEFAULT_FABRIC_CONFIG.compaction.lcmMaxSessionModelCalls, 0, 100_000),
+      lcmMaxDailyModelSeconds: boundedInteger(compaction.lcmMaxDailyModelSeconds, DEFAULT_FABRIC_CONFIG.compaction.lcmMaxDailyModelSeconds, 0, 604_800),
     },
     retention: {
       orphanedTempRunMs: boundedInteger(

@@ -1156,8 +1156,10 @@ export function registerFabricCommand(omp: ExtensionAPI, deps: FabricCommandDeps
         const hints: string[] = [];
         const averageWallMs = report.usage.calls > 0 ? report.usage.wallMs / report.usage.calls : 0;
         const wallLeft = report.budget.wallMs - report.usage.wallMs;
-        if (report.usage.calls >= report.budget.calls || (averageWallMs > 0 && wallLeft < averageWallMs)) {
-          hints.push(`Daily model budget cannot fit another summary (${seconds(wallLeft)} left, ${seconds(averageWallMs)} per call), so new nodes use the deterministic reducer until tomorrow. Raise compaction.lcmMaxDailyModelSeconds or compaction.lcmMaxDailyModelCalls.`);
+        if (!config.compaction.lcmModelSummaries) {
+          hints.push("Model summaries are disabled by compaction.lcmModelSummaries, so every node is a deterministic excerpt.");
+        } else if (report.usage.calls >= report.budget.calls || (Number.isFinite(report.budget.wallMs) && averageWallMs > 0 && wallLeft < averageWallMs)) {
+          hints.push(`The configured model budget cannot fit another summary (${seconds(wallLeft)} left, ${seconds(averageWallMs)} per call), so new nodes use the deterministic reducer. Raise compaction.lcmMaxDailyModelSeconds or compaction.lcmMaxDailyModelCalls, or set them to 0 for no limit.`);
         }
         if (coverage.active > 0 && percent < 50) {
           hints.push("The ready frontier covers less than half of this branch, so a compaction now falls back to an excerpt. Raise compaction.lcmMaintenancePasses to summarize more per turn.");
@@ -1173,7 +1175,9 @@ export function registerFabricCommand(omp: ExtensionAPI, deps: FabricCommandDeps
             `nodes: ${summaries} ready · ${report.modelNodes} written by the model · ${report.emergencyNodes} deterministic · ${report.pendingNodes} pending`,
             `jobs: ${report.pendingJobs} pending`,
             `model: ${report.summaryModel || "inherit (active session model)"}`,
-            `today: ${report.usage.calls}/${report.budget.calls} calls · ${seconds(report.usage.wallMs)}/${seconds(report.budget.wallMs)} · ${report.usage.inputTokens} in · ${report.usage.outputTokens} out · $${report.usage.cost.toFixed(4)}`,
+            `today: ${report.usage.calls}${Number.isFinite(report.budget.calls) ? `/${report.budget.calls}` : ""} calls · ${seconds(report.usage.wallMs)}${Number.isFinite(report.budget.wallMs) ? `/${seconds(report.budget.wallMs)}` : ""} · ${report.usage.inputTokens} in · ${report.usage.outputTokens} out · $${report.usage.cost.toFixed(4)}`,
+            `budget: ${Number.isFinite(report.budget.calls) || Number.isFinite(report.budget.wallMs) ? "configured" : "no limit; fallback only when the model cannot be called"}`,
+            `upgradable: ${report.upgradableNodes} deterministic nodes queued for a model summary`,
             `limits: ${config.compaction.lcmMaintenancePasses} passes × up to ${config.compaction.lcmMaxLeafEntries} entries per leaf within ${config.compaction.lcmMaxInputChars} chars`,
             ...(report.degraded ? [`degraded: ${report.degraded}`] : []),
             ...hints.map((hint) => `hint: ${hint}`),
@@ -1223,7 +1227,8 @@ export function registerFabricCommand(omp: ExtensionAPI, deps: FabricCommandDeps
             const report = lcm.report();
             const summaries = report.modelNodes + report.emergencyNodes;
             const model = report.summaryModel || "inherit";
-            return `compaction: lcm · ${report.state} · model ${model} · ${report.rawEntries} entries · ${report.modelNodes}/${summaries} model summaries · today ${report.usage.calls}/${report.budget.calls} calls, ${Math.round(report.usage.wallMs / 1000)}s/${Math.round(report.budget.wallMs / 1000)}s${report.degraded ? ` · degraded: ${report.degraded}` : ""}`;
+            const calls = Number.isFinite(report.budget.calls) ? `${report.usage.calls}/${report.budget.calls}` : `${report.usage.calls}`;
+            return `compaction: lcm · ${report.state} · model ${model} · ${report.rawEntries} entries · ${report.modelNodes}/${summaries} model summaries · today ${calls} calls, ${Math.round(report.usage.wallMs / 1000)}s${report.degraded ? ` · degraded: ${report.degraded}` : ""}`;
           })(),
           `MCP: ${config.mcp.enabled ? "enabled" : "disabled"}`,
           `UI: ${config.ui.enabled ? `${config.ui.widget} widget above chat` : "disabled"}`,

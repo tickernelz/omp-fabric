@@ -17,6 +17,7 @@ export interface LcmReport {
   emergencyNodes: number;
   pendingNodes: number;
   pendingJobs: number;
+  upgradableNodes: number;
   usage: { calls: number; inputTokens: number; outputTokens: number; cost: number; wallMs: number };
   budget: { calls: number; sessionCalls: number; wallMs: number };
 }
@@ -30,6 +31,7 @@ export interface LcmRuntimeOptions {
   lcmMaxOutputTokens?: number;
   lcmMaxOutputChars?: number;
   maxMaintenancePasses?: number;
+  modelSummaries?: boolean;
   maxDailyModelCalls?: number;
   maxSessionModelCalls?: number;
   maxDailyModelSeconds?: number;
@@ -66,9 +68,9 @@ export class LcmRuntime {
       ...(initial.lcmMaxInputChars === undefined ? {} : { maxInputChars: initial.lcmMaxInputChars }),
       ...(initial.lcmMaxOutputChars === undefined ? {} : { maxOutputChars: initial.lcmMaxOutputChars }),
       budget: {
-        ...(initial.maxDailyModelCalls === undefined ? {} : { calls: initial.maxDailyModelCalls }),
-        ...(initial.maxSessionModelCalls === undefined ? {} : { sessionCalls: initial.maxSessionModelCalls }),
-        ...(initial.maxDailyModelSeconds === undefined ? {} : { wallMs: initial.maxDailyModelSeconds * 1_000 }),
+        ...(initial.maxDailyModelCalls ? { calls: initial.maxDailyModelCalls } : {}),
+        ...(initial.maxSessionModelCalls ? { sessionCalls: initial.maxSessionModelCalls } : {}),
+        ...(initial.maxDailyModelSeconds ? { wallMs: initial.maxDailyModelSeconds * 1_000 } : {}),
       },
     });
   }
@@ -174,8 +176,10 @@ export class LcmRuntime {
 
   private async runMaintenance(): Promise<void> {
     if (this.closed || !this.activeSessionId || this.activeSources.size === 0) return;
+    const wantsModel = this.options.modelSummaries !== false;
     let model: LcmSummarizer;
     try {
+      if (!wantsModel) throw new Error("model summaries are disabled by configuration");
       model = new LcmModelAdapter(this.context, this.options.summaryModel, true, {
         ...(this.options.lcmMaxInputChars === undefined ? {} : { maxInputChars: this.options.lcmMaxInputChars }),
         ...(this.options.lcmMaxOutputTokens === undefined ? {} : { maxOutputTokens: this.options.lcmMaxOutputTokens }),
@@ -225,7 +229,14 @@ export class LcmRuntime {
           if (job) await runJob(job, node);
         }
       }
-      if (!leaf && pending.length === 0 && children.length < fanIn) break;
+      if (!leaf && pending.length === 0 && children.length < fanIn) {
+        const upgrades = this.maintenance.selectUpgrades(sessionId, this.activeSources, this.context.sessionManager.getLeafId(), 1);
+        const upgrade = upgrades[0];
+        if (!upgrade) break;
+        const job = this.maintenance.reopen(upgrade.nodeId);
+        await runJob(job, upgrade);
+        continue;
+      }
     }
   }
 
@@ -301,6 +312,7 @@ export class LcmRuntime {
         emergencyNodes: nodes.filter((row) => row.model === "emergency").reduce((total, row) => total + row.n, 0),
         pendingNodes: nodes.filter((row) => row.state !== "ready").reduce((total, row) => total + row.n, 0),
         pendingJobs: count("SELECT count(*) n FROM maintenance_jobs WHERE project_key=? AND status=?", this.projectKey, "pending"),
+        upgradableNodes: count("SELECT count(*) n FROM summary_nodes WHERE project_key=? AND json_extract(payload,'$.modelHash')=?", this.projectKey, "emergency"),
         usage: { calls: usage.calls, inputTokens: usage.input, outputTokens: usage.output, cost: usage.cost, wallMs: usage.wallMs },
         budget: { calls: budget.calls, sessionCalls: budget.sessionCalls, wallMs: budget.wallMs },
       };

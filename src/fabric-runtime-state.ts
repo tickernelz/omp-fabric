@@ -167,6 +167,7 @@ export interface LcmStatusSource {
     emergencyNodes: number;
     pendingNodes: number;
     pendingJobs: number;
+    upgradableNodes: number;
     usage: { calls: number; inputTokens: number; outputTokens: number; cost: number; wallMs: number };
     budget: { calls: number; sessionCalls: number; wallMs: number };
   };

@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.8.0
+
+### Changed
+
+- Model summaries carry no budget by default. `lcmMaxDailyModelCalls`, `lcmMaxSessionModelCalls`, and `lcmMaxDailyModelSeconds` now default to 0, which means no cap, so a deterministic excerpt appears only when the summary model cannot be called. Setting any of them applies that cap, and `compaction.lcmModelSummaries: false` turns model summarization off outright for a session that should never spend on it.
+
+### Added
+
+- Maintenance replaces a deterministic node with a model summary once the model answers again. A node written by the emergency reducer previously owned its source range forever, because leaf selection treats any ready node as covering its sources, so a single provider outage or exhausted budget left that range as an excerpt permanently. `/fabric lcm` reports how many such nodes are queued.
+
 ## 1.7.0
 
 ### Added

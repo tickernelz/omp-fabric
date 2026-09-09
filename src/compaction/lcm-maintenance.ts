@@ -11,7 +11,7 @@ export interface LcmNode { nodeId: string; projectKey: string; sessionId: string
 export interface LcmJob { jobId: string; projectKey: string; nodeId: string; priority: number; eligibleAt: number; state: LcmJobState; ownerId?: string; leaseToken?: string; leaseUntil?: number; attempts: number; nextRetryAt: number; error?: string; createdAt: number; updatedAt: number; }
 export interface LcmBudget { calls: number; inputTokens: number; outputTokens: number; cost: number; wallMs: number; }
 export interface LcmBudgetPolicy extends LcmBudget { sessionCalls: number; }
-const DEFAULT_LCM_BUDGET: LcmBudgetPolicy = { calls: 512, inputTokens: 64_000_000, outputTokens: 4_000_000, cost: Number.POSITIVE_INFINITY, wallMs: 7_200_000, sessionCalls: 256 };
+const DEFAULT_LCM_BUDGET: LcmBudgetPolicy = { calls: Number.POSITIVE_INFINITY, inputTokens: Number.POSITIVE_INFINITY, outputTokens: Number.POSITIVE_INFINITY, cost: Number.POSITIVE_INFINITY, wallMs: Number.POSITIVE_INFINITY, sessionCalls: Number.POSITIVE_INFINITY };
 export interface LcmMaintenanceOptions { now?: () => number; ownerId?: string; policyHash?: string; maxLeafEntries?: number; maxCondenseChildren?: number; maxInputChars?: number; maxOutputChars?: number; budget?: Partial<LcmBudgetPolicy>; }
 const hash = (v: unknown) => hashLcmPayload(v);
 const parse = <T>(v: unknown): T => JSON.parse(String(v));
@@ -30,6 +30,29 @@ export class LcmMaintenance {
   private readonly budget: LcmBudgetPolicy;
   constructor(private readonly ledger: LcmLedger, options: LcmMaintenanceOptions = {}) { this.projectKey = ledger.project.key; this.now = options.now ?? Date.now; this.ownerId = options.ownerId ?? crypto.randomUUID(); this.policyHash = options.policyHash ?? hash("lcm-policy-v1"); this.maxLeaf = options.maxLeafEntries ?? 32; this.maxChildren = options.maxCondenseChildren ?? 4; this.maxInputChars = options.maxInputChars ?? 200_000; this.maxOutputChars = options.maxOutputChars ?? 4_096; this.budget = { ...DEFAULT_LCM_BUDGET, ...options.budget }; }
   budgetPolicy(): LcmBudgetPolicy { return { ...this.budget }; }
+  selectUpgrades(sessionId?: string, activeSources?: ReadonlySet<string>, branch?: string | null, limit = 1): LcmNode[] {
+    return this.listNodes(100000)
+      .filter(node => node.state === "ready" && node.modelHash === "emergency" && node.policyHash === this.policyHash
+        && (!sessionId || node.sessionId === sessionId)
+        && (branch === undefined || node.branch === branch || node.branch === null)
+        && (!activeSources || node.sources.every(source => activeSources.has(this.sourceKey(source)))))
+      .sort((left, right) => left.depth - right.depth || left.nodeId.localeCompare(right.nodeId))
+      .slice(0, limit);
+  }
+  reopen(nodeId: string): LcmJob {
+    return this.ledger.transaction(db => {
+      const row = db.prepare("SELECT payload FROM summary_nodes WHERE node_id=? AND project_key=?").get(nodeId, this.projectKey) as { payload?: string } | undefined;
+      if (!row?.payload) throw new Error("node not found");
+      const node = parse<LcmNode>(row.payload);
+      if (node.projectKey !== this.projectKey) throw new Error("node project does not match ledger project");
+      if (node.modelHash !== "emergency") throw new Error("node already carries a model summary");
+      const t = this.now();
+      const job: LcmJob = { ...this.job(node), jobId: `job:upgrade:${token()}:${node.nodeId}`, createdAt: t, updatedAt: t };
+      db.prepare("INSERT INTO maintenance_jobs(job_id,project_key,status,payload,created_at,updated_at) VALUES(?,?,?,?,?,?)")
+        .run(job.jobId, this.projectKey, job.state, JSON.stringify(job), job.createdAt, job.updatedAt);
+      return job;
+    });
+  }
   listNodes(limit = 100): LcmNode[] { return this.ledger.readOnly(db => (db.prepare("SELECT payload FROM summary_nodes WHERE project_key=? ORDER BY created_at,node_id LIMIT ?").all(this.projectKey, limit) as Array<{payload:string}>).map(r => { const node = parse<LcmNode>(r.payload); if (node.projectKey !== this.projectKey) throw new Error("node project does not match ledger project"); return node; })); }
   getNode(nodeId: string): LcmNode | undefined { return this.ledger.readOnly(db => { const row = db.prepare("SELECT payload FROM summary_nodes WHERE node_id=? AND project_key=?").get(nodeId, this.projectKey) as {payload?:string}|undefined; if (!row?.payload) return undefined; const node = parse<LcmNode>(row.payload); if (node.projectKey !== this.projectKey) throw new Error("node project does not match ledger project"); return node; }); }
   getFrontier(sessionId?: string, branch?: string | null, activeSources?: ReadonlySet<string>): LcmNode[] { const nodes=this.listNodes(100000).filter(n => n.state === "ready" && n.policyHash === this.policyHash && (!sessionId || n.sessionId === sessionId) && (branch === undefined || n.branch === branch || n.branch === null) && (!activeSources || n.sources.every(s => activeSources.has(this.sourceKey(s))))) ; const covered=new Set(nodes.flatMap(n=>n.children)); return nodes.filter(n=>!covered.has(n.nodeId)); }

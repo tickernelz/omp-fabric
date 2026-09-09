@@ -167,6 +167,7 @@ describe("/fabric command", () => {
           emergencyNodes: 12,
           pendingNodes: 0,
           pendingJobs: 0,
+          upgradableNodes: 12,
           usage: { calls: 4, inputTokens: 82261, outputTokens: 3952, cost: 0.613, wallMs: 55110 },
           budget: { calls: 512, sessionCalls: 256, wallMs: 60000 },
         }),
@@ -190,7 +191,8 @@ describe("/fabric command", () => {
     expect(text).toContain("frontier: 32/2368 active sources covered (1%)");
     expect(text).toContain("4 written by the model · 12 deterministic");
     expect(text).toContain("today: 4/512 calls · 55s/60s");
-    expect(text).toContain("Daily model budget cannot fit another summary (5s left, 14s per call)");
+    expect(text).toContain("The configured model budget cannot fit another summary (5s left, 14s per call)");
+    expect(text).toContain("upgradable: 12 deterministic nodes queued for a model summary");
     expect(text).toContain("Pick one in /fabric settings under Compaction");
     expect(notify.mock.calls[0]?.[1]).toBe("info");
   });
