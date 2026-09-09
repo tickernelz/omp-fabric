@@ -76,6 +76,8 @@ Automatic raw deletion is disabled.
     "engine": "lcm",
     "summaryModel": "provider/model",
     "targetContextRatio": 0.75,
+    "softThresholdRatio": 0.55,
+    "hardThresholdRatio": 0,
     "lcmMaxInputChars": 48000,
     "lcmMaxOutputTokens": 4096,
     "lcmMaxOutputChars": 16384,
@@ -102,6 +104,16 @@ bun run check
 ```
 
 This command includes typecheck, a fresh `dist/` build, the lazy-graph assertion, the full test suite, and dead-code lint.
+
+## Occupancy thresholds
+
+`softThresholdRatio` gates maintenance, never persistence. Every `agent_end` and `session_compact` reads the session branch back into the ledger unconditionally; only the model-spending maintenance pass waits for context occupancy to reach the ratio. When `getContextUsage()` is missing or reports an unknown percentage, maintenance runs: a missing reading never silently disables LCM.
+
+`hardThresholdRatio` is the blocking trigger and is disabled at `0`. A model listed in `thresholds` or `tokenThresholds` uses its own entry; every other model falls back to this ratio when it is above `0`. Normalization keeps the soft ratio strictly below an enabled hard ratio.
+
+## Addressed summaries
+
+Every summary a compaction serves carries engine-derived addresses beneath each node's text: `address: lcm.summary:<nodeId>` for the node itself, then `sources: lcm.raw:<session>:<entry>:<revision>` for the raw entries it covers, or `children: lcm.summary:<nodeId>` for a condensed node. These are the exact forms `memory.expand` parses, so a model reading a summary can always retrieve what was summarized. They are appended after the frontier walk from ledger data and are never taken from model output. When the address blocks do not fit the summary budget, source addresses are dropped first and the remainder is reported as `+N more`; the node's own address is kept, because without it the node cannot be expanded at all. One recovery pointer line closes the whole summary.
 
 ## Maintenance throughput
 

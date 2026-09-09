@@ -3,7 +3,9 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { ExtensionContext, SessionEntry } from "@oh-my-pi/pi-coding-agent";
 import { canonicalLcmPayload } from "../../src/storage/lcm-ledger.js";
-import { LcmRuntime } from "../../src/compaction/lcm-runtime.js";
+import { LcmRuntime, renderAddressedFrontier } from "../../src/compaction/lcm-runtime.js";
+import { LCM_RECOVERY_POINTER } from "../../src/compaction/render.js";
+import { MAX_SUMMARY_BYTES } from "../../src/compaction/bounds.js";
 import { closeAfterTest, releaseTemp, tempRoot } from "../fixtures/lcm-temp.js";
 
 const makeRoot = (): string => tempRoot("lcm-runtime-");
@@ -295,8 +297,8 @@ describe("LCM runtime", () => {
     const newer = makeEntry("same-entry", "newer payload");
     runtime.ledger.appendRaw({ projectKey: runtime.projectKey, sessionId: "session-1", entryId: newer.id, role: "user", content: "newer payload", payloadJson: canonicalLcmPayload(newer) });
     const result = runtime.compact({ branchEntries: [historical], sessionId: "session-1", branch: "branch-a", firstKeptEntryId: "missing", tokensBefore: 100 });
-    expect(result.summary).toContain("session-1/same-entry@1:");
-    expect(result.summary).not.toContain("session-1/same-entry@2:");
+    expect(result.summary).toContain("lcm.raw:session-1:same-entry:1");
+    expect(result.summary).not.toContain("lcm.raw:session-1:same-entry:2");
     const stored = runtime.ledger.readRawEntry(runtime.projectKey, "session-1", "same-entry", 1);
     expect(stored?.payloadJson).toBe(canonicalLcmPayload(historical));
     await runtime.shutdown();
@@ -305,7 +307,12 @@ describe("LCM runtime", () => {
     const root = makeRoot(); const entries = [makeEntry("old", "old source"), makeEntry("new", "new source", "old")]; const runtime = openRuntime(makeContext(root, entries), { rootDir: root }); await runtime.readback();
     const rows = runtime.raw("session-1"); const leaf = runtime.maintenance.createLeaf([rows[0]!]); if (!leaf) throw new Error("expected leaf"); const job = runtime.maintenance.listJobs().find((item) => item.nodeId === leaf.nodeId); if (!job) throw new Error("expected job"); const claimed = runtime.maintenance.claim(job.jobId); runtime.maintenance.complete(claimed, { text: "partial summary", inputTokens: 1, outputTokens: 1, cost: 0, wallMs: 1, modelHash: "test" });
     const result = runtime.compact({ branchEntries: entries, sessionId: "session-1", branch: "branch-a", firstKeptEntryId: "missing", tokensBefore: 100 });
-    expect(result.source).toBe("emergency"); expect(result.summary).toContain("session-1/new@1:"); await runtime.shutdown();
+    expect(result.source).toBe("emergency");
+    const addressed = /sources: (.+)/.exec(result.summary)?.[1] ?? "";
+    const listed = addressed.split(", ").filter((part) => part.startsWith("lcm.raw:session-1:")).length;
+    const omitted = Number(/\+(\d+) more/.exec(addressed)?.[1] ?? 0);
+    expect(listed + omitted).toBe(2);
+    await runtime.shutdown();
   });
   it("persists new compaction entries before emitting provenance", async () => {
     const root = makeRoot();
@@ -315,7 +322,7 @@ describe("LCM runtime", () => {
     expect(result.source).toBe("emergency");
     const stored = runtime.raw("session-1")[0];
     expect(stored?.revision).toBe(1);
-    expect(result.summary).toContain("session-1/new-entry@1:");
+    expect(result.summary).toContain("lcm.raw:session-1:new-entry:1");
     expect(Buffer.byteLength(result.summary, "utf8")).toBeLessThanOrEqual(1_024);
     expect(runtime.frontier("session-1", "branch-a")).toHaveLength(1);
     await runtime.shutdown();
@@ -350,8 +357,9 @@ describe("LCM runtime", () => {
     const entries = [makeEntry("e1", "old source"), makeEntry("e2", "fresh tail", "e1")];
     const runtime = openRuntime(makeContext(root, entries), { rootDir: root });
     await runtime.readback();
-    const rows = runtime.raw("session-1");
-    const node = runtime.maintenance.createLeaf([rows[0]!]);
+    const head = runtime.raw("session-1").find((row) => row.entryId === "e1");
+    if (!head) throw new Error("expected persisted head entry");
+    const node = runtime.maintenance.createLeaf([head]);
     if (!node) throw new Error("expected leaf");
     const job = runtime.maintenance.listJobs().find((item) => item.nodeId === node.nodeId);
     if (!job) throw new Error("expected leaf job");
@@ -412,5 +420,78 @@ describe("LCM runtime", () => {
     await runtime.shutdown();
     await runtime.shutdown();
     await expect(runtime.readback()).resolves.toBeUndefined();
+  });
+
+  it("addresses every frontier node and its raw sources", async () => {
+    const root = makeRoot();
+    const entries = [makeEntry("e1", "old source"), makeEntry("e2", "fresh tail", "e1")];
+    const runtime = openRuntime(makeContext(root, entries), { rootDir: root });
+    await runtime.readback();
+    const head = runtime.raw("session-1").find((row) => row.entryId === "e1");
+    if (!head) throw new Error("expected persisted head entry");
+    const node = runtime.maintenance.createLeaf([head]);
+    if (!node) throw new Error("expected leaf");
+    const job = runtime.maintenance.listJobs().find((item) => item.nodeId === node.nodeId);
+    if (!job) throw new Error("expected leaf job");
+    runtime.maintenance.complete(runtime.maintenance.claim(job.jobId), { text: "ready semantic summary", inputTokens: 1, outputTokens: 1, cost: 0, wallMs: 1, modelHash: "test" });
+    const result = runtime.compact({ branchEntries: entries, sessionId: "session-1", branch: "branch-a", firstKeptEntryId: "e2", tokensBefore: 9000 });
+    expect(result.source).toBe("ready-frontier");
+    const frontier = runtime.frontier("session-1", "branch-a");
+    expect(frontier.length).toBeGreaterThan(0);
+    for (const rendered of frontier) expect(result.summary).toContain(`lcm.summary:${rendered.nodeId}`);
+    expect(result.summary).toContain(`lcm.raw:session-1:e1:${head.revision}`);
+    expect(result.summary.split(LCM_RECOVERY_POINTER)).toHaveLength(2);
+    expect(Buffer.byteLength(result.summary, "utf8")).toBeLessThanOrEqual(MAX_SUMMARY_BYTES);
+    await runtime.shutdown();
+  });
+
+  it("addresses a condensed node through its children", () => {
+    const frontier = [{ nodeId: "top", kind: "condensed", sources: [], children: ["a", "b"], text: "rolled up" }] as unknown as Parameters<typeof renderAddressedFrontier>[0];
+    const rendered = renderAddressedFrontier(frontier);
+    expect(rendered).toContain("lcm.summary:top");
+    expect(rendered).toContain("children: lcm.summary:a, lcm.summary:b");
+  });
+
+  it("persists without spending model calls below the maintenance occupancy", async () => {
+    const root = makeRoot();
+    const entries = [makeEntry("e1", "source")];
+    const context = makeContext(root, entries);
+    (context as unknown as { getContextUsage: () => unknown }).getContextUsage = () => ({ tokens: 1_000, contextWindow: 100_000, percent: 20 });
+    const runtime = openRuntime(context, { rootDir: root, softThresholdRatio: 0.55 });
+    let scheduled = 0;
+    (runtime as unknown as { scheduleMaintenance: () => void }).scheduleMaintenance = () => { scheduled += 1; };
+    await runtime.syncAndSchedule();
+    expect(scheduled).toBe(0);
+    expect(runtime.raw("session-1")).toHaveLength(1);
+    await runtime.shutdown();
+  });
+
+  it("schedules maintenance once the occupancy reaches the soft threshold", async () => {
+    const root = makeRoot();
+    const entries = [makeEntry("e1", "source")];
+    const context = makeContext(root, entries);
+    (context as unknown as { getContextUsage: () => unknown }).getContextUsage = () => ({ tokens: 80_000, contextWindow: 100_000, percent: 80 });
+    const runtime = openRuntime(context, { rootDir: root, softThresholdRatio: 0.55 });
+    let scheduled = 0;
+    (runtime as unknown as { scheduleMaintenance: () => void }).scheduleMaintenance = () => { scheduled += 1; };
+    await runtime.syncAndSchedule();
+    expect(scheduled).toBe(1);
+    expect(runtime.raw("session-1")).toHaveLength(1);
+    await runtime.shutdown();
+  });
+
+  it("runs maintenance when the occupancy cannot be read", async () => {
+    const root = makeRoot();
+    const entries = [makeEntry("e1", "source")];
+    const missing = makeContext(root, entries);
+    const nulled = makeContext(root, entries);
+    (nulled as unknown as { getContextUsage: () => unknown }).getContextUsage = () => ({ tokens: null, contextWindow: null, percent: null });
+    const throwing = makeContext(root, entries);
+    (throwing as unknown as { getContextUsage: () => unknown }).getContextUsage = () => { throw new Error("no reading"); };
+    for (const context of [missing, nulled, throwing]) {
+      const runtime = openRuntime(context, { rootDir: root, softThresholdRatio: 0.55 });
+      expect(runtime.maintenanceOccupancyReached()).toBe(true);
+      await runtime.shutdown();
+    }
   });
 });

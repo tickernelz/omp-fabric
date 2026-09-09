@@ -485,6 +485,8 @@ Mesh topics, shared state, and the participant directory remain project-scoped. 
 
 The LCM compaction engine is on by default. It keeps OMP's bounded `keepRecentTokens` continuity tail and assembles durable summary nodes. `compaction.targetContextRatio` sets a hard occupancy ceiling. Set `compaction.engine` to `"omp"` to use OMP's native compaction. See [compaction](compaction.md) for invariants, loss guarantees, sections, and limits.
 
+Two occupancy ratios decide when work happens. `compaction.softThresholdRatio` (default `0.55`, clamped to 0.10-0.95) is the occupancy that must be reached before maintenance spends model calls; below it a turn still appends every entry to the ledger, so the store stays lossless whatever the ratio is. `compaction.hardThresholdRatio` (default `0`, meaning disabled, otherwise clamped to 0.20-0.98) is the occupancy at which Fabric compacts a model that has no entry of its own in `compaction.thresholds` or `compaction.tokenThresholds`; leaving it at `0` keeps the blocking trigger with the host. Per-model entries always win over it. When an enabled hard ratio is not above the soft one, the soft ratio is lowered to `hard - 0.05` and re-clamped, so maintenance always has a window before the blocking trigger.
+
 ## Catalog repairs
 
 Silent invocation repairs are on by default. `repairs.enabled` controls the catalog-scoped table at `<active OMP agent dir>/fabric/repairs/current.json`. Inspect it with `/fabric repairs`. See [catalog repairs](repairs.md).

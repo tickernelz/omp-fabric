@@ -263,6 +263,15 @@ describe("FabricSettingsComponent", () => {
     expect(target?.values).toEqual(
       Array.from({ length: 13 }, (_, index) => String((25 + index * 5) / 100)),
     );
+    const ratios = (section.items as Array<{ id: string; label: string; currentValue: string; values?: readonly string[] }>);
+    const soft = ratios.find((item) => item.id === "compaction.softThresholdRatio");
+    expect(soft?.label).toBe("Maintenance occupancy");
+    expect(soft?.currentValue).toBe("0.55");
+    expect(soft?.values).toEqual(Array.from({ length: 18 }, (_, index) => String((10 + index * 5) / 100)));
+    const hard = ratios.find((item) => item.id === "compaction.hardThresholdRatio");
+    expect(hard?.label).toBe("Forced compaction occupancy");
+    expect(hard?.currentValue).toBe("0");
+    expect(hard?.values?.[0]).toBe("0");
   });
 
   it("persists the active model's compaction threshold as a custom percent", () => {

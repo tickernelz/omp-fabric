@@ -1,7 +1,10 @@
 import type { ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 import { canonicalLcmPayload, canonicalProjectIdentity, hashLcmPayload, LcmLedger, type RawEntry } from "../storage/lcm-ledger.js";
 import { reconcileSession } from "../storage/lcm-migration.js";
+import { clipUtf8, MAX_SUMMARY_BYTES, utf8Bytes } from "./bounds.js";
+import { lcmSummaryAddress, renderLcmChildAddresses, renderLcmSourceAddresses } from "./lcm-addresses.js";
 import { emergencyReduce, LcmModelAdapter, type LcmSummarizer } from "./lcm-model.js";
+import { LCM_RECOVERY_POINTER } from "./render.js";
 import { LcmMaintenance, type LcmBudgetPolicy, type LcmJob, type LcmNode } from "./lcm-maintenance.js";
 import type { LcmCompactionInput, LcmCompactionOutput } from "./hook.js";
 
@@ -46,7 +49,28 @@ export interface LcmRuntimeOptions {
   maxSessionModelCalls?: number;
   maxDailyModelSeconds?: number;
   maintenanceRunSeconds?: number;
+  softThresholdRatio?: number;
 }
+
+const NODE_ADDRESS_LABEL = "address: ";
+
+export const renderAddressedFrontier = (frontier: readonly LcmNode[]): string => {
+  const blocks = frontier
+    .filter((node) => Boolean(node.text))
+    .map((node) => ({ node, head: `${node.text ?? ""}\n${NODE_ADDRESS_LABEL}${lcmSummaryAddress(node.nodeId)}` }));
+  if (blocks.length === 0) return "";
+  const footer = `\n\n${LCM_RECOVERY_POINTER}`;
+  const mandatory = utf8Bytes(blocks.map((block) => block.head).join("\n\n")) + utf8Bytes(footer);
+  const perNode = Math.max(0, Math.floor((MAX_SUMMARY_BYTES - mandatory) / blocks.length) - 1);
+  const rendered = blocks.map(({ node, head }) => {
+    const addresses = node.sources.length > 0
+      ? renderLcmSourceAddresses(node.sources, perNode)
+      : renderLcmChildAddresses(node.children, perNode);
+    return addresses ? `${head}\n${addresses}` : head;
+  });
+  const summary = `${rendered.join("\n\n")}${footer}`;
+  return utf8Bytes(summary) <= MAX_SUMMARY_BYTES ? summary : clipUtf8(summary, MAX_SUMMARY_BYTES, "");
+};
 
 export class LcmRuntime {
   readonly ledger: LcmLedger;
@@ -174,7 +198,22 @@ export class LcmRuntime {
   async syncAndSchedule(): Promise<void> {
     if (this.closed) return;
     await this.readback();
-    this.scheduleMaintenance();
+    if (this.maintenanceOccupancyReached()) this.scheduleMaintenance();
+  }
+
+  /** Fails open: an unreadable occupancy never disables maintenance. */
+  maintenanceOccupancyReached(): boolean {
+    const ratio = this.options.softThresholdRatio;
+    if (typeof ratio !== "number" || !Number.isFinite(ratio) || ratio <= 0) return true;
+    let usage: { percent: number | null } | undefined;
+    try {
+      usage = this.context.getContextUsage?.();
+    } catch {
+      return true;
+    }
+    const percent = usage?.percent;
+    if (typeof percent !== "number" || !Number.isFinite(percent)) return true;
+    return percent / 100 >= ratio;
   }
 
   maintain(): Promise<void> { return this.syncAndSchedule(); }
@@ -287,7 +326,7 @@ export class LcmRuntime {
     const activeSources = new Set(selectedStored.map((entry) => `${entry.sessionId}:${entry.entryId}:${entry.revision}`));
     const frontier = this.maintenance.getFrontier(input.sessionId, input.branch, activeSources);
     const coveredSources = new Set(frontier.flatMap((node) => node.sources.map((source) => `${source.sessionId}:${source.entryId}:${source.revision}`)));
-    const summary = frontier.map((node) => node.text ?? "").filter(Boolean).join("\n\n");
+    const summary = renderAddressedFrontier(frontier);
     if (summary && selectedStored.every((entry) => coveredSources.has(`${entry.sessionId}:${entry.entryId}:${entry.revision}`))) return { summary, firstKeptEntryId: input.firstKeptEntryId, tokensBefore: input.tokensBefore, source: "ready-frontier", branch: input.branch };
     if (selectedStored.length === 0) throw new Error("LCM emergency fallback has no persisted sources");
     const payloads = sourceEntries.map((entry) => canonicalLcmPayload(entry)).join("\n");
@@ -410,6 +449,7 @@ export class LcmRuntime {
         readRaw: (sessionId?: string) => this.ledger.readRaw(this.projectKey, sessionId),
         readRawPage: (sessionId?: string, offset?: number, limit?: number) => this.ledger.readRawPage(this.projectKey, sessionId, offset, limit),
         readRawEntry: (sessionId: string, entryId: string, revision: number) => this.ledger.readRawEntry(this.projectKey, sessionId, entryId, revision),
+        searchRaw: (options: Parameters<LcmLedger["searchRaw"]>[1]) => this.ledger.searchRaw(this.projectKey, options),
       },
       ...(this.activeSessionId === undefined ? {} : { currentSessionId: this.activeSessionId }),
       summaries: {

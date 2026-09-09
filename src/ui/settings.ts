@@ -71,6 +71,14 @@ const COMPACTION_TARGET_RATIOS = Array.from(
   { length: 13 },
   (_, index) => String((25 + index * 5) / 100),
 );
+const COMPACTION_SOFT_RATIOS = Array.from(
+  { length: 18 },
+  (_, index) => String((10 + index * 5) / 100),
+);
+const COMPACTION_HARD_RATIOS = [
+  "0",
+  ...Array.from({ length: 16 }, (_, index) => String((20 + index * 5) / 100)),
+];
 const ACTOR_SCOPES = ["project", "session"] as const;
 const DIFF_INTENSITIES = ["off", "subtle", "medium"] as const;
 const WORD_EMPHASES = ["all", "smart", "off"] as const;
@@ -1943,6 +1951,26 @@ export const buildFabricSettingsItems = (
               description:
                 "Hard post-compaction occupancy ceiling used by LCM context assembly.",
               values: COMPACTION_TARGET_RATIOS,
+            },
+          ),
+          setting(
+            "compaction.softThresholdRatio",
+            "Maintenance occupancy",
+            String(config.compaction.softThresholdRatio),
+            {
+              description:
+                "Occupancy that must be reached before LCM spends model calls on summaries. Persistence is never gated by it.",
+              values: COMPACTION_SOFT_RATIOS,
+            },
+          ),
+          setting(
+            "compaction.hardThresholdRatio",
+            "Forced compaction occupancy",
+            String(config.compaction.hardThresholdRatio),
+            {
+              description:
+                "Occupancy at which Fabric compacts any model without its own threshold entry. 0 leaves the trigger to the host.",
+              values: COMPACTION_HARD_RATIOS,
             },
           ),
         ],

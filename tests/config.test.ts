@@ -575,6 +575,32 @@ describe("Fabric configuration", () => {
     }
   });
 
+  it("defaults the maintenance occupancy below a disabled forced threshold", () => {
+    const config = normalizeFabricConfig({});
+    expect(config.compaction.softThresholdRatio).toBe(0.55);
+    expect(config.compaction.hardThresholdRatio).toBe(0);
+  });
+
+  it("clamps both threshold ratios into their own ranges", () => {
+    expect(normalizeFabricConfig({ compaction: { softThresholdRatio: 0.01 } }).compaction.softThresholdRatio).toBe(0.1);
+    expect(normalizeFabricConfig({ compaction: { softThresholdRatio: 9 } }).compaction.softThresholdRatio).toBe(0.95);
+    expect(normalizeFabricConfig({ compaction: { hardThresholdRatio: -1 } }).compaction.hardThresholdRatio).toBe(0);
+    expect(normalizeFabricConfig({ compaction: { hardThresholdRatio: 0.05 } }).compaction.hardThresholdRatio).toBe(0.2);
+    expect(normalizeFabricConfig({ compaction: { hardThresholdRatio: 1 } }).compaction.hardThresholdRatio).toBe(0.98);
+  });
+
+  it("lowers the soft ratio below an enabled hard ratio", () => {
+    const collided = normalizeFabricConfig({ compaction: { softThresholdRatio: 0.9, hardThresholdRatio: 0.7 } }).compaction;
+    expect(collided.hardThresholdRatio).toBe(0.7);
+    expect(collided.softThresholdRatio).toBeCloseTo(0.65, 10);
+    expect(collided.softThresholdRatio).toBeLessThan(collided.hardThresholdRatio);
+    const floored = normalizeFabricConfig({ compaction: { softThresholdRatio: 0.5, hardThresholdRatio: 0.2 } }).compaction;
+    expect(floored.softThresholdRatio).toBeCloseTo(0.15, 10);
+    expect(floored.softThresholdRatio).toBeLessThan(floored.hardThresholdRatio);
+    const untouched = normalizeFabricConfig({ compaction: { softThresholdRatio: 0.4, hardThresholdRatio: 0.8 } }).compaction;
+    expect(untouched.softThresholdRatio).toBe(0.4);
+  });
+
   it("does not set a compaction engine environment override", () => {
     const config = normalizeFabricConfig({ compaction: { engine: "fabric" } });
     expect(config.compaction.engine).toBe("lcm");

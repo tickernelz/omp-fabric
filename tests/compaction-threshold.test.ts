@@ -52,6 +52,30 @@ describe("model-linked compaction thresholds", () => {
   });
 
 
+  it("falls back to the hard threshold only for models without their own entry", async () => {
+    const config = structuredClone(DEFAULT_FABRIC_CONFIG);
+    config.compaction.hardThresholdRatio = 0.75;
+    const reached = contextWithUsage(80);
+    await expect(compactAtConfiguredThreshold(reached, config)).resolves.toBe(true);
+
+    const below = contextWithUsage(70);
+    await expect(compactAtConfiguredThreshold(below, config)).resolves.toBe(false);
+    expect(below.compact).not.toHaveBeenCalled();
+
+    config.compaction.thresholds["anthropic/sonnet"] = 0.9;
+    const overridden = contextWithUsage(80);
+    await expect(compactAtConfiguredThreshold(overridden, config)).resolves.toBe(false);
+    expect(overridden.compact).not.toHaveBeenCalled();
+  });
+
+  it("leaves the trigger to the host when the hard threshold is disabled", async () => {
+    const config = structuredClone(DEFAULT_FABRIC_CONFIG);
+    expect(config.compaction.hardThresholdRatio).toBe(0);
+    const context = contextWithUsage(99);
+    await expect(compactAtConfiguredThreshold(context, config)).resolves.toBe(false);
+    expect(context.compact).not.toHaveBeenCalled();
+  });
+
   it("does not compact below threshold or for an unconfigured model", async () => {
     const config = structuredClone(DEFAULT_FABRIC_CONFIG);
     config.compaction.thresholds["anthropic/sonnet"] = 0.85;

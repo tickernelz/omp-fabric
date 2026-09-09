@@ -46,7 +46,8 @@ export const compactAtConfiguredThreshold = async (
     return runThresholdCompact(context);
   }
 
-  const threshold = configuredCompactionThreshold(config, modelKey);
+  const threshold = configuredCompactionThreshold(config, modelKey)
+    ?? (config.compaction.hardThresholdRatio > 0 ? config.compaction.hardThresholdRatio : undefined);
   if (threshold === undefined || usage.percent === null) return false;
   if (usage.percent / 100 < threshold) return false;
 

@@ -199,6 +199,8 @@ interface FabricCompactionConfig {
   engine: FabricCompactionEngine;
   summaryModel?: string;
   targetContextRatio: number;
+  softThresholdRatio: number;
+  hardThresholdRatio: number;
   thresholds: Record<string, number>;
   tokenThresholds: Record<string, number>;
   lcmMaxInputChars: number;
@@ -230,6 +232,32 @@ export const clampCompactionRatioThreshold = (value: number): number =>
     MAX_COMPACTION_RATIO_THRESHOLD,
     Math.max(MIN_COMPACTION_RATIO_THRESHOLD, value),
   );
+
+const MIN_SOFT_THRESHOLD_RATIO = 0.1;
+const MAX_SOFT_THRESHOLD_RATIO = 0.95;
+const MIN_HARD_THRESHOLD_RATIO = 0.2;
+const MAX_HARD_THRESHOLD_RATIO = 0.98;
+const SOFT_BELOW_HARD_MARGIN = 0.05;
+
+const clampSoftThresholdRatio = (value: number): number =>
+  Math.min(MAX_SOFT_THRESHOLD_RATIO, Math.max(MIN_SOFT_THRESHOLD_RATIO, value));
+
+const clampHardThresholdRatio = (value: number): number =>
+  value <= 0
+    ? 0
+    : Math.min(MAX_HARD_THRESHOLD_RATIO, Math.max(MIN_HARD_THRESHOLD_RATIO, value));
+
+const reconcileThresholdRatios = (
+  soft: number,
+  hard: number,
+): { soft: number; hard: number } => {
+  const clampedHard = clampHardThresholdRatio(hard);
+  const clampedSoft = clampSoftThresholdRatio(soft);
+  if (clampedHard > 0 && clampedSoft >= clampedHard) {
+    return { soft: clampSoftThresholdRatio(clampedHard - SOFT_BELOW_HARD_MARGIN), hard: clampedHard };
+  }
+  return { soft: clampedSoft, hard: clampedHard };
+};
 
 export interface FabricRetentionConfig {
   orphanedTempRunMs: number;
@@ -452,6 +480,8 @@ export const DEFAULT_FABRIC_CONFIG: FabricConfig = {
   compaction: {
     engine: "lcm",
     targetContextRatio: 0.75,
+    softThresholdRatio: 0.55,
+    hardThresholdRatio: 0,
     thresholds: {},
     tokenThresholds: {},
     lcmMaxInputChars: 200_000,
@@ -746,6 +776,17 @@ export const normalizeFabricConfig = (input: Record<string, unknown>): FabricCon
         model,
         clampCompactionTokenThreshold(tokens as number),
       ]),
+  );
+  const thresholdRatios = reconcileThresholdRatios(
+    boundedFloat(
+      compaction.softThresholdRatio,
+      DEFAULT_FABRIC_CONFIG.compaction.softThresholdRatio,
+      MIN_SOFT_THRESHOLD_RATIO,
+      MAX_SOFT_THRESHOLD_RATIO,
+    ),
+    typeof compaction.hardThresholdRatio === "number" && Number.isFinite(compaction.hardThresholdRatio)
+      ? compaction.hardThresholdRatio
+      : DEFAULT_FABRIC_CONFIG.compaction.hardThresholdRatio,
   );
   const prewalkModel = stringValue(prewalk.model);
   const prewalkThinking = isFabricThinking(prewalk.thinking) ? prewalk.thinking : undefined;
@@ -1092,6 +1133,8 @@ export const normalizeFabricConfig = (input: Record<string, unknown>): FabricCon
         0.25,
         0.85,
       ),
+      softThresholdRatio: thresholdRatios.soft,
+      hardThresholdRatio: thresholdRatios.hard,
       thresholds: compactionThresholds,
       tokenThresholds: compactionTokenThresholds,
       lcmMaxInputChars: boundedInteger(compaction.lcmMaxInputChars, DEFAULT_FABRIC_CONFIG.compaction.lcmMaxInputChars, 1_024, 1_000_000),

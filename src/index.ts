@@ -537,6 +537,7 @@ export default async function ompFabric(omp: ExtensionAPI): Promise<void> {
         lcmMaxInputChars: state.config.compaction.lcmMaxInputChars,
         lcmMaxOutputTokens: state.config.compaction.lcmMaxOutputTokens,
         lcmMaxOutputChars: state.config.compaction.lcmMaxOutputChars,
+        softThresholdRatio: state.config.compaction.softThresholdRatio,
       }));
       lcmCwd = lcmRuntime ? context.cwd : undefined;
       lcmProjectKey = lcmRuntime?.projectKey;
