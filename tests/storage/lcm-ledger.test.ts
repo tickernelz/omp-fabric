@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
-import { createDeleteConfirmationToken, canonicalProjectIdentity, hashLcmPayload } from "../../src/storage/lcm-ledger.js";
-import { setSqliteDriver, sqliteDriver, type SqliteDriver } from "../../src/storage/sqlite.js";
+import { createDeleteConfirmationToken, canonicalProjectIdentity, hashLcmPayload, type DeleteManifest } from "../../src/storage/lcm-ledger.js";
+import { setSqliteDriver, sqliteDriver, type SqliteDatabase, type SqliteDriver } from "../../src/storage/sqlite.js";
 import { openLedger, releaseTemp, tempRoot } from "../fixtures/lcm-temp.js";
 
 const LEGACY_SCHEMA = `
@@ -36,7 +36,29 @@ const legacyLedger = (dbPath: string, projectKey: string, contents: string[]): v
 
 const make = () => tempRoot("lcm-ledger-");
 afterEach(releaseTemp);
+const SUMMARY_MARKER = "quarantined summary body";
+const RAW_MARKER = "verbatim raw body";
+const FTS_INTERNALS = /_(data|idx|docsize|config)$/;
+const residue = (db: SqliteDatabase, marker: string): string[] =>
+  (db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").all() as Array<{ name: string }>)
+    .map(row => row.name)
+    .filter(name => !FTS_INTERNALS.test(name))
+    .filter(name => (db.prepare(`SELECT * FROM "${name}"`).all()).some(row => JSON.stringify(row).includes(marker)));
 const entry = (projectKey: string, content: string, entryId = "e1") => ({ projectKey, sessionId: "s1", entryId, role: "user", content, payloadJson: JSON.stringify({ type: "message", id: entryId, role: "user", content, parentId: null, branchId: "main", timestamp: 1 }) });
+const probeSearch = (dbPath: string, root: string) => {
+  const ledger = openLedger({ dbPath, project: { liveCwd: root } });
+  ledger.appendRaw(entry(ledger.project.key, "foobar shipping notes", "e1"));
+  ledger.appendRaw(entry(ledger.project.key, "unrelated body", "e2"));
+  const ids = (query: string, mode: "literal" | "phrase") => ledger.searchRaw(undefined, { query, mode, offset: 0, limit: 5 }).rows.map(row => row.entryId);
+  return {
+    fts: ledger.ftsAvailable,
+    infix: ids("oo", "literal"),
+    token: ids("FOOBAR", "literal"),
+    adjacent: ids("foobar shipping", "phrase"),
+    gapped: ids("foobar notes", "phrase"),
+    untokenizable: ledger.searchRaw(undefined, { query: "--", mode: "literal", offset: 0, limit: 5 }),
+  };
+};
 
 describe("LCM ledger", () => {
   it("is idempotent and creates immutable revisions", () => { const d = make(); const l = openLedger({ dbPath: path.join(d,"a.sqlite"), project: { liveCwd: d } }); const a = l.appendRaw(entry(l.project.key,"one")); expect(l.appendRaw(entry(l.project.key,"one"))).toEqual(a); const b = l.appendRaw(entry(l.project.key,"two")); expect(b.revision).toBe(2); expect(l.readRaw()).toHaveLength(2); l.close(); });
@@ -49,7 +71,7 @@ describe("LCM ledger", () => {
   it("rejects cross-project raw reads", () => { const d=make(); const l=openLedger({dbPath:path.join(d,"a.sqlite"),project:{liveCwd:d}}); const stored=l.appendRaw(entry(l.project.key,"session")); expect(() => l.readRaw("other-project")).toThrow("project key does not match ledger project"); expect(() => l.readRawPage("other-project")).toThrow("project key does not match ledger project"); expect(() => l.readRawEntry("other-project",stored.sessionId,stored.entryId,stored.revision)).toThrow("project key does not match ledger project"); l.close(); });
   it("reports checkpoint mode and operational state", () => { const d=make(); const l=openLedger({dbPath:path.join(d,"a.sqlite"),project:{liveCwd:d},warningBytes:1,maintenanceBytes:2}); const passive=l.checkpoint(); expect(passive.mode).toBe("passive"); expect(passive.busy).toBeGreaterThanOrEqual(0); expect(passive.logPages).toBeGreaterThanOrEqual(0); expect(passive.checkpointedPages).toBeGreaterThanOrEqual(0); expect(passive.truncated).toBe(false); const truncate=l.checkpoint("truncate"); expect(truncate.mode).toBe("truncate"); expect(truncate.truncated).toBe(truncate.busy === 0 && truncate.logPages === 0); expect(l.operationalState).toBe("maintenance"); l.markDegraded(); expect(l.operationalState).toBe("degraded"); expect(() => l.readRaw()).toThrow("ledger is degraded"); l.close(); });
   it("deletes project-owned edges and usage after verified backup", () => { const d=make(); const db=path.join(d,"a.sqlite"); const backup=path.join(d,"backup.sqlite"); const l=openLedger({dbPath:db,project:{liveCwd:d}}); l.appendRaw(entry(l.project.key,"keep")); l.transaction(database => { database.prepare("INSERT INTO summary_nodes(node_id,project_key,payload,created_at) VALUES(?,?,?,?)").run("n1",l.project.key,"{}",1); database.prepare("INSERT INTO summary_nodes(node_id,project_key,payload,created_at) VALUES(?,?,?,?)").run("n2",l.project.key,"{}",1); database.prepare("INSERT INTO summary_edges(parent_id,child_id) VALUES(?,?)").run("n2","n1"); database.prepare("INSERT INTO maintenance_usage(project_key,day,session_id,calls,input_tokens,output_tokens,cost,wall_ms) VALUES(?,?,?,?,?,?,?,?)").run(l.project.key,"2026-09-01","s1",1,2,3,0,4); }); const manifest=l.backup(backup); l.deleteProject(createDeleteConfirmationToken(l.project.key),manifest); expect((l.db.prepare("SELECT count(*) n FROM summary_edges").get() as {n:number}).n).toBe(0); expect((l.db.prepare("SELECT count(*) n FROM maintenance_usage").get() as {n:number}).n).toBe(0); expect((l.db.prepare("SELECT count(*) n FROM projects").get() as {n:number}).n).toBe(0); l.close(); });
-  it("creates a verified backup and requires a typed delete token", () => { const d=make(); const db=path.join(d,"a.sqlite"); const backup=path.join(d,"backup.sqlite"); const l=openLedger({dbPath:db,project:{liveCwd:d}}); l.appendRaw(entry(l.project.key,"keep")); const manifest=l.backup(backup); expect(manifest.format).toBe("lcm-ledger-backup"); expect(manifest.version).toBe(1); expect(manifest.integrity).toBe("ok"); expect(manifest.rowCounts.raw_entries).toBe(1); expect(manifest.rowCounts.maintenance_usage).toBe(0); if (process.platform !== "win32") { expect(fs.statSync(backup).mode & 0o777).toBe(0o600); expect(fs.statSync(`${backup}.manifest.json`).mode & 0o777).toBe(0o600); } expect(() => l.deleteProject({projectKey:l.project.key,value:"bad",__brand:"DeleteConfirmationToken"},manifest)).toThrow("invalid delete confirmation token"); l.deleteProject(createDeleteConfirmationToken(l.project.key),manifest); expect(l.readRaw()).toHaveLength(0); expect(fs.existsSync(`${backup}.delete-manifest.json`)).toBe(true); l.close(); });
+  it("creates a verified backup and requires a typed delete token", () => { const d=make(); const db=path.join(d,"a.sqlite"); const backup=path.join(d,"backup.sqlite"); const l=openLedger({dbPath:db,project:{liveCwd:d}}); l.appendRaw(entry(l.project.key,"keep")); const manifest=l.backup(backup); expect(manifest.format).toBe("lcm-ledger-backup"); expect(manifest.version).toBe(2); expect(manifest.integrity).toBe("ok"); expect(manifest.rowCounts.raw_entries).toBe(1); expect(manifest.rowCounts.maintenance_usage).toBe(0); if (process.platform !== "win32") { expect(fs.statSync(backup).mode & 0o777).toBe(0o600); expect(fs.statSync(`${backup}.manifest.json`).mode & 0o777).toBe(0o600); } expect(() => l.deleteProject({projectKey:l.project.key,value:"bad",__brand:"DeleteConfirmationToken"},manifest)).toThrow("invalid delete confirmation token"); l.deleteProject(createDeleteConfirmationToken(l.project.key),manifest); expect(l.readRaw()).toHaveLength(0); expect(fs.existsSync(`${backup}.delete-manifest.json`)).toBe(true); l.close(); });
   it("rejects deletion after a post-backup WAL write", () => { const d=make(); const db=path.join(d,"a.sqlite"); const backup=path.join(d,"backup.sqlite"); const l=openLedger({dbPath:db,project:{liveCwd:d}}); l.appendRaw(entry(l.project.key,"before")); const manifest=l.backup(backup); l.appendRaw(entry(l.project.key,"after")); expect(() => l.deleteProject(createDeleteConfirmationToken(l.project.key),manifest)).toThrow("backup verification failed"); l.close(); });
   it("finds a term only the newest entry of a large session carries, newest first", () => {
     const d = make(); const l = openLedger({ dbPath: path.join(d, "a.sqlite"), project: { liveCwd: d } });
@@ -176,5 +198,68 @@ describe("LCM ledger", () => {
     expect(l.readRaw(l.project.key, "s1").map(row => row.entryId)).toEqual(["e1", "e2", "e3"]);
     expect(l.readRawPage(l.project.key, "s1", 0, 3).map(row => row.entryId)).toEqual(["e1", "e2", "e3"]);
     expect(l.searchRaw(undefined, { sessionId: "s1", mode: "literal", offset: 0, limit: 3 }).rows.map(row => row.entryId)).toEqual(["e3", "e2", "e1"]);
+  });
+  it("purges the deleted project's quarantined rows and reports an honest remaining count", () => {
+    const d = make(); const dbPath = path.join(d, "legacy.sqlite"); const backup = path.join(d, "backup.sqlite");
+    const key = canonicalProjectIdentity({ liveCwd: d }).key;
+    legacyLedger(dbPath, key, ["retained line"]);
+    const seed = new (sqliteDriver())(dbPath);
+    seed.exec("BEGIN IMMEDIATE");
+    for (const node of ["kept-parent", "kept-child"]) seed.prepare("INSERT INTO summary_nodes(node_id,project_key,payload,created_at) VALUES(?,?,?,?)").run(node, key, "{}", 1);
+    for (const [parent, child] of [["kept-parent", "kept-child"], ["ghost-parent", "kept-child"], ["ghost-left", "ghost-right"]]) {
+      seed.prepare("INSERT INTO summary_edges(parent_id,child_id) VALUES(?,?)").run(parent, child);
+    }
+    seed.prepare("INSERT INTO summary_node_revisions(node_id,revision,project_key,text,model_hash,created_at) VALUES(?,?,?,?,?,?)").run("ghost-node", 1, key, SUMMARY_MARKER, "h", 1);
+    seed.exec("COMMIT");
+    seed.close();
+    const l = openLedger({ dbPath, project: { liveCwd: d } });
+    expect((l.db.prepare("SELECT count(*) n FROM orphaned_rows").get() as { n: number }).n).toBe(3);
+    l.appendRaw(entry(l.project.key, RAW_MARKER, "e-raw"));
+    l.deleteProject(createDeleteConfirmationToken(l.project.key), l.backup(backup));
+    const manifest = JSON.parse(fs.readFileSync(`${backup}.delete-manifest.json`, "utf8")) as DeleteManifest;
+    expect(manifest.version).toBe(2);
+    expect(Object.keys(manifest.remainingByTable).sort()).toEqual(["frontiers", "maintenance_jobs", "maintenance_usage", "orphaned_rows", "project_aliases", "projects", "raw_entries", "raw_entries_fts", "sessions", "summary_edges", "summary_node_revisions", "summary_nodes"]);
+    expect(manifest.remaining).toBe(0);
+    expect(manifest.unattributed).toBe(1);
+    expect(manifest.unattributedByTable).toEqual({ orphaned_rows: 1 });
+    const surviving = l.db.prepare("SELECT row_json FROM orphaned_rows").all() as Array<{ row_json: string }>;
+    expect(surviving).toHaveLength(1);
+    expect(JSON.parse(surviving[0]!.row_json)).toMatchObject({ parent_id: "ghost-left", child_id: "ghost-right" });
+    expect(residue(l.db, SUMMARY_MARKER)).toEqual([]);
+    expect(residue(l.db, RAW_MARKER)).toEqual([]);
+  });
+  it("reports a backup manifest from an older release as a version difference, not corruption", () => {
+    const d = make(); const dbPath = path.join(d, "a.sqlite"); const backup = path.join(d, "backup.sqlite");
+    const l = openLedger({ dbPath, project: { liveCwd: d } });
+    l.appendRaw(entry(l.project.key, "keep", "e1"));
+    const manifest = l.backup(backup);
+    expect(manifest.version).toBe(2);
+    let thrown: unknown;
+    try { l.deleteProject(createDeleteConfirmationToken(l.project.key), { ...manifest, version: 1 }); } catch (error) { thrown = error; }
+    expect(String(thrown)).toContain("backup manifest version 1 predates this ledger");
+    expect(String(thrown)).not.toContain("backup verification failed");
+    expect((l.db.prepare("SELECT count(*) n FROM raw_entries").get() as { n: number }).n).toBe(1);
+    l.deleteProject(createDeleteConfirmationToken(l.project.key), manifest);
+    expect((l.db.prepare("SELECT count(*) n FROM raw_entries").get() as { n: number }).n).toBe(0);
+  });
+  it("answers one query the same way with and without the full-text index", () => {
+    const d = make();
+    const indexed = probeSearch(path.join(d, "indexed.sqlite"), d);
+    const base = sqliteDriver() as unknown as { new (target: string, options?: unknown): { exec(sql: string): void } };
+    setSqliteDriver(class extends base { exec(sql: string) { if (/using\s+fts5/i.test(sql)) throw new Error("no such module: fts5"); return super.exec(sql); } } as unknown as SqliteDriver);
+    let scanned: ReturnType<typeof probeSearch>;
+    try { scanned = probeSearch(path.join(d, "scanned.sqlite"), d); } finally { setSqliteDriver(undefined); }
+    expect(indexed.fts).toBe(true);
+    expect(scanned.fts).toBe(false);
+    expect(indexed.infix).toEqual([]);
+    expect(indexed.token).toEqual(["e1"]);
+    expect(indexed.adjacent).toEqual(["e1"]);
+    expect(indexed.gapped).toEqual([]);
+    expect(indexed.untokenizable).toEqual({ rows: [], total: 0, scanned: 0, complete: true });
+    expect(scanned.infix).toEqual(indexed.infix);
+    expect(scanned.token).toEqual(indexed.token);
+    expect(scanned.adjacent).toEqual(indexed.adjacent);
+    expect(scanned.gapped).toEqual(indexed.gapped);
+    expect(scanned.untokenizable).toEqual(indexed.untokenizable);
   });
 });

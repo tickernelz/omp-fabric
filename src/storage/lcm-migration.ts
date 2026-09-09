@@ -44,7 +44,7 @@ interface MigrationCounts {
   incompleteDiscovery: number;
   errors: number;
 }
-interface MigrationDrops {
+export interface MigrationDrops {
   oversizedFiles: number;
   oversizedFileBytes: number;
   oversizedLines: number;
@@ -52,6 +52,16 @@ interface MigrationDrops {
   skippedFiles: number;
   entries: number;
 }
+const plural = (count: number, noun: string): string => `${count} ${noun}${count === 1 ? "" : "s"}`;
+const megabytes = (bytes: number): string => `${(bytes / 1024 ** 2).toFixed(1)} MB`;
+/** One sentence per non-empty drop category; empty when nothing was dropped. */
+export const migrationDropReasons = (drops: MigrationDrops): string[] => {
+  const reasons: string[] = [];
+  if (drops.oversizedFiles > 0) reasons.push(`${plural(drops.oversizedFiles, "session file")} skipped as oversized (${megabytes(drops.oversizedFileBytes)})`);
+  if (drops.oversizedLines > 0) reasons.push(`${plural(drops.oversizedLines, "line")} skipped as oversized (${megabytes(drops.oversizedLineBytes)})`);
+  if (drops.skippedFiles > 0) reasons.push(`${plural(drops.skippedFiles, "session file")} skipped after the total scan budget`);
+  return reasons;
+};
 export interface MigrationResult {
   mode: "apply" | "dry-run";
   since: string;

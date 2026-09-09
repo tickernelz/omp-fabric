@@ -11,12 +11,16 @@ const LCM_LEDGER_MAINTENANCE_BYTES = 10 * 1024 ** 3;
 export interface LedgerOptions { dbPath?: string; rootDir?: string; project?: ProjectIdentityInput; now?: () => number; warningBytes?: number; maintenanceBytes?: number }
 export type OperationalState = "healthy" | "warning" | "maintenance" | "degraded";
 export interface CheckpointMetrics { mode: "passive" | "truncate"; busy: number; logPages: number; checkpointedPages: number; truncated: boolean }
-export interface BackupManifest { format: "lcm-ledger-backup"; version: 1; source: string; destination: string; sourceSha256: string; backupSha256: string; sourceStateSha256: string; rowCounts: Record<string, number>; integrity: "ok" | string; createdAt: number }
+export interface BackupManifest { format: "lcm-ledger-backup"; version: number; source: string; destination: string; sourceSha256: string; backupSha256: string; sourceStateSha256: string; rowCounts: Record<string, number>; integrity: "ok" | string; createdAt: number }
 type LcmSearchMode = "literal" | "phrase" | "regex";
 export interface LcmSearchOptions { sessionId?: string; query?: string; mode: LcmSearchMode; offset: number; limit: number; scanLimit?: number; match?: "any" | "all" }
 export interface LcmSearchPage { rows: RawEntry[]; total: number; scanned: number; complete: boolean }
+export interface DeleteManifest { format: "lcm-ledger-delete"; version: number; projectKey: string; deletedAt: number; integrity: string; remaining: number; remainingByTable: Record<string, number>; unattributed: number; unattributedByTable: Record<string, number> }
 export interface LedgerMigrationReport { version: number; name: string; applied: boolean; reason?: string; counts: Record<string, number> }
 const LEDGER_SCHEMA_VERSION = 3;
+const BACKUP_MANIFEST_VERSION = 2;
+const DELETE_MANIFEST_VERSION = 2;
+const PROJECT_KEYED_TABLES = ["projects", "project_aliases", "sessions", "raw_entries", "summary_nodes", "summary_node_revisions", "frontiers", "maintenance_jobs", "maintenance_usage"] as const;
 const LCM_SEARCH_SCAN_LIMIT = 5_000;
 const LCM_SCAN_BATCH = 500;
 
@@ -56,22 +60,24 @@ const probeFts5 = (db: SqliteDatabase): boolean => {
   catch { try { db.exec("DROP TABLE IF EXISTS temp.lcm_fts5_probe"); } catch {} return false; }
 };
 
-const ftsString = (value: string): string => `"${value.replace(/"/g, '""')}"`;
-const searchTerms = (query: string): string[] => query.split(/\s+/).filter(term => term.length > 0);
-const ftsExpression = (query: string, mode: LcmSearchMode, match: "any" | "all"): string | undefined => {
-  if (mode === "phrase") return ftsString(query);
-  const terms = searchTerms(query);
-  if (terms.length === 0) return undefined;
-  return terms.map(ftsString).join(match === "all" ? " AND " : " OR ");
+const foldToken = (value: string): string => value.normalize("NFD").replace(/\p{M}+/gu, "").toLowerCase();
+const tokenize = (value: string): string[] => value.split(/[^\p{L}\p{N}]+/u).map(foldToken).filter(token => token.length > 0);
+const searchPhrases = (query: string, mode: LcmSearchMode): string[][] =>
+  (mode === "phrase" ? [query] : query.split(/\s+/)).map(tokenize).filter(phrase => phrase.length > 0);
+const ftsExpression = (phrases: string[][], match: "any" | "all"): string =>
+  phrases.map(phrase => `"${phrase.join(" ")}"`).join(match === "all" ? " AND " : " OR ");
+const containsPhrase = (tokens: string[], phrase: string[]): boolean => {
+  for (let start = 0; start + phrase.length <= tokens.length; start++) {
+    let hit = true;
+    for (let offset = 0; offset < phrase.length; offset++) if (tokens[start + offset] !== phrase[offset]) { hit = false; break; }
+    if (hit) return true;
+  }
+  return false;
 };
-const substringPredicate = (query: string, mode: LcmSearchMode, match: "any" | "all"): (content: string) => boolean => {
-  if (mode === "phrase") { const needle = query.toLowerCase(); return content => content.toLowerCase().includes(needle); }
-  const terms = searchTerms(query.toLowerCase());
-  if (terms.length === 0) return () => false;
-  return match === "all"
-    ? content => { const lower = content.toLowerCase(); return terms.every(term => lower.includes(term)); }
-    : content => { const lower = content.toLowerCase(); return terms.some(term => lower.includes(term)); };
-};
+const phrasePredicate = (phrases: string[][], match: "any" | "all"): (content: string) => boolean =>
+  match === "all"
+    ? content => { const tokens = tokenize(content); return phrases.every(phrase => containsPhrase(tokens, phrase)); }
+    : content => { const tokens = tokenize(content); return phrases.some(phrase => containsPhrase(tokens, phrase)); };
 
 class LedgerDegradedError extends Error { constructor(message: string, public readonly cause?: unknown) { super(message); this.name = "LedgerDegradedError"; } }
 
@@ -240,11 +246,10 @@ ALTER TABLE summary_node_revisions_next RENAME TO summary_node_revisions;`);
       return this.scanPage(key, sessionId, content => pattern.test(content), offset, limit, scanLimit, false);
     }
     const match = options.match ?? "any";
-    if (this.fts) {
-      const expression = ftsExpression(query, options.mode, match);
-      if (expression !== undefined) { try { return this.indexPage(key, sessionId, expression, offset, limit); } catch {} }
-    }
-    return this.scanPage(key, sessionId, substringPredicate(query, options.mode, match), offset, limit, scanLimit, true);
+    const phrases = searchPhrases(query, options.mode);
+    if (phrases.length === 0) return { rows: [], total: 0, scanned: 0, complete: true };
+    if (this.fts) { try { return this.indexPage(key, sessionId, ftsExpression(phrases, match), offset, limit); } catch {} }
+    return this.scanPage(key, sessionId, phrasePredicate(phrases, match), offset, limit, scanLimit, true);
   }
   private recentPage(key: string, sessionId: string | undefined, offset: number, limit: number): LcmSearchPage {
     const counted = (sessionId
@@ -329,16 +334,47 @@ ALTER TABLE summary_node_revisions_next RENAME TO summary_node_revisions;`);
       } finally {
         copy.close();
       }
-      const manifest: BackupManifest = { format: "lcm-ledger-backup", version: 1, source: this.dbPath, destination: target, sourceSha256: fileHash(this.dbPath), backupSha256: fileHash(target), sourceStateSha256: backupStateSha256, rowCounts, integrity, createdAt: this.now() };
+      const manifest: BackupManifest = { format: "lcm-ledger-backup", version: BACKUP_MANIFEST_VERSION, source: this.dbPath, destination: target, sourceSha256: fileHash(this.dbPath), backupSha256: fileHash(target), sourceStateSha256: backupStateSha256, rowCounts, integrity, createdAt: this.now() };
       fs.writeFileSync(`${target}.manifest.json`, JSON.stringify(manifest), { mode: 0o600 });
       fs.chmodSync(`${target}.manifest.json`, 0o600);
       return manifest;
     });
   }
   exportBackup(destination: string): BackupManifest { return this.backup(destination); }
+  private orphanOwner(db: SqliteDatabase, rowJson: string): string | undefined {
+    let row: Record<string, unknown>;
+    try { row = JSON.parse(rowJson) as Record<string, unknown>; } catch { return undefined; }
+    if (typeof row.project_key === "string") return row.project_key;
+    for (const column of ["node_id", "parent_id", "child_id"]) {
+      const nodeId = row[column];
+      if (typeof nodeId !== "string") continue;
+      const owner = db.prepare("SELECT project_key FROM summary_nodes WHERE node_id=?").get(nodeId) as { project_key?: string } | undefined;
+      if (owner?.project_key !== undefined) return owner.project_key;
+    }
+    return undefined;
+  }
+  private projectFootprint(): { remaining: Record<string, number>; unattributed: Record<string, number> } {
+    const key = this.project.key;
+    const count = (sql: string, ...params: unknown[]): number => Number((this.db.prepare(sql).get(...params) as { n: number }).n);
+    const remaining: Record<string, number> = {};
+    for (const table of PROJECT_KEYED_TABLES) remaining[table] = count(`SELECT count(*) n FROM ${table} WHERE project_key=?`, key);
+    remaining.summary_edges = count("SELECT count(*) n FROM summary_edges WHERE parent_id IN (SELECT node_id FROM summary_nodes WHERE project_key=?) OR child_id IN (SELECT node_id FROM summary_nodes WHERE project_key=?)", key, key);
+    if (this.fts) remaining.raw_entries_fts = count("SELECT count(*) n FROM raw_entries_fts WHERE project_key=?", key);
+    const unattributed: Record<string, number> = {};
+    remaining.orphaned_rows = 0;
+    for (const row of this.db.prepare("SELECT row_json FROM orphaned_rows").all() as Array<{ row_json: string }>) {
+      const owner = this.orphanOwner(this.db, row.row_json);
+      if (owner === key) remaining.orphaned_rows++;
+      else if (owner === undefined) unattributed.orphaned_rows = (unattributed.orphaned_rows ?? 0) + 1;
+    }
+    const dangling = count("SELECT count(*) n FROM summary_edges WHERE parent_id NOT IN (SELECT node_id FROM summary_nodes) OR child_id NOT IN (SELECT node_id FROM summary_nodes)");
+    if (dangling > 0) unattributed.summary_edges = dangling;
+    return { remaining, unattributed };
+  }
   deleteProject(token: DeleteConfirmationToken, backupManifest: BackupManifest): void {
     this.guard();
     if (token.__brand !== "DeleteConfirmationToken" || token.projectKey !== this.project.key || token.value !== hash(`delete:${this.project.key}`)) throw new Error("invalid delete confirmation token");
+    if (backupManifest.version !== BACKUP_MANIFEST_VERSION) throw new Error(`backup manifest version ${backupManifest.version} predates this ledger (expected ${BACKUP_MANIFEST_VERSION}); take a fresh backup`);
     const backupDb = fs.existsSync(backupManifest.destination) ? new (sqliteDriver())(backupManifest.destination) : undefined;
     let backupStateSha256: string | undefined;
     try {
@@ -348,6 +384,10 @@ ALTER TABLE summary_node_revisions_next RENAME TO summary_node_revisions;`);
     }
     if (backupManifest.integrity !== "ok" || backupManifest.source !== this.dbPath || !backupManifest.backupSha256 || backupManifest.backupSha256 !== fileHash(backupManifest.destination) || !backupManifest.sourceStateSha256 || backupManifest.sourceStateSha256 !== backupStateSha256 || backupManifest.sourceSha256 !== fileHash(this.dbPath) || backupManifest.sourceStateSha256 !== snapshotHash(this.db)) throw new Error("backup verification failed");
     this.transaction(db => {
+      const purge = db.prepare("DELETE FROM orphaned_rows WHERE rowid=?");
+      for (const row of db.prepare("SELECT rowid AS id, row_json FROM orphaned_rows").all() as Array<{ id: number; row_json: string }>) {
+        if (this.orphanOwner(db, row.row_json) === this.project.key) purge.run(row.id);
+      }
       db.prepare("DELETE FROM summary_edges WHERE parent_id IN (SELECT node_id FROM summary_nodes WHERE project_key=?) OR child_id IN (SELECT node_id FROM summary_nodes WHERE project_key=?)").run(this.project.key, this.project.key);
       for (const table of ["raw_entries", "sessions", "frontiers", "summary_node_revisions", "summary_nodes", "maintenance_jobs", "maintenance_usage"]) db.prepare(`DELETE FROM ${table} WHERE project_key=?`).run(this.project.key);
       if (this.fts) db.prepare("DELETE FROM raw_entries_fts WHERE project_key=?").run(this.project.key);
@@ -356,7 +396,9 @@ ALTER TABLE summary_node_revisions_next RENAME TO summary_node_revisions;`);
     });
     const integrity = (this.db.prepare("PRAGMA integrity_check").get() as { integrity_check?: string }).integrity_check;
     if (integrity !== "ok") throw new Error(`post-delete integrity failed: ${integrity}`);
-    const audit = { format: "lcm-ledger-delete", version: 1, projectKey: this.project.key, deletedAt: this.now(), integrity, remaining: Number((this.db.prepare("SELECT count(*) n FROM projects WHERE project_key=?").get(this.project.key) as { n: number }).n) };
+    const footprint = this.projectFootprint();
+    const total = (counts: Record<string, number>): number => Object.values(counts).reduce((sum, value) => sum + value, 0);
+    const audit: DeleteManifest = { format: "lcm-ledger-delete", version: DELETE_MANIFEST_VERSION, projectKey: this.project.key, deletedAt: this.now(), integrity, remaining: total(footprint.remaining), remainingByTable: footprint.remaining, unattributed: total(footprint.unattributed), unattributedByTable: footprint.unattributed };
     fs.writeFileSync(`${backupManifest.destination}.delete-manifest.json`, JSON.stringify(audit), { mode: 0o600 });
   }
   private serializeSync<T>(operation: () => T): T { this.guard(); return operation(); }

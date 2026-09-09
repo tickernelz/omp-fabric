@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { discoverMigrationSessions, migrationWindow, migrateSessions, reconcileSession, sourceStillValid } from "../../src/storage/lcm-migration.js";
+import { discoverMigrationSessions, migrationDropReasons, migrationWindow, migrateSessions, reconcileSession, sourceStillValid } from "../../src/storage/lcm-migration.js";
 import { openLedger, releaseTemp, tempRoot } from "../fixtures/lcm-temp.js";
 const make = () => tempRoot("lcm-migrate-");
 afterEach(releaseTemp);
@@ -63,6 +63,16 @@ describe("LCM session migration", () => {
     expect(oversized.drops.oversizedFiles).toBe(2);
     expect(oversized.drops.oversizedFileBytes).toBe(rows.length*2);
     expect(oversized.degraded).toBe(true);
+    expect(migrationDropReasons(clean.drops)).toEqual([]);
+    expect(migrationDropReasons(capped.drops)).toEqual(["1 session file skipped after the total scan budget"]);
+    expect(migrationDropReasons(oversized.drops)).toEqual([`2 session files skipped as oversized (${(rows.length * 2 / 1024 ** 2).toFixed(1)} MB)`]);
+  });
+  it("names every drop category a degraded reconciliation reports", () => {
+    expect(migrationDropReasons({ oversizedFiles: 2, oversizedFileBytes: 140_732_366, oversizedLines: 5, oversizedLineBytes: 43_939_430, skippedFiles: 3, entries: 5 })).toEqual([
+      "2 session files skipped as oversized (134.2 MB)",
+      "5 lines skipped as oversized (41.9 MB)",
+      "3 session files skipped after the total scan budget",
+    ]);
   });
   it("reports a source that never declares a session header", () => { const root=make(); const cwd=path.join(root,"project"); fs.mkdirSync(cwd); const p=path.join(root,"sessions","project","run.jsonl"); fs.mkdirSync(path.dirname(p),{recursive:true}); fs.writeFileSync(p,[{type:"title",v:1,title:"Headerless"},msg("a","2026-09-07T00:00:00.000Z")].map(row=>JSON.stringify(row)).join("\n")+"\n"); const l=openLedger({dbPath:path.join(root,"l.sqlite"),project:{liveCwd:cwd}}); const r=migrateSessions({agentDir:root,ledger:l,files:[p],now:Date.parse("2026-09-08T00:00:00.000Z"),apply:true}); expect(r.counts.imported).toBe(0); expect(r.counts.malformed).toBe(2); expect(r.exitCode).toBe(1); expect(l.readRaw()).toHaveLength(0); });
 });
