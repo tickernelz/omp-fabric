@@ -207,6 +207,9 @@ interface FabricCompactionConfig {
   lcmMaxLeafEntries: number;
   lcmMaxCondenseChildren: number;
   lcmMaintenancePasses: number;
+  lcmMaxDailyModelCalls: number;
+  lcmMaxSessionModelCalls: number;
+  lcmMaxDailyModelSeconds: number;
 }
 
 export const MIN_COMPACTION_TOKEN_THRESHOLD = 1_000;
@@ -449,12 +452,15 @@ export const DEFAULT_FABRIC_CONFIG: FabricConfig = {
     targetContextRatio: 0.75,
     thresholds: {},
     tokenThresholds: {},
-    lcmMaxInputChars: 48_000,
+    lcmMaxInputChars: 200_000,
     lcmMaxOutputTokens: 4_096,
     lcmMaxOutputChars: 16_384,
-    lcmMaxLeafEntries: 8,
+    lcmMaxLeafEntries: 32,
     lcmMaxCondenseChildren: 4,
-    lcmMaintenancePasses: 4,
+    lcmMaintenancePasses: 8,
+    lcmMaxDailyModelCalls: 512,
+    lcmMaxSessionModelCalls: 256,
+    lcmMaxDailyModelSeconds: 7200,
   },
   retention: {
     orphanedTempRunMs: 6 * 60 * 60 * 1_000,
@@ -1090,6 +1096,9 @@ export const normalizeFabricConfig = (input: Record<string, unknown>): FabricCon
       lcmMaxLeafEntries: boundedInteger(compaction.lcmMaxLeafEntries, DEFAULT_FABRIC_CONFIG.compaction.lcmMaxLeafEntries, 1, 128),
       lcmMaxCondenseChildren: boundedInteger(compaction.lcmMaxCondenseChildren, DEFAULT_FABRIC_CONFIG.compaction.lcmMaxCondenseChildren, 2, 32),
       lcmMaintenancePasses: boundedInteger(compaction.lcmMaintenancePasses, DEFAULT_FABRIC_CONFIG.compaction.lcmMaintenancePasses, 1, 64),
+      lcmMaxDailyModelCalls: boundedInteger(compaction.lcmMaxDailyModelCalls, DEFAULT_FABRIC_CONFIG.compaction.lcmMaxDailyModelCalls, 1, 4_096),
+      lcmMaxSessionModelCalls: boundedInteger(compaction.lcmMaxSessionModelCalls, DEFAULT_FABRIC_CONFIG.compaction.lcmMaxSessionModelCalls, 1, 4_096),
+      lcmMaxDailyModelSeconds: boundedInteger(compaction.lcmMaxDailyModelSeconds, DEFAULT_FABRIC_CONFIG.compaction.lcmMaxDailyModelSeconds, 30, 86_400),
     },
     retention: {
       orphanedTempRunMs: boundedInteger(

@@ -14,6 +14,10 @@ export interface LcmRuntimeOptions {
   lcmMaxOutputTokens?: number;
   lcmMaxOutputChars?: number;
   maxMaintenancePasses?: number;
+  maxDailyModelCalls?: number;
+  maxSessionModelCalls?: number;
+  maxDailyModelSeconds?: number;
+  maintenanceRunSeconds?: number;
 }
 
 export class LcmRuntime {
@@ -45,6 +49,11 @@ export class LcmRuntime {
       ...initial,
       ...(initial.lcmMaxInputChars === undefined ? {} : { maxInputChars: initial.lcmMaxInputChars }),
       ...(initial.lcmMaxOutputChars === undefined ? {} : { maxOutputChars: initial.lcmMaxOutputChars }),
+      budget: {
+        ...(initial.maxDailyModelCalls === undefined ? {} : { calls: initial.maxDailyModelCalls }),
+        ...(initial.maxSessionModelCalls === undefined ? {} : { sessionCalls: initial.maxSessionModelCalls }),
+        ...(initial.maxDailyModelSeconds === undefined ? {} : { wallMs: initial.maxDailyModelSeconds * 1_000 }),
+      },
     });
   }
 
@@ -162,6 +171,7 @@ export class LcmRuntime {
     }
     const fanIn = Math.max(2, this.options.maxCondenseChildren ?? 4);
     const passes = Math.max(1, this.options.maxMaintenancePasses ?? 4);
+    const runDeadline = Date.now() + Math.max(1, this.options.maintenanceRunSeconds ?? 60) * 1_000;
     const sessionId = this.activeSessionId;
     const raw = this.ledger.readRaw(this.projectKey, sessionId).filter((entry) =>
       this.activeSources.has(`${entry.sessionId}:${entry.entryId}:${entry.revision}`),
@@ -177,7 +187,7 @@ export class LcmRuntime {
     const runJob = async (job: LcmJob, node: LcmNode): Promise<void> => {
       try { await this.maintenance.run(job, model, inputFor(node), this.signal); } catch {}
     };
-    for (let pass = 0; pass < passes && !this.closed; pass += 1) {
+    for (let pass = 0; pass < passes && !this.closed && Date.now() < runDeadline; pass += 1) {
       const leafCandidate = this.maintenance.createLeaf(this.maintenance.selectLeaf(raw, this.context.sessionManager.getLeafId()));
       const leaf = leafCandidate ? this.maintenance.getNode(leafCandidate.nodeId) : undefined;
       if (leaf?.state === "pending") {

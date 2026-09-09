@@ -61,6 +61,52 @@ describe("LCM runtime", () => {
     await runtime.shutdown();
   });
 
+  it("packs a leaf up to the input budget instead of clipping evidence", async () => {
+    const root = makeRoot();
+    const small = Array.from({ length: 40 }, (_, index) => makeEntry("s" + index, "small source " + index, index === 0 ? null : "s" + (index - 1)));
+    const runtime = openRuntime(makeContext(root, small), { rootDir: root, maxLeafEntries: 32, lcmMaxInputChars: 4_000 });
+    await runtime.readback();
+    const rows = runtime.raw("session-1");
+
+    const packed = runtime.maintenance.selectLeaf(rows);
+    const packedChars = packed.reduce((total, entry) => total + entry.payloadJson.length, 0);
+    expect(packed.length).toBeGreaterThan(1);
+    expect(packed.length).toBeLessThan(32);
+    expect(packedChars).toBeLessThanOrEqual(4_000);
+
+    const oversized = runtime.maintenance.selectLeaf([{ ...rows[0]!, payloadJson: "x".repeat(9_000) }]);
+    expect(oversized).toHaveLength(1);
+    await runtime.shutdown();
+  });
+
+  it("spends the configured model wall-time budget before falling back", async () => {
+    const spend = (runtime: LcmRuntime, wallMs: number): void => {
+      runtime.ledger.transaction((db) => {
+        db.prepare("INSERT INTO maintenance_usage(project_key,day,session_id,calls,input_tokens,output_tokens,cost,wall_ms) VALUES(?,?,?,?,?,?,?,?)")
+          .run(runtime.projectKey, new Date().toISOString().slice(0, 10), "session-1", 4, 82_261, 3_952, 0, wallMs);
+      });
+    };
+    const claimAfterSpending = async (wallMs: number, maxDailyModelSeconds: number): Promise<string | undefined> => {
+      const root = makeRoot();
+      const entries = [makeEntry("a", "budget source a"), makeEntry("b", "budget source b")];
+      const runtime = openRuntime(makeContext(root, entries), { rootDir: root, maxDailyModelSeconds });
+      await runtime.readback();
+      spend(runtime, wallMs);
+      const leaf = runtime.maintenance.createLeaf(runtime.raw("session-1"));
+      const job = runtime.maintenance.listJobs().find((item) => item.nodeId === leaf?.nodeId);
+      let failure: string | undefined;
+      try {
+        const claimed = runtime.maintenance.claim(job!.jobId);
+        runtime.maintenance.complete(claimed, { text: "summary", inputTokens: 20_000, outputTokens: 900, cost: 0, wallMs: 13_800, modelHash: "test" });
+      } catch (error) { failure = (error as Error).message; }
+      await runtime.shutdown();
+      return failure;
+    };
+
+    expect(await claimAfterSpending(55_110, 60)).toBe("budget exhausted");
+    expect(await claimAfterSpending(55_110, 900)).toBeUndefined();
+  });
+
   it("bounds maintenance work by its own pass budget, not the condensation fan-in", async () => {
     const settle = async (runtime: LcmRuntime): Promise<number> => {
       let previous = -1;
@@ -78,6 +124,7 @@ describe("LCM runtime", () => {
     const singlePass = makeRoot();
     const single = openRuntime(makeContext(singlePass, entries), {
       rootDir: singlePass,
+      maxLeafEntries: 8,
       maxCondenseChildren: 8,
       maxMaintenancePasses: 1,
     });
@@ -88,6 +135,7 @@ describe("LCM runtime", () => {
     const manyPasses = makeRoot();
     const many = openRuntime(makeContext(manyPasses, entries), {
       rootDir: manyPasses,
+      maxLeafEntries: 8,
       maxCondenseChildren: 8,
       maxMaintenancePasses: 3,
     });

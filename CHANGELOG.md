@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.6.0
+
+### Fixed
+
+- LCM compaction fell back to deterministic excerpts after about four model summaries per day. The maintenance budget spent a 60-second wall-time quota that is accounted per project per day, and each summary of a real session took roughly fourteen seconds, so the fifth call was refused and every later node was written by the emergency reducer. Observed on a live 2,368-entry session: four model-written leaves covering 32 sources, twelve deterministic nodes, and 55,110 ms of 60,000 ms spent. The daily quota is now 7,200 seconds, a separate 60-second guard bounds a single maintenance run so turns stay responsive, and the compaction that fires reads model summaries.
+- Leaf selection clipped evidence. A leaf took a fixed count of entries with no regard for their size, and on the measured session the ninetieth-percentile leaf reached 62,040 characters against a 48,000-character prompt bound, so the tail was cut before the model saw it. Leaves are now packed up to the input budget and always carry at least one entry.
+
+### Changed
+
+- Compaction defaults target model summaries rather than fallbacks: leaves hold up to 32 entries (was 8) inside a 200,000-character prompt budget (was 48,000), a maintenance run makes up to 8 passes (was 4), and the model budget allows 512 daily and 256 per-session calls (was 32 and 16). On the measured session this covers the same 2,368 entries in roughly 43 calls rather than 296.
+
+### Added
+
+- `compaction.lcmMaxDailyModelCalls`, `compaction.lcmMaxSessionModelCalls`, and `compaction.lcmMaxDailyModelSeconds` expose the model budget that was previously a fixed constant.
+
 ## 1.5.0
 
 ### Added

@@ -81,7 +81,10 @@ Automatic raw deletion is disabled.
     "lcmMaxOutputChars": 16384,
     "lcmMaxLeafEntries": 8,
     "lcmMaxCondenseChildren": 4,
-    "lcmMaintenancePasses": 4
+    "lcmMaintenancePasses": 8,
+    "lcmMaxDailyModelCalls": 512,
+    "lcmMaxSessionModelCalls": 256,
+    "lcmMaxDailyModelSeconds": 7200
   }
 }
 ```
@@ -100,9 +103,9 @@ This command includes typecheck, a fresh `dist/` build, the lazy-graph assertion
 
 ## Maintenance throughput
 
-Maintenance runs after a turn settles and on session compaction; the hook itself never calls a model. Each run makes at most `compaction.lcmMaintenancePasses` passes, and a pass turns at most `compaction.lcmMaxLeafEntries` unconsumed raw entries into one leaf, so a run summarizes at most `lcmMaintenancePasses x lcmMaxLeafEntries` entries (32 at the defaults of 4 and 8). A session that ingests more entries per turn than that leaves a growing unsummarized tail, and a compaction whose source range reaches into that tail falls back to the deterministic emergency reducer, carrying an excerpt in place of model summaries.
+Maintenance runs after a turn settles and on session compaction; the hook itself never calls a model. Each run makes at most `compaction.lcmMaintenancePasses` passes bounded by a 60-second run guard, and a pass packs unconsumed raw entries into one leaf until either `compaction.lcmMaxLeafEntries` or the `compaction.lcmMaxInputChars` prompt budget is reached, so a leaf never clips its own evidence. A session that ingests more entries per turn than that leaves a growing unsummarized tail, and a compaction whose source range reaches into that tail falls back to the deterministic emergency reducer, carrying an excerpt in place of model summaries.
 
-Raise `lcmMaintenancePasses` (1-64) to trade model spend for coverage. It is separate from `lcmMaxCondenseChildren`, which is the condensation fan-in: how many ready nodes are folded into one condensed parent. The daily project and per-session call, token, cost, and wall-time budgets still bound every run.
+Raise `lcmMaintenancePasses` (1-64) to trade model spend for coverage. `lcmMaxDailyModelCalls`, `lcmMaxSessionModelCalls`, and `lcmMaxDailyModelSeconds` bound the model spend itself; a session that exhausts them keeps working and writes deterministic excerpts until the next day. It is separate from `lcmMaxCondenseChildren`, which is the condensation fan-in: how many ready nodes are folded into one condensed parent. The daily project and per-session call, token, cost, and wall-time budgets still bound every run.
 
 ## Performance gate
 
