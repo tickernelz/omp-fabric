@@ -26,8 +26,8 @@ export interface Sections {
 const MAX_LINE = 140;
 const FILE_TOOLS = new Set(["read", "edit", "write", "grep", "find", "ls"]);
 const MODIFYING_TOOLS = new Set(["edit", "write"]);
-export const MAX_USER_GOAL_LINES = 3;
-export const MAX_USER_GOAL_LINE = 1024;
+const MAX_USER_GOAL_LINES = 3;
+const MAX_USER_GOAL_LINE = 1024;
 const MAX_USER_ONELINER = 120;
 const MAX_EARLIER_USER = 80;
 const MAX_STATUS_LINE = 140;
@@ -39,12 +39,12 @@ const MAX_FABRIC_RUN_TRANSCRIPT_NAME = 60;
 const MAX_FABRIC_RUN_EARLIER_NAME = 48;
 const MAX_FABRIC_RUN_STATUS_NAME = 96;
 const MAX_LATER_GOALS = 24;
-export const MAX_FILES_PER_KIND = 24;
+const MAX_FILES_PER_KIND = 24;
 const MAX_OUTSTANDING = 32;
 const MAX_ACTIVITY = 48;
-export const MAX_UNRESOLVED = 24;
+const MAX_UNRESOLVED = 24;
 const MAX_RESOLVED = MAX_OUTSTANDING - MAX_UNRESOLVED;
-export const MAX_EARLIER_TURNS = 32;
+const MAX_EARLIER_TURNS = 32;
 const TRANSCRIPT_WINDOW = 40;
 
 export interface ProjectionOmittedCounts {
