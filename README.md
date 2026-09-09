@@ -127,6 +127,34 @@ Fabric includes a live activity surface in OMP:
 
 See the [interface & commands reference](docs/interface.md) for every view, keybinding, and slash command.
 
+## Measured against OMP without Fabric
+
+A resume task, seeded as a paused session, run three times per arm on `claude-opus-5` through the same provider. The baseline arm is OMP with no extension loaded; the Fabric arm loads `dist/index.js` and compacts the session with LCM before resuming. Both arms receive the same fixture, the same prompt, and the same host configuration, and a run counts as a success only when the fixture's own `verify.mjs` exits zero with the forbidden files untouched.
+
+| | Baseline | Fabric | Delta |
+|---|---|---|---|
+| Task success | 3/3 | 3/3 | equal |
+| Tokens | 585,197 | 356,542 | **-39%** |
+| Tool calls | 14 | 6 | **-57%** |
+| Wall time | 67.6 s | 59.1 s | -13% |
+| Cost | $0.6987 | $0.2356 | -66% |
+
+Per-run tokens were 208,595 / 209,619 / 166,983 for the baseline and 118,751 / 119,387 / 118,404 with Fabric, so the reduction is stable across runs, not an artifact of one lucky sample. Read the cost row with care: the baseline's first run cost $0.4710 against $0.1271 and $0.1007 for its later two, because a cold prompt cache is charged at full rate. The token column is the honest measure of the difference, and cost follows it once caches are warm on both sides.
+
+Reproduce it with your own model and provider:
+
+```sh
+OMP_FABRIC_REAL_RESUME=1 \
+OMP_FABRIC_BENCH_MODEL=claude-opus-5 \
+OMP_FABRIC_BENCH_PROVIDER=sub2api-claude \
+OMP_FABRIC_BENCH_KEY_ENV=YOUR_KEY_VARIABLE \
+OMP_FABRIC_BENCH_REPEATS=3 \
+OMP_FABRIC_BENCH_MAX_USD=8 \
+bun run benchmark:real-resume
+```
+
+The command bills your provider and stops at `OMP_FABRIC_BENCH_MAX_USD`. Without those variables it reports `SKIP` and spends nothing.
+
 ## Reference
 
 - [Configuration](docs/configuration.md): `fabric.json`, code modes, tool capture, approvals, and budgets.

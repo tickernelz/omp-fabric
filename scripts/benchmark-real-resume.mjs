@@ -139,40 +139,51 @@ const seedSession = (repo, sessionDir) => {
   return file;
 };
 
-const baseArgs = ({ config, sessionFile, fabricExtension }) => [
+// The fixture session is a few hundred tokens, far inside the host's default
+// 20,000-token recent window, so nothing is old enough to cut and /compact
+// refuses. Both variants load the same overlay so the cut point exists.
+const writeOverlay = (root) => {
+  const file = path.join(root, "benchmark-config.yml");
+  fs.writeFileSync(file, "compaction:\n  keepRecentTokens: 1\n  reserveTokens: 1\n");
+  return file;
+};
+
+// The baseline arm is OMP without Fabric, so it must not load the extension.
+const baseArgs = ({ config, sessionFile, fabricExtension, overlay, variant }) => [
   "--mode", "rpc",
   "--session", sessionFile,
+  "--config", overlay,
   "--provider", config.provider,
   "--model", config.model,
   "--thinking", "off",
   "--no-skills",
   "--no-extensions",
-  "--extension", fabricExtension,
+  ...(variant === "fabric" ? ["--extension", fabricExtension] : []),
   "--auto-approve",
 ];
 
-const prepareVariant = async ({ variant, config, repo, sessionFile, fabricExtension, env }) => {
+const prepareVariant = async ({ variant, config, repo, sessionFile, fabricExtension, env, overlay }) => {
   if (variant === "baseline") return { compactor: "none" };
-  const rpc = new RpcProcess(config.ompCommand, baseArgs({ config, sessionFile, fabricExtension }), { cwd: repo, env });
+  const rpc = new RpcProcess(config.ompCommand, baseArgs({ config, sessionFile, fabricExtension, overlay, variant }), { cwd: repo, env });
   try {
     const response = await rpc.command({ type: "compact" });
     const details = response.data?.details;
-    if (details?.compactor !== "fabric") throw new Error("Fabric arm was not compacted by Fabric");
+    if (details?.compactor !== "lcm") throw new Error(`Fabric arm was compacted by ${details?.compactor ?? "nothing"}, not LCM`);
     return { compactor: details.compactor, summaryBytes: Buffer.byteLength(response.data?.summary ?? "", "utf8") };
   } finally {
     await rpc.close();
   }
 };
 
-const runVariant = async ({ repeat, variant, config, root, fabricExtension, env }) => {
+const runVariant = async ({ repeat, variant, config, root, fabricExtension, env, overlay }) => {
   const repo = path.join(root, `repeat-${repeat}`, variant, "repo");
   const sessionDir = path.join(root, `repeat-${repeat}`, variant, "sessions");
   fs.mkdirSync(repo, { recursive: true });
   writeInitialRepo(repo);
   const forbiddenBefore = snapshotFiles(repo, fixture.forbiddenPaths);
   const sessionFile = seedSession(repo, sessionDir);
-  const preparation = await prepareVariant({ variant, config, repo, sessionFile, fabricExtension, env });
-  const rpc = new RpcProcess(config.ompCommand, baseArgs({ config, sessionFile, fabricExtension }), { cwd: repo, env });
+  const preparation = await prepareVariant({ variant, config, repo, sessionFile, fabricExtension, env, overlay });
+  const rpc = new RpcProcess(config.ompCommand, baseArgs({ config, sessionFile, fabricExtension, overlay, variant }), { cwd: repo, env });
   const started = performance.now();
   try {
     const settled = rpc.waitForSettled();
@@ -187,7 +198,7 @@ const runVariant = async ({ repeat, variant, config, root, fabricExtension, env 
         && event.args.code.includes("recall")
         && event.args.code.includes("memory");
     }).length;
-    const oracle = evaluateFixtureOracle(repo, fixture, forbiddenBefore);
+    const oracle = evaluateFixtureOracle(repo, fixture, forbiddenBefore, { contentCheck: "presence", ignorePrefixes: [".git/", ".omp/"] });
     return {
       repeat,
       variant,
@@ -209,6 +220,7 @@ const runVariant = async ({ repeat, variant, config, root, fabricExtension, env 
 const runBenchmark = async (gate) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-real-resume-"));
   const fabricExtension = path.resolve("dist/index.js");
+  const overlay = writeOverlay(root);
   const env = { ...process.env };
   const orders = pairedOrders(gate.config.repeats, gate.config.seed);
   const runs = [];
@@ -217,7 +229,7 @@ const runBenchmark = async (gate) => {
       for (const variant of orders[repeat]) {
         const observed = runs.reduce((sum, run) => sum + run.costUsd, 0);
         if (observed >= gate.config.maxUsd) throw new Error(`Benchmark stopped at configured budget ${gate.config.maxUsd} USD`);
-        runs.push(await runVariant({ repeat: repeat + 1, variant, config: gate.config, root, fabricExtension, env }));
+        runs.push(await runVariant({ repeat: repeat + 1, variant, config: gate.config, root, fabricExtension, env, overlay }));
       }
     }
     return summarizeBenchmark(runs, orders, gate.config.maxUsd);

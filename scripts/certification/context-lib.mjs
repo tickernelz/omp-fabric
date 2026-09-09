@@ -84,12 +84,18 @@ export const snapshotFiles = (root, relativePaths) => Object.fromEntries(
   relativePaths.map((relative) => [relative, fs.existsSync(path.join(root, relative)) ? fs.readFileSync(path.join(root, relative), "utf8") : null]),
 );
 
-export const evaluateFixtureOracle = (root, fixture, forbiddenBefore = {}) => {
+// contentCheck "exact" pins byte equality, which suits a deterministic
+// fixture. A real model writes its own prose and formatting, so "presence"
+// requires the file and lets the fixture's own test decide correctness.
+// ignorePrefixes keeps agent-owned state out of the unexpected-file scan.
+export const evaluateFixtureOracle = (root, fixture, forbiddenBefore = {}, options = {}) => {
+  const contentCheck = options.contentCheck ?? "exact";
+  const ignorePrefixes = options.ignorePrefixes ?? [".git/"];
   const failures = [];
   for (const [relative, expected] of Object.entries(fixture.expectedFiles)) {
     const file = path.join(root, relative);
     if (!fs.existsSync(file)) failures.push(`${relative}: missing`);
-    else if (fs.readFileSync(file, "utf8") !== expected) failures.push(`${relative}: content mismatch`);
+    else if (contentCheck === "exact" && fs.readFileSync(file, "utf8") !== expected) failures.push(`${relative}: content mismatch`);
   }
   for (const [relative, before] of Object.entries(forbiddenBefore)) {
     const file = path.join(root, relative);
@@ -98,7 +104,7 @@ export const evaluateFixtureOracle = (root, fixture, forbiddenBefore = {}) => {
   }
   const allowed = new Set([...Object.keys(fixture.initialFiles), ...Object.keys(fixture.expectedFiles)]);
   for (const relative of walkFiles(root)) {
-    if (relative.startsWith(".git/")) continue;
+    if (ignorePrefixes.some((prefix) => relative.startsWith(prefix))) continue;
     if (!allowed.has(relative)) failures.push(`${relative}: unexpected file`);
   }
   let test = { command: fixture.test.command, args: fixture.test.args, status: null, stdout: "", stderr: "" };
