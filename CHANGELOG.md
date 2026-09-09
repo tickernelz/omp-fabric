@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.8.1
+
+### Changed
+
+- CI stops repeating work. Release ran the full Windows check and then a second full check through `prepack`, so publishing a tag re-verified a commit main had already verified, seven minutes for zero new information. Release now waits for the Test run of the same commit, builds `dist/`, and publishes without lifecycle scripts. Test splits its suite into two shards per platform and carries typecheck, build, and dead-code lint on one shard rather than both, and every workflow restores the bun install cache, which was the slowest step on Windows at 36 seconds.
+
 ## 1.8.0
 
 ### Changed

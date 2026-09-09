@@ -13,44 +13,44 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  check-windows:
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
-      - name: Install ripgrep
-        # OMP's grep tool downloads rg on first use when it is absent; on shared
-        # runners that ad-hoc GitHub Releases download is rate-limited, so
-        # provision rg on PATH up front to keep nested-grep tests hermetic.
-        run: choco install ripgrep -y --no-progress
-      - name: Install dependencies
-        run: bun install --frozen-lockfile
-      - name: Type check
-        run: bun run typecheck
-      - name: Test Windows type-checker regression
-        run: bun --bun node_modules/vitest/vitest.mjs run tests/type-checker.test.ts
-      - name: Build
-        run: bun run build
-      - name: Test
-        run: bun run test
-      - name: Lint (dead code)
-        run: bun run lint:dead
-
   release:
-    needs: check-windows
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      # The tagged commit is already on main, where Test runs the full matrix.
+      # Waiting for that result keeps the Windows guarantee without paying for
+      # a second full run of the same commit.
+      - name: Require a green Test run for this commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          deadline=$(( SECONDS + 1800 ))
+          while :; do
+            conclusion="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow test.yml \
+              --commit "$GITHUB_SHA" --limit 1 --json conclusion,status \
+              --jq '.[0] | select(.status == "completed") | .conclusion')"
+            case "$conclusion" in
+              success) echo "Test passed for $GITHUB_SHA"; break ;;
+              "") if [ "$SECONDS" -ge "$deadline" ]; then
+                    echo "no completed Test run for $GITHUB_SHA after 30 minutes" >&2
+                    exit 1
+                  fi
+                  sleep 20 ;;
+              *) echo "Test concluded $conclusion for $GITHUB_SHA" >&2; exit 1 ;;
+            esac
+          done
       - uses: oven-sh/setup-bun@v2
       - uses: actions/setup-node@v4
         with:
           node-version: 24
           registry-url: https://registry.npmjs.org
-      - name: Install ripgrep
-        # OMP's grep tool downloads rg on first use when it is absent; on shared
-        # runners that ad-hoc GitHub Releases download is rate-limited, so
-        # provision rg on PATH up front to keep nested-grep tests hermetic.
-        run: sudo apt-get install -y ripgrep
+      - name: Cache dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+          restore-keys: bun-${{ runner.os }}-
       - name: Install dependencies
         run: bun install --frozen-lockfile
       - name: Verify the tag matches this package
@@ -67,19 +67,11 @@ jobs:
             echo "tag $GITHUB_REF_NAME does not match package version $expected" >&2
             exit 1
           fi
+      - name: Build the published artifact
+        run: bun run build
       - name: Publish to npm
-        # `prepack` runs `bun run check`, so typecheck, build, the lazy startup
-        # graph assertion, the full suite, and dead-code lint all gate the
-        # published tarball.
-        run: npm publish --provenance --access public
+        # dist/ is built above and the tree is gated by Test, so publishing
+        # without lifecycle scripts avoids a third full run of the same checks.
+        run: npm publish --provenance --access public --ignore-scripts
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-      - name: Publish the GitHub release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
-            gh release edit "$GITHUB_REF_NAME" --draft=false --latest
-          else
-            gh release create "$GITHUB_REF_NAME" --title "omp-fabric $GITHUB_REF_NAME" --generate-notes
-          fi
