@@ -43,6 +43,21 @@ describe("LCM runtime loader", () => {
     warn.mockRestore();
   });
 
+  it("disables LCM when the runtime provides no SQLite driver", async () => {
+    const notify = vi.fn();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const importRuntime = vi.fn(async () => ({ LcmRuntime: class {} as unknown as LcmRuntimeConstructor }));
+    const loader = createLcmRuntimeLoader(importRuntime, async () => {
+      throw new Error("no SQLite driver: this runtime provides neither node:sqlite nor bun:sqlite");
+    });
+
+    expect(await loader.load(makeContext(notify))).toBeUndefined();
+    expect(importRuntime).not.toHaveBeenCalled();
+    expect(loader.unavailable).toBe(true);
+    expect(notify.mock.calls[0]?.[0]).toContain("neither node:sqlite nor bun:sqlite");
+    warn.mockRestore();
+  });
+
   it("returns the runtime constructor when the module resolves", async () => {
     class FakeRuntime {}
     const loader = createLcmRuntimeLoader(async () => ({ LcmRuntime: FakeRuntime as unknown as LcmRuntimeConstructor }));

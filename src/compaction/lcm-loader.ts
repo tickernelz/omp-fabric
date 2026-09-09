@@ -1,4 +1,5 @@
 import type { ExtensionContext } from "@oh-my-pi/pi-coding-agent";
+import { loadSqliteDriver } from "../storage/sqlite.js";
 import type { LcmRuntime } from "./lcm-runtime.js";
 
 export type LcmRuntimeConstructor = new (
@@ -11,11 +12,12 @@ export interface LcmRuntimeLoader {
 }
 
 export const LCM_SQLITE_NOTICE =
-  "omp-fabric LCM compaction needs node:sqlite, which this runtime does not provide";
+  "omp-fabric LCM compaction needs a SQLite driver, which this runtime does not provide";
 
 export const createLcmRuntimeLoader = (
   importRuntime: () => Promise<{ LcmRuntime: LcmRuntimeConstructor }> = () =>
     import("./lcm-runtime.js") as unknown as Promise<{ LcmRuntime: LcmRuntimeConstructor }>,
+  loadSqlite: () => Promise<unknown> = loadSqliteDriver,
 ): LcmRuntimeLoader => {
   let unavailable = false;
   return {
@@ -25,6 +27,7 @@ export const createLcmRuntimeLoader = (
     async load(context: ExtensionContext): Promise<LcmRuntimeConstructor | undefined> {
       if (unavailable) return undefined;
       try {
+        await loadSqlite();
         return (await importRuntime()).LcmRuntime;
       } catch (error) {
         unavailable = true;

@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import { DatabaseSync } from "node:sqlite";
+import { sqliteDriver, type SqliteDatabase } from "./sqlite.js";
 import { sessionsDirRoot, sessionDirNamesForCwd } from "../memory/discovery.js";
 import { canonicalLcmPayload, canonicalProjectIdentity, defaultLedgerPath, hashLcmPayload, LcmLedger } from "./lcm-ledger.js";
 
@@ -172,7 +172,7 @@ export function migrateSessions(options: MigrationOptions): MigrationResult {
     result.generations.push({ sessionPath: file, sourceHash });
     let header: Record<string, unknown> | undefined;
     let ledger: LcmLedger | undefined;
-    let database: DatabaseSync | undefined;
+    let database: SqliteDatabase | undefined;
     let sessionId = "";
     let projectKey = "";
     let cwd: string | undefined;
@@ -210,7 +210,7 @@ export function migrateSessions(options: MigrationOptions): MigrationResult {
           } else if (options.ledger) database = options.ledger.db;
           else {
             const dbPath = defaultLedgerPath(options.ledgerRoot, projectKey);
-            if (fs.existsSync(dbPath)) database = new DatabaseSync(dbPath, { readOnly: true });
+            if (fs.existsSync(dbPath)) database = new (sqliteDriver())(dbPath, { readOnly: true });
           }
           continue;
         }

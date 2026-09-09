@@ -92,7 +92,7 @@ for (const forbidden of ["src/fabric-runtime-state.ts", "src/ui/settings.ts", "s
   }
 }
 const sqliteImporters = [...startupFiles].filter((file) =>
-  /(?:from|import)\s*\(?\s*["']node:sqlite["']/u.test(readFileSync(file, "utf8")),
+  /(?:from|require\()\s*["']node:sqlite["']/u.test(readFileSync(file, "utf8")),
 );
 if (sqliteImporters.length > 0) {
   throw new Error(

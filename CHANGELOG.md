@@ -1,10 +1,15 @@
 # Changelog
 
-## 1.4.6
+## 1.5.0
+
+### Added
+
+- LCM runs on Bun's own SQLite. `src/storage/sqlite.ts` resolves `node:sqlite` first and falls back to `bun:sqlite`, so a runtime that ships only Bun's driver keeps durable ledger compaction rather than losing it. The ledger, maintenance, backup, checkpoint, rollback, and restart paths are covered against the Bun driver directly.
 
 ### Fixed
 
 - Installing or loading the extension failed outright on runtimes without `node:sqlite` (`Failed to load extension: Could not resolve: "node:sqlite"`), which took down every Fabric feature rather than only LCM. The entry bundle pulled the ledger in statically through `src/index.ts`, `src/agents/handoff.ts`, and the memory provider. The sqlite-free identity and payload helpers now live in `src/storage/lcm-identity.ts`, the LCM runtime loads from the stable lazy entry `dist/compaction/lcm-runtime.js` only when compaction needs it, and a runtime that cannot resolve `node:sqlite` keeps the extension running with compaction delegated to OMP core plus one warning. `bun run build` now fails when anything in the startup static graph imports `node:sqlite`.
+- Windows CI failed on unrelated files with 5 s test timeouts that passed on rerun, and the v1.4.6 release was correctly withheld by the new Windows gate because of it. The suite now scales its test and hook deadlines on Windows runners, where it executes roughly three times slower, and keeps the tight defaults elsewhere.
 
 ## 1.4.5
 

@@ -55,6 +55,7 @@ const result = await build({
   chunkNames: "chunks/[name]-[hash]",
   bundle: true,
   packages: "external",
+  external: ["bun:sqlite"],
   platform: "node",
   format: "esm",
   target: "node24",

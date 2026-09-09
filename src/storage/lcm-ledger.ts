@@ -1,7 +1,7 @@
-import { DatabaseSync } from "node:sqlite";
 import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
+import { sqliteDriver, type SqliteDatabase } from "./sqlite.js";
 import { canonicalLcmPayload, canonicalProjectIdentity, createDeleteConfirmationToken, defaultLedgerPath, hash, hashLcmPayload, type DeleteConfirmationToken, type ProjectIdentity, type ProjectIdentityInput, type RawEntry, type SessionEntry } from "./lcm-identity.js";
 
 export { canonicalLcmPayload, canonicalProjectIdentity, createDeleteConfirmationToken, defaultLedgerPath, hashLcmPayload };
@@ -28,7 +28,7 @@ CREATE INDEX IF NOT EXISTS raw_entries_lookup ON raw_entries(project_key, sessio
 `;
 
 const fileHash = (file: string) => crypto.createHash("sha256").update(fs.readFileSync(file)).digest("hex");
-const snapshotHash = (db: DatabaseSync): string => {
+const snapshotHash = (db: SqliteDatabase): string => {
   const digest = crypto.createHash("sha256");
   for (const [table, order] of [["schema_metadata", "key"], ["projects", "project_key"], ["project_aliases", "alias"], ["sessions", "project_key,session_id"], ["raw_entries", "project_key,session_id,entry_id,revision"], ["summary_nodes", "node_id"], ["summary_edges", "parent_id,child_id"], ["frontiers", "project_key,frontier_id,node_id"], ["maintenance_jobs", "job_id"], ["maintenance_usage", "project_key,day,session_id"]] as const) {
     digest.update(`${table}\0`);
@@ -40,7 +40,7 @@ const snapshotHash = (db: DatabaseSync): string => {
 class LedgerDegradedError extends Error { constructor(message: string, public readonly cause?: unknown) { super(message); this.name = "LedgerDegradedError"; } }
 
 export class LcmLedger {
-  readonly db: DatabaseSync;
+  readonly db: SqliteDatabase;
   readonly project: ProjectIdentity;
   private degraded = false;
   private readonly dbPath: string;
@@ -61,7 +61,7 @@ export class LcmLedger {
     const dbPath = options.dbPath ?? defaultLedgerPath(options.rootDir, this.project.key);
     fs.mkdirSync(path.dirname(dbPath), { recursive: true });
     this.dbPath = dbPath;
-    this.db = new DatabaseSync(dbPath);
+    this.db = new (sqliteDriver())(dbPath);
     try {
       this.db.exec("PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA busy_timeout=5000; PRAGMA wal_autocheckpoint=1000;");
       this.db.exec("BEGIN IMMEDIATE;" + SCHEMA + "INSERT INTO schema_metadata(key,value) VALUES ('version','1') ON CONFLICT(key) DO UPDATE SET value='1'; COMMIT;");
@@ -123,8 +123,8 @@ export class LcmLedger {
   readRaw(projectKey = this.project.key, sessionId?: string): RawEntry[] { this.guard(); this.assertProjectKey(projectKey); const rows = sessionId ? this.db.prepare("SELECT * FROM raw_entries WHERE project_key=? AND session_id=? ORDER BY created_at,revision").all(projectKey,sessionId) : this.db.prepare("SELECT * FROM raw_entries WHERE project_key=? ORDER BY created_at,session_id,entry_id,revision").all(projectKey); return (rows as Array<Record<string, unknown>>).map(row => ({ projectKey: row.project_key as string, sessionId: row.session_id as string, entryId: row.entry_id as string, revision: row.revision as number, role: row.role as string, content: row.content as string, contentHash: row.content_hash as string, payloadHash: row.content_hash as string, payloadJson: row.payload_json as string, parentEntryId: row.parent_entry_id as string | null, branch: row.branch as string | null, createdAt: row.created_at as number })); }
   readRawPage(projectKey = this.project.key, sessionId?: string, offset = 0, limit = 100): RawEntry[] { if (!Number.isSafeInteger(offset) || offset < 0 || !Number.isSafeInteger(limit) || limit < 1) throw new Error("invalid raw page"); this.guard(); this.assertProjectKey(projectKey); const rows = sessionId ? this.db.prepare("SELECT * FROM raw_entries WHERE project_key=? AND session_id=? ORDER BY created_at,revision LIMIT ? OFFSET ?").all(projectKey,sessionId,limit,offset) : this.db.prepare("SELECT * FROM raw_entries WHERE project_key=? ORDER BY created_at,session_id,entry_id,revision LIMIT ? OFFSET ?").all(projectKey,limit,offset); return (rows as Array<Record<string, unknown>>).map(row => ({ projectKey: row.project_key as string, sessionId: row.session_id as string, entryId: row.entry_id as string, revision: row.revision as number, role: row.role as string, content: row.content as string, contentHash: row.content_hash as string, payloadHash: row.content_hash as string, payloadJson: row.payload_json as string, parentEntryId: row.parent_entry_id as string | null, branch: row.branch as string | null, createdAt: row.created_at as number })); }
   readRawEntry(projectKey: string, sessionId: string, entryId: string, revision: number): RawEntry | undefined { this.guard(); this.assertProjectKey(projectKey); const row = this.db.prepare("SELECT * FROM raw_entries WHERE project_key=? AND session_id=? AND entry_id=? AND revision=?").get(projectKey,sessionId,entryId,revision) as Record<string, unknown> | undefined; return row ? { projectKey: row.project_key as string, sessionId: row.session_id as string, entryId: row.entry_id as string, revision: row.revision as number, role: row.role as string, content: row.content as string, contentHash: row.content_hash as string, payloadHash: row.content_hash as string, payloadJson: row.payload_json as string, parentEntryId: row.parent_entry_id as string | null, branch: row.branch as string | null, createdAt: row.created_at as number } : undefined; }
-  readOnly<T>(fn: (db: DatabaseSync) => T): T { this.guard(); return fn(this.db); }
-  transaction<T>(fn: (db: DatabaseSync) => T): T { this.guard(); if (this.transactionDepth > 0) return fn(this.db); this.db.exec("BEGIN IMMEDIATE"); this.transactionDepth = 1; try { const result = fn(this.db); this.db.exec("COMMIT"); return result; } catch (error) { this.db.exec("ROLLBACK"); throw error; } finally { this.transactionDepth = 0; } }
+  readOnly<T>(fn: (db: SqliteDatabase) => T): T { this.guard(); return fn(this.db); }
+  transaction<T>(fn: (db: SqliteDatabase) => T): T { this.guard(); if (this.transactionDepth > 0) return fn(this.db); this.db.exec("BEGIN IMMEDIATE"); this.transactionDepth = 1; try { const result = fn(this.db); this.db.exec("COMMIT"); return result; } catch (error) { this.db.exec("ROLLBACK"); throw error; } finally { this.transactionDepth = 0; } }
   checkpoint(mode: "passive" | "truncate" = "passive"): CheckpointMetrics {
     const row = this.db.prepare(`PRAGMA wal_checkpoint(${mode.toUpperCase()})`).get() as { busy?: number; log?: number; checkpointed?: number };
     const busy = row.busy ?? 0;
@@ -139,7 +139,7 @@ export class LcmLedger {
       if (fs.existsSync(target)) throw new Error("backup destination exists");
       this.db.exec(`VACUUM INTO '${target.replace(/'/g, "''")}'`);
       fs.chmodSync(target, 0o600);
-      const copy = new DatabaseSync(target);
+      const copy = new (sqliteDriver())(target);
       let integrity = "unknown";
       let backupStateSha256 = "";
       const rowCounts: Record<string, number> = {};
@@ -162,7 +162,7 @@ export class LcmLedger {
   deleteProject(token: DeleteConfirmationToken, backupManifest: BackupManifest): void {
     this.guard();
     if (token.__brand !== "DeleteConfirmationToken" || token.projectKey !== this.project.key || token.value !== hash(`delete:${this.project.key}`)) throw new Error("invalid delete confirmation token");
-    const backupDb = fs.existsSync(backupManifest.destination) ? new DatabaseSync(backupManifest.destination) : undefined;
+    const backupDb = fs.existsSync(backupManifest.destination) ? new (sqliteDriver())(backupManifest.destination) : undefined;
     let backupStateSha256: string | undefined;
     try {
       if (backupDb) backupStateSha256 = snapshotHash(backupDb);
