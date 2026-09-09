@@ -83,6 +83,7 @@ Automatic raw deletion is disabled.
     "lcmMaxCondenseChildren": 4,
     "lcmMaintenancePasses": 8,
     "lcmModelSummaries": true,
+    "lcmModelTimeoutSeconds": 120,
     "lcmMaxDailyModelCalls": 0,
     "lcmMaxSessionModelCalls": 0,
     "lcmMaxDailyModelSeconds": 0
@@ -106,13 +107,13 @@ This command includes typecheck, a fresh `dist/` build, the lazy-graph assertion
 
 Maintenance runs after a turn settles and on session compaction; the hook itself never calls a model. Each run makes at most `compaction.lcmMaintenancePasses` passes bounded by a 60-second run guard, and a pass packs unconsumed raw entries into one leaf until either `compaction.lcmMaxLeafEntries` or the `compaction.lcmMaxInputChars` prompt budget is reached, so a leaf never clips its own evidence. A session that ingests more entries per turn than that leaves a growing unsummarized tail, and a compaction whose source range reaches into that tail falls back to the deterministic emergency reducer, carrying an excerpt in place of model summaries.
 
-Raise `lcmMaintenancePasses` (1-64) for more leaves per turn. Model spend carries no limit by default: `lcmMaxDailyModelCalls`, `lcmMaxSessionModelCalls`, and `lcmMaxDailyModelSeconds` are 0, which means no cap, and setting any of them applies that cap. A deterministic excerpt is written when the summary model cannot be called or when `lcmModelSummaries` is false, and maintenance replaces such a node with a model summary once the model answers again. It is separate from `lcmMaxCondenseChildren`, which is the condensation fan-in: how many ready nodes are folded into one condensed parent. The daily project and per-session call, token, cost, and wall-time budgets still bound every run.
+Raise `lcmMaintenancePasses` (1-64) for more leaves per turn. Model spend carries no limit by default: `lcmMaxDailyModelCalls`, `lcmMaxSessionModelCalls`, and `lcmMaxDailyModelSeconds` are 0, which means no cap, and setting any of them applies that cap. A summary call is abandoned after `lcmModelTimeoutSeconds` (120 by default, 10 to 900). A deterministic excerpt is written when the summary model cannot be called, when it overruns that deadline, or when `lcmModelSummaries` is false, and maintenance replaces such a node with a model summary once the model answers again. It is separate from `lcmMaxCondenseChildren`, which is the condensation fan-in: how many ready nodes are folded into one condensed parent. The daily project and per-session call, token, cost, and wall-time budgets still bound every run.
 
 ## Inspecting a live ledger
 
 `/fabric status` carries one LCM line: operational state, summary model, entry count, how many ready nodes the model wrote against how many exist, and today's calls and model seconds against their budget.
 
-`/fabric lcm` reports the detail that decides summary quality: how much of the active branch the ready frontier covers, the split between model-written and deterministic nodes, pending jobs, today's spend against the daily budget, and the effective pass and leaf limits. It ends with hints when the frontier covers less than half the branch, when the remaining daily budget cannot fit another call, or when no summary model is set.
+Every compaction key appears in `/fabric settings` under Compaction. `/fabric lcm` reports the detail that decides summary quality: how much of the active branch the ready frontier covers, the split between model-written and deterministic nodes, pending jobs, today's spend against the daily budget, and the effective pass and leaf limits. It ends with hints when the frontier covers less than half the branch, when the remaining daily budget cannot fit another call, or when no summary model is set.
 
 ## Performance gate
 

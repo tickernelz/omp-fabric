@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.9.0
+
+### Added
+
+- `compaction.lcmModelTimeoutSeconds` bounds one summary call and defaults to 120 seconds, raised from a hardcoded 60. A leaf may now carry 200,000 characters of evidence, which a slower provider could not always summarize inside the old minute, and overrunning it writes a deterministic excerpt while the model is healthy.
+- Every compaction key is editable in `/fabric settings`. Eleven of them, including the maintenance passes, leaf and prompt bounds, model budgets, and the new timeout, were reachable only by hand-editing `fabric.json`. A test now fails when a compaction key has no panel entry.
+
 ## 1.8.3
 
 ### Fixed

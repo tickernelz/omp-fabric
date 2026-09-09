@@ -32,6 +32,7 @@ export interface LcmRuntimeOptions {
   lcmMaxOutputChars?: number;
   maxMaintenancePasses?: number;
   modelSummaries?: boolean;
+  modelTimeoutSeconds?: number;
   maxDailyModelCalls?: number;
   maxSessionModelCalls?: number;
   maxDailyModelSeconds?: number;
@@ -67,6 +68,7 @@ export class LcmRuntime {
       ...initial,
       ...(initial.lcmMaxInputChars === undefined ? {} : { maxInputChars: initial.lcmMaxInputChars }),
       ...(initial.lcmMaxOutputChars === undefined ? {} : { maxOutputChars: initial.lcmMaxOutputChars }),
+      ...(initial.modelTimeoutSeconds === undefined ? {} : { modelTimeoutMs: initial.modelTimeoutSeconds * 1_000 }),
       budget: {
         ...(initial.maxDailyModelCalls ? { calls: initial.maxDailyModelCalls } : {}),
         ...(initial.maxSessionModelCalls ? { sessionCalls: initial.maxSessionModelCalls } : {}),

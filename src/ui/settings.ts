@@ -390,6 +390,10 @@ const setting = (
   return item;
 };
 
+const formatSeconds = (value: number): string => `${value}s`;
+const formatChars = (value: number): string => value >= 1_000 ? `${Math.round(value / 1_000)}k` : String(value);
+const formatLimit = (value: number): string => value === 0 ? "no limit" : String(value);
+
 const numericSubmenu = (
   theme: Theme,
   values: readonly number[],
@@ -1807,6 +1811,128 @@ export const buildFabricSettingsItems = (
                   "Model that writes LCM leaf and condensed summaries. Pick Inherit to use the active session model.",
                 inheritName: "Use the active session model",
               }),
+            },
+          ),
+          setting("compaction.lcmModelSummaries", "Model summaries", String(config.compaction.lcmModelSummaries), {
+            description:
+              "Summarize with the model. Turn this off to write deterministic excerpts only, which spends nothing and loses summary quality.",
+            values: BOOLEANS,
+          }),
+          setting(
+            "compaction.lcmModelTimeoutSeconds",
+            "Model timeout",
+            formatSeconds(config.compaction.lcmModelTimeoutSeconds),
+            {
+              description:
+                "Deadline for one summary call. A call that overruns it is abandoned and its node keeps a deterministic excerpt until a later pass upgrades it.",
+              submenu: numericSubmenu(
+                theme,
+                [30, 60, 120, 300, 600, 900],
+                formatSeconds,
+                "Model timeout",
+                "Deadline for one summary call.",
+              ),
+            },
+          ),
+          setting(
+            "compaction.lcmMaintenancePasses",
+            "Maintenance passes",
+            String(config.compaction.lcmMaintenancePasses),
+            {
+              description:
+                "Leaf and condensation passes one maintenance run may make. More passes cover a fast-moving session sooner and spend more.",
+              submenu: numericSubmenu(theme, [1, 2, 4, 8, 16, 32, 64], String, "Maintenance passes", "Passes per maintenance run."),
+            },
+          ),
+          setting(
+            "compaction.lcmMaxLeafEntries",
+            "Leaf entries",
+            String(config.compaction.lcmMaxLeafEntries),
+            {
+              description:
+                "Upper bound on raw entries folded into one leaf. The prompt budget below stops a leaf short when its entries are large.",
+              submenu: numericSubmenu(theme, [8, 16, 32, 64, 128], String, "Leaf entries", "Entries per leaf."),
+            },
+          ),
+          setting(
+            "compaction.lcmMaxCondenseChildren",
+            "Condense fan-in",
+            String(config.compaction.lcmMaxCondenseChildren),
+            {
+              description: "Ready nodes folded into one condensed parent.",
+              submenu: numericSubmenu(theme, [2, 4, 8, 16, 32], String, "Condense fan-in", "Children per condensed node."),
+            },
+          ),
+          setting(
+            "compaction.lcmMaxInputChars",
+            "Prompt budget",
+            formatChars(config.compaction.lcmMaxInputChars),
+            {
+              description: "Characters of evidence one summary prompt may carry.",
+              submenu: numericSubmenu(
+                theme,
+                [48_000, 100_000, 200_000, 400_000, 800_000],
+                formatChars,
+                "Prompt budget",
+                "Characters per summary prompt.",
+              ),
+            },
+          ),
+          setting(
+            "compaction.lcmMaxOutputTokens",
+            "Summary tokens",
+            String(config.compaction.lcmMaxOutputTokens),
+            {
+              description: "Output tokens one summary call may produce.",
+              submenu: numericSubmenu(theme, [1_024, 2_048, 4_096, 8_192, 16_384], String, "Summary tokens", "Output tokens per summary."),
+            },
+          ),
+          setting(
+            "compaction.lcmMaxOutputChars",
+            "Summary characters",
+            formatChars(config.compaction.lcmMaxOutputChars),
+            {
+              description: "Stored length of one summary, which also bounds a deterministic excerpt.",
+              submenu: numericSubmenu(
+                theme,
+                [4_096, 8_192, 16_384, 32_768, 65_536],
+                formatChars,
+                "Summary characters",
+                "Stored characters per summary.",
+              ),
+            },
+          ),
+          setting(
+            "compaction.lcmMaxDailyModelCalls",
+            "Daily call limit",
+            formatLimit(config.compaction.lcmMaxDailyModelCalls),
+            {
+              description: "Summary calls this project may make per day. No limit unless you set one.",
+              submenu: numericSubmenu(theme, [0, 64, 256, 512, 2_048], formatLimit, "Daily call limit", "Summary calls per project per day."),
+            },
+          ),
+          setting(
+            "compaction.lcmMaxSessionModelCalls",
+            "Session call limit",
+            formatLimit(config.compaction.lcmMaxSessionModelCalls),
+            {
+              description: "Summary calls one session may make per day. No limit unless you set one.",
+              submenu: numericSubmenu(theme, [0, 32, 128, 256, 1_024], formatLimit, "Session call limit", "Summary calls per session per day."),
+            },
+          ),
+          setting(
+            "compaction.lcmMaxDailyModelSeconds",
+            "Daily model seconds",
+            formatLimit(config.compaction.lcmMaxDailyModelSeconds),
+            {
+              description: "Model wall time this project may spend per day. No limit unless you set one.",
+              submenu: numericSubmenu(
+                theme,
+                [0, 900, 3_600, 7_200, 86_400],
+                formatLimit,
+                "Daily model seconds",
+                "Model wall time per project per day.",
+              ),
             },
           ),
           setting(

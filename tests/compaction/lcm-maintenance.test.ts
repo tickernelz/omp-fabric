@@ -127,6 +127,21 @@ describe("LCM maintenance branch isolation", () => {
     ledger.close();
   });
 
+  it("abandons a summary call at the configured deadline", async () => {
+    const { ledger, maintenance } = open({ modelTimeoutMs: 50 });
+    const source = ledger.appendRaw(raw(ledger.project.key, "s", "slow", "slow source", "main"));
+    const node = maintenance.createLeaf([source]);
+    if (!node) throw new Error("missing leaf");
+    const job = maintenance.listJobs().find(item => item.nodeId === node.nodeId);
+    if (!job) throw new Error("missing job");
+    const hanging: LcmSummarizer = { modelHash: "slow", generate: () => new Promise(() => {}) };
+
+    const settled = await maintenance.run(job, hanging, "evidence for the slow call");
+
+    expect(settled.modelHash).toBe("emergency");
+    expect(settled.text).toContain("Nonsemantic deterministic excerpt");
+  });
+
   it("packs a leaf to the input budget and never drops an oversized entry", () => {
     const { ledger, maintenance } = open({ maxLeafEntries: 10, maxInputChars: 2_000 });
     const project = ledger.project.key;

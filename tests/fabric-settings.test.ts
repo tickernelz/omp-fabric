@@ -718,6 +718,27 @@ describe("FabricSettingsComponent", () => {
     expect(inheritLine).not.toContain("✓");
   });
 
+
+  it("exposes every LCM compaction key in the settings panel", () => {
+    const items = buildItems();
+    const compaction = items.find((item) => item.id === "compaction")!;
+    const section = compaction.submenu!("", () => {}) as unknown as SectionProbe;
+    const ids = new Set(section.items.map((item) => item.id));
+    const lcmKeys = Object.keys(DEFAULT_FABRIC_CONFIG.compaction)
+      .filter((key) => key !== "thresholds" && key !== "tokenThresholds")
+      .map((key) => `compaction.${key}`);
+    expect(lcmKeys.filter((key) => !ids.has(key))).toEqual([]);
+  });
+
+  it("offers the model timeout as seconds and defaults to two minutes", () => {
+    const section = buildItems().find((item) => item.id === "compaction")!
+      .submenu!("", () => {}) as unknown as SectionProbe;
+    const timeout = section.items.find((item) => item.id === "compaction.lcmModelTimeoutSeconds")!;
+    expect(DEFAULT_FABRIC_CONFIG.compaction.lcmModelTimeoutSeconds).toBe(120);
+    expect(timeout.currentValue).toBe("120s");
+    expect(section.items.find((item) => item.id === "compaction.lcmMaxDailyModelCalls")?.currentValue).toBe("no limit");
+  });
+
   it("picks the LCM summary model from the available OMP models", () => {
     const items = buildItems();
     const compaction = items.find((item) => item.id === "compaction")!;
