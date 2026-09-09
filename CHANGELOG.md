@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.4.4
+
+### Fixed
+
+- Changing Compaction > Summary model (or any LCM bound) took effect only in the next session. The runtime captured its options once at construction and is rebuilt only when the project, cwd, or engine changes, so a model picked mid-session kept summarizing with the previous one. `LcmRuntime` now resolves its options at use time and the extension supplies them from live config, so the next maintenance pass and the next compaction read the current setting.
+
 ## 1.4.3
 
 ### Added

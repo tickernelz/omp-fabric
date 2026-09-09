@@ -520,14 +520,14 @@ export default async function ompFabric(omp: ExtensionAPI): Promise<void> {
       lcmProjectKey = undefined;
     }
     if (state.config.compaction.engine === "lcm" && !lcmRuntime) {
-      lcmRuntime = new LcmRuntime(context, {
+      lcmRuntime = new LcmRuntime(context, () => ({
         ...(state.config.compaction.summaryModel ? { summaryModel: state.config.compaction.summaryModel } : {}),
         maxLeafEntries: state.config.compaction.lcmMaxLeafEntries,
         maxCondenseChildren: state.config.compaction.lcmMaxCondenseChildren,
         lcmMaxInputChars: state.config.compaction.lcmMaxInputChars,
         lcmMaxOutputTokens: state.config.compaction.lcmMaxOutputTokens,
         lcmMaxOutputChars: state.config.compaction.lcmMaxOutputChars,
-      });
+      }));
       lcmCwd = context.cwd;
       lcmProjectKey = lcmRuntime.projectKey;
     }

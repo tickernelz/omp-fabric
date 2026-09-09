@@ -34,7 +34,7 @@ The selected-session reconciler stores a source generation/checkpoint and resume
 
 ## Summary maintenance
 
-The dedicated model is selected from `compaction.summaryModel` through OMP's public model registry and session-aware resolver. Pick it in `/fabric settings` under Compaction > Summary model, which lists the models OMP has available and offers Inherit to fall back to the active session model. The active session model is the fallback when the dedicated route is unavailable. Leaf and condensed prompts XML-fence transcript evidence and treat it as untrusted data.
+The dedicated model is selected from `compaction.summaryModel` through OMP's public model registry and session-aware resolver. Pick it in `/fabric settings` under Compaction > Summary model, which lists the models OMP has available and offers Inherit to fall back to the active session model. The runtime resolves compaction options at use time, so a change applies to the next maintenance pass and the next compaction without restarting the session. The active session model is the fallback when the dedicated route is unavailable. Leaf and condensed prompts XML-fence transcript evidence and treat it as untrusted data.
 
 Maintenance defaults are bounded to 32 model calls, 2,000,000 input tokens, and 128,000 output tokens per project per UTC day, with a nested 16-call session limit. One project model job runs at a time. Jobs use 30-second leases renewed every 10 seconds, 60-second call limits, exponential retry backoff capped at 15 minutes, and three attempts. A failed call does not publish a ready node or increment usage counters.
 

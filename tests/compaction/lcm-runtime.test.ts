@@ -61,6 +61,22 @@ describe("LCM runtime", () => {
     await runtime.shutdown();
   });
 
+  it("reads compaction options at use time so a settings change applies mid-session", async () => {
+    const root = makeRoot();
+    const entry = makeEntry("live", "live option source ".repeat(600));
+    let outputChars = 4_096;
+    const runtime = openRuntime(makeContext(root, [entry]), () => ({ rootDir: root, lcmMaxOutputChars: outputChars }));
+    await runtime.readback();
+    const wide = runtime.compact({ branchEntries: [entry], sessionId: "session-1", branch: "branch-a", firstKeptEntryId: "missing", tokensBefore: 100 });
+    outputChars = 1_200;
+    const narrow = runtime.compact({ branchEntries: [entry], sessionId: "session-1", branch: "branch-b", firstKeptEntryId: "missing", tokensBefore: 100 });
+    expect(wide.source).toBe("emergency");
+    expect(narrow.source).toBe("emergency");
+    expect(Buffer.byteLength(narrow.summary, "utf8")).toBeLessThanOrEqual(1_200);
+    expect(Buffer.byteLength(wide.summary, "utf8")).toBeGreaterThan(1_200);
+    await runtime.shutdown();
+  });
+
   it("keeps the session usable when reconciliation reports malformed rows", async () => {
     const root = makeRoot();
     const selected = path.join(root, "selected.jsonl");

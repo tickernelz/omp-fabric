@@ -19,7 +19,7 @@ export class LcmRuntime {
   readonly ledger: LcmLedger;
   readonly maintenance: LcmMaintenance;
   private readonly context: ExtensionContext;
-  private readonly options: LcmRuntimeOptions;
+  private readonly resolveOptions: () => LcmRuntimeOptions;
   private readonly abort = new AbortController();
   private writePending: Promise<void> = Promise.resolve();
   private maintenancePending: Promise<void> = Promise.resolve();
@@ -29,22 +29,25 @@ export class LcmRuntime {
   private activeSources = new Set<string>();
   private activeSessionId: string | undefined;
 
-  constructor(context: ExtensionContext, options: LcmRuntimeOptions = {}) {
+  constructor(context: ExtensionContext, options: LcmRuntimeOptions | (() => LcmRuntimeOptions) = {}) {
     this.context = context;
-    this.options = options;
+    this.resolveOptions = typeof options === "function" ? options : () => options;
+    const initial = this.resolveOptions();
     const recorded = context.sessionManager.getRecordedCwd?.();
     const liveCwd = recorded || context.cwd;
     const project = canonicalProjectIdentity({ liveCwd });
-    const ledgerOptions = options.rootDir === undefined
+    const ledgerOptions = initial.rootDir === undefined
       ? { project: { liveCwd: project.canonicalPath ?? liveCwd } }
-      : { rootDir: options.rootDir, project: { liveCwd: project.canonicalPath ?? liveCwd } };
+      : { rootDir: initial.rootDir, project: { liveCwd: project.canonicalPath ?? liveCwd } };
     this.ledger = new LcmLedger(ledgerOptions);
     this.maintenance = new LcmMaintenance(this.ledger, {
-      ...options,
-      ...(options.lcmMaxInputChars === undefined ? {} : { maxInputChars: options.lcmMaxInputChars }),
-      ...(options.lcmMaxOutputChars === undefined ? {} : { maxOutputChars: options.lcmMaxOutputChars }),
+      ...initial,
+      ...(initial.lcmMaxInputChars === undefined ? {} : { maxInputChars: initial.lcmMaxInputChars }),
+      ...(initial.lcmMaxOutputChars === undefined ? {} : { maxOutputChars: initial.lcmMaxOutputChars }),
     });
   }
+
+  private get options(): LcmRuntimeOptions { return this.resolveOptions(); }
 
   get projectKey(): string { return this.ledger.project.key; }
   get signal(): AbortSignal { return this.abort.signal; }
