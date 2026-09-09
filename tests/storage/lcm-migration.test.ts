@@ -33,5 +33,36 @@ describe("LCM session migration", () => {
     expect(sourceStillValid(220, 100)).toBe(false);
   });
   it("adopts the session header after preamble records", () => { const root=make(); const cwd=path.join(root,"project"); fs.mkdirSync(cwd); const p=path.join(root,"sessions","project","run.jsonl"); fs.mkdirSync(path.dirname(p),{recursive:true}); fs.writeFileSync(p,[{type:"title",v:1,title:"Resumed",source:"auto",updatedAt:"2026-09-07T00:00:00.000Z"},header(cwd),msg("a","2026-09-07T00:00:00.000Z"),msg("b","2026-09-07T00:00:01.000Z")].map(row=>JSON.stringify(row)).join("\n")+"\n"); const l=openLedger({dbPath:path.join(root,"l.sqlite"),project:{liveCwd:cwd}}); const r=migrateSessions({agentDir:root,ledger:l,files:[p],now:Date.parse("2026-09-08T00:00:00.000Z"),apply:true}); expect(r.counts.imported).toBe(2); expect(r.counts.malformed).toBe(0); expect(r.exitCode).toBe(0); expect(l.readRaw().map(entry=>entry.sessionId)).toEqual(["run-1","run-1"]); });
+  it("reports the entries it drops at the line size cap", () => {
+    const root=make(); const cwd=path.join(root,"project"); fs.mkdirSync(cwd);
+    const p=file(root,cwd,[header(cwd),msg("small","2026-09-07T00:00:00.000Z"),{type:"message",id:"huge",timestamp:"2026-09-07T00:00:01.000Z",message:{role:"user",content:"x".repeat(400)}}]);
+    const l=openLedger({dbPath:path.join(root,"l.sqlite"),project:{liveCwd:cwd}});
+    const result=reconcileSession({agentDir:root,ledger:l,files:[p] as [string],liveCwd:cwd,maxLineBytes:256,apply:true});
+    expect(result.counts.imported).toBe(1);
+    expect(result.drops.entries).toBe(1);
+    expect(result.drops.oversizedLines).toBe(1);
+    expect(result.drops.oversizedLineBytes).toBeGreaterThan(256);
+    expect(result.degraded).toBe(true);
+    expect(l.readRaw().map(entry=>entry.entryId)).toEqual(["small"]);
+  });
+  it("reports whole files dropped at the file and total size caps", () => {
+    const root=make(); const cwd=path.join(root,"project"); fs.mkdirSync(cwd);
+    const rows=[header(cwd),msg("a","2026-09-07T00:00:00.000Z")].map(row=>JSON.stringify(row)).join("\n")+"\n";
+    const first=path.join(root,"a.jsonl"); const second=path.join(root,"b.jsonl");
+    fs.writeFileSync(first,rows); fs.writeFileSync(second,rows);
+    const l=openLedger({dbPath:path.join(root,"l.sqlite"),project:{liveCwd:cwd}});
+    const base={agentDir:root,ledger:l,files:[first,second],liveCwd:cwd,now:Date.parse("2026-09-08T00:00:00.000Z")};
+    const clean=migrateSessions(base);
+    expect(clean.degraded).toBe(false);
+    expect(clean.drops).toEqual({oversizedFiles:0,oversizedFileBytes:0,oversizedLines:0,oversizedLineBytes:0,skippedFiles:0,entries:0});
+    const capped=migrateSessions({...base,maxTotalBytes:rows.length+1});
+    expect(capped.filesScanned).toBe(1);
+    expect(capped.drops.skippedFiles).toBe(1);
+    expect(capped.degraded).toBe(true);
+    const oversized=migrateSessions({...base,maxFileBytes:8});
+    expect(oversized.drops.oversizedFiles).toBe(2);
+    expect(oversized.drops.oversizedFileBytes).toBe(rows.length*2);
+    expect(oversized.degraded).toBe(true);
+  });
   it("reports a source that never declares a session header", () => { const root=make(); const cwd=path.join(root,"project"); fs.mkdirSync(cwd); const p=path.join(root,"sessions","project","run.jsonl"); fs.mkdirSync(path.dirname(p),{recursive:true}); fs.writeFileSync(p,[{type:"title",v:1,title:"Headerless"},msg("a","2026-09-07T00:00:00.000Z")].map(row=>JSON.stringify(row)).join("\n")+"\n"); const l=openLedger({dbPath:path.join(root,"l.sqlite"),project:{liveCwd:cwd}}); const r=migrateSessions({agentDir:root,ledger:l,files:[p],now:Date.parse("2026-09-08T00:00:00.000Z"),apply:true}); expect(r.counts.imported).toBe(0); expect(r.counts.malformed).toBe(2); expect(r.exitCode).toBe(1); expect(l.readRaw()).toHaveLength(0); });
 });

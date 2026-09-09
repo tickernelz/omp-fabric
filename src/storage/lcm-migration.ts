@@ -44,11 +44,21 @@ interface MigrationCounts {
   incompleteDiscovery: number;
   errors: number;
 }
+interface MigrationDrops {
+  oversizedFiles: number;
+  oversizedFileBytes: number;
+  oversizedLines: number;
+  oversizedLineBytes: number;
+  skippedFiles: number;
+  entries: number;
+}
 export interface MigrationResult {
   mode: "apply" | "dry-run";
   since: string;
   until: string;
   counts: MigrationCounts;
+  drops: MigrationDrops;
+  degraded: boolean;
   filesScanned: number;
   bytesScanned: number;
   generations: Array<{ sessionPath: string; sourceHash: string }>;
@@ -144,19 +154,22 @@ export function migrateSessions(options: MigrationOptions): MigrationResult {
   const result: MigrationResult = {
     mode: options.apply ? "apply" : "dry-run", since: new Date(window.since).toISOString(), until: new Date(window.until).toISOString(),
     counts: { eligible: 0, imported: 0, skippedDuplicate: 0, skippedOutOfWindow: 0, malformed: 0, oversized: 0, incompleteDiscovery: discovery.incomplete, errors: 0 },
+    drops: { oversizedFiles: 0, oversizedFileBytes: 0, oversizedLines: 0, oversizedLineBytes: 0, skippedFiles: 0, entries: 0 },
+    degraded: false,
     filesScanned: 0, bytesScanned: 0, generations: [], exitCode: 0,
   };
   const counts = result.counts;
+  const drops = result.drops;
   const drySeen = new Set<string>();
-  for (const file of discovery.files) {
+  for (const [position, file] of discovery.files.entries()) {
     let data: Buffer;
     let fd: number | undefined;
     try {
       fd = fs.openSync(file, "r");
       const before = fs.fstatSync(fd);
       if (!before.isFile()) { counts.incompleteDiscovery++; continue; }
-      if (before.size > maxFileBytes) { counts.oversized++; continue; }
-      if (result.bytesScanned + before.size > maxTotalBytes) { counts.incompleteDiscovery++; break; }
+      if (before.size > maxFileBytes) { counts.oversized++; drops.oversizedFiles++; drops.oversizedFileBytes += before.size; continue; }
+      if (result.bytesScanned + before.size > maxTotalBytes) { counts.incompleteDiscovery++; drops.skippedFiles += discovery.files.length - position; break; }
       data = Buffer.allocUnsafe(before.size);
       let offset = 0;
       while (offset < data.length) {
@@ -186,7 +199,7 @@ export function migrateSessions(options: MigrationOptions): MigrationResult {
         const end = newline < 0 ? data.length : newline;
         const bytes = data.subarray(start, end);
         start = newline < 0 ? data.length : end + 1;
-        if (bytes.length > maxLineBytes) { counts.oversized++; continue; }
+        if (bytes.length > maxLineBytes) { counts.oversized++; drops.oversizedLines++; drops.oversizedLineBytes += bytes.length; drops.entries++; continue; }
         const content = bytes.toString("utf8").replace(/\r$/, "");
         if (!content.trim()) continue;
         let row: Record<string, unknown> | undefined;
@@ -254,6 +267,7 @@ export function migrateSessions(options: MigrationOptions): MigrationResult {
       else if (!ledger && database && database !== options.ledger?.db) database.close();
     }
   }
+  result.degraded = drops.entries > 0 || drops.oversizedFiles > 0 || drops.skippedFiles > 0;
   result.exitCode = counts.errors || counts.malformed || counts.oversized || (counts.incompleteDiscovery && !options.allowIncompleteDiscovery) ? 1 : 0;
   return result;
 }

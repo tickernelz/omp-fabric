@@ -12,6 +12,13 @@ export interface LedgerOptions { dbPath?: string; rootDir?: string; project?: Pr
 export type OperationalState = "healthy" | "warning" | "maintenance" | "degraded";
 export interface CheckpointMetrics { mode: "passive" | "truncate"; busy: number; logPages: number; checkpointedPages: number; truncated: boolean }
 export interface BackupManifest { format: "lcm-ledger-backup"; version: 1; source: string; destination: string; sourceSha256: string; backupSha256: string; sourceStateSha256: string; rowCounts: Record<string, number>; integrity: "ok" | string; createdAt: number }
+type LcmSearchMode = "literal" | "phrase" | "regex";
+export interface LcmSearchOptions { sessionId?: string; query?: string; mode: LcmSearchMode; offset: number; limit: number; scanLimit?: number; match?: "any" | "all" }
+export interface LcmSearchPage { rows: RawEntry[]; total: number; scanned: number; complete: boolean }
+export interface LedgerMigrationReport { version: number; name: string; applied: boolean; reason?: string; counts: Record<string, number> }
+const LEDGER_SCHEMA_VERSION = 3;
+const LCM_SEARCH_SCAN_LIMIT = 5_000;
+const LCM_SCAN_BATCH = 500;
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS schema_metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -20,22 +27,50 @@ CREATE TABLE IF NOT EXISTS project_aliases (alias TEXT PRIMARY KEY, project_key 
 CREATE TABLE IF NOT EXISTS sessions (project_key TEXT NOT NULL, session_id TEXT NOT NULL, created_at INTEGER NOT NULL, PRIMARY KEY(project_key, session_id));
 CREATE TABLE IF NOT EXISTS raw_entries (project_key TEXT NOT NULL, session_id TEXT NOT NULL, entry_id TEXT NOT NULL, revision INTEGER NOT NULL, role TEXT NOT NULL, content TEXT NOT NULL, content_hash TEXT NOT NULL, payload_json TEXT NOT NULL, parent_entry_id TEXT, branch TEXT, created_at INTEGER NOT NULL, PRIMARY KEY(project_key, session_id, entry_id, revision), UNIQUE(project_key, session_id, entry_id, content_hash));
 CREATE TABLE IF NOT EXISTS summary_nodes (node_id TEXT PRIMARY KEY, project_key TEXT NOT NULL, payload TEXT NOT NULL, created_at INTEGER NOT NULL);
-CREATE TABLE IF NOT EXISTS summary_node_revisions (node_id TEXT NOT NULL, revision INTEGER NOT NULL, project_key TEXT NOT NULL, text TEXT NOT NULL, model_hash TEXT NOT NULL, created_at INTEGER NOT NULL, PRIMARY KEY(node_id, revision));
-CREATE TABLE IF NOT EXISTS summary_edges (parent_id TEXT NOT NULL, child_id TEXT NOT NULL, PRIMARY KEY(parent_id, child_id));
+CREATE TABLE IF NOT EXISTS summary_node_revisions (node_id TEXT NOT NULL REFERENCES summary_nodes(node_id), revision INTEGER NOT NULL, project_key TEXT NOT NULL, text TEXT NOT NULL, model_hash TEXT NOT NULL, created_at INTEGER NOT NULL, PRIMARY KEY(node_id, revision));
+CREATE TABLE IF NOT EXISTS summary_edges (parent_id TEXT NOT NULL REFERENCES summary_nodes(node_id), child_id TEXT NOT NULL REFERENCES summary_nodes(node_id), PRIMARY KEY(parent_id, child_id));
 CREATE TABLE IF NOT EXISTS frontiers (project_key TEXT NOT NULL, frontier_id TEXT NOT NULL, node_id TEXT NOT NULL, created_at INTEGER NOT NULL, PRIMARY KEY(project_key, frontier_id, node_id));
 CREATE TABLE IF NOT EXISTS maintenance_jobs (job_id TEXT PRIMARY KEY, project_key TEXT NOT NULL, status TEXT NOT NULL, payload TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS maintenance_usage (project_key TEXT NOT NULL, day TEXT NOT NULL, session_id TEXT NOT NULL, calls INTEGER NOT NULL, input_tokens INTEGER NOT NULL, output_tokens INTEGER NOT NULL, cost REAL NOT NULL, wall_ms INTEGER NOT NULL, PRIMARY KEY(project_key,day,session_id));
+CREATE TABLE IF NOT EXISTS orphaned_rows (migration_version INTEGER NOT NULL, table_name TEXT NOT NULL, row_json TEXT NOT NULL, detected_at INTEGER NOT NULL);
 CREATE INDEX IF NOT EXISTS raw_entries_lookup ON raw_entries(project_key, session_id, entry_id, revision);
+DROP INDEX IF EXISTS raw_entries_recent;
+CREATE INDEX IF NOT EXISTS raw_entries_session_order ON raw_entries(project_key, session_id, created_at, revision);
 `;
 
 const fileHash = (file: string) => crypto.createHash("sha256").update(fs.readFileSync(file)).digest("hex");
 const snapshotHash = (db: SqliteDatabase): string => {
   const digest = crypto.createHash("sha256");
-  for (const [table, order] of [["schema_metadata", "key"], ["projects", "project_key"], ["project_aliases", "alias"], ["sessions", "project_key,session_id"], ["raw_entries", "project_key,session_id,entry_id,revision"], ["summary_nodes", "node_id"], ["summary_edges", "parent_id,child_id"], ["frontiers", "project_key,frontier_id,node_id"], ["maintenance_jobs", "job_id"], ["maintenance_usage", "project_key,day,session_id"]] as const) {
+  for (const [table, order] of [["schema_metadata", "key"], ["projects", "project_key"], ["project_aliases", "alias"], ["sessions", "project_key,session_id"], ["raw_entries", "project_key,session_id,entry_id,revision"], ["summary_nodes", "node_id"], ["summary_edges", "parent_id,child_id"], ["frontiers", "project_key,frontier_id,node_id"], ["maintenance_jobs", "job_id"], ["maintenance_usage", "project_key,day,session_id"], ["orphaned_rows", "migration_version,table_name,row_json"]] as const) {
     digest.update(`${table}\0`);
     for (const row of db.prepare(`SELECT * FROM ${table} ORDER BY ${order}`).all()) digest.update(`${JSON.stringify(row)}\0`);
   }
   return digest.digest("hex");
+};
+
+const toRawEntry = (row: Record<string, unknown>): RawEntry => ({ projectKey: row.project_key as string, sessionId: row.session_id as string, entryId: row.entry_id as string, revision: Number(row.revision), role: row.role as string, content: row.content as string, contentHash: row.content_hash as string, payloadHash: row.content_hash as string, payloadJson: row.payload_json as string, parentEntryId: row.parent_entry_id as string | null, branch: row.branch as string | null, createdAt: row.created_at as number });
+const toRawEntries = (rows: unknown[]): RawEntry[] => (rows as Array<Record<string, unknown>>).map(toRawEntry);
+
+const probeFts5 = (db: SqliteDatabase): boolean => {
+  try { db.exec("CREATE VIRTUAL TABLE temp.lcm_fts5_probe USING fts5(probe); DROP TABLE temp.lcm_fts5_probe;"); return true; }
+  catch { try { db.exec("DROP TABLE IF EXISTS temp.lcm_fts5_probe"); } catch {} return false; }
+};
+
+const ftsString = (value: string): string => `"${value.replace(/"/g, '""')}"`;
+const searchTerms = (query: string): string[] => query.split(/\s+/).filter(term => term.length > 0);
+const ftsExpression = (query: string, mode: LcmSearchMode, match: "any" | "all"): string | undefined => {
+  if (mode === "phrase") return ftsString(query);
+  const terms = searchTerms(query);
+  if (terms.length === 0) return undefined;
+  return terms.map(ftsString).join(match === "all" ? " AND " : " OR ");
+};
+const substringPredicate = (query: string, mode: LcmSearchMode, match: "any" | "all"): (content: string) => boolean => {
+  if (mode === "phrase") { const needle = query.toLowerCase(); return content => content.toLowerCase().includes(needle); }
+  const terms = searchTerms(query.toLowerCase());
+  if (terms.length === 0) return () => false;
+  return match === "all"
+    ? content => { const lower = content.toLowerCase(); return terms.every(term => lower.includes(term)); }
+    : content => { const lower = content.toLowerCase(); return terms.some(term => lower.includes(term)); };
 };
 
 class LedgerDegradedError extends Error { constructor(message: string, public readonly cause?: unknown) { super(message); this.name = "LedgerDegradedError"; } }
@@ -51,6 +86,8 @@ export class LcmLedger {
   private writeChain: Promise<void> = Promise.resolve();
   private transactionDepth = 0;
   private closed = false;
+  private fts = false;
+  readonly migrations: LedgerMigrationReport[] = [];
   constructor(options: LedgerOptions = {}) {
     this.now = options.now ?? Date.now;
     this.warningBytes = options.warningBytes ?? LCM_LEDGER_WARNING_BYTES;
@@ -65,12 +102,15 @@ export class LcmLedger {
     this.db = new (sqliteDriver())(dbPath);
     try {
       this.db.exec("PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA busy_timeout=5000; PRAGMA wal_autocheckpoint=1000;");
-      this.db.exec("BEGIN IMMEDIATE;" + SCHEMA + "INSERT INTO schema_metadata(key,value) VALUES ('version','1') ON CONFLICT(key) DO UPDATE SET value='1'; COMMIT;");
+      this.db.exec("BEGIN IMMEDIATE;" + SCHEMA + "COMMIT;");
       const columns = this.db.prepare("PRAGMA table_info(raw_entries)").all() as Array<{ name: string }>;
       if (!columns.some(column => column.name === "payload_json")) {
         if (Number((this.db.prepare("SELECT count(*) n FROM raw_entries").get() as { n: number }).n)) throw new Error("raw payloads missing; reimport authoritative session entries");
         this.db.exec("ALTER TABLE raw_entries ADD COLUMN payload_json TEXT NOT NULL DEFAULT ''");
       }
+      this.fts = probeFts5(this.db);
+      this.migrateSchema();
+      this.db.exec("PRAGMA foreign_keys=ON");
       const result = this.db.prepare("PRAGMA integrity_check").get() as { integrity_check?: string };
       if (result.integrity_check !== "ok") throw new Error(String(result.integrity_check));
       this.registerProject(this.project);
@@ -91,6 +131,66 @@ export class LcmLedger {
       if (existing && existing.project_key !== identity.key) throw new LedgerDegradedError(`ambiguous project alias: ${alias}`);
       this.db.prepare("INSERT OR IGNORE INTO project_aliases(alias,project_key) VALUES(?,?)").run(alias, identity.key);
     }
+  }
+  get ftsAvailable() { return this.fts; }
+  private schemaVersion(): number {
+    const row = this.db.prepare("SELECT value FROM schema_metadata WHERE key='version'").get() as { value?: string } | undefined;
+    const version = Number(row?.value ?? 0);
+    return Number.isSafeInteger(version) && version > 0 ? version : 0;
+  }
+  private hasObject(type: string, name: string): boolean {
+    return this.db.prepare("SELECT 1 FROM sqlite_master WHERE type=? AND name=?").get(type, name) !== undefined;
+  }
+  private indexOutOfStep(): boolean {
+    if (this.fts !== this.hasObject("table", "raw_entries_fts")) return true;
+    if (!this.fts) return false;
+    if (!this.hasObject("trigger", "raw_entries_fts_insert")) return true;
+    return Number((this.db.prepare("SELECT count(*) n FROM raw_entries_fts").get() as { n: number }).n) !== Number((this.db.prepare("SELECT count(*) n FROM raw_entries").get() as { n: number }).n);
+  }
+  private migrateSchema(): void {
+    const version = this.schemaVersion();
+    if (version < 2 || this.indexOutOfStep()) this.migrations.push(this.migrateFullTextIndex());
+    if (version < 3 || (this.db.prepare("PRAGMA foreign_key_list(summary_edges)").all().length === 0)) this.migrations.push(this.migrateDerivedForeignKeys());
+    if (version !== LEDGER_SCHEMA_VERSION) this.db.prepare("INSERT INTO schema_metadata(key,value) VALUES('version',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(String(LEDGER_SCHEMA_VERSION));
+  }
+  private migrateFullTextIndex(): LedgerMigrationReport {
+    if (!this.fts) {
+      this.db.exec("DROP TRIGGER IF EXISTS raw_entries_fts_insert");
+      return { version: 2, name: "raw-entries-fts", applied: false, reason: "sqlite driver has no fts5 module", counts: { indexed: 0 } };
+    }
+    let indexed = 0;
+    this.transaction(db => {
+      db.exec("CREATE VIRTUAL TABLE IF NOT EXISTS raw_entries_fts USING fts5(content, project_key UNINDEXED, session_id UNINDEXED, entry_id UNINDEXED, revision UNINDEXED)");
+      db.exec("CREATE TRIGGER IF NOT EXISTS raw_entries_fts_insert AFTER INSERT ON raw_entries BEGIN INSERT INTO raw_entries_fts(content,project_key,session_id,entry_id,revision) VALUES(new.content,new.project_key,new.session_id,new.entry_id,new.revision); END");
+      indexed = Number((db.prepare("SELECT count(*) n FROM raw_entries").get() as { n: number }).n);
+      if (Number((db.prepare("SELECT count(*) n FROM raw_entries_fts").get() as { n: number }).n) === indexed) return;
+      db.exec("DELETE FROM raw_entries_fts");
+      db.exec("INSERT INTO raw_entries_fts(content,project_key,session_id,entry_id,revision) SELECT content,project_key,session_id,entry_id,revision FROM raw_entries");
+    });
+    return { version: 2, name: "raw-entries-fts", applied: true, counts: { indexed } };
+  }
+  private migrateDerivedForeignKeys(): LedgerMigrationReport {
+    const counts: Record<string, number> = { summary_edges: 0, summary_node_revisions: 0 };
+    this.transaction(db => {
+      const detectedAt = this.now();
+      const known = "(SELECT node_id FROM summary_nodes)";
+      const quarantine = (table: string, orphaned: string): void => {
+        const rows = db.prepare(`SELECT * FROM ${table} WHERE ${orphaned}`).all() as Array<Record<string, unknown>>;
+        for (const row of rows) db.prepare("INSERT INTO orphaned_rows(migration_version,table_name,row_json,detected_at) VALUES(?,?,?,?)").run(LEDGER_SCHEMA_VERSION, table, JSON.stringify(row), detectedAt);
+        counts[table] = rows.length;
+      };
+      quarantine("summary_edges", `parent_id NOT IN ${known} OR child_id NOT IN ${known}`);
+      db.exec(`CREATE TABLE summary_edges_next (parent_id TEXT NOT NULL REFERENCES summary_nodes(node_id), child_id TEXT NOT NULL REFERENCES summary_nodes(node_id), PRIMARY KEY(parent_id, child_id));
+INSERT INTO summary_edges_next(parent_id,child_id) SELECT parent_id,child_id FROM summary_edges WHERE parent_id IN ${known} AND child_id IN ${known};
+DROP TABLE summary_edges;
+ALTER TABLE summary_edges_next RENAME TO summary_edges;`);
+      quarantine("summary_node_revisions", `node_id NOT IN ${known}`);
+      db.exec(`CREATE TABLE summary_node_revisions_next (node_id TEXT NOT NULL REFERENCES summary_nodes(node_id), revision INTEGER NOT NULL, project_key TEXT NOT NULL, text TEXT NOT NULL, model_hash TEXT NOT NULL, created_at INTEGER NOT NULL, PRIMARY KEY(node_id, revision));
+INSERT INTO summary_node_revisions_next(node_id,revision,project_key,text,model_hash,created_at) SELECT node_id,revision,project_key,text,model_hash,created_at FROM summary_node_revisions WHERE node_id IN ${known};
+DROP TABLE summary_node_revisions;
+ALTER TABLE summary_node_revisions_next RENAME TO summary_node_revisions;`);
+    });
+    return { version: 3, name: "derived-foreign-keys", applied: true, counts };
   }
   private guard() { if (this.degraded) throw new LedgerDegradedError("ledger is degraded"); }
   private assertProjectKey(projectKey: string) { if (projectKey !== this.project.key) throw new Error("project key does not match ledger project"); }
@@ -121,14 +221,74 @@ export class LcmLedger {
       const code = (error as NodeJS.ErrnoException).code; if (code === "ENOSPC" || code === "SQLITE_FULL" || String(error).includes("database or disk is full")) this.degraded = true; throw new LedgerDegradedError("ledger write failed", error);
     }
   }
-  readRaw(projectKey = this.project.key, sessionId?: string): RawEntry[] { this.guard(); this.assertProjectKey(projectKey); const rows = sessionId ? this.db.prepare("SELECT * FROM raw_entries WHERE project_key=? AND session_id=? ORDER BY created_at,revision").all(projectKey,sessionId) : this.db.prepare("SELECT * FROM raw_entries WHERE project_key=? ORDER BY created_at,session_id,entry_id,revision").all(projectKey); return (rows as Array<Record<string, unknown>>).map(row => ({ projectKey: row.project_key as string, sessionId: row.session_id as string, entryId: row.entry_id as string, revision: row.revision as number, role: row.role as string, content: row.content as string, contentHash: row.content_hash as string, payloadHash: row.content_hash as string, payloadJson: row.payload_json as string, parentEntryId: row.parent_entry_id as string | null, branch: row.branch as string | null, createdAt: row.created_at as number })); }
-  readRawPage(projectKey = this.project.key, sessionId?: string, offset = 0, limit = 100): RawEntry[] { if (!Number.isSafeInteger(offset) || offset < 0 || !Number.isSafeInteger(limit) || limit < 1) throw new Error("invalid raw page"); this.guard(); this.assertProjectKey(projectKey); const rows = sessionId ? this.db.prepare("SELECT * FROM raw_entries WHERE project_key=? AND session_id=? ORDER BY created_at,revision LIMIT ? OFFSET ?").all(projectKey,sessionId,limit,offset) : this.db.prepare("SELECT * FROM raw_entries WHERE project_key=? ORDER BY created_at,session_id,entry_id,revision LIMIT ? OFFSET ?").all(projectKey,limit,offset); return (rows as Array<Record<string, unknown>>).map(row => ({ projectKey: row.project_key as string, sessionId: row.session_id as string, entryId: row.entry_id as string, revision: row.revision as number, role: row.role as string, content: row.content as string, contentHash: row.content_hash as string, payloadHash: row.content_hash as string, payloadJson: row.payload_json as string, parentEntryId: row.parent_entry_id as string | null, branch: row.branch as string | null, createdAt: row.created_at as number })); }
-  readRawEntry(projectKey: string, sessionId: string, entryId: string, revision: number): RawEntry | undefined { this.guard(); this.assertProjectKey(projectKey); const row = this.db.prepare("SELECT * FROM raw_entries WHERE project_key=? AND session_id=? AND entry_id=? AND revision=?").get(projectKey,sessionId,entryId,revision) as Record<string, unknown> | undefined; return row ? { projectKey: row.project_key as string, sessionId: row.session_id as string, entryId: row.entry_id as string, revision: row.revision as number, role: row.role as string, content: row.content as string, contentHash: row.content_hash as string, payloadHash: row.content_hash as string, payloadJson: row.payload_json as string, parentEntryId: row.parent_entry_id as string | null, branch: row.branch as string | null, createdAt: row.created_at as number } : undefined; }
+  readRaw(projectKey = this.project.key, sessionId?: string): RawEntry[] { this.guard(); this.assertProjectKey(projectKey); const rows = sessionId ? this.db.prepare("SELECT * FROM raw_entries WHERE project_key=? AND session_id=? ORDER BY created_at,revision,rowid").all(projectKey,sessionId) : this.db.prepare("SELECT * FROM raw_entries WHERE project_key=? ORDER BY created_at,session_id,entry_id,revision").all(projectKey); return toRawEntries(rows); }
+  readRawPage(projectKey = this.project.key, sessionId?: string, offset = 0, limit = 100): RawEntry[] { if (!Number.isSafeInteger(offset) || offset < 0 || !Number.isSafeInteger(limit) || limit < 1) throw new Error("invalid raw page"); this.guard(); this.assertProjectKey(projectKey); const rows = sessionId ? this.db.prepare("SELECT * FROM raw_entries WHERE project_key=? AND session_id=? ORDER BY created_at,revision,rowid LIMIT ? OFFSET ?").all(projectKey,sessionId,limit,offset) : this.db.prepare("SELECT * FROM raw_entries WHERE project_key=? ORDER BY created_at,session_id,entry_id,revision LIMIT ? OFFSET ?").all(projectKey,limit,offset); return toRawEntries(rows); }
+  readRawEntry(projectKey: string, sessionId: string, entryId: string, revision: number): RawEntry | undefined { this.guard(); this.assertProjectKey(projectKey); const row = this.db.prepare("SELECT * FROM raw_entries WHERE project_key=? AND session_id=? AND entry_id=? AND revision=?").get(projectKey,sessionId,entryId,revision) as Record<string, unknown> | undefined; return row ? toRawEntry(row) : undefined; }
+  searchRaw(projectKey: string | undefined, options: LcmSearchOptions): LcmSearchPage {
+    this.guard();
+    const key = projectKey ?? this.project.key;
+    this.assertProjectKey(key);
+    const { offset, limit, sessionId } = options;
+    if (!Number.isSafeInteger(offset) || offset < 0 || !Number.isSafeInteger(limit) || limit < 1) throw new Error("invalid raw page");
+    const scanLimit = options.scanLimit ?? LCM_SEARCH_SCAN_LIMIT;
+    if (!Number.isSafeInteger(scanLimit) || scanLimit < 1) throw new Error("invalid scan limit");
+    const query = options.query?.trim() ?? "";
+    if (query.length === 0) return this.recentPage(key, sessionId, offset, limit);
+    if (options.mode === "regex") {
+      let pattern: RegExp;
+      try { pattern = new RegExp(query, "iu"); } catch { return { rows: [], total: 0, scanned: 0, complete: false }; }
+      return this.scanPage(key, sessionId, content => pattern.test(content), offset, limit, scanLimit, false);
+    }
+    const match = options.match ?? "any";
+    if (this.fts) {
+      const expression = ftsExpression(query, options.mode, match);
+      if (expression !== undefined) { try { return this.indexPage(key, sessionId, expression, offset, limit); } catch {} }
+    }
+    return this.scanPage(key, sessionId, substringPredicate(query, options.mode, match), offset, limit, scanLimit, true);
+  }
+  private recentPage(key: string, sessionId: string | undefined, offset: number, limit: number): LcmSearchPage {
+    const counted = (sessionId
+      ? this.db.prepare("SELECT count(*) n FROM raw_entries WHERE project_key=? AND session_id=?").get(key, sessionId)
+      : this.db.prepare("SELECT count(*) n FROM raw_entries WHERE project_key=?").get(key)) as { n: number };
+    const total = Number(counted.n);
+    const rows = sessionId
+      ? this.db.prepare("SELECT * FROM raw_entries WHERE project_key=? AND session_id=? ORDER BY created_at DESC, revision DESC, rowid DESC LIMIT ? OFFSET ?").all(key, sessionId, limit, offset)
+      : this.db.prepare("SELECT * FROM raw_entries WHERE project_key=? ORDER BY created_at DESC, revision DESC, rowid DESC LIMIT ? OFFSET ?").all(key, limit, offset);
+    return { rows: toRawEntries(rows), total, scanned: total, complete: true };
+  }
+  private indexPage(key: string, sessionId: string | undefined, expression: string, offset: number, limit: number): LcmSearchPage {
+    const source = "FROM raw_entries_fts JOIN raw_entries r ON r.project_key=raw_entries_fts.project_key AND r.session_id=raw_entries_fts.session_id AND r.entry_id=raw_entries_fts.entry_id AND r.revision=CAST(raw_entries_fts.revision AS INTEGER) WHERE raw_entries_fts MATCH ? AND raw_entries_fts.project_key=?" + (sessionId ? " AND raw_entries_fts.session_id=?" : "");
+    const filters = sessionId ? [expression, key, sessionId] : [expression, key];
+    const total = Number((this.db.prepare(`SELECT count(*) n ${source}`).get(...filters) as { n: number }).n);
+    const rows = this.db.prepare(`SELECT r.* ${source} ORDER BY r.created_at DESC, r.revision DESC, r.rowid DESC LIMIT ? OFFSET ?`).all(...filters, limit, offset);
+    return { rows: toRawEntries(rows), total, scanned: total, complete: true };
+  }
+  private scanPage(key: string, sessionId: string | undefined, matches: (content: string) => boolean, offset: number, limit: number, scanLimit: number, degraded: boolean): LcmSearchPage {
+    const statement = sessionId
+      ? this.db.prepare("SELECT session_id,entry_id,revision,content FROM raw_entries WHERE project_key=? AND session_id=? ORDER BY created_at DESC, revision DESC, rowid DESC LIMIT ? OFFSET ?")
+      : this.db.prepare("SELECT session_id,entry_id,revision,content FROM raw_entries WHERE project_key=? ORDER BY created_at DESC, revision DESC, rowid DESC LIMIT ? OFFSET ?");
+    const found: Array<{ sessionId: string; entryId: string; revision: number }> = [];
+    let scanned = 0;
+    let exhausted = false;
+    while (scanned < scanLimit) {
+      const size = Math.min(LCM_SCAN_BATCH, scanLimit - scanned);
+      const batch = (sessionId ? statement.all(key, sessionId, size, scanned) : statement.all(key, size, scanned)) as Array<Record<string, unknown>>;
+      scanned += batch.length;
+      for (const row of batch) if (matches(row.content as string)) found.push({ sessionId: row.session_id as string, entryId: row.entry_id as string, revision: Number(row.revision) });
+      if (batch.length < size) { exhausted = true; break; }
+    }
+    const rows: RawEntry[] = [];
+    for (const identity of found.slice(offset, offset + limit)) {
+      const entry = this.readRawEntry(key, identity.sessionId, identity.entryId, identity.revision);
+      if (entry) rows.push(entry);
+    }
+    return { rows, total: found.length, scanned, complete: degraded ? false : exhausted };
+  }
   /** Identity columns only, so a coverage scan never loads payloads. */
   readRawKeys(projectKey = this.project.key, sessionId?: string, limit = 100_000): Array<{ sessionId: string; entryId: string; revision: number }> {
     this.guard(); this.assertProjectKey(projectKey);
     const rows = sessionId
-      ? this.db.prepare("SELECT session_id, entry_id, revision FROM raw_entries WHERE project_key=? AND session_id=? ORDER BY created_at,revision LIMIT ?").all(projectKey, sessionId, limit)
+      ? this.db.prepare("SELECT session_id, entry_id, revision FROM raw_entries WHERE project_key=? AND session_id=? ORDER BY created_at,revision,rowid LIMIT ?").all(projectKey, sessionId, limit)
       : this.db.prepare("SELECT session_id, entry_id, revision FROM raw_entries WHERE project_key=? ORDER BY created_at,session_id,entry_id,revision LIMIT ?").all(projectKey, limit);
     return (rows as Array<Record<string, unknown>>).map(row => ({ sessionId: row.session_id as string, entryId: row.entry_id as string, revision: Number(row.revision) }));
   }
@@ -162,7 +322,7 @@ export class LcmLedger {
       const rowCounts: Record<string, number> = {};
       try {
         integrity = (copy.prepare("PRAGMA integrity_check").get() as { integrity_check?: string }).integrity_check ?? "unknown";
-        for (const table of ["projects", "sessions", "raw_entries", "summary_nodes", "summary_edges", "frontiers", "maintenance_jobs", "maintenance_usage"]) {
+        for (const table of ["projects", "sessions", "raw_entries", "summary_nodes", "summary_node_revisions", "summary_edges", "frontiers", "maintenance_jobs", "maintenance_usage", "orphaned_rows"]) {
           rowCounts[table] = Number((copy.prepare(`SELECT count(*) n FROM ${table}`).get() as { n: number }).n);
         }
         backupStateSha256 = snapshotHash(copy);
@@ -189,7 +349,8 @@ export class LcmLedger {
     if (backupManifest.integrity !== "ok" || backupManifest.source !== this.dbPath || !backupManifest.backupSha256 || backupManifest.backupSha256 !== fileHash(backupManifest.destination) || !backupManifest.sourceStateSha256 || backupManifest.sourceStateSha256 !== backupStateSha256 || backupManifest.sourceSha256 !== fileHash(this.dbPath) || backupManifest.sourceStateSha256 !== snapshotHash(this.db)) throw new Error("backup verification failed");
     this.transaction(db => {
       db.prepare("DELETE FROM summary_edges WHERE parent_id IN (SELECT node_id FROM summary_nodes WHERE project_key=?) OR child_id IN (SELECT node_id FROM summary_nodes WHERE project_key=?)").run(this.project.key, this.project.key);
-      for (const table of ["raw_entries", "sessions", "frontiers", "summary_nodes", "maintenance_jobs", "maintenance_usage"]) db.prepare(`DELETE FROM ${table} WHERE project_key=?`).run(this.project.key);
+      for (const table of ["raw_entries", "sessions", "frontiers", "summary_node_revisions", "summary_nodes", "maintenance_jobs", "maintenance_usage"]) db.prepare(`DELETE FROM ${table} WHERE project_key=?`).run(this.project.key);
+      if (this.fts) db.prepare("DELETE FROM raw_entries_fts WHERE project_key=?").run(this.project.key);
       db.prepare("DELETE FROM project_aliases WHERE project_key=?").run(this.project.key);
       db.prepare("DELETE FROM projects WHERE project_key=?").run(this.project.key);
     });
