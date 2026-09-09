@@ -21,14 +21,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
-      - name: Cache dependencies
-        uses: actions/cache@v4
-        with:
-          path: |
-            node_modules
-            ~/.bun/install/cache
-          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
-          restore-keys: bun-${{ runner.os }}-
       - name: Install ripgrep
         # OMP's grep tool downloads rg on first use when it is absent; on shared
         # runners that ad-hoc GitHub Releases download is rate-limited, so
