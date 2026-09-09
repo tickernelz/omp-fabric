@@ -1,5 +1,32 @@
 # Changelog
 
+## 1.12.0
+
+### Fixed
+
+- LCM stopped summarizing once a project passed 100 finished maintenance jobs, and said it was healthy while it did. The scheduler read its queue through a generic oldest-first page capped at 100 rows, completed jobs are never pruned, and every pending job eventually fell outside that page; the guarded call that would have run them did nothing, and the surrounding catch discarded the reason, so stranded jobs kept attempts 0 and error null. On the ledger that surfaced this: 146 jobs, a page holding 99 completed plus one running whose lease had expired ten hours earlier, and all 46 pending jobs outside it. Two ledgers on that machine were stranded at 79 and 41 jobs. Jobs are now selected by eligibility in SQL, so the limit bounds work per pass and never visibility, a node's job is read by key, an expired lease returns to pending, and a failure the lease fence cannot see is recorded. Replaying the same ledger, claimable work goes from 0 to 98. An upgraded binary heals a stranded ledger on its first maintenance pass with no action from you.
+- Compacted summaries carry the addresses of what they summarized. Each frontier node now renders its own `lcm.summary:` address and the `lcm.raw:` addresses of its sources, or its children when condensed, written from ledger data after the frontier walk and never read back out of model output. Before this the summary was joined model prose, so nothing in it could be expanded. When the byte bound is reached, whole nodes are withheld and named with their addresses; a node is never cut in half and an address is never half-written.
+- `memory.recall` reached the newest history instead of the oldest. It read the first 1,000 rows of an ascending ordering, so on a 23,833-entry session it could see 4% of the history and never the part just compacted.
+- `memory.expand` on a summary address returns the messages the summary was built from, each with its own address, and descends one level for a condensed node. It previously returned the summary's own text. A constituent longer than the page budget now resumes at its offset before the page advances, so `memory.walk` completes; on a real ledger 10.4% of entries were over the old bound and 33 of 42 ready nodes carried at least one.
+- Summarization converges. It escalates from detail to bullets at half the target to a deterministic excerpt, and a level is accepted only when it shrinks its input in UTF-8 bytes. The write gate enforces the same bound for any caller, and the deterministic level is now smaller than its input for every input, including ones below its old minimum.
+- Deleting a project removes its quarantined rows. They previously kept a summary's full text while the delete manifest reported nothing remaining. The manifest now counts every table that can hold project content and reports rows it cannot attribute.
+- Overflow from a truncated tool result survives. It went to a temporary directory nothing referenced, and a failed write dropped the pointer in silence, so a truncated result read as complete. Overflow now lands beside the ledger under the Fabric state directory, and a failed write says so in the visible text.
+
+### Added
+
+- A full-text index over the immutable store, so `memory.recall` answers from an index instead of a scan, and `queryMode` literal, phrase and regex are honored on the LCM route. Where the SQLite driver has no fts5 the search degrades to a bounded scan and reports itself incomplete.
+- `compaction.softThresholdRatio` (default 0.55) gates maintenance by context occupancy, so a session below it costs no summarization calls. Persistence is never gated: every entry is still logged. `compaction.hardThresholdRatio` (default 0, off) exposes a forced compaction trigger; the host keeps owning that trigger until you set it. Both treat 0 as off.
+- `retention.outputArtifactMs` (default 7 days) and `retention.outputArtifactMaxBytes` (default 256 MB) bound the overflow directory. The sweep runs on the first overflow write of a session and at most every five minutes, and it never removes a file a running session still points at.
+- The LCM view names what session reconciliation dropped, so entries skipped as oversized are visible instead of being counted as a healthy import.
+
+### Changed
+
+- The backup manifest is version 2. Its digest covers a table that did not exist before, so a backup taken with an earlier release no longer matches; restoring one is refused by version instead of failing as corruption. Take a fresh backup after upgrading.
+- The delete manifest is version 2 and reports per-table counts.
+- Foreign keys are enforced on the summary graph. The derived tables are rebuilt once on first open, and rows that cannot satisfy a constraint are recorded rather than dropped.
+- The summary expansion page budget is 20,000 characters, matching the raw route. `entryCount` on that route counts the whole descent, and an out-of-range index, range or offset is refused instead of clamped.
+- Indexed and degraded search agree. Both tokenize the query the same way, so a substring like `oo` no longer matches `foobar` on one backend and not the other.
+
 ## 1.11.0
 
 ### Fixed
