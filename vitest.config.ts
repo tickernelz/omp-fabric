@@ -5,6 +5,7 @@ import { defineConfig } from "vitest/config";
 
 const agentDir = process.env.PI_CODING_AGENT_DIR
   ?? fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-suite-agent-"));
+const stateHome = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-suite-state-"));
 
 export default defineConfig({
   test: {
@@ -12,6 +13,7 @@ export default defineConfig({
     include: ["tests/**/*.test.ts"],
     env: {
       PI_CODING_AGENT_DIR: agentDir,
+      XDG_STATE_HOME: stateHome,
     },
     maxWorkers: 2,
     restoreMocks: true,
