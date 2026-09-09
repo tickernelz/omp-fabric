@@ -39,13 +39,31 @@ export class LcmMaintenance {
       .sort((left, right) => left.depth - right.depth || left.nodeId.localeCompare(right.nodeId))
       .slice(0, limit);
   }
-  reopen(nodeId: string): LcmJob {
+  ancestorsOf(nodeId: string): string[] {
+    return this.ledger.readOnly(db => {
+      const seen = new Set<string>();
+      const stack = [nodeId];
+      const order: string[] = [];
+      while (stack.length > 0) {
+        const current = stack.pop()!;
+        const parents = db.prepare("SELECT e.parent_id FROM summary_edges e JOIN summary_nodes parent ON parent.node_id=e.parent_id WHERE e.child_id=? AND parent.project_key=?").all(current, this.projectKey) as Array<{ parent_id: string }>;
+        for (const { parent_id: parent } of parents) {
+          if (seen.has(parent)) continue;
+          seen.add(parent);
+          order.push(parent);
+          stack.push(parent);
+        }
+      }
+      return order;
+    });
+  }
+  reopen(nodeId: string, force = false): LcmJob {
     return this.ledger.transaction(db => {
       const row = db.prepare("SELECT payload FROM summary_nodes WHERE node_id=? AND project_key=?").get(nodeId, this.projectKey) as { payload?: string } | undefined;
       if (!row?.payload) throw new Error("node not found");
       const node = parse<LcmNode>(row.payload);
       if (node.projectKey !== this.projectKey) throw new Error("node project does not match ledger project");
-      if (node.modelHash !== "emergency") throw new Error("node already carries a model summary");
+      if (!force && node.modelHash !== "emergency") throw new Error("node already carries a model summary");
       const t = this.now();
       const job: LcmJob = { ...this.job(node), jobId: `job:upgrade:${token()}:${node.nodeId}`, createdAt: t, updatedAt: t };
       db.prepare("INSERT INTO maintenance_jobs(job_id,project_key,status,payload,created_at,updated_at) VALUES(?,?,?,?,?,?)")

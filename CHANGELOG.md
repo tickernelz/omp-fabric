@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.8.2
+
+### Fixed
+
+- Upgrading a deterministic node left the text readers actually see unchanged. Context assembly serves the frontier, and a leaf folded into a condensed parent is no longer on it, so replacing that leaf's excerpt with a model summary improved nothing while spending a model call; the parent kept prose written from the excerpt and, carrying a real model hash, was never reconsidered. An upgrade now reopens the ready ancestors of the node it improved, so the summary that reaches the model is rebuilt from the upgraded child.
+- The Test workflow keyed its concurrency group by branch, so a second commit cancelled the run still verifying the first. The release gate reads the run for the tagged commit and would have refused a cancelled one, which this repository's push-then-tag rhythm makes likely. The group is keyed by commit.
+
 ## 1.8.1
 
 ### Changed

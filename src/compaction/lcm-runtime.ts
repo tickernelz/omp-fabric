@@ -235,6 +235,12 @@ export class LcmRuntime {
         if (!upgrade) break;
         const job = this.maintenance.reopen(upgrade.nodeId);
         await runJob(job, upgrade);
+        if (this.maintenance.getNode(upgrade.nodeId)?.modelHash !== "emergency") {
+          for (const ancestor of this.maintenance.ancestorsOf(upgrade.nodeId)) {
+            const node = this.maintenance.getNode(ancestor);
+            if (node?.state === "ready") this.maintenance.reopen(ancestor, true);
+          }
+        }
         continue;
       }
     }

@@ -113,6 +113,38 @@ describe("LCM runtime", () => {
     await runtime.shutdown();
   });
 
+  it("rebuilds a condensed parent after upgrading the excerpt it was built from", async () => {
+    const root = makeRoot();
+    const entries = [makeEntry("a", "first source"), makeEntry("b", "second source", "a")];
+    const runtime = openRuntime(makeContext(root, entries), { rootDir: root, maxLeafEntries: 1, maxCondenseChildren: 2 });
+    await runtime.readback();
+    const excerpt = (nodeId: string): void => {
+      const job = runtime.maintenance.listJobs().find((item) => item.nodeId === nodeId && item.state === "pending");
+      runtime.maintenance.completeEmergency(runtime.maintenance.claimEmergency(job!.jobId), "[excerpt] " + nodeId.slice(0, 8));
+    };
+    const rows = runtime.raw("session-1");
+    const leaves = rows.map((row) => {
+      const node = runtime.maintenance.createLeaf([row])!;
+      excerpt(node.nodeId);
+      return runtime.maintenance.getNode(node.nodeId)!;
+    });
+    const parent = runtime.maintenance.createCondensed(leaves)!;
+    const parentJob = runtime.maintenance.listJobs().find((item) => item.nodeId === parent.nodeId);
+    runtime.maintenance.complete(runtime.maintenance.claim(parentJob!.jobId), { text: "parent built from excerpts", inputTokens: 1, outputTokens: 1, cost: 0, wallMs: 1, modelHash: "model-1" });
+
+    expect(runtime.maintenance.ancestorsOf(leaves[0]!.nodeId)).toEqual([parent.nodeId]);
+
+    const upgrade = runtime.maintenance.reopen(leaves[0]!.nodeId);
+    runtime.maintenance.complete(runtime.maintenance.claim(upgrade.jobId), { text: "upgraded leaf", inputTokens: 1, outputTokens: 1, cost: 0, wallMs: 1, modelHash: "model-2" });
+    for (const ancestor of runtime.maintenance.ancestorsOf(leaves[0]!.nodeId)) runtime.maintenance.reopen(ancestor, true);
+
+    const refresh = runtime.maintenance.listJobs().find((item) => item.nodeId === parent.nodeId && item.state === "pending");
+    expect(refresh).toBeDefined();
+    runtime.maintenance.complete(runtime.maintenance.claim(refresh!.jobId), { text: "parent rebuilt from the upgraded leaf", inputTokens: 1, outputTokens: 1, cost: 0, wallMs: 1, modelHash: "model-2" });
+    expect(runtime.maintenance.getNode(parent.nodeId)?.text).toBe("parent rebuilt from the upgraded leaf");
+    await runtime.shutdown();
+  });
+
   it("spends the configured model wall-time budget before falling back", async () => {
     const spend = (runtime: LcmRuntime, wallMs: number): void => {
       runtime.ledger.transaction((db) => {

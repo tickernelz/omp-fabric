@@ -7,7 +7,9 @@ on:
     branches: [main]
 
 concurrency:
-  group: test-${{ github.ref }}
+  # Keyed by commit, since a release gate reads the run for the tagged SHA.
+  # A branch key would cancel that run as soon as the next commit landed.
+  group: test-${{ github.sha }}
   cancel-in-progress: true
 
 jobs:
