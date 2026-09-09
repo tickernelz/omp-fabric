@@ -373,7 +373,12 @@ const expandOutputSchema: Record<string, unknown> = {
     session: { type: "string" },
     sourceHash: { type: "string" },
     branches: { type: "string", enum: ["active", "all"] },
-    lineageFingerprint: { type: "string" },
+    lineageFingerprint: { type: ["string", "null"] },
+    node: {
+      type: "object",
+      description: "The expanded LCM summary node itself: its own text, kind, sourceHash, children, and sources.",
+    },
+    total: { type: "number" },
     entryCount: { type: "number" },
     entries: {
       type: "array",
@@ -414,6 +419,9 @@ const expandOutputSchema: Record<string, unknown> = {
           carrierEntryId: { type: ["string", "null"] },
           carrierParentId: { type: ["string", "null"] },
           carrierFromId: { type: ["string", "null"] },
+          address: { type: "string" },
+          sourceHash: { type: "string" },
+          follow: callOutputSchema("memory.expand"),
         },
         required: ["index", "entryId", "parentId", "type", "role", "timestamp", "isError", "text", "textRange"],
       },
@@ -581,7 +589,7 @@ const descriptors: FabricActionDescriptor[] = [
   {
     name: "expand",
     description:
-      "Read exact normalized session entries and nearby context as bounded lossless chunks. Call tools.call(next) to continue, or use guest-side memory.walk(args, visitor) to traverse complete reassembled entries.",
+      "Read exact normalized session entries and nearby context as bounded lossless chunks. An lcm.summary: address returns the entries that summary was built from, each addressed for further expansion. Call tools.call(next) to continue, or use guest-side memory.walk(args, visitor) to traverse complete reassembled entries.",
     inputSchema: {
       type: "object",
       properties: {
@@ -738,6 +746,19 @@ const parseBranches = (value: unknown, action: string): MemoryBranches => {
   if (value === undefined) return "active";
   if (value === "active" || value === "all") return value;
   throw new Error(`${action} branches must be "active" or "all"`);
+};
+
+const parseQueryMode = (value: unknown, action: string): MemoryQueryMode => {
+  if (value === undefined) return "literal";
+  if (value === "literal" || value === "phrase" || value === "regex") return value;
+  throw new Error(`${action} queryMode must be "literal", "phrase", or "regex"`);
+};
+
+const parseQueryMatch = (value: unknown, mode: MemoryQueryMode, action: string): MemoryQueryMatch => {
+  if (value === undefined) return "any";
+  if (value !== "all" && value !== "any") throw new Error(`${action} queryMatch must be "all" or "any"`);
+  if (mode !== "literal") throw new Error(`${action} queryMatch is only valid with literal queryMode`);
+  return value;
 };
 
 const resolveIndexOptions = (
@@ -974,7 +995,10 @@ export class MemoryProvider implements FabricProvider {
     try {
       if (this.context.lcm && (actionName === "recall" || actionName === "expand")) {
         const adapter = new LcmMemoryAdapter(this.context.lcm);
-        return actionName === "recall" ? adapter.recall(args) : adapter.expand(args);
+        if (actionName === "expand") return adapter.expand(args);
+        const queryMode = parseQueryMode(args.queryMode, "memory.recall");
+        const queryMatch = parseQueryMatch(args.queryMatch, queryMode, "memory.recall");
+        return adapter.recall({ ...args, queryMode, queryMatch });
       }
       switch (actionName) {
         case "recall":
@@ -1018,28 +1042,8 @@ export class MemoryProvider implements FabricProvider {
     invocationContext: FabricInvocationContext,
   ): Promise<unknown> {
     const query = typeof args.query === "string" ? args.query : undefined;
-    const rawQueryMode = args.queryMode;
-    if (
-      rawQueryMode !== undefined &&
-      rawQueryMode !== "literal" &&
-      rawQueryMode !== "phrase" &&
-      rawQueryMode !== "regex"
-    ) {
-      throw new Error('memory.recall queryMode must be "literal", "phrase", or "regex"');
-    }
-    const queryMode: MemoryQueryMode = rawQueryMode === "phrase"
-      ? "phrase"
-      : rawQueryMode === "regex"
-        ? "regex"
-        : "literal";
-    const rawQueryMatch = args.queryMatch;
-    if (rawQueryMatch !== undefined && rawQueryMatch !== "all" && rawQueryMatch !== "any") {
-      throw new Error('memory.recall queryMatch must be "all" or "any"');
-    }
-    if (queryMode !== "literal" && rawQueryMatch !== undefined) {
-      throw new Error("memory.recall queryMatch is only valid with literal queryMode");
-    }
-    const queryMatch: MemoryQueryMatch = rawQueryMatch === "all" ? "all" : "any";
+    const queryMode = parseQueryMode(args.queryMode, "memory.recall");
+    const queryMatch = parseQueryMatch(args.queryMatch, queryMode, "memory.recall");
     const expectedSourceHash = typeof args.expectedSourceHash === "string"
       ? args.expectedSourceHash
       : undefined;
