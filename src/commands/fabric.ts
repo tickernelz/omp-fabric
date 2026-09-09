@@ -297,7 +297,6 @@ export function registerFabricCommand(omp: ExtensionAPI, deps: FabricCommandDeps
     getArgumentCompletions: (argumentPrefix: string): AutocompleteItem[] | null => {
       const subcommands = [
         "status",
-        "lcm",
         "dashboard",
         "chat",
         "settings",
@@ -1137,58 +1136,9 @@ export function registerFabricCommand(omp: ExtensionAPI, deps: FabricCommandDeps
         }
         return;
       }
-      if (command === "lcm") {
-        const config = state.config;
-        if (config.compaction.engine !== "lcm") {
-          context.ui.notify(`Compaction engine is "${config.compaction.engine}"; LCM is not assembling context.`, "warning");
-          return;
-        }
-        const lcm = state.lcmStatus();
-        if (!lcm) {
-          context.ui.notify("LCM ledger is not open yet. It opens when a session starts with the lcm engine.", "warning");
-          return;
-        }
-        const report = lcm.report();
-        const coverage = lcm.coverage();
-        const percent = coverage.active === 0 ? 0 : Math.round((coverage.covered / coverage.active) * 100);
-        const seconds = (value: number): string => `${Math.round(value / 1000)}s`;
-        const summaries = report.modelNodes + report.emergencyNodes;
-        const hints: string[] = [];
-        const averageWallMs = report.usage.calls > 0 ? report.usage.wallMs / report.usage.calls : 0;
-        const wallLeft = report.budget.wallMs - report.usage.wallMs;
-        if (!config.compaction.lcmModelSummaries) {
-          hints.push("Model summaries are disabled by compaction.lcmModelSummaries, so every node is a deterministic excerpt.");
-        } else if (report.usage.calls >= report.budget.calls || (Number.isFinite(report.budget.wallMs) && averageWallMs > 0 && wallLeft < averageWallMs)) {
-          hints.push(`The configured model budget cannot fit another summary (${seconds(wallLeft)} left, ${seconds(averageWallMs)} per call), so new nodes use the deterministic reducer. Raise compaction.lcmMaxDailyModelSeconds or compaction.lcmMaxDailyModelCalls, or set them to 0 for no limit.`);
-        }
-        if (coverage.active > 0 && percent < 50) {
-          hints.push("The ready frontier covers less than half of this branch, so a compaction now falls back to an excerpt. Raise compaction.lcmMaintenancePasses to summarize more per turn.");
-        }
-        if (!report.summaryModel) {
-          hints.push("No summary model is set, so summaries bill at the active session model. Pick one in /fabric settings under Compaction.");
-        }
-        context.ui.notify(
-          [
-            `project: ${report.projectKey}`,
-            `ledger: ${report.state} · ${report.rawEntries} entries · session ${report.sessionId ?? "none"} holds ${report.sessionEntries}`,
-            `frontier: ${coverage.covered}/${coverage.active} active sources covered (${percent}%)`,
-            `nodes: ${summaries} ready · ${report.modelNodes} written by the model · ${report.emergencyNodes} deterministic · ${report.pendingNodes} pending`,
-            `jobs: ${report.pendingJobs} pending`,
-            `model: ${report.summaryModel || "inherit (active session model)"}`,
-            `today: ${report.usage.calls}${Number.isFinite(report.budget.calls) ? `/${report.budget.calls}` : ""} calls · ${seconds(report.usage.wallMs)}${Number.isFinite(report.budget.wallMs) ? `/${seconds(report.budget.wallMs)}` : ""} · ${report.usage.inputTokens} in · ${report.usage.outputTokens} out · $${report.usage.cost.toFixed(4)}`,
-            `budget: ${Number.isFinite(report.budget.calls) || Number.isFinite(report.budget.wallMs) ? "configured" : "no limit; fallback only when the model cannot be called"}`,
-            `upgradable: ${report.upgradableNodes} deterministic nodes queued for a model summary`,
-            `limits: ${config.compaction.lcmMaintenancePasses} passes × up to ${config.compaction.lcmMaxLeafEntries} entries per leaf within ${config.compaction.lcmMaxInputChars} chars`,
-            ...(report.degraded ? [`degraded: ${report.degraded}`] : []),
-            ...hints.map((hint) => `hint: ${hint}`),
-          ].join("\n"),
-          report.degraded ? "error" : "info",
-        );
-        return;
-      }
       if (command !== "status") {
         context.ui.notify(
-          "Usage: /fabric [status|lcm|dashboard|chat [id-or-name]|prewalk [task]|prewalk --off|--disable|--enable|reload|providers|agents|actors|global|import <name> [as <new>]|export <id> [--overwrite]|messages <id>|clear-messages <id>|events <id> [event...]|log <id>|export-log <id>|attach <id>|stop <id>|remove <id>|kill <id>|repairs|entropy]",
+          "Usage: /fabric [status|dashboard|chat [id-or-name]|prewalk [task]|prewalk --off|--disable|--enable|reload|providers|agents|actors|global|import <name> [as <new>]|export <id> [--overwrite]|messages <id>|clear-messages <id>|events <id> [event...]|log <id>|export-log <id>|attach <id>|stop <id>|remove <id>|kill <id>|repairs|entropy]",
           "warning",
         );
         return;

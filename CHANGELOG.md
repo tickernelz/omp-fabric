@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.10.0
+
+### Added
+
+- The dashboard carries the LCM ledger on key `3`. It shows the coverage band for the active branch, the node graph paged in bounded requests, the text a compaction would assemble right now beside the session payload it draws from, and a node detail that opens the exact stored raw entry behind any source. A node whose excerpt was later replaced by a model summary shows both, so the upgrade can be judged rather than assumed.
+- Summary nodes keep their replaced text. `summary_node_revisions` records the prior text and model hash whenever maintenance rewrites a node, which is what makes the excerpt-versus-summary comparison possible.
+
+### Changed
+
+- `/fabric lcm` is gone; the dashboard view replaces it. The single-line summary in `/fabric status` stays.
+- The ledger read paths that feed the view are aggregates rather than row walks. Measured on a live 5,392-entry session: the coverage scan reads identity columns in 15.7 ms against 150.7 ms for the previous full-row walk, and session payload size is one aggregate at 35.2 ms against roughly 620 ms for the per-entry loop it replaces. Preview, coverage, and the coverage map now share a single frontier walk, and node listing pages in SQL rather than slicing an oversized read.
+
 ## 1.9.1
 
 ### Fixed

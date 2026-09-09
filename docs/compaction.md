@@ -113,7 +113,7 @@ Raise `lcmMaintenancePasses` (1-64) for more leaves per turn. Model spend carrie
 
 `/fabric status` carries one LCM line: operational state, summary model, entry count, how many ready nodes the model wrote against how many exist, and today's calls and model seconds against their budget.
 
-Every compaction key appears in `/fabric settings` under Compaction. `/fabric lcm` reports the detail that decides summary quality: how much of the active branch the ready frontier covers, the split between model-written and deterministic nodes, pending jobs, today's spend against the daily budget, and the effective pass and leaf limits. It ends with hints when the frontier covers less than half the branch, when the remaining daily budget cannot fit another call, or when no summary model is set.
+Every compaction key appears in `/fabric settings` under Compaction. `/fabric dashboard` carries the ledger on key `3`: the coverage band for the active branch, the node graph paged by depth, the text a compaction would serve right now beside the session payload it draws from, and a node detail that opens the exact stored raw entry behind any source. A node replaced by a model summary keeps its previous text, so an excerpt and the summary that superseded it sit side by side. The reads happen once per refresh; nothing in the render path touches the ledger.
 
 ## Performance gate
 

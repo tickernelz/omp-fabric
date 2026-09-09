@@ -2487,7 +2487,7 @@ describe("Fabric dynamic UI", () => {
       expect(activity).toContain("Agents (1)");
       expect(activity).toContain("Main");
 
-      dashboard.handleInput("3");
+      dashboard.handleInput("9");
       dashboard.handleInput("r");
       expect(dashboard.render(100).join("\n")).toContain("· Activity");
 
@@ -2499,7 +2499,7 @@ describe("Fabric dynamic UI", () => {
       expect(topology).not.toContain("Run topology");
       expect(topology).not.toContain("Project mesh");
 
-      dashboard.handleInput("3");
+      dashboard.handleInput("9");
       dashboard.handleInput("r");
       expect(dashboard.render(100).join("\n")).toContain("Fabric · Topology");
     } finally {

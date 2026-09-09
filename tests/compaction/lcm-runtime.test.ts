@@ -113,6 +113,48 @@ describe("LCM runtime", () => {
     await runtime.shutdown();
   });
 
+  it("previews the served summary without writing to the ledger", async () => {
+    const root = makeRoot();
+    const entries = [makeEntry("a", "first source"), makeEntry("b", "second source", "a")];
+    const runtime = openRuntime(makeContext(root, entries), { rootDir: root, maxLeafEntries: 2 });
+    await runtime.readback();
+    const rows = runtime.raw("session-1");
+    const leaf = runtime.maintenance.createLeaf(rows)!;
+    const job = runtime.maintenance.listJobs().find((item) => item.nodeId === leaf.nodeId);
+    runtime.maintenance.complete(runtime.maintenance.claim(job!.jobId), { text: "served summary", inputTokens: 1, outputTokens: 1, cost: 0, wallMs: 1, modelHash: "model-1" });
+
+    const before = { nodes: runtime.maintenance.listNodes(1_000).length, raw: runtime.raw("session-1").length };
+    const preview = runtime.preview();
+    const map = runtime.coverageMap();
+    const after = { nodes: runtime.maintenance.listNodes(1_000).length, raw: runtime.raw("session-1").length };
+
+    expect(preview.text).toBe("served summary");
+    expect(preview.nodes).toBe(1);
+    expect(preview.coveredSources).toBe(2);
+    expect(preview.summaryBytes).toBe(Buffer.byteLength("served summary", "utf8"));
+    expect(preview.sourceBytes).toBeGreaterThan(preview.summaryBytes);
+    expect(map.filter((entry) => entry.covered)).toHaveLength(2);
+    expect(after).toEqual(before);
+    await runtime.shutdown();
+  });
+
+  it("keeps the replaced text when a node is upgraded", async () => {
+    const root = makeRoot();
+    const runtime = openRuntime(makeContext(root, [makeEntry("a", "only source")]), { rootDir: root, maxLeafEntries: 1 });
+    await runtime.readback();
+    const leaf = runtime.maintenance.createLeaf(runtime.raw("session-1"))!;
+    const first = runtime.maintenance.listJobs().find((item) => item.nodeId === leaf.nodeId);
+    runtime.maintenance.completeEmergency(runtime.maintenance.claimEmergency(first!.jobId), "[excerpt] original");
+    const upgrade = runtime.maintenance.reopen(leaf.nodeId);
+    runtime.maintenance.complete(runtime.maintenance.claim(upgrade.jobId), { text: "model summary", inputTokens: 1, outputTokens: 1, cost: 0, wallMs: 1, modelHash: "model-1" });
+
+    const detail = runtime.node(leaf.nodeId)!;
+    expect(detail.node.text).toBe("model summary");
+    expect(detail.revisions.map((entry) => entry.text)).toEqual(["[excerpt] original"]);
+    expect(detail.revisions[0]?.modelHash).toBe("emergency");
+    await runtime.shutdown();
+  });
+
   it("rebuilds a condensed parent after upgrading the excerpt it was built from", async () => {
     const root = makeRoot();
     const entries = [makeEntry("a", "first source"), makeEntry("b", "second source", "a")];

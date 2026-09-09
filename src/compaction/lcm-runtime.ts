@@ -5,6 +5,15 @@ import { emergencyReduce, LcmModelAdapter, type LcmSummarizer } from "./lcm-mode
 import { LcmMaintenance, type LcmBudgetPolicy, type LcmJob, type LcmNode } from "./lcm-maintenance.js";
 import type { LcmCompactionInput, LcmCompactionOutput } from "./hook.js";
 
+export interface LcmPreview {
+  text: string;
+  nodes: number;
+  summaryBytes: number;
+  sourceBytes: number;
+  coveredSources: number;
+  activeSources: number;
+}
+
 export interface LcmReport {
   projectKey: string;
   sessionId: string | undefined;
@@ -327,10 +336,68 @@ export class LcmRuntime {
     });
   }
 
+  private frontierCache: { at: number; sessionId: string; branch: string | null; nodes: LcmNode[]; covered: Set<string> } | undefined;
+
+  /** One frontier walk shared by preview, coverage, and the coverage map. */
+  private frontierSnapshot(): { nodes: LcmNode[]; covered: Set<string> } {
+    const sessionId = this.activeSessionId ?? "";
+    const branch = this.context.sessionManager.getLeafId();
+    const cached = this.frontierCache;
+    if (cached && cached.sessionId === sessionId && cached.branch === branch && Date.now() - cached.at < 250) {
+      return { nodes: cached.nodes, covered: cached.covered };
+    }
+    const nodes = sessionId ? this.maintenance.getFrontier(sessionId, branch, this.activeSources) : [];
+    const covered = new Set(nodes.flatMap(node => node.sources.map(source => this.sourceKey(source))));
+    this.frontierCache = { at: Date.now(), sessionId, branch, nodes, covered };
+    return { nodes, covered };
+  }
+
+  private sourceKey(source: { sessionId: string; entryId: string; revision: number }): string {
+    return `${source.sessionId}:${source.entryId}:${source.revision}`;
+  }
+
+  /** Assembles what a compaction would serve now. Reads only; it never persists a node. */
+  preview(): LcmPreview {
+    const sessionId = this.activeSessionId;
+    if (!sessionId) return { text: "", nodes: 0, summaryBytes: 0, sourceBytes: 0, coveredSources: 0, activeSources: 0 };
+    const { nodes, covered } = this.frontierSnapshot();
+    const text = nodes.map(node => node.text ?? "").filter(Boolean).join("\n\n");
+    return {
+      text,
+      nodes: nodes.length,
+      summaryBytes: Buffer.byteLength(text, "utf8"),
+      sourceBytes: this.ledger.payloadBytes(this.projectKey, sessionId),
+      coveredSources: covered.size,
+      activeSources: this.activeSources.size,
+    };
+  }
+
+  /** Ordered coverage of the active branch: each entry says whether a ready node holds it. */
+  coverageMap(limit = 2_000): Array<{ key: string; covered: boolean }> {
+    const sessionId = this.activeSessionId;
+    if (!sessionId) return [];
+    const { covered } = this.frontierSnapshot();
+    return this.ledger.readRawKeys(this.projectKey, sessionId, limit)
+      .map(entry => { const key = this.sourceKey(entry); return { key, covered: covered.has(key) }; });
+  }
+
+  nodes(limit = 200, offset = 0): LcmNode[] {
+    return this.maintenance.listNodes(limit, offset);
+  }
+
+  node(nodeId: string): { node: LcmNode; revisions: ReturnType<LcmMaintenance["revisionsOf"]>; ancestors: string[] } | undefined {
+    const node = this.maintenance.getNode(nodeId);
+    if (!node) return undefined;
+    return { node, revisions: this.maintenance.revisionsOf(nodeId), ancestors: this.maintenance.ancestorsOf(nodeId) };
+  }
+
+  source(sessionId: string, entryId: string, revision: number): RawEntry | undefined {
+    return this.ledger.readRawEntry(this.projectKey, sessionId, entryId, revision);
+  }
+
   coverage(): { active: number; covered: number } {
     if (!this.activeSessionId) return { active: 0, covered: 0 };
-    const frontier = this.maintenance.getFrontier(this.activeSessionId, this.context.sessionManager.getLeafId(), this.activeSources);
-    const covered = new Set(frontier.flatMap((node) => node.sources.map((source) => `${source.sessionId}:${source.entryId}:${source.revision}`)));
+    const { covered } = this.frontierSnapshot();
     let hits = 0;
     for (const key of this.activeSources) if (covered.has(key)) hits += 1;
     return { active: this.activeSources.size, covered: hits };

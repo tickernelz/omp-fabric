@@ -172,6 +172,36 @@ export interface LcmStatusSource {
     budget: { calls: number; sessionCalls: number; wallMs: number };
   };
   coverage(): { active: number; covered: number };
+  preview(): {
+    text: string;
+    nodes: number;
+    summaryBytes: number;
+    sourceBytes: number;
+    coveredSources: number;
+    activeSources: number;
+  };
+  coverageMap(limit?: number): Array<{ key: string; covered: boolean }>;
+  nodes(limit?: number, offset?: number): LcmDashboardNode[];
+  node(nodeId: string): {
+    node: LcmDashboardNode;
+    revisions: Array<{ revision: number; text: string; modelHash: string; createdAt: number }>;
+    ancestors: string[];
+  } | undefined;
+  source(sessionId: string, entryId: string, revision: number): { payloadJson: string; content: string; role: string; createdAt: number } | undefined;
+}
+
+export interface LcmDashboardNode {
+  nodeId: string;
+  sessionId: string;
+  branch: string | null;
+  kind: "leaf" | "condensed";
+  depth: number;
+  state: string;
+  modelHash: string;
+  text?: string;
+  children: string[];
+  sources: Array<{ sessionId: string; entryId: string; revision: number; payloadHash: string }>;
+  createdAt: number;
 }
 
 export interface FabricRuntimeStateOptions {

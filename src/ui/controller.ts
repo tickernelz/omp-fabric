@@ -462,6 +462,7 @@ export class FabricUiController {
           return new FabricDashboard(tui, theme, () => this.#snapshot, () => done(undefined), {
             modelSource,
             keybindings,
+            lcmStatus: () => this.state.lcmStatus(),
             ...(this.codePreviewSettings
               ? { codePreviewSettings: this.codePreviewSettings }
               : {}),
