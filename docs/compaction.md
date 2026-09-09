@@ -80,7 +80,8 @@ Automatic raw deletion is disabled.
     "lcmMaxOutputTokens": 4096,
     "lcmMaxOutputChars": 16384,
     "lcmMaxLeafEntries": 8,
-    "lcmMaxCondenseChildren": 4
+    "lcmMaxCondenseChildren": 4,
+    "lcmMaintenancePasses": 4
   }
 }
 ```
@@ -96,6 +97,12 @@ bun run check
 ```
 
 This command includes typecheck, a fresh `dist/` build, the lazy-graph assertion, the full test suite, and dead-code lint.
+
+## Maintenance throughput
+
+Maintenance runs after a turn settles and on session compaction; the hook itself never calls a model. Each run makes at most `compaction.lcmMaintenancePasses` passes, and a pass turns at most `compaction.lcmMaxLeafEntries` unconsumed raw entries into one leaf, so a run summarizes at most `lcmMaintenancePasses x lcmMaxLeafEntries` entries (32 at the defaults of 4 and 8). A session that ingests more entries per turn than that leaves a growing unsummarized tail, and a compaction whose source range reaches into that tail falls back to the deterministic emergency reducer, carrying an excerpt in place of model summaries.
+
+Raise `lcmMaintenancePasses` (1-64) to trade model spend for coverage. It is separate from `lcmMaxCondenseChildren`, which is the condensation fan-in: how many ready nodes are folded into one condensed parent. The daily project and per-session call, token, cost, and wall-time budgets still bound every run.
 
 ## Performance gate
 

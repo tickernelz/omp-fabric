@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.4.5
+
+### Added
+
+- `compaction.lcmMaintenancePasses` (1-64, default 4) bounds how many leaf/condense passes one maintenance run makes. A run summarizes at most `lcmMaintenancePasses x lcmMaxLeafEntries` raw entries, so the knob trades model spend for frontier coverage on sessions that ingest faster than maintenance keeps up.
+
+### Fixed
+
+- Maintenance used `lcmMaxCondenseChildren` as its work budget, so the condensation fan-in silently decided how much summarization ran per turn. The two are now separate: fan-in shapes the DAG, passes bound the work.
+- Process-spawn tests in the actor and agent managers ran under the 5 s default timeout and timed out on Windows runners while passing on rerun. The six spawn-bound tests now carry the 30 s timeout their siblings already used; no assertion changed.
+
+### Changed
+
+- Releases wait for a `windows-latest` check job before publishing. `prepack` already ran the full gate on Linux, but a tag could publish while the Windows matrix leg was red.
+
 ## 1.4.4
 
 ### Fixed

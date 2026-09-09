@@ -13,6 +13,7 @@ export interface LcmRuntimeOptions {
   lcmMaxInputChars?: number;
   lcmMaxOutputTokens?: number;
   lcmMaxOutputChars?: number;
+  maxMaintenancePasses?: number;
 }
 
 export class LcmRuntime {
@@ -159,7 +160,8 @@ export class LcmRuntime {
       this.degradedError = error;
       model = { modelHash: "unavailable", generate: async () => { throw error instanceof Error ? error : new Error(String(error)); } };
     }
-    const budget = Math.max(1, this.options.maxCondenseChildren ?? 4);
+    const fanIn = Math.max(2, this.options.maxCondenseChildren ?? 4);
+    const passes = Math.max(1, this.options.maxMaintenancePasses ?? 4);
     const sessionId = this.activeSessionId;
     const raw = this.ledger.readRaw(this.projectKey, sessionId).filter((entry) =>
       this.activeSources.has(`${entry.sessionId}:${entry.entryId}:${entry.revision}`),
@@ -175,7 +177,7 @@ export class LcmRuntime {
     const runJob = async (job: LcmJob, node: LcmNode): Promise<void> => {
       try { await this.maintenance.run(job, model, inputFor(node), this.signal); } catch {}
     };
-    for (let pass = 0; pass < budget && !this.closed; pass += 1) {
+    for (let pass = 0; pass < passes && !this.closed; pass += 1) {
       const leafCandidate = this.maintenance.createLeaf(this.maintenance.selectLeaf(raw, this.context.sessionManager.getLeafId()));
       const leaf = leafCandidate ? this.maintenance.getNode(leafCandidate.nodeId) : undefined;
       if (leaf?.state === "pending") {
@@ -187,17 +189,17 @@ export class LcmRuntime {
         const node = this.maintenance.getNode(job.nodeId);
         if (!node || node.sessionId !== sessionId || (branch !== null && node.branch !== branch && node.branch !== null) || !node.sources.every((source) => this.activeSources.has(`${source.sessionId}:${source.entryId}:${source.revision}`))) return [];
         return [{ job, node }];
-      }).slice(0, budget);
+      }).slice(0, passes);
       for (const item of pending) await runJob(item.job, item.node);
       const children = this.maintenance.selectCondensation(sessionId, this.activeSources, this.context.sessionManager.getLeafId());
-      if (children.length >= budget) {
+      if (children.length >= fanIn) {
         const node = this.maintenance.createCondensed(children);
         if (node) {
           const job = this.maintenance.listJobs().find((item) => item.nodeId === node.nodeId);
           if (job) await runJob(job, node);
         }
       }
-      if (!leaf && pending.length === 0 && children.length < budget) break;
+      if (!leaf && pending.length === 0 && children.length < fanIn) break;
     }
   }
 

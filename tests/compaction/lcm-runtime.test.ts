@@ -61,6 +61,41 @@ describe("LCM runtime", () => {
     await runtime.shutdown();
   });
 
+  it("bounds maintenance work by its own pass budget, not the condensation fan-in", async () => {
+    const settle = async (runtime: LcmRuntime): Promise<number> => {
+      let previous = -1;
+      for (let attempt = 0; attempt < 200; attempt += 1) {
+        const count = runtime.maintenance.listNodes(1_000).length;
+        if (count === previous) return count;
+        previous = count;
+        await new Promise((resolve) => setTimeout(resolve, 5));
+      }
+      return runtime.maintenance.listNodes(1_000).length;
+    };
+    const entries = Array.from({ length: 40 }, (_, index) =>
+      makeEntry("e" + index, "maintenance source " + index, index === 0 ? null : "e" + (index - 1)));
+
+    const singlePass = makeRoot();
+    const single = openRuntime(makeContext(singlePass, entries), {
+      rootDir: singlePass,
+      maxCondenseChildren: 8,
+      maxMaintenancePasses: 1,
+    });
+    await single.syncAndSchedule();
+    expect(await settle(single)).toBe(1);
+    await single.shutdown();
+
+    const manyPasses = makeRoot();
+    const many = openRuntime(makeContext(manyPasses, entries), {
+      rootDir: manyPasses,
+      maxCondenseChildren: 8,
+      maxMaintenancePasses: 3,
+    });
+    await many.syncAndSchedule();
+    expect(await settle(many)).toBe(3);
+    await many.shutdown();
+  });
+
   it("reads compaction options at use time so a settings change applies mid-session", async () => {
     const root = makeRoot();
     const entry = makeEntry("live", "live option source ".repeat(600));

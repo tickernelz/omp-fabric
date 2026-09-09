@@ -390,7 +390,7 @@ describe("AgentManager", async () => {
     expect(
       fs.readFileSync(path.join(manager.runDirectory(result.id)!, "startup-attempts"), "utf8"),
     ).toBe("2");
-  });
+  }, 30_000);
 
   it("does not retry deterministic failures before the first turn", async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-manager-"));
@@ -532,7 +532,7 @@ describe("AgentManager", async () => {
     const retained = manager.status(result.id) as AgentRunRecord;
     expect(retained.nestedAgents?.[0]?.name).toBe("child");
     expect(retained.nestedAgents?.[0]?.nestedAgents?.[0]?.name).toBe("grandchild");
-  });
+  }, 30_000);
 
   it("captures recursive leaves before the child process removes their directories", async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-manager-"));
@@ -1636,5 +1636,5 @@ describe("AgentManager steering", async () => {
     } finally {
       delete process.env.FAKE_OMP_STEER_LOG;
     }
-  });
+  }, 30_000);
 });

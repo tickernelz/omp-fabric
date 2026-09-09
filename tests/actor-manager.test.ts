@@ -1199,7 +1199,7 @@ describe("ActorManager", () => {
     } finally {
       delete process.env.FAKE_CLAUDE_LOG;
     }
-  });
+  }, 30_000);
 
   it("restores project-scoped actors across different OMP sessions", async () => {
     // Project scope stores actors at a shared root (no sessionId segment), so a
@@ -1836,7 +1836,7 @@ describe("ActorManager", () => {
     }
     expect(deliveries.length).toBe(5);
     expect(actors.status(actor.id)).toMatchObject({ status: "idle", queued: 0 });
-  });
+  }, 30_000);
 
   it("processes a host event enqueued while a run is in flight", async () => {
     const { actors, deliveries } = setup();
@@ -1857,7 +1857,7 @@ describe("ActorManager", () => {
     await waitFor(() => actors.status(actor.id).status === "idle");
     expect(deliveries.length).toBe(2);
     expect(actors.status(actor.id).queued).toBe(0);
-  });
+  }, 30_000);
 
   it("exposes the portable definition without history", async () => {
     const { actors } = setup();

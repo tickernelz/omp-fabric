@@ -206,6 +206,7 @@ interface FabricCompactionConfig {
   lcmMaxOutputChars: number;
   lcmMaxLeafEntries: number;
   lcmMaxCondenseChildren: number;
+  lcmMaintenancePasses: number;
 }
 
 export const MIN_COMPACTION_TOKEN_THRESHOLD = 1_000;
@@ -453,6 +454,7 @@ export const DEFAULT_FABRIC_CONFIG: FabricConfig = {
     lcmMaxOutputChars: 16_384,
     lcmMaxLeafEntries: 8,
     lcmMaxCondenseChildren: 4,
+    lcmMaintenancePasses: 4,
   },
   retention: {
     orphanedTempRunMs: 6 * 60 * 60 * 1_000,
@@ -1087,6 +1089,7 @@ export const normalizeFabricConfig = (input: Record<string, unknown>): FabricCon
       lcmMaxOutputChars: boundedInteger(compaction.lcmMaxOutputChars, DEFAULT_FABRIC_CONFIG.compaction.lcmMaxOutputChars, 1_024, 131_072),
       lcmMaxLeafEntries: boundedInteger(compaction.lcmMaxLeafEntries, DEFAULT_FABRIC_CONFIG.compaction.lcmMaxLeafEntries, 1, 128),
       lcmMaxCondenseChildren: boundedInteger(compaction.lcmMaxCondenseChildren, DEFAULT_FABRIC_CONFIG.compaction.lcmMaxCondenseChildren, 2, 32),
+      lcmMaintenancePasses: boundedInteger(compaction.lcmMaintenancePasses, DEFAULT_FABRIC_CONFIG.compaction.lcmMaintenancePasses, 1, 64),
     },
     retention: {
       orphanedTempRunMs: boundedInteger(
