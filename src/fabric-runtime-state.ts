@@ -154,6 +154,25 @@ const escapeXmlText = (value: string): string =>
   value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
 
 
+export interface LcmStatusSource {
+  report(): {
+    projectKey: string;
+    sessionId: string | undefined;
+    state: string;
+    degraded: string | undefined;
+    summaryModel: string | undefined;
+    rawEntries: number;
+    sessionEntries: number;
+    modelNodes: number;
+    emergencyNodes: number;
+    pendingNodes: number;
+    pendingJobs: number;
+    usage: { calls: number; inputTokens: number; outputTokens: number; cost: number; wallMs: number };
+    budget: { calls: number; sessionCalls: number; wallMs: number };
+  };
+  coverage(): { active: number; covered: number };
+}
+
 export interface FabricRuntimeStateOptions {
   activity?: FabricActivityStore;
   prewalk?: PrewalkController;
@@ -161,6 +180,7 @@ export interface FabricRuntimeStateOptions {
   sessionApprovals?: FabricSessionApprovals;
   paths?: FabricRuntimePaths;
   lcmContext?: () => MemoryProviderContext["lcm"];
+  lcmRuntime?: () => LcmStatusSource | undefined;
 }
 
 export class FabricRuntimeState {
@@ -199,6 +219,7 @@ export class FabricRuntimeState {
   readonly prewalkDrift: PrewalkDriftTracker;
   readonly sessionApprovals: FabricSessionApprovals;
   readonly #lcmContext: FabricRuntimeStateOptions["lcmContext"];
+  readonly #lcmRuntime: FabricRuntimeStateOptions["lcmRuntime"];
   readonly #paths: FabricRuntimePaths | undefined;
   #widgetDismissedAt = 0;
   #suppressResidentGuidanceSync = false;
@@ -213,7 +234,12 @@ export class FabricRuntimeState {
     this.prewalkDrift = options.prewalkDrift ?? new PrewalkDriftTracker();
     this.sessionApprovals = options.sessionApprovals ?? new FabricSessionApprovals();
     this.#lcmContext = options.lcmContext;
+    this.#lcmRuntime = options.lcmRuntime;
     this.#paths = options.paths;
+  }
+
+  lcmStatus(): LcmStatusSource | undefined {
+    return this.#lcmRuntime?.();
   }
 
   get initialized(): boolean {

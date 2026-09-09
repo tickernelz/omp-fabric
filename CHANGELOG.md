@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.7.0
+
+### Added
+
+- `/fabric status` reports an LCM line, and `/fabric lcm` reports the detail behind summary quality: frontier coverage for the active branch, model-written against deterministic nodes, pending jobs, today's model spend against its budget, and the effective pass and leaf limits. It names the cause when the frontier is thin, when the remaining daily budget cannot fit another call, or when no summary model is set, which previously took a hand-written SQLite query to discover.
+
 ## 1.6.0
 
 ### Fixed

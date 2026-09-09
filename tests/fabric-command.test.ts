@@ -7,6 +7,7 @@ import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import type { CapturedToolCatalog } from "../src/capture/catalog.js";
 import { registerFabricCommand } from "../src/commands/fabric.js";
+import { DEFAULT_FABRIC_CONFIG } from "../src/config.js";
 import { FABRIC_PREWALK_REQUEST_EVENT } from "../src/protocol.js";
 import {
   PREWALK_ARMED_MESSAGE_TYPE,
@@ -139,6 +140,59 @@ describe("/fabric command", () => {
     expect(state.initialize).toHaveBeenCalledWith(context);
     expect(notify).toHaveBeenCalledWith("OMP Fabric reloaded", "info");
     expect(refreshToolDisplay).toHaveBeenCalledOnce();
+  });
+
+
+  it("reports LCM coverage and budget with an actionable hint", async () => {
+    let handler: ((argumentsText: string, context: ExtensionContext) => Promise<void>) | undefined;
+    const omp = {
+      registerCommand: vi.fn((_name, command) => { handler = command.handler; }),
+    } as unknown as ExtensionAPI;
+    const state = {
+      ensure: vi.fn().mockResolvedValue(undefined),
+      config: {
+        ...DEFAULT_FABRIC_CONFIG,
+        compaction: { ...DEFAULT_FABRIC_CONFIG.compaction, engine: "lcm" },
+      },
+      lcmStatus: () => ({
+        report: () => ({
+          projectKey: "v1:devino:1:2",
+          sessionId: "session-1",
+          state: "healthy",
+          degraded: undefined,
+          summaryModel: undefined,
+          rawEntries: 2368,
+          sessionEntries: 2368,
+          modelNodes: 4,
+          emergencyNodes: 12,
+          pendingNodes: 0,
+          pendingJobs: 0,
+          usage: { calls: 4, inputTokens: 82261, outputTokens: 3952, cost: 0.613, wallMs: 55110 },
+          budget: { calls: 512, sessionCalls: 256, wallMs: 60000 },
+        }),
+        coverage: () => ({ active: 2368, covered: 32 }),
+      }),
+    } as unknown as FabricState;
+    const notify = vi.fn();
+
+    registerFabricCommand(omp, {
+      state,
+      fabricUi: { stop: vi.fn(), start: vi.fn() } as unknown as FabricUiController,
+      capturedTools: {} as CapturedToolCatalog,
+      applyFabricMode: vi.fn(),
+      suspendToolCapture: vi.fn(),
+      refreshToolDisplay: vi.fn(),
+    });
+
+    await handler!("lcm", { ui: { notify } } as unknown as ExtensionContext);
+
+    const text = String(notify.mock.calls[0]?.[0]);
+    expect(text).toContain("frontier: 32/2368 active sources covered (1%)");
+    expect(text).toContain("4 written by the model · 12 deterministic");
+    expect(text).toContain("today: 4/512 calls · 55s/60s");
+    expect(text).toContain("Daily model budget cannot fit another summary (5s left, 14s per call)");
+    expect(text).toContain("Pick one in /fabric settings under Compaction");
+    expect(notify.mock.calls[0]?.[1]).toBe("info");
   });
 
   it("arms prewalk with the configured executor and submits an inline task", async () => {

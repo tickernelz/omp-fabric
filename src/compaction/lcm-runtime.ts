@@ -2,8 +2,24 @@ import type { ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 import { canonicalLcmPayload, canonicalProjectIdentity, hashLcmPayload, LcmLedger, type RawEntry } from "../storage/lcm-ledger.js";
 import { reconcileSession } from "../storage/lcm-migration.js";
 import { emergencyReduce, LcmModelAdapter, type LcmSummarizer } from "./lcm-model.js";
-import { LcmMaintenance, type LcmJob, type LcmNode } from "./lcm-maintenance.js";
+import { LcmMaintenance, type LcmBudgetPolicy, type LcmJob, type LcmNode } from "./lcm-maintenance.js";
 import type { LcmCompactionInput, LcmCompactionOutput } from "./hook.js";
+
+export interface LcmReport {
+  projectKey: string;
+  sessionId: string | undefined;
+  state: string;
+  degraded: string | undefined;
+  summaryModel: string | undefined;
+  rawEntries: number;
+  sessionEntries: number;
+  modelNodes: number;
+  emergencyNodes: number;
+  pendingNodes: number;
+  pendingJobs: number;
+  usage: { calls: number; inputTokens: number; outputTokens: number; cost: number; wallMs: number };
+  budget: { calls: number; sessionCalls: number; wallMs: number };
+}
 
 export interface LcmRuntimeOptions {
   rootDir?: string;
@@ -261,6 +277,43 @@ export class LcmRuntime {
     if (!job) throw new Error("LCM emergency fallback job was not created");
     const completed = this.maintenance.completeEmergency(this.maintenance.claimEmergency(job.jobId), fallback);
     return { summary: completed.text ?? fallback, firstKeptEntryId: input.firstKeptEntryId, tokensBefore: input.tokensBefore, source: "emergency", branch: input.branch };
+  }
+
+  report(): LcmReport {
+    const day = new Date(Date.now()).toISOString().slice(0, 10);
+    return this.ledger.readOnly((db) => {
+      const count = (sql: string, ...params: unknown[]): number =>
+        Number((db.prepare(sql).get(...params) as { n: number }).n);
+      const nodes = db.prepare("SELECT json_extract(payload,'$.kind') kind, json_extract(payload,'$.state') state, json_extract(payload,'$.modelHash') model, count(*) n FROM summary_nodes WHERE project_key=? GROUP BY kind, state, model")
+        .all(this.projectKey) as Array<{ kind: string; state: string; model: string; n: number }>;
+      const usage = db.prepare("SELECT coalesce(sum(calls),0) calls, coalesce(sum(input_tokens),0) input, coalesce(sum(output_tokens),0) output, coalesce(sum(cost),0) cost, coalesce(sum(wall_ms),0) wallMs FROM maintenance_usage WHERE project_key=? AND day=?")
+        .get(this.projectKey, day) as { calls: number; input: number; output: number; cost: number; wallMs: number };
+      const budget = this.maintenance.budgetPolicy();
+      return {
+        projectKey: this.projectKey,
+        sessionId: this.activeSessionId,
+        state: this.ledger.operationalState,
+        degraded: this.degradedError === undefined ? undefined : String(this.degradedError instanceof Error ? this.degradedError.message : this.degradedError),
+        summaryModel: this.options.summaryModel,
+        rawEntries: count("SELECT count(*) n FROM raw_entries WHERE project_key=?", this.projectKey),
+        sessionEntries: this.activeSessionId === undefined ? 0 : count("SELECT count(*) n FROM raw_entries WHERE project_key=? AND session_id=?", this.projectKey, this.activeSessionId),
+        modelNodes: nodes.filter((row) => row.model && row.model !== "emergency").reduce((total, row) => total + row.n, 0),
+        emergencyNodes: nodes.filter((row) => row.model === "emergency").reduce((total, row) => total + row.n, 0),
+        pendingNodes: nodes.filter((row) => row.state !== "ready").reduce((total, row) => total + row.n, 0),
+        pendingJobs: count("SELECT count(*) n FROM maintenance_jobs WHERE project_key=? AND status=?", this.projectKey, "pending"),
+        usage: { calls: usage.calls, inputTokens: usage.input, outputTokens: usage.output, cost: usage.cost, wallMs: usage.wallMs },
+        budget: { calls: budget.calls, sessionCalls: budget.sessionCalls, wallMs: budget.wallMs },
+      };
+    });
+  }
+
+  coverage(): { active: number; covered: number } {
+    if (!this.activeSessionId) return { active: 0, covered: 0 };
+    const frontier = this.maintenance.getFrontier(this.activeSessionId, this.context.sessionManager.getLeafId(), this.activeSources);
+    const covered = new Set(frontier.flatMap((node) => node.sources.map((source) => `${source.sessionId}:${source.entryId}:${source.revision}`)));
+    let hits = 0;
+    for (const key of this.activeSources) if (covered.has(key)) hits += 1;
+    return { active: this.activeSources.size, covered: hits };
   }
 
   memoryContext() {

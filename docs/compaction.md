@@ -107,6 +107,12 @@ Maintenance runs after a turn settles and on session compaction; the hook itself
 
 Raise `lcmMaintenancePasses` (1-64) to trade model spend for coverage. `lcmMaxDailyModelCalls`, `lcmMaxSessionModelCalls`, and `lcmMaxDailyModelSeconds` bound the model spend itself; a session that exhausts them keeps working and writes deterministic excerpts until the next day. It is separate from `lcmMaxCondenseChildren`, which is the condensation fan-in: how many ready nodes are folded into one condensed parent. The daily project and per-session call, token, cost, and wall-time budgets still bound every run.
 
+## Inspecting a live ledger
+
+`/fabric status` carries one LCM line: operational state, summary model, entry count, how many ready nodes the model wrote against how many exist, and today's calls and model seconds against their budget.
+
+`/fabric lcm` reports the detail that decides summary quality: how much of the active branch the ready frontier covers, the split between model-written and deterministic nodes, pending jobs, today's spend against the daily budget, and the effective pass and leaf limits. It ends with hints when the frontier covers less than half the branch, when the remaining daily budget cannot fit another call, or when no summary model is set.
+
 ## Performance gate
 
 `bun run benchmark:lcm` drives the fixed fixture from the LCM operational contract: 10 sessions of 1,000 raw entries at 1 KiB each, 20 compaction cycles through the built `session_before_compact` hook, a repeat pass that must reuse the ready frontier, and a second process appending to the same ledger. It fails when a row is lost or duplicated, when a node references an uncommitted source or child, when the hook issues any model call, when hook p95 exceeds 250 ms, when recall precision or exact expansion regresses, or when a restart loses rows or nodes. The run prints and writes a JSON report covering ingest throughput, hook latency percentiles for both the emergency and ready-frontier paths, maintenance backlog, recall and expansion latency, migration counts, database and WAL bytes, checkpoint outcomes, and lock errors observed by the competing process:

@@ -8,7 +8,7 @@ import { emergencyReduce, type LcmModelResult, type LcmSummarizer } from "../../
 const raw = (projectKey: string, sessionId: string, entryId: string, text: string, branch: string | null) => ({ projectKey, sessionId, entryId, role: "user", content: text, payloadJson: canonicalLcmPayload({ type: "message", id: entryId, parentId: null, timestamp: "2026-09-01T00:00:00.000Z", message: { role: "user", content: [{ type: "text", text }] } }), parentEntryId: null, branch, createdAt: 0 });
 const result = (text: string): LcmModelResult => ({ text, inputTokens: 1, outputTokens: 1, cost: 0, wallMs: 1, modelHash: "test" });
 const model = (value: LcmModelResult): LcmSummarizer => ({ modelHash: value.modelHash, generate: async () => value });
-const open = () => { const root = tempRoot("lcm-maintenance-"); const ledger = openLedger({ dbPath: path.join(root, "db.sqlite"), project: { liveCwd: root } }); return { ledger, maintenance: new LcmMaintenance(ledger) }; };
+const open = (options: ConstructorParameters<typeof LcmMaintenance>[1] = {}) => { const root = tempRoot("lcm-maintenance-"); const ledger = openLedger({ dbPath: path.join(root, "db.sqlite"), project: { liveCwd: root } }); return { ledger, maintenance: new LcmMaintenance(ledger, options) }; };
 afterEach(releaseTemp);
 
 describe("LCM maintenance branch isolation", () => {
@@ -125,6 +125,26 @@ describe("LCM maintenance branch isolation", () => {
     expect(second.ownerId).toBe("two");
     expect(second.leaseToken).not.toBe(first.leaseToken);
     ledger.close();
+  });
+
+  it("packs a leaf to the input budget and never drops an oversized entry", () => {
+    const { ledger, maintenance } = open({ maxLeafEntries: 10, maxInputChars: 2_000 });
+    const project = ledger.project.key;
+    const stored = Array.from({ length: 10 }, (_, index) =>
+      ledger.appendRaw(raw(project, "s", "e" + index, "x".repeat(400), "main")));
+
+    const packed = maintenance.selectLeaf(stored, "main");
+    const packedChars = packed.reduce((total, entry) => total + entry.payloadJson.length, 0);
+    expect(packed.length).toBeGreaterThan(1);
+    expect(packed.length).toBeLessThan(10);
+    expect(packedChars).toBeLessThanOrEqual(2_000);
+    expect(packedChars + (stored[packed.length]?.payloadJson.length ?? 0)).toBeGreaterThan(2_000);
+
+    const huge = ledger.appendRaw(raw(project, "s", "huge", "y".repeat(5_000), "main"));
+    expect(maintenance.selectLeaf([huge], "main")).toHaveLength(1);
+
+    const generous = new LcmMaintenance(ledger, { maxLeafEntries: 3, maxInputChars: 1_000_000 });
+    expect(generous.selectLeaf(stored, "main")).toHaveLength(3);
   });
 
   it("keeps emergency provenance within the UTF-8 byte limit", () => {

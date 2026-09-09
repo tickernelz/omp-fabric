@@ -180,6 +180,7 @@ export default async function ompFabric(omp: ExtensionAPI): Promise<void> {
   const state = new FabricState(omp, capturedTools, {
     paths: FABRIC_RUNTIME_PATHS,
     lcmContext: () => lcmRuntime?.memoryContext(),
+    lcmRuntime: () => lcmRuntime,
   });
   const directToolApproval = new FabricDirectToolApproval(
     omp,
