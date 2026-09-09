@@ -1,7 +1,10 @@
 import { completeSimple, type Model } from "@oh-my-pi/pi-ai";
 import type { ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 import { hashLcmPayload } from "../storage/lcm-identity.js";
-import { clipUtf8 } from "./bounds.js";
+import { clipUtf8, utf8Bytes } from "./bounds.js";
+import { LCM_RECOVERY_POINTER } from "./render.js";
+
+export interface LcmSourceHandle { sessionId: string; entryId: string; revision: number; payloadHash: string }
 
 const LCM_MAX_INPUT_CHARS = 1_000_000;
 const LCM_MAX_OUTPUT_TOKENS = 32_768;
@@ -24,17 +27,66 @@ export function buildLcmPrompt(kind: "leaf" | "condensed", input: string, maxInp
   for (const character of Array.from(input)) { const part = escapeXml(character); if (new TextEncoder().encode(escaped + part).byteLength > room) break; escaped += part; }
   return prefix + escaped + suffix;
 }
-export function emergencyReduce(input: string, limit = 4_096, sources: Array<{ sessionId: string; entryId: string; revision: number; payloadHash: string }> = []): string {
+const EMERGENCY_HEADER = "[Nonsemantic deterministic excerpt; not a model summary]\n";
+const EMERGENCY_CONTENT_SHARE = 0.6;
+const EMERGENCY_MIN_CONTENT_BYTES = 64;
+
+const clipUtf8End = (text: string, maxBytes: number): string => {
+  if (maxBytes <= 0) return "";
+  const characters = Array.from(text);
+  let used = 0;
+  let start = characters.length;
+  for (let index = characters.length - 1; index >= 0; index--) {
+    const size = utf8Bytes(characters[index] ?? "");
+    if (used + size > maxBytes) break;
+    used += size;
+    start = index;
+  }
+  return characters.slice(start).join("");
+};
+
+const renderProvenance = (sources: readonly LcmSourceHandle[], budget: number): string => {
+  if (budget <= 0) return "";
+  const label = "sources: ";
+  if (sources.length === 0) {
+    const none = `${label}none`;
+    return utf8Bytes(none) <= budget ? none : "";
+  }
+  const handles = sources.map(
+    (source) => `${source.sessionId}/${source.entryId}@${source.revision}:${source.payloadHash}`,
+  );
+  const markerReserve = utf8Bytes(`, +${handles.length} more`);
+  const kept: string[] = [];
+  let used = utf8Bytes(label);
+  for (const handle of handles) {
+    const cost = utf8Bytes(kept.length === 0 ? handle : `, ${handle}`);
+    const reserve = kept.length + 1 < handles.length ? markerReserve : 0;
+    if (used + cost + reserve > budget) break;
+    used += cost;
+    kept.push(handle);
+  }
+  if (kept.length === 0) return "";
+  const omitted = handles.length - kept.length;
+  return `${label}${kept.join(", ")}${omitted > 0 ? `, +${omitted} more` : ""}`;
+};
+
+export function emergencyReduce(input: string, limit = 4_096, sources: readonly LcmSourceHandle[] = []): string {
   if (!Number.isSafeInteger(limit) || limit < 128 || limit > LCM_MAX_OUTPUT_CHARS) throw new Error("invalid emergency limit");
-  const provenance = sources.length === 0 ? "sources: none" : `sources: ${sources.map((source) => `${source.sessionId}/${source.entryId}@${source.revision}:${source.payloadHash}`).join(", ")}`;
-  const header = "[Nonsemantic deterministic excerpt; not a model summary]\n";
-  const provenanceRoom = Math.max(0, limit - Array.from(header).length - 1);
-  const boundedProvenance = clipUtf8(provenance, provenanceRoom, "");
-  const prefix = header + boundedProvenance + "\n";
-  const room = Math.max(0, limit - Array.from(prefix).length);
-  if (Array.from(input).length <= room) return clipUtf8(prefix + input, limit, "");
-  const marker = "\n...\n"; const available = Math.max(0, room - marker.length); const left = Math.floor(available / 2); const right = Math.ceil(available / 2);
-  return clipUtf8(prefix + Array.from(input).slice(0, left).join("") + marker + (right > 0 ? Array.from(input).slice(-right).join("") : ""), limit, "");
+  const headerBytes = utf8Bytes(EMERGENCY_HEADER);
+  const pointer = `${LCM_RECOVERY_POINTER}\n`;
+  const pointerBytes = utf8Bytes(pointer);
+  const withPointer = limit - headerBytes - pointerBytes >= EMERGENCY_MIN_CONTENT_BYTES;
+  const remaining = Math.max(0, limit - headerBytes - (withPointer ? pointerBytes : 0));
+  const contentFloor = Math.min(remaining, Math.max(EMERGENCY_MIN_CONTENT_BYTES, Math.ceil(remaining * EMERGENCY_CONTENT_SHARE)));
+  const provenance = renderProvenance(sources, remaining - contentFloor);
+  const prefix = EMERGENCY_HEADER + (withPointer ? pointer : "") + (provenance ? `${provenance}\n` : "");
+  const room = Math.max(0, limit - utf8Bytes(prefix));
+  if (utf8Bytes(input) <= room) return clipUtf8(prefix + input, limit, "");
+  const marker = "\n...\n";
+  const available = Math.max(0, room - utf8Bytes(marker));
+  const left = Math.floor(available / 2);
+  const right = available - left;
+  return clipUtf8(prefix + clipUtf8(input, left, "") + marker + clipUtf8End(input, right), limit, "");
 }
 const unavailable = (error: unknown): boolean => /unavailable|not configured|no api key|authentication|auth/i.test(String(error));
 export class LcmModelAdapter implements LcmSummarizer {

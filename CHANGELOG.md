@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.11.0
+
+### Fixed
+
+- The deterministic excerpt no longer starves its own content. Its provenance budget was computed as everything the header did not take, so a node with many sources consumed the whole limit and the excerpt was left with nothing. Measured against a 150-source node: at the 16,384-char default the excerpt carried 0 bytes of content before and 7,760 after; at 4,096 it carried 0 before and 2,417 after. Content now holds a floor of 60% of the budget and takes whatever provenance does not use.
+- Provenance truncates at handle boundaries and states what it dropped, as `+137 more`. It previously cut mid-identifier, leaving a trailing fragment that resolved to nothing.
+- Deterministic nodes carry the recovery pointer. Model-written summaries already named `memory.recall` and `memory.expand`; the deterministic renderer named nothing, so the excerpt that had lost the most detail was the one that never said how to get it back. At limits too small to hold both, the pointer is dropped before content is.
+
 ## 1.10.1
 
 ### Fixed

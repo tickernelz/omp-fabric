@@ -168,4 +168,44 @@ describe("LCM maintenance branch isolation", () => {
     expect(Buffer.byteLength(emergency, "utf8")).toBeLessThanOrEqual(4_096);
     expect(emergency).toContain("Nonsemantic deterministic excerpt");
   });
+
+  it("keeps content readable when a node carries many sources", () => {
+    const sources = Array.from({ length: 150 }, (_, index) => ({
+      sessionId: "01a08363-832a-77ec-b1cc-5cd98d4b738e",
+      entryId: String(index).padStart(8, "0"),
+      revision: 1,
+      payloadHash: "8e0939cf8a9d8945a5d285942da09835e6166357cd26e05669ee429e9f1a0418",
+    }));
+    const content = "Decision: bound provenance so the excerpt always keeps a floor. ".repeat(200);
+    const emergency = emergencyReduce(content, 16_384, sources);
+
+    expect(Buffer.byteLength(emergency, "utf8")).toBeLessThanOrEqual(16_384);
+
+    const lines = emergency.split("\n");
+    const sourceLine = lines.find((line) => line.startsWith("sources: ")) ?? "";
+    const isMeta = (line: string): boolean =>
+      line.startsWith("[Nonsemantic") ||
+      line.startsWith("sources: ") ||
+      line.startsWith("For exact pre-summary history");
+    const body = lines.filter((line) => isMeta(line) === false).join("\n");
+    expect(Buffer.byteLength(body, "utf8")).toBeGreaterThan(4_096);
+    expect(body).toContain("bound provenance");
+
+    const rendered = sourceLine.slice("sources: ".length).split(", ");
+    const omission = rendered.pop() ?? "";
+    expect(omission).toMatch(/^\+\d+ more$/);
+    for (const handle of rendered) {
+      expect(handle).toMatch(/^[0-9a-f-]+\/\d{8}@1:[0-9a-f]{64}$/);
+    }
+    expect(rendered.length + Number(omission.slice(1, -5))).toBe(150);
+
+    expect(emergency).toContain("memory.recall");
+  });
+
+  it("drops the pointer before it starves content at the smallest limit", () => {
+    const emergency = emergencyReduce("kept text", 128, []);
+    expect(Buffer.byteLength(emergency, "utf8")).toBeLessThanOrEqual(128);
+    expect(emergency).toContain("kept text");
+    expect(emergency).not.toContain("memory.recall");
+  });
 });

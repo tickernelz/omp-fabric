@@ -24,8 +24,9 @@ export interface RenderOptions {
   summaryKind?: "compaction" | "branch";
 }
 
-const POINTER_LINE =
+export const LCM_RECOVERY_POINTER =
   "For exact pre-summary history, use memory.recall on this range, then memory.expand by stable entry or operation address.";
+const POINTER_LINE = LCM_RECOVERY_POINTER;
 
 const sampledLines = (lines: readonly string[], keep: number): string[] => {
   if (lines.length <= keep) return [...lines];
