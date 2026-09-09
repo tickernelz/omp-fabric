@@ -192,7 +192,8 @@ export function migrateSessions(options: MigrationOptions): MigrationResult {
         if (!row) { counts.malformed++; continue; }
         if (row.type === "message_end") continue;
         if (!header) {
-          if (ordinal !== 1 || row.type !== "session" || !nonblank(row.id)) { counts.malformed++; break; }
+          if (row.type !== "session") { if (record(row.message)) counts.malformed++; continue; }
+          if (!nonblank(row.id)) { counts.malformed++; break; }
           header = row;
           sessionId = row.id;
           cwd = nonblank(row.cwd) ? row.cwd : options.liveCwd;
@@ -242,7 +243,7 @@ export function migrateSessions(options: MigrationOptions): MigrationResult {
           .run(projectKey, file, sourceHash, ordinal, row.id, contentHash);
         options.onProgress?.(progress);
       }
-      if (!header && data.length === 0) counts.malformed++;
+      if (!header) counts.malformed++;
     } catch (error) {
       counts.errors++;
       if (options.onProgress) throw error;

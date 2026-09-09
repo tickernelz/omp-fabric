@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.4.2
+
+### Fixed
+
+- Resuming a session failed with "LCM session reconciliation failed with exit code 1" and imported nothing. Real OMP session files start with a `type: "title"` preamble record and declare the `type: "session"` header on the next line, but the reconciler required that header on line 1 and rejected the file. It now accepts the header after preamble records and reports a source that never declares one. Measured against real session files: 4,375 / 3,928 / 9 entries imported with zero malformed rows, where every one previously imported zero.
+- Reconciliation no longer aborts a resume over per-row diagnostics. Malformed or oversized rows stay reported in the result counts, and only a genuine ledger or I/O error marks the runtime degraded.
+
 ## 1.4.1
 
 ### Fixed

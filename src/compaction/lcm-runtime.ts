@@ -89,7 +89,9 @@ export class LcmRuntime {
         projectCwd: cwd,
         apply: true,
       });
-      if (result.exitCode !== 0) throw new Error(`LCM session reconciliation failed with exit code ${result.exitCode}`);
+      this.degradedError = result.counts.errors > 0
+        ? new Error(`LCM session reconciliation reported ${result.counts.errors} error(s)`)
+        : undefined;
       const sessionId = this.context.sessionManager.getSessionId();
       this.refreshActiveSources(sessionId, this.context.sessionManager.getBranch());
     });

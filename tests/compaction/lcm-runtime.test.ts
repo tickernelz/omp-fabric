@@ -61,6 +61,19 @@ describe("LCM runtime", () => {
     await runtime.shutdown();
   });
 
+  it("keeps the session usable when reconciliation reports malformed rows", async () => {
+    const root = makeRoot();
+    const selected = path.join(root, "selected.jsonl");
+    const entry = makeEntry("e1", "valid entry");
+    const sessionHeader = { type: "session", id: "session-1", cwd: root, timestamp: "2026-09-01T00:00:00.000Z" };
+    fs.writeFileSync(selected, `${JSON.stringify({ type: "title", v: 1, title: "Resumed" })}\n${JSON.stringify(sessionHeader)}\n${JSON.stringify(entry)}\n{bad\n`);
+    const runtime = openRuntime(makeContext(root, [], selected), { rootDir: root });
+    await expect(runtime.reconcileSelectedSession()).resolves.toBeUndefined();
+    expect(runtime.raw("session-1")).toHaveLength(1);
+    expect(runtime.status).toBe("healthy");
+    await runtime.shutdown();
+  });
+
   it("keeps identical source ranges distinct across branches", async () => {
     const root = makeRoot(); const entry = makeEntry("shared", "shared source"); const runtime = openRuntime(makeContext(root, [entry]), { rootDir: root });
     const left = runtime.compact({ branchEntries: [entry], sessionId: "session-1", branch: "left", firstKeptEntryId: "missing", tokensBefore: 100 });
