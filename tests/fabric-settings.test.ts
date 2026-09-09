@@ -718,6 +718,37 @@ describe("FabricSettingsComponent", () => {
     expect(inheritLine).not.toContain("✓");
   });
 
+  it("picks the LCM summary model from the available OMP models", () => {
+    const items = buildItems();
+    const compaction = items.find((item) => item.id === "compaction")!;
+    const section = compaction.submenu!("", () => {}) as unknown as SectionProbe;
+    const summary = section.items.find((item) => item.id === "compaction.summaryModel")!;
+    expect(summary.currentValue).toBe("Inherit");
+    expect(summary.values).toBeUndefined();
+
+    const list = section.settingsList;
+    expect(list.selectItem("compaction.summaryModel")).toBe(true);
+    list.handleInput("\r");
+    const picker = list.render(100).join("\n");
+    expect(picker).toContain("claude-sonnet-4-5");
+    list.handleInput("\x1b[B");
+    list.handleInput("\r");
+    expect(list.getSelectedItem()?.currentValue).not.toBe("Inherit");
+  });
+
+  it("clears the LCM summary model when the picker inherits", () => {
+    const persisted: Array<[string, unknown]> = [];
+    const items = buildFabricSettingsItems(theme, DEFAULT_FABRIC_CONFIG, (id, value) => {
+      persisted.push([id, value]);
+    }, { keepVisibleCandidates: ["fabric_exec"], modelSource: fakeModelSource, activeModelKey: "anthropic/claude-sonnet-4-5" });
+    const section = items.find((item) => item.id === "compaction")!
+      .submenu!("", () => {}) as unknown as SectionProbe;
+    section.applyChange("compaction.summaryModel", "anthropic/claude-sonnet-4-5");
+    expect(persisted.at(-1)).toEqual(["compaction.summaryModel", "anthropic/claude-sonnet-4-5"]);
+    section.applyChange("compaction.summaryModel", "Inherit");
+    expect(persisted.at(-1)).toEqual(["compaction.summaryModel", ""]);
+  });
+
   it("surfaces the default model in the Agents section as Inherit by default", () => {
     const items = buildItems();
     const agents = items.find((item) => item.id === "agents");

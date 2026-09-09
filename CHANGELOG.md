@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.4.3
+
+### Added
+
+- `/fabric settings` exposes Compaction > Summary model. The entry opens the OMP model picker, so the LCM summary model is chosen from the models OMP actually has rather than typed by hand, and Inherit clears the override back to the active session model. The setting was previously reachable only by hand-editing `compaction.summaryModel` in `fabric.json`, which left reasoning models summarizing transcripts at their own price.
+
 ## 1.4.2
 
 ### Fixed

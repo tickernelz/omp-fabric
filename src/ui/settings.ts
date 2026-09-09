@@ -306,7 +306,8 @@ const coerceValue = (id: string, value: string, config: FabricConfig): unknown =
     id === "prewalk.model" ||
     id === "agents.model" ||
     id === "agents.claude.model" ||
-    id === "agents.veda.model"
+    id === "agents.veda.model" ||
+    id === "compaction.summaryModel"
   ) {
     return value === INHERIT_VALUE || value === PREWALK_MODEL_UNSET_LABEL ? "" : value;
   }
@@ -1794,6 +1795,20 @@ export const buildFabricSettingsItems = (
               "LCM assembles durable hierarchical context; OMP delegates compaction to OMP core.",
             values: COMPACTION_ENGINES,
           }),
+          setting(
+            "compaction.summaryModel",
+            "Summary model",
+            config.compaction.summaryModel || INHERIT_VALUE,
+            {
+              description:
+                "Model that writes LCM leaf and condensed summaries. Inherit uses the active session model, so a reasoning model summarizes transcripts at its own price.",
+              submenu: modelPickerSubmenu(theme, options.modelSource, {
+                headerText:
+                  "Model that writes LCM leaf and condensed summaries. Pick Inherit to use the active session model.",
+                inheritName: "Use the active session model",
+              }),
+            },
+          ),
           setting(
             "compaction.targetContextRatio",
             "Max occupancy",
