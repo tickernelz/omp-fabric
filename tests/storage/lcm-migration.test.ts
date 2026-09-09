@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { discoverMigrationSessions, migrationWindow, migrateSessions, reconcileSession } from "../../src/storage/lcm-migration.js";
+import { discoverMigrationSessions, migrationWindow, migrateSessions, reconcileSession, sourceStillValid } from "../../src/storage/lcm-migration.js";
 import { openLedger, releaseTemp, tempRoot } from "../fixtures/lcm-temp.js";
 const make = () => tempRoot("lcm-migrate-");
 afterEach(releaseTemp);
@@ -16,6 +16,22 @@ describe("LCM session migration", () => {
   it("rejects persisted rows with blank type or id", () => { const root=make(); const cwd=path.join(root,"project"); fs.mkdirSync(cwd); const p=file(root,cwd,[header(cwd),{type:"",id:"a",timestamp:"2026-09-07T00:00:00.000Z",message:{role:"user",content:"x"}},{type:"message",id:" ",timestamp:"2026-09-07T00:00:00.000Z",message:{role:"user",content:"x"}}]); const l=openLedger({dbPath:path.join(root,"l.sqlite"),project:{liveCwd:cwd}}); const r=migrateSessions({agentDir:root,ledger:l,files:[p],now:Date.parse("2026-09-08T00:00:00.000Z"),apply:true}); expect(r.counts.malformed).toBe(2); expect(r.counts.imported).toBe(0); l.close(); });
   it("flags missing candidate directories as incomplete", () => { const root=make(); const d=discoverMigrationSessions({agentDir:root,projectCwd:path.join(root,"missing")}); expect(d.incomplete).toBeGreaterThan(0); const cwd=path.join(root,"project"); fs.mkdirSync(cwd); const l=openLedger({dbPath:path.join(root,"l.sqlite"),project:{liveCwd:cwd}}); expect(migrateSessions({agentDir:root,ledger:l,projectCwd:cwd}).exitCode).toBe(1); l.close(); });
   it("reconciles only the selected file without a 72-hour cutoff", () => { const root=make(); const cwd=path.join(root,"project"); fs.mkdirSync(cwd); const selected=path.join(root,"selected.jsonl"); const unrelated=path.join(root,"unrelated.jsonl"); fs.writeFileSync(selected,[header(cwd),msg("old","2020-01-01T00:00:00.000Z")].map((row) => JSON.stringify(row)).join("\n")+"\n"); fs.writeFileSync(unrelated,[header(cwd),msg("other","2020-01-02T00:00:00.000Z")].map((row) => JSON.stringify(row)).join("\n")+"\n"); const l=openLedger({dbPath:path.join(root,"l.sqlite"),project:{liveCwd:cwd}}); const opts={agentDir:root,ledger:l,files:[selected] as [string],liveCwd:cwd,projectCwd:cwd,apply:true}; expect(reconcileSession(opts).counts.imported).toBe(1); expect(reconcileSession(opts).counts.skippedDuplicate).toBe(1); expect(l.readRaw().map(entry=>entry.entryId)).toEqual(["old"]); expect(unrelated).toBeTruthy(); l.close(); });
+  it("keeps reading a session file that grows while the live session writes it", () => {
+    const root=make(); const cwd=path.join(root,"project"); fs.mkdirSync(cwd);
+    const p=file(root,cwd,[header(cwd),msg("a","2026-09-07T00:00:00.000Z")]);
+    const l=openLedger({dbPath:path.join(root,"l.sqlite"),project:{liveCwd:cwd}});
+    const opts={agentDir:root,ledger:l,files:[p] as [string],liveCwd:cwd,projectCwd:cwd,apply:true};
+
+    expect(reconcileSession(opts).counts.errors).toBe(0);
+    fs.appendFileSync(p, JSON.stringify(msg("b","2026-09-07T00:00:01.000Z"))+"\n");
+    const second = reconcileSession(opts);
+
+    expect(second.counts.errors).toBe(0);
+    expect(second.exitCode).toBe(0);
+    expect(l.readRaw().map(entry=>entry.entryId)).toEqual(["a","b"]);
+    expect(sourceStillValid(100, 220)).toBe(true);
+    expect(sourceStillValid(220, 100)).toBe(false);
+  });
   it("adopts the session header after preamble records", () => { const root=make(); const cwd=path.join(root,"project"); fs.mkdirSync(cwd); const p=path.join(root,"sessions","project","run.jsonl"); fs.mkdirSync(path.dirname(p),{recursive:true}); fs.writeFileSync(p,[{type:"title",v:1,title:"Resumed",source:"auto",updatedAt:"2026-09-07T00:00:00.000Z"},header(cwd),msg("a","2026-09-07T00:00:00.000Z"),msg("b","2026-09-07T00:00:01.000Z")].map(row=>JSON.stringify(row)).join("\n")+"\n"); const l=openLedger({dbPath:path.join(root,"l.sqlite"),project:{liveCwd:cwd}}); const r=migrateSessions({agentDir:root,ledger:l,files:[p],now:Date.parse("2026-09-08T00:00:00.000Z"),apply:true}); expect(r.counts.imported).toBe(2); expect(r.counts.malformed).toBe(0); expect(r.exitCode).toBe(0); expect(l.readRaw().map(entry=>entry.sessionId)).toEqual(["run-1","run-1"]); });
   it("reports a source that never declares a session header", () => { const root=make(); const cwd=path.join(root,"project"); fs.mkdirSync(cwd); const p=path.join(root,"sessions","project","run.jsonl"); fs.mkdirSync(path.dirname(p),{recursive:true}); fs.writeFileSync(p,[{type:"title",v:1,title:"Headerless"},msg("a","2026-09-07T00:00:00.000Z")].map(row=>JSON.stringify(row)).join("\n")+"\n"); const l=openLedger({dbPath:path.join(root,"l.sqlite"),project:{liveCwd:cwd}}); const r=migrateSessions({agentDir:root,ledger:l,files:[p],now:Date.parse("2026-09-08T00:00:00.000Z"),apply:true}); expect(r.counts.imported).toBe(0); expect(r.counts.malformed).toBe(2); expect(r.exitCode).toBe(1); expect(l.readRaw()).toHaveLength(0); });
 });

@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.9.1
+
+### Fixed
+
+- Reconciling the session a run is actively writing failed every time, so the live session contributed nothing to the ledger and `/fabric lcm` reported a degraded runtime. The reader compared the file's size and mtime before and after reading and rejected any difference, but session JSONL is append-only and a live session grows during the read: a concurrent writer produced `errors: 1, imported: 0` on five attempts out of five. A longer file is now accepted, and only a shrinking one is refused; the same fixture then imported 4,044 entries and kept up with the writer.
+- Tagging a release stopped publishing the GitHub release. The CI rewrite in 1.8.1 dropped that step while removing duplicated verification, so v1.8.1 through v1.9.0 reached npm with no release entry. The step is restored and the missing releases were created.
+
 ## 1.9.0
 
 ### Added

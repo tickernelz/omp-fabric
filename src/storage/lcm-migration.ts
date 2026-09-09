@@ -58,6 +58,8 @@ const hash = (data: string | Buffer): string => crypto.createHash("sha256").upda
 const record = (value: unknown): Record<string, unknown> | undefined =>
   value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
 const nonblank = (value: unknown): value is string => typeof value === "string" && value.trim().length > 0;
+/** Session JSONL is append-only, so a longer file is the live session growing. */
+export const sourceStillValid = (before: number, after: number): boolean => after >= before;
 const utc = (value: string): number => {
   if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?(?:Z|\+00:00)$/.test(value)) throw new Error("timestamps must be explicit UTC ISO-8601 values");
   const at = Date.parse(value);
@@ -163,7 +165,7 @@ export function migrateSessions(options: MigrationOptions): MigrationResult {
         offset += size;
       }
       const after = fs.fstatSync(fd);
-      if (after.size !== before.size || after.mtimeMs !== before.mtimeMs || after.ctimeMs !== before.ctimeMs) throw new Error("source changed during read");
+      if (!sourceStillValid(before.size, after.size)) throw new Error("source shrank during read");
     } catch { counts.errors++; counts.incompleteDiscovery++; continue; }
     finally { if (fd !== undefined) fs.closeSync(fd); }
     result.filesScanned++;
