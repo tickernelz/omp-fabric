@@ -15,18 +15,18 @@ describe("LCM maintenance branch isolation", () => {
   it("selects only summaries whose source refs are on the active branch", async () => {
     const { ledger, maintenance } = open(); const project = ledger.project.key; const root = ledger.appendRaw(raw(project, "s", "root", "root", null)); const left = ledger.appendRaw(raw(project, "s", "left", "left", "left")); const right = ledger.appendRaw(raw(project, "s", "right", "right", "right"));
     const leftNode = maintenance.createLeaf([root, left]); const rightNode = maintenance.createLeaf([root, right]); if (!leftNode || !rightNode) throw new Error("missing leaf");
-    await maintenance.run(maintenance.listJobs().find(j => j.nodeId === leftNode.nodeId)!, model(result("left")), "left"); await maintenance.run(maintenance.listJobs().find(j => j.nodeId === rightNode.nodeId)!, model(result("right")), "right");
+    await maintenance.run(maintenance.listJobs().find(j => j.nodeId === leftNode.nodeId)!, model(result("left")), "left branch evidence"); await maintenance.run(maintenance.listJobs().find(j => j.nodeId === rightNode.nodeId)!, model(result("right")), "right branch evidence");
     expect(maintenance.getFrontier("s", undefined, new Set(["s:root:1", "s:left:1"])).map(n => n.text)).toEqual(["left"]); expect(maintenance.getFrontier("s", undefined, new Set(["s:root:1", "s:right:1"])).map(n => n.text)).toEqual(["right"]); ledger.close();
   });
   it("retains shared null ancestors during fork leaf selection", async () => {
     const { ledger, maintenance } = open(); const project = ledger.project.key; const root = ledger.appendRaw(raw(project, "s", "root", "root", null)); const left = ledger.appendRaw(raw(project, "s", "left", "left", "left")); const right = ledger.appendRaw(raw(project, "s", "right", "right", "right"));
-    const leftNode = maintenance.createLeaf([root, left]); if (!leftNode) throw new Error("missing leaf"); await maintenance.run(maintenance.listJobs().find(j => j.nodeId === leftNode.nodeId)!, model(result("left")), "left");
+    const leftNode = maintenance.createLeaf([root, left]); if (!leftNode) throw new Error("missing leaf"); await maintenance.run(maintenance.listJobs().find(j => j.nodeId === leftNode.nodeId)!, model(result("left")), "left branch evidence");
     expect(maintenance.selectLeaf([{ ...root, branch: null }, right], "right").map(entry => entry.entryId)).toEqual(["root", "right"]); ledger.close();
   });
   it("filters shared-prefix sibling frontiers by branch", async () => {
     const { ledger, maintenance } = open(); const project = ledger.project.key; const root = ledger.appendRaw(raw(project, "s", "root", "root", null)); const left = ledger.appendRaw(raw(project, "s", "left", "left", "left")); const right = ledger.appendRaw(raw(project, "s", "right", "right", "right"));
     const leftNode = maintenance.createLeaf([root, left]); const rightNode = maintenance.createLeaf([root, right]); if (!leftNode || !rightNode) throw new Error("missing leaf");
-    await maintenance.run(maintenance.listJobs().find(j => j.nodeId === leftNode.nodeId)!, model(result("left")), "left"); await maintenance.run(maintenance.listJobs().find(j => j.nodeId === rightNode.nodeId)!, model(result("right")), "right");
+    await maintenance.run(maintenance.listJobs().find(j => j.nodeId === leftNode.nodeId)!, model(result("left")), "left branch evidence"); await maintenance.run(maintenance.listJobs().find(j => j.nodeId === rightNode.nodeId)!, model(result("right")), "right branch evidence");
     const scope = new Set(["s:root:1", "s:left:1", "s:right:1"]);
     expect(maintenance.getFrontier("s", "left", scope).map(n => n.text)).toEqual(["left"]);
     expect(maintenance.getFrontier("s", "right", scope).map(n => n.text)).toEqual(["right"]);
@@ -59,17 +59,17 @@ describe("LCM maintenance branch isolation", () => {
   });
   it("promotes shared null ancestry into a concrete condensed branch", async () => {
     const { ledger, maintenance } = open(); const project = ledger.project.key; const root = ledger.appendRaw(raw(project, "s", "root", "root", null)); const tail = ledger.appendRaw(raw(project, "s", "tail", "tail", "left")); const shared = maintenance.createLeaf([root]); const branch = maintenance.createLeaf([root, tail]); if (!shared || !branch) throw new Error("missing leaf");
-    await maintenance.run(maintenance.listJobs().find(j => j.nodeId === shared.nodeId)!, model(result("shared")), "shared"); await maintenance.run(maintenance.listJobs().find(j => j.nodeId === branch.nodeId)!, model(result("branch")), "branch"); const children = maintenance.selectCondensation("s", new Set(["s:root:1", "s:tail:1"]), "left"); const parent = maintenance.createCondensed(children); if (!parent) throw new Error("missing condensed node"); expect(parent.branch).toBe("left"); expect(parent.sources).toHaveLength(2); ledger.close();
+    await maintenance.run(maintenance.listJobs().find(j => j.nodeId === shared.nodeId)!, model(result("shared")), "shared node evidence"); await maintenance.run(maintenance.listJobs().find(j => j.nodeId === branch.nodeId)!, model(result("branch")), "branch node evidence"); const children = maintenance.selectCondensation("s", new Set(["s:root:1", "s:tail:1"]), "left"); const parent = maintenance.createCondensed(children); if (!parent) throw new Error("missing condensed node"); expect(parent.branch).toBe("left"); expect(parent.sources).toHaveLength(2); ledger.close();
   });
   it("condenses ready nodes once and exposes the parent as the frontier", async () => {
     const { ledger, maintenance } = open(); const project = ledger.project.key; const a = ledger.appendRaw(raw(project, "s", "a", "a", "left")); const b = ledger.appendRaw(raw(project, "s", "b", "b", "left")); const na = maintenance.createLeaf([a]); const nb = maintenance.createLeaf([b]); if (!na || !nb) throw new Error("missing leaf");
-    for (const node of [na, nb]) await maintenance.run(maintenance.listJobs().find(j => j.nodeId === node.nodeId)!, model(result(node.nodeId)), node.nodeId); const scope = new Set(["s:a:1", "s:b:1"]); const selected = maintenance.selectCondensation("s", scope); expect(selected.map(n => n.nodeId)).toEqual([na.nodeId, nb.nodeId].sort()); const parent = maintenance.createCondensed(selected); if (!parent) throw new Error("missing parent"); const parentJob = maintenance.listJobs().find(j => j.nodeId === parent.nodeId); if (!parentJob) throw new Error("missing parent job"); await maintenance.run(parentJob, model(result("condensed")), "condensed"); expect(maintenance.selectCondensation("s", scope)).toEqual([]); expect(maintenance.getFrontier("s", undefined, scope).map(n => n.nodeId)).toEqual([parent.nodeId]); ledger.close();
+    for (const node of [na, nb]) await maintenance.run(maintenance.listJobs().find(j => j.nodeId === node.nodeId)!, model(result(node.nodeId)), `${node.nodeId} evidence`); const scope = new Set(["s:a:1", "s:b:1"]); const selected = maintenance.selectCondensation("s", scope); expect(selected.map(n => n.nodeId)).toEqual([na.nodeId, nb.nodeId].sort()); const parent = maintenance.createCondensed(selected); if (!parent) throw new Error("missing parent"); const parentJob = maintenance.listJobs().find(j => j.nodeId === parent.nodeId); if (!parentJob) throw new Error("missing parent job"); await maintenance.run(parentJob, model(result("condensed")), "condensed child evidence"); expect(maintenance.selectCondensation("s", scope)).toEqual([]); expect(maintenance.getFrontier("s", undefined, scope).map(n => n.nodeId)).toEqual([parent.nodeId]); ledger.close();
   });
   it("scopes summary node identities by project", () => { const first=open(); const second=open(); const firstEntry=first.ledger.appendRaw(raw(first.ledger.project.key,"s","same","same","main")); const secondEntry=second.ledger.appendRaw(raw(second.ledger.project.key,"s","same","same","main")); const firstNode=first.maintenance.createLeaf([firstEntry]); const secondNode=second.maintenance.createLeaf([secondEntry]); if (!firstNode || !secondNode) throw new Error("missing leaf"); expect(firstNode.nodeId).not.toBe(secondNode.nodeId); first.ledger.close(); second.ledger.close(); });
-  it("rejects mixed-branch condensation even when both sources are active", async () => { const { ledger, maintenance } = open(); const left = ledger.appendRaw(raw(ledger.project.key, "s", "left", "left", "left")); const right = ledger.appendRaw(raw(ledger.project.key, "s", "right", "right", "right")); const leftNode = maintenance.createLeaf([left]); const rightNode = maintenance.createLeaf([right]); if (!leftNode || !rightNode) throw new Error("missing leaves"); for (const node of [leftNode, rightNode]) { const job = maintenance.listJobs().find((item) => item.nodeId === node.nodeId); if (!job) throw new Error("missing job"); await maintenance.run(job, model(result(node.nodeId)), node.nodeId); } const forged = { ...maintenance.getNode(leftNode.nodeId)!, projectKey: "other-project" }; expect(() => maintenance.createCondensed([forged, maintenance.getNode(rightNode.nodeId)!])).toThrow("child payload changed"); expect(() => maintenance.createCondensed([maintenance.getNode(leftNode.nodeId)!, maintenance.getNode(rightNode.nodeId)!])).toThrow("cross-branch ranges"); ledger.close(); });
+  it("rejects mixed-branch condensation even when both sources are active", async () => { const { ledger, maintenance } = open(); const left = ledger.appendRaw(raw(ledger.project.key, "s", "left", "left", "left")); const right = ledger.appendRaw(raw(ledger.project.key, "s", "right", "right", "right")); const leftNode = maintenance.createLeaf([left]); const rightNode = maintenance.createLeaf([right]); if (!leftNode || !rightNode) throw new Error("missing leaves"); for (const node of [leftNode, rightNode]) { const job = maintenance.listJobs().find((item) => item.nodeId === node.nodeId); if (!job) throw new Error("missing job"); await maintenance.run(job, model(result(node.nodeId)), `${node.nodeId} evidence`); } const forged = { ...maintenance.getNode(leftNode.nodeId)!, projectKey: "other-project" }; expect(() => maintenance.createCondensed([forged, maintenance.getNode(rightNode.nodeId)!])).toThrow("child payload changed"); expect(() => maintenance.createCondensed([maintenance.getNode(leftNode.nodeId)!, maintenance.getNode(rightNode.nodeId)!])).toThrow("cross-branch ranges"); ledger.close(); });
   it("does not condense nodes from another session", async () => {
     const { ledger, maintenance } = open(); const project = ledger.project.key; const a = ledger.appendRaw(raw(project, "s1", "a", "a", "left")); const b = ledger.appendRaw(raw(project, "s2", "b", "b", "left")); const na = maintenance.createLeaf([a]); const nb = maintenance.createLeaf([b]); if (!na || !nb) throw new Error("missing leaf");
-    for (const node of [na, nb]) await maintenance.run(maintenance.listJobs().find(j => j.nodeId === node.nodeId)!, model(result(node.nodeId)), node.nodeId); expect(maintenance.selectCondensation("s1", new Set(["s1:a:1", "s2:b:1"])).map(n => n.sessionId)).toEqual(["s1"]); ledger.close();
+    for (const node of [na, nb]) await maintenance.run(maintenance.listJobs().find(j => j.nodeId === node.nodeId)!, model(result(node.nodeId)), `${node.nodeId} evidence`); expect(maintenance.selectCondensation("s1", new Set(["s1:a:1", "s2:b:1"])).map(n => n.sessionId)).toEqual(["s1"]); ledger.close();
   });
   it("rejects the next model call at exact project and session caps", async () => {
     const { ledger } = open();
@@ -136,7 +136,7 @@ describe("LCM maintenance branch isolation", () => {
     if (!job) throw new Error("missing job");
     const hanging: LcmSummarizer = { modelHash: "slow", generate: () => new Promise(() => {}) };
 
-    const settled = await maintenance.run(job, hanging, "evidence for the slow call");
+    const settled = await maintenance.run(job, hanging, "evidence for the slow call: ".repeat(20));
 
     expect(settled.modelHash).toBe("emergency");
     expect(settled.text).toContain("Nonsemantic deterministic excerpt");
@@ -195,7 +195,7 @@ describe("LCM maintenance branch isolation", () => {
     const omission = rendered.pop() ?? "";
     expect(omission).toMatch(/^\+\d+ more$/);
     for (const handle of rendered) {
-      expect(handle).toMatch(/^[0-9a-f-]+\/\d{8}@1:[0-9a-f]{64}$/);
+      expect(handle).toMatch(/^lcm\.raw:[0-9a-f-]+:\d{8}:1$/);
     }
     expect(rendered.length + Number(omission.slice(1, -5))).toBe(150);
 
@@ -203,8 +203,9 @@ describe("LCM maintenance branch isolation", () => {
   });
 
   it("drops the pointer before it starves content at the smallest limit", () => {
-    const emergency = emergencyReduce("kept text", 128, []);
+    const emergency = emergencyReduce("kept text ".repeat(30), 128, []);
     expect(Buffer.byteLength(emergency, "utf8")).toBeLessThanOrEqual(128);
+    expect(emergency).toContain("Nonsemantic deterministic excerpt");
     expect(emergency).toContain("kept text");
     expect(emergency).not.toContain("memory.recall");
   });
