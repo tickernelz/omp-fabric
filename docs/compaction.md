@@ -96,3 +96,11 @@ bun run check
 ```
 
 This command includes typecheck, a fresh `dist/` build, the lazy-graph assertion, the full test suite, and dead-code lint.
+
+## Performance gate
+
+`bun run benchmark:lcm` drives the fixed fixture from the LCM operational contract: 10 sessions of 1,000 raw entries at 1 KiB each, 20 compaction cycles through the built `session_before_compact` hook, a repeat pass that must reuse the ready frontier, and a second process appending to the same ledger. It fails when a row is lost or duplicated, when a node references an uncommitted source or child, when the hook issues any model call, when hook p95 exceeds 250 ms, when recall precision or exact expansion regresses, or when a restart loses rows or nodes. The run prints and writes a JSON report covering ingest throughput, hook latency percentiles for both the emergency and ready-frontier paths, maintenance backlog, recall and expansion latency, migration counts, database and WAL bytes, checkpoint outcomes, and lock errors observed by the competing process:
+
+```sh
+bun run benchmark:lcm -- --out lcm-report.json
+```
