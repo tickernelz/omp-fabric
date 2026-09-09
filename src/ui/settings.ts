@@ -71,10 +71,10 @@ const COMPACTION_TARGET_RATIOS = Array.from(
   { length: 13 },
   (_, index) => String((25 + index * 5) / 100),
 );
-const COMPACTION_SOFT_RATIOS = Array.from(
-  { length: 18 },
-  (_, index) => String((10 + index * 5) / 100),
-);
+const COMPACTION_SOFT_RATIOS = [
+  "0",
+  ...Array.from({ length: 18 }, (_, index) => String((10 + index * 5) / 100)),
+];
 const COMPACTION_HARD_RATIOS = [
   "0",
   ...Array.from({ length: 16 }, (_, index) => String((20 + index * 5) / 100)),
@@ -371,7 +371,7 @@ const summaryFor = (id: string, config: FabricConfig): string => {
     case "compaction":
       return config.compaction.engine;
     case "retention":
-      return `${formatRetention(config.retention.orphanedTempRunMs)} · ${formatRetention(config.retention.oneShotRunMs)} · ${formatRetention(config.retention.actorRunArchiveMs)}`;
+      return `${formatRetention(config.retention.orphanedTempRunMs)} · ${formatRetention(config.retention.oneShotRunMs)} · ${formatRetention(config.retention.actorRunArchiveMs)} · ${formatRetention(config.retention.outputArtifactMs)}/${formatBytes(config.retention.outputArtifactMaxBytes)}`;
     case "mesh":
       return config.mesh.enabled ? "enabled" : "disabled";
     case "codePreview":
@@ -1959,7 +1959,7 @@ export const buildFabricSettingsItems = (
             String(config.compaction.softThresholdRatio),
             {
               description:
-                "Occupancy that must be reached before LCM spends model calls on summaries. Persistence is never gated by it.",
+                "Occupancy that must be reached before LCM spends model calls on summaries. Persistence is never gated by it. 0 runs maintenance at any occupancy.",
               values: COMPACTION_SOFT_RATIOS,
             },
           ),
@@ -1978,11 +1978,11 @@ export const buildFabricSettingsItems = (
       ),
     }),
     setting("retention", "Retention", summaryFor("retention", config), {
-      description: "Age-based cleanup for inactive Fabric run artifacts.",
+      description: "Age-based cleanup for inactive Fabric run artifacts and saved output overflow.",
       submenu: sectionSubmenu(
         theme,
         "Retention",
-        "Cleanup only removes dead temporary roots and terminal run artifacts. Active runs and actor session.jsonl files are never modified.",
+        "Cleanup only removes dead temporary roots, terminal run artifacts, and output overflow files no running process owns. Active runs and actor session.jsonl files are never modified.",
         [
           setting(
             "retention.orphanedTempRunMs",
@@ -2026,6 +2026,43 @@ export const buildFabricSettingsItems = (
                 formatRetention,
                 "Actor run archives",
                 "Retain terminal actor run archives for this duration; the latest run is always preserved.",
+              ),
+            },
+          ),
+          setting(
+            "retention.outputArtifactMs",
+            "Output overflow age",
+            formatRetention(config.retention.outputArtifactMs),
+            {
+              description: "Retain saved tool and model output overflow files for this duration; files a running process still owns are kept.",
+              submenu: numericSubmenu(
+                theme,
+                [3_600_000, 24 * 3_600_000, 2 * 86_400_000, 7 * 86_400_000, 14 * 86_400_000, 30 * 86_400_000],
+                formatRetention,
+                "Output overflow age",
+                "Retain saved tool and model output overflow files for this duration; files a running process still owns are kept.",
+              ),
+            },
+          ),
+          setting(
+            "retention.outputArtifactMaxBytes",
+            "Output overflow size",
+            formatBytes(config.retention.outputArtifactMaxBytes),
+            {
+              description: "Evict the oldest unowned overflow files once the output directory exceeds this size.",
+              submenu: numericSubmenu(
+                theme,
+                [
+                  64 * 1024 * 1024,
+                  128 * 1024 * 1024,
+                  256 * 1024 * 1024,
+                  512 * 1024 * 1024,
+                  1024 * 1024 * 1024,
+                  4 * 1024 * 1024 * 1024,
+                ],
+                formatBytes,
+                "Output overflow size",
+                "Evict the oldest unowned overflow files once the output directory exceeds this size.",
               ),
             },
           ),

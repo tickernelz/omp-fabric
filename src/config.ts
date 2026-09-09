@@ -9,6 +9,10 @@ import {
   migrateFabricConfigDocument,
 } from "./config-migrations.js";
 import type { FabricComponentEntry } from "./components/types.js";
+import {
+  configureOutputArtifactRetention,
+  DEFAULT_OUTPUT_ARTIFACT_RETENTION,
+} from "./output-budget.js";
 import type { FabricRisk } from "./protocol.js";
 import { DEFAULT_FABRIC_THINKING, isFabricThinking, type FabricThinking } from "./thinking.js";
 import {
@@ -240,7 +244,14 @@ const MAX_HARD_THRESHOLD_RATIO = 0.98;
 const SOFT_BELOW_HARD_MARGIN = 0.05;
 
 const clampSoftThresholdRatio = (value: number): number =>
-  Math.min(MAX_SOFT_THRESHOLD_RATIO, Math.max(MIN_SOFT_THRESHOLD_RATIO, value));
+  value <= 0
+    ? 0
+    : Math.min(MAX_SOFT_THRESHOLD_RATIO, Math.max(MIN_SOFT_THRESHOLD_RATIO, value));
+
+const THRESHOLD_RATIO_STEPS_PER_UNIT = 20;
+
+const roundThresholdRatio = (value: number): number =>
+  Math.round(value * THRESHOLD_RATIO_STEPS_PER_UNIT) / THRESHOLD_RATIO_STEPS_PER_UNIT;
 
 const clampHardThresholdRatio = (value: number): number =>
   value <= 0
@@ -253,8 +264,13 @@ const reconcileThresholdRatios = (
 ): { soft: number; hard: number } => {
   const clampedHard = clampHardThresholdRatio(hard);
   const clampedSoft = clampSoftThresholdRatio(soft);
-  if (clampedHard > 0 && clampedSoft >= clampedHard) {
-    return { soft: clampSoftThresholdRatio(clampedHard - SOFT_BELOW_HARD_MARGIN), hard: clampedHard };
+  if (clampedHard > 0 && clampedSoft > 0 && clampedSoft >= clampedHard) {
+    return {
+      soft: clampSoftThresholdRatio(
+        roundThresholdRatio(clampedHard - SOFT_BELOW_HARD_MARGIN),
+      ),
+      hard: clampedHard,
+    };
   }
   return { soft: clampedSoft, hard: clampedHard };
 };
@@ -263,6 +279,8 @@ export interface FabricRetentionConfig {
   orphanedTempRunMs: number;
   oneShotRunMs: number;
   actorRunArchiveMs: number;
+  outputArtifactMs: number;
+  outputArtifactMaxBytes: number;
 }
 
 export interface FabricMeshConfig {
@@ -500,6 +518,8 @@ export const DEFAULT_FABRIC_CONFIG: FabricConfig = {
     orphanedTempRunMs: 6 * 60 * 60 * 1_000,
     oneShotRunMs: 24 * 60 * 60 * 1_000,
     actorRunArchiveMs: 7 * 24 * 60 * 60 * 1_000,
+    outputArtifactMs: DEFAULT_OUTPUT_ARTIFACT_RETENTION.maxAgeMs,
+    outputArtifactMaxBytes: DEFAULT_OUTPUT_ARTIFACT_RETENTION.maxBytes,
   },
   mesh: {
     enabled: true,
@@ -778,12 +798,9 @@ export const normalizeFabricConfig = (input: Record<string, unknown>): FabricCon
       ]),
   );
   const thresholdRatios = reconcileThresholdRatios(
-    boundedFloat(
-      compaction.softThresholdRatio,
-      DEFAULT_FABRIC_CONFIG.compaction.softThresholdRatio,
-      MIN_SOFT_THRESHOLD_RATIO,
-      MAX_SOFT_THRESHOLD_RATIO,
-    ),
+    typeof compaction.softThresholdRatio === "number" && Number.isFinite(compaction.softThresholdRatio)
+      ? compaction.softThresholdRatio
+      : DEFAULT_FABRIC_CONFIG.compaction.softThresholdRatio,
     typeof compaction.hardThresholdRatio === "number" && Number.isFinite(compaction.hardThresholdRatio)
       ? compaction.hardThresholdRatio
       : DEFAULT_FABRIC_CONFIG.compaction.hardThresholdRatio,
@@ -1168,6 +1185,18 @@ export const normalizeFabricConfig = (input: Record<string, unknown>): FabricCon
         60 * 60 * 1_000,
         365 * 24 * 60 * 60 * 1_000,
       ),
+      outputArtifactMs: boundedInteger(
+        retention.outputArtifactMs,
+        DEFAULT_FABRIC_CONFIG.retention.outputArtifactMs,
+        60 * 60 * 1_000,
+        365 * 24 * 60 * 60 * 1_000,
+      ),
+      outputArtifactMaxBytes: boundedInteger(
+        retention.outputArtifactMaxBytes,
+        DEFAULT_FABRIC_CONFIG.retention.outputArtifactMaxBytes,
+        1024 * 1024,
+        64 * 1024 * 1024 * 1024,
+      ),
     },
     mesh: {
       enabled: booleanValue(mesh.enabled, DEFAULT_FABRIC_CONFIG.mesh.enabled),
@@ -1527,6 +1556,10 @@ export const loadFabricConfig = (options: {
   projectTrusted: boolean;
 }): FabricConfig => {
   const config = resolveFabricConfig(options, options.projectTrusted, true);
+  configureOutputArtifactRetention({
+    maxAgeMs: config.retention.outputArtifactMs,
+    maxBytes: config.retention.outputArtifactMaxBytes,
+  });
   return config;
 };
 

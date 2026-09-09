@@ -1,8 +1,11 @@
+import { readFileSync } from "node:fs";
 import type { ExtensionAPI, ExtensionContext, SessionBeforeCompactEvent } from "@oh-my-pi/pi-coding-agent";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { registerCompactionHook } from "../src/compaction/hook.js";
+import { LcmRuntime } from "../src/compaction/lcm-runtime.js";
 import { compactAtConfiguredThreshold, modelCompactionKey } from "../src/compaction/threshold.js";
-import { DEFAULT_FABRIC_CONFIG } from "../src/config.js";
+import { DEFAULT_FABRIC_CONFIG, normalizeFabricConfig } from "../src/config.js";
+import { closeAfterTest, releaseTemp, tempRoot } from "./fixtures/lcm-temp.js";
 
 const contextWithUsage = (percent: number | null): ExtensionContext => ({
   model: { provider: "anthropic", id: "sonnet" },
@@ -87,5 +90,66 @@ describe("model-linked compaction thresholds", () => {
     config.compaction.thresholds = {};
     await expect(compactAtConfiguredThreshold(context, config)).resolves.toBe(false);
     expect(context.compact).not.toHaveBeenCalled();
+  });
+});
+
+describe("maintenance occupancy gate", () => {
+  const usageContext = (root: string, percent: number): ExtensionContext => ({
+    cwd: root,
+    model: undefined,
+    modelRegistry: {} as ExtensionContext["modelRegistry"],
+    getContextUsage: () => ({ tokens: percent * 1_000, contextWindow: 100_000, percent }),
+    sessionManager: {
+      getRecordedCwd: () => root,
+      getSessionFile: () => undefined,
+      getSessionId: () => "session-1",
+      getLeafId: () => "branch-a",
+      getBranch: () => [],
+    },
+  } as unknown as ExtensionContext);
+
+  const openRuntime = (root: string, softThresholdRatio: number): LcmRuntime =>
+    closeAfterTest(
+      new LcmRuntime(usageContext(root, 5), { rootDir: root, softThresholdRatio }),
+      (runtime) => runtime.shutdown(),
+    );
+
+  afterEach(releaseTemp);
+
+  it("runs maintenance at any occupancy when the configured ratio is zero", async () => {
+    const ratio = normalizeFabricConfig({ compaction: { softThresholdRatio: 0 } })
+      .compaction.softThresholdRatio;
+    expect(ratio).toBe(0);
+
+    const root = tempRoot("lcm-soft-off-");
+    expect(openRuntime(root, ratio).maintenanceOccupancyReached()).toBe(true);
+  });
+
+  it("still gates maintenance below a configured ratio", async () => {
+    const ratio = normalizeFabricConfig({ compaction: { softThresholdRatio: 0.55 } })
+      .compaction.softThresholdRatio;
+    expect(ratio).toBe(0.55);
+
+    const root = tempRoot("lcm-soft-on-");
+    expect(openRuntime(root, ratio).maintenanceOccupancyReached()).toBe(false);
+  });
+});
+
+describe("compaction documentation", () => {
+  const compactionDoc = (): string => readFileSync("docs/compaction.md", "utf8");
+
+  it("describes what summary expansion actually returns", () => {
+    const doc = compactionDoc();
+
+    expect(doc).toContain(
+      "Summary expansion descends one level: it returns the constituent messages the summary was built from, each with its own address and a \`memory.expand\` follow-up, or the child nodes of a condensed node. The node's own text, kind, state, sources, and children sit in a top-level \`node\` field.",
+    );
+    expect(doc).not.toContain(
+      "Summary expansion returns the summary text and its structured source references.",
+    );
+  });
+
+  it("documents the zero-is-off convention shared by both occupancy ratios", () => {
+    expect(compactionDoc()).toContain("both ratio keys use the same \`0\`-is-off convention");
   });
 });

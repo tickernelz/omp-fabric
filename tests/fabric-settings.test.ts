@@ -5,7 +5,7 @@ import { setAgentDir } from "@oh-my-pi/pi-utils";
 import type { ExtensionContext, Theme } from "@oh-my-pi/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
 import type { CapturedToolCatalog } from "../src/capture/catalog.js";
-import { DEFAULT_FABRIC_CONFIG, loadFabricConfig } from "../src/config.js";
+import { DEFAULT_FABRIC_CONFIG, loadFabricConfig, normalizeFabricConfig } from "../src/config.js";
 import type { FabricState } from "../src/fabric-state.js";
 import type { ModelSource } from "../src/ui/model-picker.js";
 import {
@@ -267,7 +267,10 @@ describe("FabricSettingsComponent", () => {
     const soft = ratios.find((item) => item.id === "compaction.softThresholdRatio");
     expect(soft?.label).toBe("Maintenance occupancy");
     expect(soft?.currentValue).toBe("0.55");
-    expect(soft?.values).toEqual(Array.from({ length: 18 }, (_, index) => String((10 + index * 5) / 100)));
+    expect(soft?.values).toEqual([
+      "0",
+      ...Array.from({ length: 18 }, (_, index) => String((10 + index * 5) / 100)),
+    ]);
     const hard = ratios.find((item) => item.id === "compaction.hardThresholdRatio");
     expect(hard?.label).toBe("Forced compaction occupancy");
     expect(hard?.currentValue).toBe("0");
@@ -396,7 +399,7 @@ describe("FabricSettingsComponent", () => {
   it("exposes temporal retention defaults", () => {
     const items = buildItems();
     const retention = items.find((item) => item.id === "retention");
-    expect(retention?.currentValue).toBe("6h · 1d · 7d");
+    expect(retention?.currentValue).toBe("6h · 1d · 7d · 7d/256 MB");
     const lines = retention!.submenu!("", () => {}).render(100).join("\n");
     expect(lines).toContain("Orphaned temp runs");
     expect(lines).toContain("6h");
@@ -405,6 +408,43 @@ describe("FabricSettingsComponent", () => {
     expect(lines).toContain("Actor run archives");
     expect(lines).toContain("7d");
     expect(lines).toContain("session.jsonl");
+    expect(lines).toContain("Output overflow age");
+    expect(lines).toContain("Output overflow size");
+    expect(lines).toContain("256 MB");
+  });
+
+  it("keeps every reconciled maintenance occupancy selectable in its own picker", () => {
+    for (const hardThresholdRatio of [0, 0.2, 0.25, 0.5, 0.7, 0.95, 0.98]) {
+      const config = normalizeFabricConfig({
+        compaction: { softThresholdRatio: 0.95, hardThresholdRatio },
+      });
+      const items = buildFabricSettingsItems(theme, config, () => {}, {
+        keepVisibleCandidates: ["fabric_exec"],
+        modelSource: fakeModelSource,
+        activeModelKey: "anthropic/claude-sonnet-4-5",
+      });
+      const compaction = items.find((item) => item.id === "compaction");
+      const section = compaction!.submenu!("", () => {}) as unknown as SectionProbe;
+      const soft = section.items.find((item) => item.id === "compaction.softThresholdRatio");
+
+      expect(soft?.values).toContain(soft?.currentValue);
+      expect(soft?.currentValue).toBe(String(config.compaction.softThresholdRatio));
+    }
+  });
+
+  it("offers an explicit off entry for the maintenance occupancy", () => {
+    const config = normalizeFabricConfig({ compaction: { softThresholdRatio: 0 } });
+    const items = buildFabricSettingsItems(theme, config, () => {}, {
+      keepVisibleCandidates: ["fabric_exec"],
+      modelSource: fakeModelSource,
+      activeModelKey: "anthropic/claude-sonnet-4-5",
+    });
+    const compaction = items.find((item) => item.id === "compaction");
+    const section = compaction!.submenu!("", () => {}) as unknown as SectionProbe;
+    const soft = section.items.find((item) => item.id === "compaction.softThresholdRatio");
+
+    expect(soft?.currentValue).toBe("0");
+    expect(soft?.values).toContain("0");
   });
 
   it("presents the Tool display row in the UI settings section", () => {

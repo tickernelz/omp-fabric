@@ -163,7 +163,9 @@ where absent values do not participate. Orchestration programs (`agents.run` / `
   "retention": {
     "orphanedTempRunMs": 21600000,
     "oneShotRunMs": 86400000,
-    "actorRunArchiveMs": 604800000
+    "actorRunArchiveMs": 604800000,
+    "outputArtifactMs": 604800000,
+    "outputArtifactMaxBytes": 268435456
   },
   "mesh": {
     "enabled": true,
@@ -381,8 +383,12 @@ Fabric clears inactive run artifacts by age. It never truncates active JSONL fil
 - `retention.orphanedTempRunMs`: remove a temporary run root six hours after its owner process dies. Active roots carry a heartbeat marker and are never removed.
 - `retention.oneShotRunMs`: retain terminal one-shot agent run artifacts for 24 hours. An explicit `agents.cleanup()` may remove them sooner. On every other path, graceful shutdown marks their temporary root closed for temporal cleanup.
 - `retention.actorRunArchiveMs`: retain terminal actor run archives for seven days. Fabric always preserves the latest run for each actor.
+- `retention.outputArtifactMs`: retain saved output overflow for seven days. A tool or model result larger than its character budget is written to `$XDG_STATE_HOME/omp-fabric/output` (`~/.local/state/omp-fabric/output` by default) and linked from the visible text, so the file has to outlive the turn that produced it.
+- `retention.outputArtifactMaxBytes`: cap that directory at 256 MB.
 
-Cleanup runs during active Fabric sessions and when a new top-level run manager starts. It never truncates active run logs or actor `session.jsonl` files. `/fabric settings` exposes all three values under **Retention**. Changing them requires `/fabric reload`.
+Each overflow file records the process that wrote it. The sweep runs on the first overflow write of a session and at most once every five minutes after that, and it removes only files whose owning process has exited: first those past `outputArtifactMs`, then the oldest remaining ones until the directory fits `outputArtifactMaxBytes`. A file an existing session still points at is never removed, so a session holding more than the cap keeps its overflow; the sweep reports those bytes with a warning naming how much sits above the cap, and the directory stays above the cap until that session ends. Files written before Fabric recorded owners carry no owner and are swept by age and size alone. A retention change in configuration re-arms the sweep at once; a reload that changes neither value leaves the schedule running.
+
+Cleanup runs during active Fabric sessions and when a new top-level run manager starts. It never truncates active run logs or actor `session.jsonl` files. `/fabric settings` exposes all five values under **Retention**. Changing them requires `/fabric reload`.
 
 ## Agents
 

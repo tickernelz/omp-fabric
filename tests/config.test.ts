@@ -13,6 +13,10 @@ import {
   normalizeFabricConfig,
   saveFabricConfig,
 } from "../src/config.js";
+import {
+  configureOutputArtifactRetention,
+  outputArtifactRetention,
+} from "../src/output-budget.js";
 
 const temporaryDirectories: string[] = [];
 const originalCompactionEngineEnv = process.env.OMP_FABRIC_COMPACTION_ENGINE;
@@ -329,6 +333,8 @@ describe("Fabric configuration", () => {
       orphanedTempRunMs: 6 * 60 * 60 * 1_000,
       oneShotRunMs: 24 * 60 * 60 * 1_000,
       actorRunArchiveMs: 7 * 24 * 60 * 60 * 1_000,
+      outputArtifactMs: 7 * 24 * 60 * 60 * 1_000,
+      outputArtifactMaxBytes: 256 * 1024 * 1024,
     });
     expect(
       normalizeFabricConfig({
@@ -336,16 +342,54 @@ describe("Fabric configuration", () => {
           orphanedTempRunMs: 2 * 60 * 60 * 1_000,
           oneShotRunMs: 2 * 24 * 60 * 60 * 1_000,
           actorRunArchiveMs: 30 * 24 * 60 * 60 * 1_000,
+          outputArtifactMs: 2 * 24 * 60 * 60 * 1_000,
+          outputArtifactMaxBytes: 64 * 1024 * 1024,
         },
       }).retention,
     ).toEqual({
       orphanedTempRunMs: 2 * 60 * 60 * 1_000,
       oneShotRunMs: 2 * 24 * 60 * 60 * 1_000,
       actorRunArchiveMs: 30 * 24 * 60 * 60 * 1_000,
+      outputArtifactMs: 2 * 24 * 60 * 60 * 1_000,
+      outputArtifactMaxBytes: 64 * 1024 * 1024,
     });
     expect(
       normalizeFabricConfig({ retention: { orphanedTempRunMs: 1 } }).retention.orphanedTempRunMs,
     ).toBe(60 * 60 * 1_000);
+    expect(
+      normalizeFabricConfig({ retention: { outputArtifactMaxBytes: 1 } }).retention.outputArtifactMaxBytes,
+    ).toBe(1024 * 1024);
+    expect(
+      normalizeFabricConfig({ retention: { outputArtifactMs: 1 } }).retention.outputArtifactMs,
+    ).toBe(60 * 60 * 1_000);
+  });
+
+  it("documents both output overflow bounds and the live-session exemption", () => {
+    const doc = fs.readFileSync("docs/configuration.md", "utf8");
+
+    expect(doc).toContain("`retention.outputArtifactMs`");
+    expect(doc).toContain("`retention.outputArtifactMaxBytes`");
+    expect(doc).toContain("removes only files whose owning process has exited");
+    expect(doc).toContain("A file an existing session still points at is never removed");
+  });
+
+  it("hands the loaded output overflow bound to the artifact writer", () => {
+    const agentDir = temporaryDirectory();
+    const cwd = temporaryDirectory();
+    const before = outputArtifactRetention();
+    fs.writeFileSync(
+      path.join(agentDir, "fabric.json"),
+      JSON.stringify({ retention: { outputArtifactMs: 3 * 86_400_000, outputArtifactMaxBytes: 64 * 1024 * 1024 } }),
+    );
+    try {
+      loadFabricConfig({ cwd, agentDir, projectTrusted: false });
+      expect(outputArtifactRetention()).toEqual({
+        maxAgeMs: 3 * 86_400_000,
+        maxBytes: 64 * 1024 * 1024,
+      });
+    } finally {
+      configureOutputArtifactRetention(before);
+    }
   });
 
   it("defaults actor scope to project and validates the value", () => {
@@ -581,6 +625,15 @@ describe("Fabric configuration", () => {
     expect(config.compaction.hardThresholdRatio).toBe(0);
   });
 
+  it("turns both threshold ratios off at zero", () => {
+    const soft = normalizeFabricConfig({ compaction: { softThresholdRatio: 0 } }).compaction;
+    expect(soft.softThresholdRatio).toBe(0);
+    expect(normalizeFabricConfig({ compaction: { softThresholdRatio: -1 } }).compaction.softThresholdRatio).toBe(0);
+    const both = normalizeFabricConfig({ compaction: { softThresholdRatio: 0, hardThresholdRatio: 0.6 } }).compaction;
+    expect(both.softThresholdRatio).toBe(0);
+    expect(both.hardThresholdRatio).toBe(0.6);
+  });
+
   it("clamps both threshold ratios into their own ranges", () => {
     expect(normalizeFabricConfig({ compaction: { softThresholdRatio: 0.01 } }).compaction.softThresholdRatio).toBe(0.1);
     expect(normalizeFabricConfig({ compaction: { softThresholdRatio: 9 } }).compaction.softThresholdRatio).toBe(0.95);
@@ -592,11 +645,18 @@ describe("Fabric configuration", () => {
   it("lowers the soft ratio below an enabled hard ratio", () => {
     const collided = normalizeFabricConfig({ compaction: { softThresholdRatio: 0.9, hardThresholdRatio: 0.7 } }).compaction;
     expect(collided.hardThresholdRatio).toBe(0.7);
-    expect(collided.softThresholdRatio).toBeCloseTo(0.65, 10);
+    expect(collided.softThresholdRatio).toBe(0.65);
     expect(collided.softThresholdRatio).toBeLessThan(collided.hardThresholdRatio);
     const floored = normalizeFabricConfig({ compaction: { softThresholdRatio: 0.5, hardThresholdRatio: 0.2 } }).compaction;
-    expect(floored.softThresholdRatio).toBeCloseTo(0.15, 10);
+    expect(floored.softThresholdRatio).toBe(0.15);
     expect(floored.softThresholdRatio).toBeLessThan(floored.hardThresholdRatio);
+    for (const hard of [0.2, 0.25, 0.5, 0.7, 0.95, 0.98]) {
+      const derived = normalizeFabricConfig({
+        compaction: { softThresholdRatio: 0.95, hardThresholdRatio: hard },
+      }).compaction;
+      expect(String(derived.softThresholdRatio)).toBe(String(Math.round(derived.softThresholdRatio * 20) / 20));
+      expect(derived.softThresholdRatio).toBeLessThan(derived.hardThresholdRatio);
+    }
     const untouched = normalizeFabricConfig({ compaction: { softThresholdRatio: 0.4, hardThresholdRatio: 0.8 } }).compaction;
     expect(untouched.softThresholdRatio).toBe(0.4);
   });
