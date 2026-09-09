@@ -53,9 +53,9 @@ describe("modelOutputBudget", () => {
 
 describe("fabricStateDir", () => {
   it("prefers XDG_STATE_HOME and falls back to the home state directory", () => {
-    expect(fabricStateDir({ XDG_STATE_HOME: "/s", HOME: "/h" })).toBe("/s/omp-fabric");
-    expect(fabricStateDir({ HOME: "/h" })).toBe("/h/.local/state/omp-fabric");
-    expect(outputArtifactDir({ XDG_STATE_HOME: "/s" })).toBe("/s/omp-fabric/output");
+    expect(fabricStateDir({ XDG_STATE_HOME: "/s", HOME: "/h" })).toBe(path.join("/s", "omp-fabric"));
+    expect(fabricStateDir({ HOME: "/h" })).toBe(path.join("/h", ".local", "state", "omp-fabric"));
+    expect(outputArtifactDir({ XDG_STATE_HOME: "/s" })).toBe(path.join("/s", "omp-fabric", "output"));
   });
 });
 
