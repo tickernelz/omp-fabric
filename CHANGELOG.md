@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.4.1
+
+### Fixed
+
+- LCM suites left SQLite handles open on windows-latest: Bun's `node:sqlite` keeps the database, WAL and shared-memory descriptors open after `close()` reports the handle closed, releasing them only at collection, so `afterEach` removal failed with `EBUSY`. Tests now hand every ledger and runtime to a shared fixture that closes tracked handles, drops their references, forces collection, and retries removal, tolerating only lock codes on Windows. `LcmLedger.close()` is idempotent and marks itself closed only after the underlying close succeeds.
+- The ledger backup test asserted POSIX permission bits on Windows, where `chmod` honours only the read-only flag; that assertion now runs where it has meaning.
+
 ## 1.4.0
 
 ### Added
