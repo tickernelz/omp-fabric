@@ -167,16 +167,19 @@ describe("FabricSettingsComponent", () => {
       "Prewalk",
       "Code map",
       "Agents",
+      "Models",
       "Capture",
       "UI",
       "Compaction",
       "Retention",
       "Mesh",
+      "Memory",
+      "Speculation",
       "Code previews",
     ]) {
       expect(labels).toContain(label);
     }
-    expect(items.length).toBe(14);
+    expect(items.length).toBe(17);
   });
 
   it("marks submenu rows with a drill-in marker and leaves inline toggles plain", () => {
@@ -867,9 +870,9 @@ describe("FabricSettingsComponent", () => {
     const items = buildItems();
     const agents = items.find((item) => item.id === "agents");
     expect(agents?.submenu).toBeDefined();
-    const lines = agents!.submenu!("", () => {}).render(80).join("\n");
-    expect(lines).toContain("Token limit");
-    expect(lines).toContain("Off");
+    const section = agents!.submenu!("", () => {}) as unknown as SectionProbe;
+    const limit = section.items.find((item) => item.id === "agents.maxTokensPerChild");
+    expect(limit?.currentValue).toBe("Off");
   });
 
   it("shows a configured token limit formatted compactly", () => {
@@ -880,9 +883,9 @@ describe("FabricSettingsComponent", () => {
       { keepVisibleCandidates: ["fabric_exec"], modelSource: fakeModelSource },
     );
     const agents = items.find((item) => item.id === "agents")!;
-    const lines = agents.submenu!("", () => {}).render(80).join("\n");
-    expect(lines).toContain("Token limit");
-    expect(lines).toContain("500k");
+    const section = agents.submenu!("", () => {}) as unknown as SectionProbe;
+    const limit = section.items.find((item) => item.id === "agents.maxTokensPerChild");
+    expect(limit?.currentValue).toBe("500k");
   });
 
   it("persists tool-display changes through the real settings dialog flow", async () => {
@@ -1681,6 +1684,91 @@ describe("Fabric RPC settings", () => {
       else process.env.OMP_FABRIC_AGENT_DIR = inheritedAgentDir;
       if (inheritedFullCodeMode === undefined) delete process.env.OMP_FABRIC_FULL_CODE_MODE;
       else process.env.OMP_FABRIC_FULL_CODE_MODE = inheritedFullCodeMode;
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("persists a boolean, a count, a duration, a byte size, and a map through newly exposed rows", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-rpc-shapes-"));
+    const cwd = path.join(root, "project");
+    const agentDir = path.join(root, "agent");
+    const inheritedAgentDir = process.env.OMP_FABRIC_AGENT_DIR;
+    fs.mkdirSync(cwd, { recursive: true });
+    fs.mkdirSync(agentDir, { recursive: true });
+    process.env.OMP_FABRIC_AGENT_DIR = agentDir;
+    setAgentDir(agentDir);
+    try {
+      const config = structuredClone(DEFAULT_FABRIC_CONFIG);
+      const state = {
+        config,
+        ensure: vi.fn().mockResolvedValue(undefined),
+        reloadConfig: vi.fn(() => Object.assign(
+          config,
+          loadFabricConfig({ cwd, agentDir, projectTrusted: true }),
+        )),
+        agents: { claudeModels: vi.fn().mockResolvedValue([]) },
+      } as unknown as FabricState;
+      const script = [
+        "Memory \u00b7",
+        "Index thinking",
+        "false",
+        "\u2190 Back",
+        "Speculation \u00b7",
+        "Max entries",
+        "128",
+        "\u2190 Back",
+        "Speculation \u00b7",
+        "Entry TTL",
+        "5m",
+        "\u2190 Back",
+        "Mesh \u00b7",
+        "Max event bytes",
+        "512 KB",
+        "\u2190 Back",
+        "Executor \u00b7",
+        "Per-ref floors",
+        "\u2190 Back",
+        "Done",
+      ];
+      const select = vi.fn(async (_title: string, options: string[]) => {
+        const step = script.shift();
+        expect(step, "the settings script ran out of steps").toBeDefined();
+        const match = options.find((option) => option.startsWith(step as string));
+        expect(match, `no row starting with ${step as string}`).toBeDefined();
+        return match;
+      });
+      const input = vi.fn(async () => "extensions.subagent=5m");
+      const context = {
+        mode: "rpc",
+        cwd,
+        isProjectTrusted: () => true,
+        modelRegistry: { getAvailable: () => fakeModelSource.models },
+        ui: { theme, notify: vi.fn(), select, input, custom: vi.fn() },
+      } as unknown as ExtensionContext;
+
+      await openFabricSettings(context, {
+        state,
+        applyFabricMode: vi.fn(),
+        capturedTools: { list: () => [] } as unknown as CapturedToolCatalog,
+      });
+
+      expect(script).toEqual([]);
+      expect(JSON.parse(fs.readFileSync(path.join(agentDir, "fabric.json"), "utf8"))).toMatchObject({
+        memory: { indexThinking: false },
+        speculation: { maxEntries: 128, entryTtlMs: 300_000 },
+        mesh: { maxEventBytes: 524_288 },
+        executor: { hostCallTimeouts: { "extensions.subagent": 300_000 } },
+      });
+
+      const loaded = loadFabricConfig({ cwd, agentDir, projectTrusted: true });
+      expect(loaded.memory.indexThinking).toBe(false);
+      expect(loaded.speculation.maxEntries).toBe(128);
+      expect(loaded.speculation.entryTtlMs).toBe(300_000);
+      expect(loaded.mesh.maxEventBytes).toBe(524_288);
+      expect(loaded.executor.hostCallTimeouts["extensions.subagent"]).toBe(300_000);
+    } finally {
+      if (inheritedAgentDir === undefined) delete process.env.OMP_FABRIC_AGENT_DIR;
+      else process.env.OMP_FABRIC_AGENT_DIR = inheritedAgentDir;
       fs.rmSync(root, { recursive: true, force: true });
     }
   });

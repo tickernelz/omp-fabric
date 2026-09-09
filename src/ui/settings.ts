@@ -28,6 +28,7 @@ import {
 import {
   clampCompactionRatioThreshold,
   clampCompactionTokenThreshold,
+  DEFAULT_FABRIC_CONFIG,
   loadFabricConfigForScope,
   MAX_COMPACTION_RATIO_THRESHOLD,
   MAX_COMPACTION_TOKEN_THRESHOLD,
@@ -102,29 +103,47 @@ const SHIKI_THEME_PRESETS = [
   "one-dark-pro",
 ] as const;
 const RISKS = ["read", "write", "execute", "network", "agent"] as const;
-const CORE_RISK_TOOLS = ["read", "grep", "find", "edit", "write", "bash"] as const;
+const CORE_RISK_TOOLS = ["read", "grep", "find", "ls", "edit", "write", "bash"] as const;
+const CODE_PREVIEW_TOOL_CANDIDATES = ["bash", "read", "write", "edit", "grep", "find", "ls"];
+const EMPTY_LIST_LABEL = "none";
 const CORE_DEFAULT_TOOL_CANDIDATES = ["read", "bash", "edit", "write", "grep", "find"];
 const BUDGET_VALUES = [0, 0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10];
 const TOKEN_VALUES = [0, 50_000, 100_000, 250_000, 500_000, 1_000_000, 2_000_000];
 const PREWALK_MODEL_UNSET_LABEL = "Ask each time";
 const PREWALK_THINKING_INHERIT_LABEL = "Agents default";
 const PREWALK_MODES = ["in-place", "trajectory"] as const;
-const ROOT_ITEM_IDS = [
+export const ROOT_ITEM_IDS = [
   "fullCodeMode",
   "executor",
   "schema",
   "approvals",
   "mcp",
   "prewalk",
+  "codemap",
   "agents",
+  "models",
   "capture",
   "ui",
   "compaction",
   "retention",
   "mesh",
+  "memory",
+  "speculation",
   "codePreview",
 ] as const;
-const RELOAD_SECTIONS = new Set(["mesh", "agents", "mcp", "retention"]);
+const RELOAD_SECTIONS = new Set(["mesh", "agents", "mcp", "retention", "memory"]);
+
+export const FILE_ONLY_CONFIG_KEYS: Readonly<Record<string, string>> = {
+  components:
+    "Every entry is a supervised instance record whose config field carries definition-specific JSON that no fixed row can validate.",
+  "schema.trustedCommands":
+    "Every entry is an execution record (command, args, shell, timeoutMs) that bypasses approval in enforce mode, so a mistyped row would widen that bypass.",
+};
+
+export const ALIASED_CONFIG_KEYS: Readonly<Record<string, string>> = {
+  "compaction.thresholds": COMPACTION_THRESHOLD_SETTING_ID,
+  "compaction.tokenThresholds": COMPACTION_THRESHOLD_SETTING_ID,
+};
 const SAVE_SCOPE_SHORTCUT = Key.ctrl("g");
 
 const unique = (values: readonly string[]): string[] => [...new Set(values)];
@@ -282,7 +301,83 @@ export const parseFormattedNumericValue = (value: string): number => {
   return Number(normalized.replaceAll(",", ""));
 };
 
-const coerceValue = (id: string, value: string, config: FabricConfig): unknown => {
+const splitEntries = (value: string): string[] => {
+  const normalized = value.trim();
+  if (!normalized || normalized === EMPTY_LIST_LABEL) return [];
+  return normalized.split(/[,\n]/).map((entry) => entry.trim()).filter(Boolean);
+};
+
+const splitPair = (entry: string): [string, string] | undefined => {
+  const separator = entry.indexOf("=");
+  if (separator <= 0) return undefined;
+  const key = entry.slice(0, separator).trim();
+  const value = entry.slice(separator + 1).trim();
+  return key && value ? [key, value] : undefined;
+};
+
+const formatEntryList = (entries: readonly string[]): string =>
+  entries.length === 0 ? EMPTY_LIST_LABEL : entries.join(", ");
+
+const withRemovals = <T>(
+  current: Readonly<Record<string, unknown>>,
+  next: Readonly<Record<string, T>>,
+): Record<string, T | null> => {
+  const partial: Record<string, T | null> = { ...next };
+  for (const key of Object.keys(current)) if (!(key in next)) partial[key] = null;
+  return partial;
+};
+
+const formatHostCallTimeouts = (entries: Readonly<Record<string, number>>): string =>
+  formatEntryList(Object.entries(entries).map(([ref, ms]) => `${ref}=${formatMs(ms)}`));
+
+const parseHostCallTimeouts = (value: string): Record<string, number> | undefined => {
+  const parsed: Record<string, number> = {};
+  for (const entry of splitEntries(value)) {
+    const pair = splitPair(entry);
+    if (!pair) return undefined;
+    const duration = parseFormattedNumericValue(pair[1]);
+    if (!Number.isFinite(duration) || duration < 1) return undefined;
+    parsed[pair[0]] = Math.round(duration);
+  }
+  return parsed;
+};
+
+const MODEL_TARGET_PATTERN = /^[^\s/]+\/[^\s/]+$/;
+
+const formatModelAliases = (
+  aliases: Readonly<Record<string, readonly string[]>>,
+): string =>
+  formatEntryList(
+    Object.entries(aliases).map(([name, targets]) => `${name}=${targets.join(" ")}`),
+  );
+
+const parseModelAliases = (value: string): Record<string, string[]> | undefined => {
+  const parsed: Record<string, string[]> = {};
+  for (const entry of splitEntries(value)) {
+    const pair = splitPair(entry);
+    if (!pair) return undefined;
+    const targets = pair[1].split(/\s+/).filter(Boolean);
+    if (targets.length === 0) return undefined;
+    if (!targets.every((target) => MODEL_TARGET_PATTERN.test(target))) return undefined;
+    parsed[pair[0]] = targets;
+  }
+  return parsed;
+};
+
+export const coerceValue = (id: string, value: string, config: FabricConfig): unknown => {
+  if (id === "executor.hostCallTimeouts") {
+    const parsed = parseHostCallTimeouts(value);
+    return parsed === undefined
+      ? { ...config.executor.hostCallTimeouts }
+      : withRemovals(config.executor.hostCallTimeouts, parsed);
+  }
+  if (id === "models.aliases") {
+    const parsed = parseModelAliases(value);
+    return parsed === undefined
+      ? { ...config.models.aliases }
+      : withRemovals(config.models.aliases, parsed);
+  }
+  if (id === "speculation.mcpAllowlist") return splitEntries(value);
   if (id === COMPACTION_THRESHOLD_SETTING_ID) {
     if (value === COMPACTION_DEFAULT_THRESHOLD_LABEL) return { mode: "default" };
     const tokens = /^(.+?) tokens$/.exec(value);
@@ -326,7 +421,7 @@ const coerceValue = (id: string, value: string, config: FabricConfig): unknown =
   return value;
 };
 
-const buildPartial = (id: string, value: unknown): Record<string, unknown> => {
+export const buildPartial = (id: string, value: unknown): Record<string, unknown> => {
   const segments = id.split(".");
   const root: Record<string, unknown> = {};
   let current: Record<string, unknown> = root;
@@ -374,6 +469,16 @@ const summaryFor = (id: string, config: FabricConfig): string => {
       return `${formatRetention(config.retention.orphanedTempRunMs)} · ${formatRetention(config.retention.oneShotRunMs)} · ${formatRetention(config.retention.actorRunArchiveMs)} · ${formatRetention(config.retention.outputArtifactMs)}/${formatBytes(config.retention.outputArtifactMaxBytes)}`;
     case "mesh":
       return config.mesh.enabled ? "enabled" : "disabled";
+    case "models": {
+      const aliases = Object.keys(config.models.aliases).length;
+      return aliases === 0 ? "no aliases" : `${aliases} alias${aliases === 1 ? "" : "es"}`;
+    }
+    case "memory":
+      return config.memory.enabled ? `${config.memory.maxSessions} sessions` : "disabled";
+    case "speculation":
+      return config.speculation.enabled
+        ? `${config.speculation.maxConcurrent} concurrent`
+        : "disabled";
     case "codePreview":
       return config.codePreview.shikiTheme;
     default:
@@ -435,8 +540,9 @@ const stringInputSubmenu = (
   theme: Theme,
   title: string,
   description: string,
+  validate?: (value: string) => string | undefined,
 ): SettingsSubmenu => (currentValue, done) =>
-  new StringInputSubmenu(theme, title, description, currentValue, done, () => done());
+  new StringInputSubmenu(theme, title, description, currentValue, done, () => done(), validate);
 
 const compactionThresholdSubmenu = (theme: Theme): SettingsSubmenu => (currentValue, done) =>
   new CompactionThresholdSubmenu(theme, currentValue, done);
@@ -570,6 +676,8 @@ class IntegerInputSubmenu extends Container {
 
 class StringInputSubmenu extends Container {
   readonly input: Input;
+  private readonly validationText: Text;
+  private readonly validate: ((value: string) => string | undefined) | undefined;
 
   constructor(
     theme: Theme,
@@ -578,8 +686,10 @@ class StringInputSubmenu extends Container {
     currentValue: string,
     onSelect: (value: string) => void,
     onCancel: () => void,
+    validate?: (value: string) => string | undefined,
   ) {
     super();
+    this.validate = validate;
     this.addChild(new Text(theme.bold(theme.fg("accent", title)), 0, 0));
     this.addChild(new Spacer(1));
     this.addChild(new Text(theme.fg("muted", description), 0, 0));
@@ -588,14 +698,29 @@ class StringInputSubmenu extends Container {
     this.input = new Input();
     this.input.handleInput(currentValue);
     this.input.focused = true;
-    this.input.onSubmit = (value) => onSelect(value.trim());
+    this.validationText = new Text("", 0, 0);
+    this.input.onSubmit = (value) => {
+      const normalized = value.trim();
+      const error = this.validationError(normalized);
+      if (error !== undefined) {
+        this.validationText.setText(theme.fg("error", error));
+        return;
+      }
+      onSelect(normalized);
+    };
     this.input.onEscape = onCancel;
     this.addChild(this.input);
+    this.addChild(this.validationText);
     this.addChild(new Spacer(1));
     this.addChild(new Text(theme.fg("dim", "  Enter to save · Esc to go back"), 0, 0));
   }
 
+  validationError(value: string): string | undefined {
+    return this.validate?.(value.trim());
+  }
+
   handleInput(data: string): void {
+    this.validationText.setText("");
     this.input.handleInput(data);
   }
 
@@ -951,6 +1076,22 @@ export const populateClaudeModelSource = async (
   source.lastUsed = loaded.lastUsed;
 };
 
+type MemoryNumberKey =
+  | "hotSessions"
+  | "digestTerms"
+  | "maxColdVocabularyBytes"
+  | "maxColdCacheBytes"
+  | "maxSyncSessions"
+  | "maxSyncSourceBytes"
+  | "maxCacheCleanupFiles"
+  | "regexMaxPatternBytes"
+  | "regexMaxHaystackTerms"
+  | "regexMaxHaystackBytes"
+  | "regexTimeoutMs";
+
+const memoryNumber = (config: FabricConfig, key: MemoryNumberKey): number =>
+  config.memory[key] ?? DEFAULT_FABRIC_CONFIG.memory[key] ?? 0;
+
 export const buildFabricSettingsItems = (
   theme: Theme,
   config: FabricConfig,
@@ -1050,6 +1191,25 @@ export const buildFabricSettingsItems = (
     },
   );
 
+  const previewToolsItem = setting(
+    "codePreview.tools",
+    "Preview tools",
+    formatToolCount(config.codePreview.tools.length),
+    { description: "Core tools whose calls render a rich preview card." },
+  );
+  previewToolsItem.submenu = listSubmenu(
+    theme,
+    "codePreview.tools",
+    "Preview tools",
+    "Core tools whose calls render a rich preview card.",
+    CODE_PREVIEW_TOOL_CANDIDATES,
+    config.codePreview.tools,
+    (selected) => {
+      apply("codePreview.tools", selected);
+      previewToolsItem.currentValue = formatToolCount(selected.length);
+    },
+  );
+
   const items = [
     setting("fullCodeMode", "Full code mode", config.fullCodeMode ? "true" : "false", {
       description: fullCodeDescription,
@@ -1098,14 +1258,19 @@ export const buildFabricSettingsItems = (
           setting(
             "executor.hostCallTimeouts",
             "Per-ref floors",
-            Object.keys(config.executor.hostCallTimeouts).length > 0
-              ? Object.keys(config.executor.hostCallTimeouts)
-                  .map((ref) => `${ref}=${formatMs(config.executor.hostCallTimeouts[ref] ?? 0)}`)
-                  .join(", ")
-              : "none",
+            formatHostCallTimeouts(config.executor.hostCallTimeouts),
             {
               description:
-                "Exact-ref deadline floors for known long-running host calls (configured in the Fabric config file), e.g. \"extensions.subagent\": 3600000.",
+                "Exact-ref deadline floors for long-running host calls, written as comma-separated ref=duration pairs such as extensions.subagent=1h. Every floor is capped by the policy maximum.",
+              submenu: stringInputSubmenu(
+                theme,
+                "Per-ref deadline floors",
+                "Comma-separated ref=duration pairs, e.g. extensions.subagent=1h, mcp.slow.tool=300000. Enter none to clear every floor.",
+                (value) =>
+                  parseHostCallTimeouts(value) === undefined
+                    ? "Enter ref=duration pairs, e.g. extensions.subagent=1h."
+                    : undefined,
+              ),
             },
           ),
           setting(
@@ -1154,6 +1319,16 @@ export const buildFabricSettingsItems = (
               ),
             },
           ),
+          setting("repairs.enabled", "Catalog repairs", config.repairs.enabled ? "true" : "false", {
+            description:
+              "Silently repair known-bad tool invocations from the catalog-scoped repair table. Inspect the table with /fabric repairs.",
+            values: BOOLEANS,
+          }),
+          setting("entropy.compile", "Entropy compile", config.entropy.compile ? "true" : "false", {
+            description:
+              "Run the autonomous compile loop that measures fabric_exec evidence, proposes a smaller tool surface, and persists a compiled surface once it passes its gate. Inspect it with /fabric entropy.",
+            values: BOOLEANS,
+          }),
         ],
         persist,
       ),
@@ -1271,7 +1446,7 @@ export const buildFabricSettingsItems = (
             description: "Timeout for individual MCP tool calls.",
             submenu: numericSubmenu(
               theme,
-              [15_000, 30_000, 60_000, 120_000, 300_000],
+              [15_000, 30_000, 60_000, 90_000, 120_000, 300_000],
               formatMs,
               "MCP call timeout",
               "Timeout for individual MCP tool calls.",
@@ -1532,6 +1707,24 @@ export const buildFabricSettingsItems = (
               ),
             },
           ),
+          setting("agents.claude.binary", "Claude binary", config.agents.claude.binary, {
+            description:
+              "Executable that launches Claude-backed agents. Use a name on PATH or an absolute path.",
+            submenu: stringInputSubmenu(
+              theme,
+              "Claude binary",
+              "Executable that launches Claude-backed agents.",
+            ),
+          }),
+          setting("agents.veda.binary", "Veda binary", config.agents.veda.binary, {
+            description:
+              "Executable that launches Veda-backed agents. Use a name on PATH or an absolute path.",
+            submenu: stringInputSubmenu(
+              theme,
+              "Veda binary",
+              "Executable that launches Veda-backed agents.",
+            ),
+          }),
           setting("agents.veda.backend", "Veda backend", config.agents.veda.backend, {
             description:
               "External backend driven by the Veda CLI: agy, codex, claude-code, droid, pi, or a backend registered by the installed Veda build.",
@@ -1667,6 +1860,30 @@ export const buildFabricSettingsItems = (
         persist,
       ),
     }),
+    setting("models", "Models", summaryFor("models", config), {
+      description: "Alias names resolved for agent and session model selectors.",
+      submenu: sectionSubmenu(
+        theme,
+        "Models",
+        "Alias names resolved for agent and session model selectors.",
+        [
+          setting("models.aliases", "Aliases", formatModelAliases(config.models.aliases), {
+            description:
+              "Comma-separated alias=target pairs. A target is one provider/model, or a space-separated fallback chain whose first authenticated entry wins.",
+            submenu: stringInputSubmenu(
+              theme,
+              "Model aliases",
+              "Comma-separated alias=target pairs, e.g. cheap=google/gemini-2.5-flash, budget=openai/gpt-5-mini google/gemini-2.5-flash. Enter none to clear every alias.",
+              (value) =>
+                parseModelAliases(value) === undefined
+                  ? "Enter alias=provider/model pairs; separate a fallback chain with spaces."
+                  : undefined,
+            ),
+          }),
+        ],
+        persist,
+      ),
+    }),
     setting("capture", "Capture", summaryFor("capture", config), {
       description: "Registered tool capture and model visibility policy.",
       submenu: sectionSubmenu(
@@ -1687,7 +1904,7 @@ export const buildFabricSettingsItems = (
             values: RISKS,
           }),
           keepVisibleItem,
-          ...CORE_RISK_TOOLS.map((tool) =>
+          ...unique([...CORE_RISK_TOOLS, ...Object.keys(config.capture.risks)]).map((tool) =>
             setting(`capture.risks.${tool}`, `${tool} risk`, config.capture.risks[tool] ?? config.capture.defaultRisk, {
               description: `Approval risk level for the ${tool} tool on native and captured paths.`,
               values: RISKS,
@@ -1729,6 +1946,11 @@ export const buildFabricSettingsItems = (
               values: BOOLEANS,
             },
           ),
+          setting("ui.haltOnEscape", "Escape halts actors", config.ui.haltOnEscape ? "true" : "false", {
+            description:
+              "Treat a native Escape pressed outside Fabric UI as a halt for running actors. Needs the mesh enabled; Escape inside a Fabric overlay stays navigation.",
+            values: BOOLEANS,
+          }),
           setting(
             "ui.updateDebounceMs",
             "Update debounce",
@@ -2086,6 +2308,16 @@ export const buildFabricSettingsItems = (
               'Default storage for newly created actors. Each agents.create call may choose project or session independently; project actors are shared, while session actors follow the root OMP session and its participant agents.',
             values: ACTOR_SCOPES,
           }),
+          setting("mesh.maxEventBytes", "Max event bytes", formatBytes(config.mesh.maxEventBytes), {
+            description: "Size cap for one durable mesh event payload.",
+            submenu: numericSubmenu(
+              theme,
+              [64 * 1024, 128 * 1024, 256 * 1024, 512 * 1024, 1024 * 1024, 4 * 1024 * 1024],
+              formatBytes,
+              "Max event bytes",
+              "Size cap for one durable mesh event payload.",
+            ),
+          }),
           setting("mesh.maxReadEvents", "Max read events", String(config.mesh.maxReadEvents), {
             description: "Maximum events returned by a single mesh read.",
             submenu: numericSubmenu(
@@ -2140,6 +2372,293 @@ export const buildFabricSettingsItems = (
         persist,
       ),
     }),
+    setting("memory", "Memory", summaryFor("memory", config), {
+      description: "Session memory index behind memory.recall and memory.expand.",
+      submenu: sectionSubmenu(
+        theme,
+        "Memory",
+        "Session memory index behind memory.recall and memory.expand. Changes apply after /fabric reload.",
+        [
+          setting("memory.enabled", "Enabled", config.memory.enabled ? "true" : "false", {
+            description: "Expose the memory provider and keep the session index current.",
+            values: BOOLEANS,
+          }),
+          setting("memory.maxSessions", "Max sessions", String(config.memory.maxSessions), {
+            description: "Sessions retained in the index; the oldest are dropped first.",
+            submenu: numericSubmenu(
+              theme,
+              [50, 100, 250, 500, 1_000, 5_000, 10_000],
+              String,
+              "Max sessions",
+              "Sessions retained in the index.",
+            ),
+          }),
+          setting("memory.maxEntryChars", "Max entry chars", String(config.memory.maxEntryChars), {
+            description: "Characters kept from one indexed transcript entry.",
+            submenu: numericSubmenu(
+              theme,
+              [500, 1_000, 2_000, 4_000, 8_000, 16_000],
+              String,
+              "Max entry chars",
+              "Characters kept from one indexed transcript entry.",
+            ),
+          }),
+          setting("memory.indexThinking", "Index thinking", config.memory.indexThinking ? "true" : "false", {
+            description: "Index reasoning blocks beside messages.",
+            values: BOOLEANS,
+          }),
+          setting("memory.indexToolOutput", "Index tool output", config.memory.indexToolOutput ? "true" : "false", {
+            description: "Index tool results beside messages.",
+            values: BOOLEANS,
+          }),
+          setting("memory.hotSessions", "Hot sessions", String(memoryNumber(config, "hotSessions")), {
+            description: "Most recent sessions kept in the hot index; the remainder move to the cold store.",
+            submenu: numericSubmenu(
+              theme,
+              [0, 25, 50, 100, 250, 500, 1_000],
+              String,
+              "Hot sessions",
+              "Most recent sessions kept in the hot index.",
+            ),
+          }),
+          setting("memory.digestTerms", "Digest terms", String(memoryNumber(config, "digestTerms")), {
+            description: "Terms kept in one cold-session digest.",
+            submenu: numericSubmenu(
+              theme,
+              [50, 100, 200, 400, 800, 2_000],
+              String,
+              "Digest terms",
+              "Terms kept in one cold-session digest.",
+            ),
+          }),
+          setting(
+            "memory.maxColdVocabularyBytes",
+            "Cold vocabulary size",
+            formatBytes(memoryNumber(config, "maxColdVocabularyBytes")),
+            {
+              description: "Size cap for the cold-store vocabulary file.",
+              submenu: numericSubmenu(
+                theme,
+                [128 * 1024, 256 * 1024, 512 * 1024, 1024 * 1024, 2 * 1024 * 1024, 8 * 1024 * 1024],
+                formatBytes,
+                "Cold vocabulary size",
+                "Size cap for the cold-store vocabulary file.",
+              ),
+            },
+          ),
+          setting(
+            "memory.maxColdCacheBytes",
+            "Cold cache size",
+            formatBytes(memoryNumber(config, "maxColdCacheBytes")),
+            {
+              description: "Size cap for one cold-store digest cache file.",
+              submenu: numericSubmenu(
+                theme,
+                [256 * 1024, 512 * 1024, 1024 * 1024, 4 * 1024 * 1024, 16 * 1024 * 1024, 64 * 1024 * 1024],
+                formatBytes,
+                "Cold cache size",
+                "Size cap for one cold-store digest cache file.",
+              ),
+            },
+          ),
+          setting(
+            "memory.maxSyncSessions",
+            "Max sync sessions",
+            String(memoryNumber(config, "maxSyncSessions")),
+            {
+              description: "Session files one index sync may visit.",
+              submenu: numericSubmenu(
+                theme,
+                [1_000, 5_000, 10_000, 50_000, 100_000],
+                String,
+                "Max sync sessions",
+                "Session files one index sync may visit.",
+              ),
+            },
+          ),
+          setting(
+            "memory.maxSyncSourceBytes",
+            "Max sync bytes",
+            formatBytes(memoryNumber(config, "maxSyncSourceBytes")),
+            {
+              description: "Total session bytes one index sync may read.",
+              submenu: numericSubmenu(
+                theme,
+                [
+                  64 * 1024 * 1024,
+                  128 * 1024 * 1024,
+                  256 * 1024 * 1024,
+                  512 * 1024 * 1024,
+                  1024 * 1024 * 1024,
+                  4 * 1024 * 1024 * 1024,
+                ],
+                formatBytes,
+                "Max sync bytes",
+                "Total session bytes one index sync may read.",
+              ),
+            },
+          ),
+          setting(
+            "memory.maxCacheCleanupFiles",
+            "Cache cleanup files",
+            String(memoryNumber(config, "maxCacheCleanupFiles")),
+            {
+              description: "Cache files one cleanup pass may inspect.",
+              submenu: numericSubmenu(
+                theme,
+                [10_000, 50_000, 100_000, 500_000, 1_000_000],
+                String,
+                "Cache cleanup files",
+                "Cache files one cleanup pass may inspect.",
+              ),
+            },
+          ),
+          setting(
+            "memory.regexMaxPatternBytes",
+            "Regex pattern size",
+            formatBytes(memoryNumber(config, "regexMaxPatternBytes")),
+            {
+              description: "Size cap for one regex search pattern.",
+              submenu: numericSubmenu(
+                theme,
+                [256, 512, 1_024, 2_048, 4_096, 16_384],
+                formatBytes,
+                "Regex pattern size",
+                "Size cap for one regex search pattern.",
+              ),
+            },
+          ),
+          setting(
+            "memory.regexMaxHaystackTerms",
+            "Regex term budget",
+            String(memoryNumber(config, "regexMaxHaystackTerms")),
+            {
+              description: "Indexed terms one regex search may scan.",
+              submenu: numericSubmenu(
+                theme,
+                [5_000, 10_000, 20_000, 50_000, 100_000],
+                String,
+                "Regex term budget",
+                "Indexed terms one regex search may scan.",
+              ),
+            },
+          ),
+          setting(
+            "memory.regexMaxHaystackBytes",
+            "Regex scan size",
+            formatBytes(memoryNumber(config, "regexMaxHaystackBytes")),
+            {
+              description: "Bytes one regex search may scan.",
+              submenu: numericSubmenu(
+                theme,
+                [512 * 1024, 1024 * 1024, 2 * 1024 * 1024, 8 * 1024 * 1024, 32 * 1024 * 1024],
+                formatBytes,
+                "Regex scan size",
+                "Bytes one regex search may scan.",
+              ),
+            },
+          ),
+          setting(
+            "memory.regexTimeoutMs",
+            "Regex timeout",
+            formatMs(memoryNumber(config, "regexTimeoutMs")),
+            {
+              description: "Deadline for one regex search.",
+              submenu: numericSubmenu(
+                theme,
+                [50, 100, 250, 500, 1_000, 5_000],
+                formatMs,
+                "Regex timeout",
+                "Deadline for one regex search.",
+              ),
+            },
+          ),
+        ],
+        persist,
+      ),
+    }),
+    setting("speculation", "Speculation", summaryFor("speculation", config), {
+      description: "Opportunistic pre-launch of read-class calls while a program streams.",
+      submenu: sectionSubmenu(
+        theme,
+        "Speculation",
+        "Opportunistic pre-launch of read-class calls while a fabric_exec program streams.",
+        [
+          setting("speculation.enabled", "Enabled", config.speculation.enabled ? "true" : "false", {
+            description: "Master switch for speculative programmatic tool calling.",
+            values: BOOLEANS,
+          }),
+          setting("speculation.maxConcurrent", "Max concurrent", String(config.speculation.maxConcurrent), {
+            description: "Speculative calls allowed in flight at once; extra candidates are dropped.",
+            submenu: numericSubmenu(
+              theme,
+              [1, 2, 4, 8, 10, 16, 32],
+              String,
+              "Max concurrent",
+              "Speculative calls allowed in flight at once.",
+            ),
+          }),
+          setting("speculation.maxEntries", "Max entries", String(config.speculation.maxEntries), {
+            description: "Unserved speculation entries retained per turn.",
+            submenu: numericSubmenu(
+              theme,
+              [16, 32, 64, 128, 256, 512, 1_024],
+              String,
+              "Max entries",
+              "Unserved speculation entries retained per turn.",
+            ),
+          }),
+          setting(
+            "speculation.maxBufferBytes",
+            "Buffer limit",
+            formatBytes(config.speculation.maxBufferBytes),
+            {
+              description: "Per-stream cap on buffered partial tool-call arguments.",
+              submenu: numericSubmenu(
+                theme,
+                [
+                  256 * 1024,
+                  512 * 1024,
+                  1024 * 1024,
+                  2 * 1024 * 1024,
+                  8 * 1024 * 1024,
+                  32 * 1024 * 1024,
+                  64 * 1024 * 1024,
+                ],
+                formatBytes,
+                "Buffer limit",
+                "Per-stream cap on buffered partial tool-call arguments.",
+              ),
+            },
+          ),
+          setting("speculation.entryTtlMs", "Entry TTL", formatMs(config.speculation.entryTtlMs), {
+            description: "Age at which an unserved speculation entry is aborted and discarded.",
+            submenu: numericSubmenu(
+              theme,
+              [5_000, 30_000, 60_000, 180_000, 300_000, 600_000, 1_800_000],
+              formatMs,
+              "Entry TTL",
+              "Age at which an unserved speculation entry is aborted and discarded.",
+            ),
+          }),
+          setting(
+            "speculation.mcpAllowlist",
+            "MCP allowlist",
+            formatEntryList(config.speculation.mcpAllowlist),
+            {
+              description:
+                "MCP tools eligible for speculation despite network risk, as comma-separated server.tool or server.* patterns. List only tools known to be read-only.",
+              submenu: stringInputSubmenu(
+                theme,
+                "MCP allowlist",
+                "Comma-separated server.tool or server.* patterns, e.g. context7.query-docs, vidwatch.*. Enter none to clear the list.",
+              ),
+            },
+          ),
+        ],
+        persist,
+      ),
+    }),
     setting("codePreview", "Code previews", summaryFor("codePreview", config), {
       description: "Core tool previews, diffs, and Shiki syntax highlighting.",
       submenu: sectionSubmenu(
@@ -2157,6 +2676,7 @@ export const buildFabricSettingsItems = (
               "\"auto\" follows OMP's light/dark switching (github-light/dark-plus); \"<light>/<dark>\" pins both variants.",
             ),
           }),
+          previewToolsItem,
           setting("codePreview.syntaxHighlighting", "Syntax highlighting", config.codePreview.syntaxHighlighting ? "true" : "false", {
             description: "Highlight code in previews with Shiki.",
             values: BOOLEANS,
@@ -2394,9 +2914,16 @@ const editRpcSetting = async (
       component.submitRpc(value);
     }
   } else if (component instanceof StringInputSubmenu) {
-    const value = await context.ui.input(rpcTitle(path, item.description), component.input.getValue());
-    if (value === undefined) return;
-    component.submitRpc(value);
+    while (!completed) {
+      const value = await context.ui.input(rpcTitle(path, item.description), component.input.getValue());
+      if (value === undefined) return;
+      const error = component.validationError(value);
+      if (error !== undefined) {
+        context.ui.notify(error, "warning");
+        continue;
+      }
+      component.submitRpc(value);
+    }
   } else if (component instanceof CompactionThresholdSubmenu) {
     const selected = await selectRpcChoice(
       context,

@@ -45,6 +45,8 @@ effective timeout = min(
 
 where absent values do not participate. Orchestration programs (`agents.run` / `agents.wait` / `agents.ask`, `workflow.agent`, ...) keep their separate `agents.timeoutMs` floor, which is unaffected by `executor.maxTimeoutMs`.
 
+`/fabric settings` → **Executor** → **Per-ref floors** edits the same map as comma-separated `ref=duration` pairs, for example `extensions.subagent=15m`. Enter `none` to clear every floor. The same section carries the `repairs.enabled` and `entropy.compile` switches.
+
 ## Full reference
 
 ```json
@@ -187,7 +189,7 @@ Unknown definitions stay visible as waiting. They do not fail the Fabric runtime
 
 ## Speculation
 
-`speculation` configures opportunistic pre-launch of read-class calls while the model streams a `fabric_exec` program; see [speculative PTC](speculation.md) for the correctness contract. `speculation.enabled` (default `true`) masters the feature. `speculation.maxConcurrent` (1-32, default 4) caps in-flight speculative calls. `speculation.maxEntries` (1-1024, default 64) bounds retained unserved entries per turn. `speculation.maxBufferBytes` (64 KiB-64 MiB, default 2 MiB) caps the per-stream partial-argument buffer. `speculation.entryTtlMs` (5 s-30 min, default 180000) expires unserved entries. `speculation.mcpAllowlist` (default empty) enables Tier-B speculation of read-only MCP tools with `server.tool` or `server.*` patterns.
+`speculation` configures opportunistic pre-launch of read-class calls while the model streams a `fabric_exec` program; see [speculative PTC](speculation.md) for the correctness contract. Every value is editable under `/fabric settings` → **Speculation**. `speculation.enabled` (default `true`) masters the feature. `speculation.maxConcurrent` (1-32, default 10) caps in-flight speculative calls. `speculation.maxEntries` (1-1024, default 64) bounds retained unserved entries per turn. `speculation.maxBufferBytes` (64 KiB-64 MiB, default 2 MiB) caps the per-stream partial-argument buffer. `speculation.entryTtlMs` (5 s-30 min, default 180000) expires unserved entries. `speculation.mcpAllowlist` (default empty) enables Tier-B speculation of read-only MCP tools with `server.tool` or `server.*` patterns, entered in the panel as a comma-separated list.
 
 ## Prewalk executor
 
@@ -235,6 +237,8 @@ Each in-place handoff captures Main's active model at the boundary and restores 
   }
 }
 ```
+
+`/fabric settings` → **Models** → **Aliases** edits the same map as comma-separated `alias=target` pairs, with a chain written space separated: `cheap=google/gemini-2.5-flash, budget=openai/gpt-5-mini google/gemini-2.5-flash`. Enter `none` to clear every alias.
 
 ## Result formatting
 
@@ -347,7 +351,7 @@ In full code mode, Fabric captures and hides extension overrides of core tools t
   
 Native calls keep OMP's original implementation, result shape, and renderer. Fabric adds only the supported interception hook that runs before execution.
 
-- Captured and directly registered tools default to the conservative `execute` risk because OMP tool definitions do not declare effects. Add exact tool-name overrides under `capture.risks`. Fovea's verified graph-navigation tools (`fovea_sketch`, `fovea_focus`, `fovea_dwell`, and `fovea_impact`) are read-only exceptions that default to `read`.
+- Captured and directly registered tools default to the conservative `execute` risk because OMP tool definitions do not declare effects. Add exact tool-name overrides under `capture.risks`. Fovea's verified graph-navigation tools (`fovea_sketch`, `fovea_focus`, `fovea_dwell`, and `fovea_impact`) are read-only exceptions that default to `read`. `/fabric settings` → **Capture** renders one row per entry in `capture.risks`, so every shipped override is editable and a new one appears without a panel change.
 - Set `capture.hideFromModel` to `false` to index non-core extension tools without hiding them from the model's active set.
 - Names in `capture.keepVisible` stay in the model-facing active set of both Fabric and OMP. OMP core names are the exception: they remain Fabric-owned in full code mode.
 - Extension tool names appear in the prompt as a names-only roster; descriptions and schemas are resolved on demand via `tools.list` / `tools.search` / `tools.describe` before first use.
@@ -458,6 +462,7 @@ See the [`mcp` reference](../skills/fabric-exec/references/mcp.md) for the call 
 - `ui.showAgentToolPreview` defaults to `true` and controls the child-agent and actor tool rows in both the parent `fabric_exec` card and the widget. Recursive agents render their full descendant tree, bounded by the preview depth/node budget. The version 2 config migration renamed this key from `ui.showNestedToolCalls`.
 - `ui.toolDisplay` is `"compact"` (default) or `"full"`. Compact elevates the declared display name and description and keeps bounded nested tool detail visible; full retains the outer Fabric TypeScript transcript. OMP's tool-expand keybinding (`ctrl+o` by default) expands a compact card to the full transcript and collapses it again. Invalid values fall back to `"compact"`. If configuration fails to load, rendering falls back to full so a degraded startup never hides the transcript. Change it under `/fabric settings` → **UI**; successful changes apply immediately to live and completed cards.
 - `ui.updateDebounceMs` defaults to `100`. It applies one execution-wide coalescing interval to every live `fabric_exec` card update: nested calls, progress text, and agent tool previews. Continuous streams emit at most once per interval, so a long call no longer postpones every render until completion. Set it to `0` to emit every update. Accepted values clamp to `0..2000`. The version 3 config migration renamed this key from `ui.nestedToolDebounceMs`.
+- `ui.haltOnEscape` defaults to `true`. A native Escape pressed outside Fabric UI halts running actors, which resume on the next message. Escape inside a Fabric overlay stays navigation. The switch needs `mesh.enabled`; set it to `false` to leave Escape to OMP alone.
 - The widget renders above the chat, like `pi-supervisor`. Set `ui.enabled` to `false` to disable both the widget and the dashboard controller.
 
 See the [interface reference](interface.md).
@@ -483,9 +488,45 @@ Registry writes take a stale-safe lock and merge only actors owned by the writer
 call override → session binding → project default → Fabric default
 ```
 
-`mesh.eventContextChars` bounds the sanitized JSON context attached to each host-event activation. Fabric extracts images first. It stores redacted image descriptors in the mailbox and registry, then sends the raw images to the actor out of band. The character limit never truncates image base64 because base64 is not part of that JSON context.
+`mesh.maxEventBytes` (1 KiB-4 MiB, default 256 KiB) caps one durable mesh event payload. `mesh.eventContextChars` bounds the sanitized JSON context attached to each host-event activation. Fabric extracts images first. It stores redacted image descriptors in the mailbox and registry, then sends the raw images to the actor out of band. The character limit never truncates image base64 because base64 is not part of that JSON context.
 
 Mesh topics, shared state, and the participant directory remain project-scoped. Every runtime publishes one short-lived host lease and records for the roots, agents, and actors it owns. `agents.members()` and `mesh.members()` read those records. `agents.main()` and `agents.peers()` project roots. When a lease expires, its records leave normal discovery together. `mesh.actorPollMs` controls fallback polling for actor events and owner-addressed commands when filesystem notifications are unavailable.
+
+## Code previews
+
+`codePreview` owns the core-tool preview cards, diffs, and Shiki highlighting. Every key is editable under `/fabric settings` → **Code previews**. `codePreview.tools` lists the core tools whose calls render a preview card, drawn from `bash`, `read`, `write`, `edit`, `grep`, `find`, and `ls`; removing a name leaves that tool with a plain frame. The remaining keys set the collapsed line budgets, the diff and word emphasis treatments, the path icon set, and the bash and secret warnings.
+
+## Memory
+
+`memory` configures the session index behind `memory.recall` and `memory.expand`. Edit it under `/fabric settings` → **Memory**. Fabric installs the memory provider at startup, so a change applies after `/fabric reload` or in the next session.
+
+- `memory.enabled` (default `true`) exposes the memory provider and keeps the index current.
+- `memory.maxSessions` (1-100000, default 500) bounds the sessions retained in the index; the oldest leave first.
+- `memory.maxEntryChars` (100-1000000, default 2000) bounds the characters kept from one transcript entry.
+- `memory.indexThinking` (default `true`) indexes reasoning blocks beside messages.
+- `memory.indexToolOutput` (default `true`) indexes tool results beside messages.
+- `memory.hotSessions` (0-100000, default 100) keeps that many recent sessions in the hot index; the remainder move to the cold store.
+- `memory.digestTerms` (1-10000, default 200) bounds the terms kept in one cold-session digest.
+- `memory.maxColdVocabularyBytes` (default 512 KiB) caps the cold-store vocabulary file.
+- `memory.maxColdCacheBytes` (default 1 MiB) caps one cold-store digest cache file.
+- `memory.maxSyncSessions` (1-1000000, default 10000) bounds the session files one index sync visits.
+- `memory.maxSyncSourceBytes` (default 512 MiB) bounds the session bytes one index sync reads.
+- `memory.maxCacheCleanupFiles` (1-1000000, default 100000) bounds the cache files one cleanup pass inspects.
+- `memory.regexMaxPatternBytes` (default 1 KiB) caps one regex search pattern.
+- `memory.regexMaxHaystackTerms` (1-1000000, default 20000) caps the indexed terms one regex search scans.
+- `memory.regexMaxHaystackBytes` (default 2 MiB) caps the bytes one regex search scans.
+- `memory.regexTimeoutMs` (10-10000, default 250) bounds one regex search.
+
+## File-only settings
+
+Every key that carries a default value is editable under `/fabric settings`, with two deliberate exceptions. The panel names them in `FILE_ONLY_CONFIG_KEYS` (`src/ui/settings.ts`), and `tests/settings-parity.test.ts` fails when any other default key loses its row:
+
+- `components` is an array whose entries carry definition-specific `config` JSON. A fixed row cannot validate that payload, so the array stays in the file. See [Components](#components).
+- `schema.trustedCommands` maps a name to an execution record (`command`, `args`, `shell`, `timeoutMs`) that bypasses approval in schema enforce mode. A mistyped row would widen that bypass, so the allowlist stays in the file.
+
+`compaction.thresholds` and `compaction.tokenThresholds` are per-model maps. **Compaction → Threshold** edits the entry for the active session model and writes both maps; entries for other models are set in the file.
+
+Three path overrides carry no default value and stay file-only as well: `memory.indexDir`, `mesh.root`, and `mcp.configPath`.
 
 ## Compaction
 
@@ -495,7 +536,7 @@ Two occupancy ratios decide when work happens. `compaction.softThresholdRatio` (
 
 ## Catalog repairs
 
-Silent invocation repairs are on by default. `repairs.enabled` controls the catalog-scoped table at `<active OMP agent dir>/fabric/repairs/current.json`. Inspect it with `/fabric repairs`. See [catalog repairs](repairs.md).
+Silent invocation repairs are on by default. Both switches in this section live under `/fabric settings` → **Executor**. `repairs.enabled` controls the catalog-scoped table at `<active OMP agent dir>/fabric/repairs/current.json`. Inspect it with `/fabric repairs`. See [catalog repairs](repairs.md).
 
 Continual entropy reduction is on by default. `entropy.compile` controls the autonomous compile loop and its enforcement: every turn with new `fabric_exec` evidence runs measure → propose → apply → gate against the live session window, and a passing compile persists `<agent dir>/fabric/entropy/compiled.json` beside the repair table. Inspect it with `/fabric entropy`. See [tool entropy](entropy.md).
 
