@@ -877,9 +877,17 @@ export class MemoryProvider implements FabricProvider {
     "Cross-session memory: a search engine over every OMP session timeline on this machine";
 
   private recallContinuation: RecallContinuationCache | undefined;
+  private lcmAdapter: { source: object; adapter: LcmMemoryAdapter } | undefined;
   private readonly expansionSnapshots = new Map<string, ExpansionSnapshot>();
 
   constructor(private readonly context: MemoryProviderContext) {}
+
+  private lcmMemoryAdapter(source: NonNullable<MemoryProviderContext["lcm"]>): LcmMemoryAdapter {
+    if (this.lcmAdapter?.source !== source) {
+      this.lcmAdapter = { source, adapter: new LcmMemoryAdapter(source) };
+    }
+    return this.lcmAdapter.adapter;
+  }
 
   private cachedRecallContinuation(
     key: string,
@@ -994,7 +1002,7 @@ export class MemoryProvider implements FabricProvider {
   ): Promise<unknown> {
     try {
       if (this.context.lcm && (actionName === "recall" || actionName === "expand")) {
-        const adapter = new LcmMemoryAdapter(this.context.lcm);
+        const adapter = this.lcmMemoryAdapter(this.context.lcm);
         if (actionName === "expand") return adapter.expand(args);
         const queryMode = parseQueryMode(args.queryMode, "memory.recall");
         const queryMatch = parseQueryMatch(args.queryMatch, queryMode, "memory.recall");

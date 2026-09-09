@@ -1,4 +1,4 @@
-import { hashLcmPayload, type RawEntry } from "../storage/lcm-identity.js";
+import { hash, hashLcmPayload, type RawEntry } from "../storage/lcm-identity.js";
 import type { LcmSearchOptions, LcmSearchPage } from "../storage/lcm-ledger.js";
 import { lcmRawAddress, lcmSummaryAddress } from "../compaction/lcm-addresses.js";
 import { DEFAULT_REGEX_MAX_PATTERN_BYTES } from "./search.js";
@@ -98,8 +98,10 @@ interface QueryPredicate {
 
 const SUMMARY_EXPAND_DEFAULT_ENTRIES = 10;
 const SUMMARY_EXPAND_MAX_ENTRIES = 20;
-const SUMMARY_EXPAND_DEFAULT_CHARS = 4000;
+const SUMMARY_EXPAND_DEFAULT_CHARS = 20000;
 const SUMMARY_EXPAND_MAX_CHARS = 24000;
+const SUMMARY_EXPAND_MAX_CONTEXT = 100;
+const SUMMARY_DESCENT_CACHE_LIMIT = 8;
 
 const queryPredicate = (
   query: string | undefined,
@@ -143,6 +145,8 @@ const excerpt = (text: string, max = 480): { snippet: string; truncated: boolean
   truncated: text.length > max,
 });
 
+const isLowSurrogate = (code: number): boolean => code >= 0xdc00 && code <= 0xdfff;
+
 const sourceKey = (sessionId: string, entryId: string, revision: number): string =>
   `${sessionId}:${entryId}:${revision}`;
 
@@ -185,10 +189,116 @@ const clampInteger = (value: unknown, min: number, max: number, fallback: number
     ? Math.min(max, Math.max(min, Math.floor(value)))
     : fallback;
 
+const addressList = (value: unknown): string[] =>
+  Array.isArray(value)
+    ? value.filter((entry): entry is string => typeof entry === "string" && entry.length > 0)
+    : [];
+
+const unresolvedAddress = (
+  addresses: readonly string[],
+  items: readonly DescentItem[],
+  addressType: "entry_id" | "operation_address",
+  read: (item: DescentItem) => string,
+): Record<string, unknown> | undefined => {
+  for (const address of addresses) {
+    const matches = items.reduce((count, item) => count + (read(item) === address ? 1 : 0), 0);
+    if (matches === 1) continue;
+    return {
+      code: matches === 0 ? "address_not_found" : "ambiguous_address",
+      message: matches === 0
+        ? `Entry address ${JSON.stringify(address)} was not found.`
+        : `Entry address ${JSON.stringify(address)} resolves to ${matches} records.`,
+      addressType,
+      address,
+      matches,
+    };
+  }
+  return undefined;
+};
+
+const resolveDescentSelection = (
+  items: readonly DescentItem[],
+  args: Record<string, unknown>,
+): { selected: SelectedDescentItem[] } | { error: Record<string, unknown> } => {
+  const total = items.length;
+  const outOfRange = (message: string) => ({ error: { code: "index_out_of_bounds", message, entryCount: total } });
+  const positioned = (): SelectedDescentItem[] => items.map((item, index) => ({ item, index }));
+
+  const requested = args.indices;
+  if (requested !== undefined && !Array.isArray(requested)) {
+    throw new Error("memory.expand indices must be an array");
+  }
+  const candidates = (requested ?? []) as unknown[];
+  if (!candidates.every((index) => typeof index === "number" && Number.isSafeInteger(index) && index >= 0)) {
+    return outOfRange("Every entry index must be a non-negative safe integer.");
+  }
+  const indices = candidates as number[];
+  const beyond = indices.find((index) => index >= total);
+  if (beyond !== undefined) {
+    return outOfRange(`Entry index ${beyond} is outside 0..${Math.max(0, total - 1)}.`);
+  }
+
+  const entryIds = addressList(args.entryIds);
+  const addresses = addressList(args.operationAddresses);
+  const range = args.entryRange && typeof args.entryRange === "object" && !Array.isArray(args.entryRange)
+    ? args.entryRange as Record<string, unknown>
+    : undefined;
+  const first = range?.first;
+  const last = range?.last;
+  if ((first === undefined) !== (last === undefined)) {
+    throw new Error("memory.expand entryRange requires both first and last");
+  }
+  if (first !== undefined && (
+    typeof first !== "number" ||
+    typeof last !== "number" ||
+    !Number.isSafeInteger(first) ||
+    !Number.isSafeInteger(last) ||
+    first < 0 ||
+    last < first
+  )) {
+    return outOfRange("Entry range requires safe integers with 0 <= first <= last.");
+  }
+  if (typeof last === "number" && last >= total) {
+    return outOfRange(`Entry range ends at ${last}, but the summary descends into ${total} entries.`);
+  }
+
+  const before = clampInteger(args.before, 0, SUMMARY_EXPAND_MAX_CONTEXT, 0);
+  const after = clampInteger(args.after, 0, SUMMARY_EXPAND_MAX_CONTEXT, 0);
+  if (indices.length === 0 && entryIds.length === 0 && addresses.length === 0 && first === undefined) {
+    if (before > 0 || after > 0) {
+      throw new Error("memory.expand before/after requires one selected anchor");
+    }
+    return { selected: positioned() };
+  }
+
+  const missingEntryId = unresolvedAddress(entryIds, items, "entry_id", (item) => item.entryId);
+  if (missingEntryId) return { error: missingEntryId };
+  const missingAddress = unresolvedAddress(addresses, items, "operation_address", (item) => item.address);
+  if (missingAddress) return { error: missingAddress };
+
+  const indexSet = new Set(indices);
+  const entryIdSet = new Set(entryIds);
+  const addressSet = new Set(addresses);
+  const selected = positioned().filter(({ item, index }) =>
+    indexSet.has(index) ||
+    entryIdSet.has(item.entryId) ||
+    addressSet.has(item.address) ||
+    (typeof first === "number" && typeof last === "number" && index >= first && index <= last));
+  if (before === 0 && after === 0) return { selected };
+  if (selected.length !== 1) {
+    throw new Error("memory.expand before/after requires exactly one resolved anchor");
+  }
+  const anchor = selected[0]!.index;
+  const from = Math.max(0, anchor - before);
+  const to = Math.min(Math.max(0, total - 1), anchor + after);
+  return { selected: positioned().filter(({ index }) => index >= from && index <= to) };
+};
+
 export class LcmMemoryAdapter {
   private readonly projectKey: string;
   private readonly maxRaw: number;
   private readonly maxSummary: number;
+  private readonly descents = new Map<string, DescentItem[]>();
 
   constructor(private readonly options: LcmMemoryAdapterOptions) {
     this.projectKey = options.projectKey ?? options.ledger.projectKey;
@@ -407,42 +517,91 @@ export class LcmMemoryAdapter {
     if (expected && expected !== node.sourceHash) {
       return { entries: [], next: null, error: { code: "stale_pointer", message: "summary source hash changed", expectedSourceHash: expected, actualSourceHash: node.sourceHash } };
     }
+    const expectedLineage = typeof args.expectedLineageFingerprint === "string" ? args.expectedLineageFingerprint : undefined;
+    const actualLineage = node.lineageFingerprint ?? null;
+    if (expectedLineage !== undefined && expectedLineage !== actualLineage) {
+      return { entries: [], next: null, error: { code: "stale_pointer", message: "summary active lineage changed", expectedLineageFingerprint: expectedLineage, actualLineageFingerprint: actualLineage } };
+    }
     const offset = clampInteger(args.entryOffset, 0, Number.MAX_SAFE_INTEGER, 0);
+    const textOffset = clampInteger(args.textOffset, 0, Number.MAX_SAFE_INTEGER, 0);
     const maxEntries = clampInteger(args.maxEntries, 1, SUMMARY_EXPAND_MAX_ENTRIES, SUMMARY_EXPAND_DEFAULT_ENTRIES);
     const maxChars = clampInteger(args.maxChars, 256, SUMMARY_EXPAND_MAX_CHARS, SUMMARY_EXPAND_DEFAULT_CHARS);
     const descent = node.sources.length > 0
       ? this.constituentEntries(node, branches, active)
       : this.childEntries(node, branches);
-    const page = descent.items.slice(offset, offset + maxEntries);
-    const entries = page.map((item, position) => ({
-      index: offset + position,
-      entryId: item.entryId,
-      parentId: item.parentId,
-      type: item.type,
-      role: item.role,
-      timestamp: item.timestamp,
-      isError: false,
-      text: item.text.slice(0, maxChars),
-      textRange: {
-        start: 0,
-        end: Math.min(item.text.length, maxChars),
-        total: item.text.length,
-        complete: item.text.length <= maxChars,
-      },
-      anchor: true,
-      address: item.address,
-      sourceHash: item.sourceHash,
-      follow: {
-        ref: "memory.expand",
-        args: { session: item.address, branches, expectedSourceHash: item.sourceHash },
-      },
-    }));
-    const consumed = offset + entries.length;
+    const total = descent.items.length;
+    const refused = (error: Record<string, unknown>): Record<string, unknown> => ({
+      session: address,
+      sourceHash: node.sourceHash,
+      branches,
+      lineageFingerprint: actualLineage,
+      total,
+      entryCount: total,
+      entries: [],
+      next: null,
+      error,
+    });
+    const selection = resolveDescentSelection(descent.items, args);
+    if ("error" in selection) return refused(selection.error);
+    const selected = selection.selected;
+    if (offset > selected.length) {
+      return refused({
+        code: "index_out_of_bounds",
+        message: `Entry offset ${offset} is outside 0..${selected.length}.`,
+        entryCount: total,
+      });
+    }
+    if (offset < selected.length && textOffset > selected[offset]!.item.text.length) {
+      return refused({
+        code: "text_offset_out_of_bounds",
+        message: `Text offset ${textOffset} exceeds entry #${selected[offset]!.index} length ${selected[offset]!.item.text.length}.`,
+        textLength: selected[offset]!.item.text.length,
+      });
+    }
+    const entries: Array<Record<string, unknown>> = [];
+    let cursor = offset;
+    let start = textOffset;
+    let budget = maxChars;
+    while (cursor < selected.length && entries.length < maxEntries && budget > 0) {
+      const { item, index } = selected[cursor]!;
+      let stop = Math.min(item.text.length, start + budget);
+      if (stop < item.text.length && isLowSurrogate(item.text.charCodeAt(stop))) {
+        stop = stop - 1 > start ? stop - 1 : Math.min(item.text.length, stop + 1);
+      }
+      const text = item.text.slice(start, stop);
+      const end = start + text.length;
+      const complete = end >= item.text.length;
+      entries.push({
+        index,
+        entryId: item.entryId,
+        parentId: item.parentId,
+        type: item.type,
+        role: item.role,
+        timestamp: item.timestamp,
+        isError: false,
+        text,
+        textRange: { start, end, total: item.text.length, complete },
+        anchor: true,
+        address: item.address,
+        sourceHash: item.sourceHash,
+        follow: {
+          ref: "memory.expand",
+          args: { session: item.address, branches, expectedSourceHash: item.sourceHash },
+        },
+      });
+      budget -= text.length;
+      if (!complete) {
+        start = end;
+        break;
+      }
+      cursor += 1;
+      start = 0;
+    }
     return {
       session: address,
       sourceHash: node.sourceHash,
       branches,
-      lineageFingerprint: node.lineageFingerprint ?? null,
+      lineageFingerprint: actualLineage,
       node: {
         nodeId: node.nodeId,
         sessionId: node.sessionId,
@@ -455,11 +614,11 @@ export class LcmMemoryAdapter {
         sources: node.sources,
         createdAt: node.createdAt,
       },
-      total: descent.items.length,
-      entryCount: entries.length,
+      total,
+      entryCount: total,
       entries,
-      next: consumed < descent.items.length
-        ? { ref: "memory.expand", args: { ...args, entryOffset: consumed } }
+      next: cursor < selected.length
+        ? { ref: "memory.expand", args: { ...args, entryOffset: cursor, textOffset: start } }
         : null,
       ...(descent.unavailable === 0
         ? {}
@@ -467,12 +626,22 @@ export class LcmMemoryAdapter {
     };
   }
 
+  private rememberDescent(key: string, items: DescentItem[]): void {
+    this.descents.delete(key);
+    this.descents.set(key, items);
+    while (this.descents.size > SUMMARY_DESCENT_CACHE_LIMIT) {
+      const oldest = this.descents.keys().next().value;
+      if (oldest === undefined) break;
+      this.descents.delete(oldest);
+    }
+  }
+
   private constituentEntries(
     node: LcmSummaryNode,
     branches: "active" | "all",
     active: Set<string> | undefined,
   ): { items: DescentItem[]; unavailable: number } {
-    const items: DescentItem[] = [];
+    const reachable: LcmSummaryNode["sources"] = [];
     let unavailable = 0;
     for (const source of node.sources) {
       const key = sourceKey(node.sessionId, source.entryId, source.revision);
@@ -480,9 +649,22 @@ export class LcmMemoryAdapter {
         unavailable += 1;
         continue;
       }
+      reachable.push(source);
+    }
+    const descentKey = hash([
+      node.nodeId,
+      node.sessionId,
+      node.sourceHash,
+      ...reachable.map((source) => `${source.entryId}:${source.revision}:${source.contentHash}`),
+    ].join("|"));
+    const memoized = this.descents.get(descentKey);
+    if (memoized) return { items: memoized, unavailable };
+    const items: DescentItem[] = [];
+    let missing = 0;
+    for (const source of reachable) {
       const entry = this.options.ledger.readRawEntry(node.sessionId, source.entryId, source.revision);
       if (!entry) {
-        unavailable += 1;
+        missing += 1;
         continue;
       }
       items.push({
@@ -499,7 +681,8 @@ export class LcmMemoryAdapter {
     items.sort((left, right) => left.timestamp - right.timestamp
       || left.entryId.localeCompare(right.entryId)
       || left.address.localeCompare(right.address));
-    return { items, unavailable };
+    if (missing === 0) this.rememberDescent(descentKey, items);
+    return { items, unavailable: unavailable + missing };
   }
 
   private childEntries(
@@ -583,6 +766,11 @@ export class LcmMemoryAdapter {
       next: complete ? null : { ref: "memory.expand", args: { ...args, textOffset: start + text.length } },
     };
   }
+}
+
+interface SelectedDescentItem {
+  item: DescentItem;
+  index: number;
 }
 
 interface DescentItem {
