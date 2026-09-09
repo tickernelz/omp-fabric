@@ -1,4 +1,5 @@
 import type { ExtensionContext } from "@oh-my-pi/pi-coding-agent";
+import type { LcmPreview, LcmReport } from "./compaction/lcm-runtime.js";
 import { resolveAgentDir } from "./core/agent-dir.js";
 import {
   resolveAvailableOmpModel,
@@ -155,31 +156,9 @@ const escapeXmlText = (value: string): string =>
 
 
 export interface LcmStatusSource {
-  report(): {
-    projectKey: string;
-    sessionId: string | undefined;
-    state: string;
-    degraded: string | undefined;
-    summaryModel: string | undefined;
-    rawEntries: number;
-    sessionEntries: number;
-    modelNodes: number;
-    emergencyNodes: number;
-    pendingNodes: number;
-    pendingJobs: number;
-    upgradableNodes: number;
-    usage: { calls: number; inputTokens: number; outputTokens: number; cost: number; wallMs: number };
-    budget: { calls: number; sessionCalls: number; wallMs: number };
-  };
+  report(): LcmReport;
   coverage(): { active: number; covered: number };
-  preview(): {
-    text: string;
-    nodes: number;
-    summaryBytes: number;
-    sourceBytes: number;
-    coveredSources: number;
-    activeSources: number;
-  };
+  preview(): LcmPreview;
   coverageMap(limit?: number): Array<{ key: string; covered: boolean }>;
   nodes(limit?: number, offset?: number): LcmDashboardNode[];
   node(nodeId: string): {

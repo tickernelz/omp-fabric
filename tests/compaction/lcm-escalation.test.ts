@@ -141,6 +141,12 @@ describe("LCM escalation ladder", () => {
     expect(() => maintenance.complete(claimed, usage(evidence + "!"), bytes(evidence))).toThrow("summary does not shrink its input");
     expect(maintenance.getNode(job.nodeId)?.state).toBe("pending");
 
+    const unbounded = maintenance.complete as unknown as (job: unknown, result: unknown, inputBytes?: unknown) => unknown;
+    expect(() => unbounded.call(maintenance, claimed, usage(evidence))).toThrow("invalid input bound");
+    expect(() => unbounded.call(maintenance, claimed, usage(evidence), Number.NaN)).toThrow("invalid input bound");
+    expect(() => unbounded.call(maintenance, claimed, usage(evidence), -1)).toThrow("invalid input bound");
+    expect(maintenance.getNode(job.nodeId)?.state).toBe("pending");
+
     const accepted = maintenance.complete(claimed, usage("short"), bytes(evidence));
     expect(accepted.state).toBe("ready");
     expect(accepted.text).toBe("short");

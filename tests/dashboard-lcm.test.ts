@@ -2,6 +2,7 @@ import type { Theme } from "@oh-my-pi/pi-coding-agent";
 import type { TUI } from "@oh-my-pi/pi-tui";
 import { describe, expect, it, vi } from "vitest";
 import { FabricDashboard } from "../src/ui/dashboard.js";
+import { migrationDropReasons } from "../src/storage/lcm-migration.js";
 import type { LcmDashboardNode, LcmStatusSource } from "../src/fabric-runtime-state.js";
 import type { FabricDashboardSnapshot } from "../src/ui/types.js";
 
@@ -64,6 +65,7 @@ const report = (
   sessionId: "session-1",
   state: "healthy",
   degraded: undefined,
+  reconciliation: undefined,
   summaryModel: "anthropic/claude-haiku",
   rawEntries: 5_392,
   sessionEntries: 5_368,
@@ -149,6 +151,7 @@ describe("Fabric dashboard LCM view", () => {
     const { dashboard, rendered } = openLcm(source);
     try {
       expect(rendered).toContain("Fabric · LCM");
+      expect(rendered).not.toContain("skipped as oversized");
       expect(rendered).toContain("10/40 covered 25%");
       expect(rendered).toContain("condensed model · 1 src · 1 ch");
       expect(rendered).toContain("leaf model");
@@ -303,6 +306,40 @@ describe("Fabric dashboard LCM view", () => {
       dashboard.handleInput("\x1b");
       dashboard.handleInput("\x1b");
       expect(dashboard.render(120).join("\n")).toContain("frontier holds");
+    } finally {
+      dashboard.dispose();
+    }
+  });
+
+  it("names what reconciliation dropped from the immutable store", () => {
+    const { source } = stub({
+      report: {
+        reconciliation: {
+          degraded: true,
+          errors: 0,
+          drops: {
+            oversizedFiles: 2,
+            oversizedFileBytes: 3_500_000,
+            oversizedLines: 0,
+            oversizedLineBytes: 0,
+            skippedFiles: 0,
+            entries: 0,
+          },
+          reasons: migrationDropReasons({
+            oversizedFiles: 2,
+            oversizedFileBytes: 3_500_000,
+            oversizedLines: 0,
+            oversizedLineBytes: 0,
+            skippedFiles: 0,
+            entries: 0,
+          }),
+        },
+      },
+    });
+    const { dashboard, rendered } = openLcm(source, 200);
+    try {
+      const unwrapped = rendered.replace(/[│╭╮╰╯─]/g, " ").replace(/\s+/g, " ");
+      expect(unwrapped).toContain("2 session files skipped as oversized (3.3 MB)");
     } finally {
       dashboard.dispose();
     }

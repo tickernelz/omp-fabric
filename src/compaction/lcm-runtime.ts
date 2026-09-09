@@ -1,6 +1,6 @@
 import type { ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 import { canonicalLcmPayload, canonicalProjectIdentity, hashLcmPayload, LcmLedger, type RawEntry } from "../storage/lcm-ledger.js";
-import { reconcileSession } from "../storage/lcm-migration.js";
+import { migrationDropReasons, reconcileSession, type MigrationDrops } from "../storage/lcm-migration.js";
 import { clipUtf8, MAX_SUMMARY_BYTES, utf8Bytes } from "./bounds.js";
 import { lcmSummaryAddress, renderLcmChildAddresses, renderLcmSourceAddresses } from "./lcm-addresses.js";
 import { emergencyReduce, LcmModelAdapter, type LcmSummarizer } from "./lcm-model.js";
@@ -15,6 +15,13 @@ export interface LcmPreview {
   sourceBytes: number;
   coveredSources: number;
   activeSources: number;
+}
+
+export interface LcmReconciliation {
+  degraded: boolean;
+  errors: number;
+  drops: MigrationDrops;
+  reasons: string[];
 }
 
 export interface LcmReport {
@@ -32,6 +39,7 @@ export interface LcmReport {
   upgradableNodes: number;
   usage: { calls: number; inputTokens: number; outputTokens: number; cost: number; wallMs: number };
   budget: { calls: number; sessionCalls: number; wallMs: number };
+  reconciliation: LcmReconciliation | undefined;
 }
 
 export interface LcmRuntimeOptions {
@@ -52,7 +60,48 @@ export interface LcmRuntimeOptions {
   softThresholdRatio?: number;
 }
 
+const LEASE_SWEEP_GRACE_MS = 60_000;
+const CLAIMABLE_JOB_LIMIT = 256;
+const FAILED_JOB_WINDOW_MS = 24 * 60 * 60 * 1_000;
 const NODE_ADDRESS_LABEL = "address: ";
+const BLOCK_SEPARATOR = "\n\n";
+const WITHHELD_EXPAND_LABEL = "; expand: ";
+
+const withheldHeadline = (count: number): string =>
+  `… withheld ${count} frontier node${count === 1 ? "" : "s"} that did not fit`;
+
+const withheldNotice = (nodeIds: readonly string[], budget: number): string => {
+  const headline = withheldHeadline(nodeIds.length);
+  const addresses = nodeIds.map(lcmSummaryAddress);
+  const line = (kept: readonly string[], omitted: number): string =>
+    `${headline}${WITHHELD_EXPAND_LABEL}${kept.join(", ")}${omitted > 0 ? `, +${omitted} more` : ""}`;
+  const kept: string[] = [];
+  for (const address of addresses) {
+    if (utf8Bytes(line([...kept, address], addresses.length - kept.length - 1)) > budget) break;
+    kept.push(address);
+  }
+  return kept.length === 0 ? headline : line(kept, addresses.length - kept.length);
+};
+
+const clipOversized = (
+  blocks: ReadonlyArray<{ node: LcmNode; head: string }>,
+  headBytes: readonly number[],
+  footer: string,
+  separator: number,
+): string => {
+  let widest = 0;
+  for (let index = 1; index < blocks.length; index += 1) if (headBytes[index]! > headBytes[widest]!) widest = index;
+  const { node } = blocks[widest]!;
+  const addressLine = `\n${NODE_ADDRESS_LABEL}${lcmSummaryAddress(node.nodeId)}`;
+  const withheld = blocks.filter((_, index) => index !== widest).map((block) => block.node.nodeId);
+  const available = MAX_SUMMARY_BYTES - utf8Bytes(footer) - utf8Bytes(addressLine);
+  const notice = withheld.length === 0
+    ? ""
+    : withheldNotice(withheld, Math.max(utf8Bytes(withheldHeadline(withheld.length)), Math.floor(available / 2)));
+  const text = clipUtf8(node.text ?? "", available - (notice ? separator + utf8Bytes(notice) : 0));
+  const head = text ? `${text}${addressLine}` : addressLine.slice(1);
+  return `${[head, ...(notice ? [notice] : [])].join(BLOCK_SEPARATOR)}${footer}`;
+};
 
 export const renderAddressedFrontier = (frontier: readonly LcmNode[]): string => {
   const blocks = frontier
@@ -60,16 +109,36 @@ export const renderAddressedFrontier = (frontier: readonly LcmNode[]): string =>
     .map((node) => ({ node, head: `${node.text ?? ""}\n${NODE_ADDRESS_LABEL}${lcmSummaryAddress(node.nodeId)}` }));
   if (blocks.length === 0) return "";
   const footer = `\n\n${LCM_RECOVERY_POINTER}`;
-  const mandatory = utf8Bytes(blocks.map((block) => block.head).join("\n\n")) + utf8Bytes(footer);
-  const perNode = Math.max(0, Math.floor((MAX_SUMMARY_BYTES - mandatory) / blocks.length) - 1);
-  const rendered = blocks.map(({ node, head }) => {
+  const separator = utf8Bytes(BLOCK_SEPARATOR);
+  const footerBytes = utf8Bytes(footer);
+  const headBytes = blocks.map((block) => utf8Bytes(block.head));
+  const floorFor = (kept: number): number =>
+    kept === blocks.length ? 0 : separator + utf8Bytes(withheldHeadline(blocks.length - kept));
+
+  const kept: number[] = [];
+  const withheld: number[] = [];
+  let body = 0;
+  for (let index = 0; index < blocks.length; index += 1) {
+    const grown = body + headBytes[index]! + (kept.length > 0 ? separator : 0);
+    if (grown + footerBytes + floorFor(kept.length + 1) > MAX_SUMMARY_BYTES) { withheld.push(index); continue; }
+    kept.push(index);
+    body = grown;
+  }
+  if (kept.length === 0) return clipOversized(blocks, headBytes, footer, separator);
+
+  const room = MAX_SUMMARY_BYTES - body - footerBytes - (withheld.length === 0 ? 0 : separator);
+  const notice = withheld.length === 0
+    ? ""
+    : withheldNotice(withheld.map((index) => blocks[index]!.node.nodeId), Math.max(utf8Bytes(withheldHeadline(withheld.length)), Math.floor(room / 2)));
+  const perNode = Math.max(0, Math.floor((room - utf8Bytes(notice)) / kept.length) - 1);
+  const rendered = kept.map((index) => {
+    const { node, head } = blocks[index]!;
     const addresses = node.sources.length > 0
       ? renderLcmSourceAddresses(node.sources, perNode)
       : renderLcmChildAddresses(node.children, perNode);
-    return addresses ? `${head}\n${addresses}` : head;
+    return addresses && utf8Bytes(addresses) <= perNode ? `${head}\n${addresses}` : head;
   });
-  const summary = `${rendered.join("\n\n")}${footer}`;
-  return utf8Bytes(summary) <= MAX_SUMMARY_BYTES ? summary : clipUtf8(summary, MAX_SUMMARY_BYTES, "");
+  return `${[...rendered, ...(notice ? [notice] : [])].join(BLOCK_SEPARATOR)}${footer}`;
 };
 
 export class LcmRuntime {
@@ -85,6 +154,7 @@ export class LcmRuntime {
   private degradedError: unknown;
   private activeSources = new Set<string>();
   private activeSessionId: string | undefined;
+  private lastReconciliation: LcmReconciliation | undefined;
 
   constructor(context: ExtensionContext, options: LcmRuntimeOptions | (() => LcmRuntimeOptions) = {}) {
     this.context = context;
@@ -114,8 +184,25 @@ export class LcmRuntime {
 
   get projectKey(): string { return this.ledger.project.key; }
   get signal(): AbortSignal { return this.abort.signal; }
-  get status(): "healthy" | "degraded" { return this.degradedError === undefined ? "healthy" : "degraded"; }
+  get status(): "healthy" | "degraded" { return this.degradedMessage() === undefined ? "healthy" : "degraded"; }
   get error(): unknown { return this.degradedError; }
+  get reconciliation(): LcmReconciliation | undefined { return this.lastReconciliation; }
+
+  private degradedMessage(): string | undefined {
+    const faults: string[] = [];
+    if (this.degradedError !== undefined) faults.push(String(this.degradedError instanceof Error ? this.degradedError.message : this.degradedError));
+    const errors = this.lastReconciliation?.errors ?? 0;
+    if (errors > 0) faults.push(`LCM session reconciliation reported ${errors} error(s)`);
+    const reasons = this.lastReconciliation?.reasons ?? [];
+    if (reasons.length > 0) faults.push(`LCM session reconciliation dropped ${reasons.join("; ")}`);
+    const failed = this.recentlyFailedJobs();
+    if (failed > 0) faults.push(`LCM maintenance left ${failed} job${failed === 1 ? "" : "s"} failed`);
+    return faults.length === 0 ? undefined : faults.join(" · ");
+  }
+
+  private recentlyFailedJobs(): number {
+    try { return this.maintenance.countJobs("failed", Date.now() - FAILED_JOB_WINDOW_MS); } catch { return 0; }
+  }
   markDirty(): void { this.dirty = true; }
 
   private enqueueWrite(operation: () => void | Promise<void>): Promise<void> {
@@ -155,9 +242,12 @@ export class LcmRuntime {
         projectCwd: cwd,
         apply: true,
       });
-      this.degradedError = result.counts.errors > 0
-        ? new Error(`LCM session reconciliation reported ${result.counts.errors} error(s)`)
-        : undefined;
+      this.lastReconciliation = {
+        degraded: result.degraded,
+        errors: result.counts.errors,
+        drops: result.drops,
+        reasons: migrationDropReasons(result.drops),
+      };
       const sessionId = this.context.sessionManager.getSessionId();
       this.refreshActiveSources(sessionId, this.context.sessionManager.getBranch());
     });
@@ -255,17 +345,24 @@ export class LcmRuntime {
       }).join("\n");
     };
     const runJob = async (job: LcmJob, node: LcmNode): Promise<void> => {
-      try { await this.maintenance.run(job, model, inputFor(node), this.signal); } catch {}
+      try {
+        const input = inputFor(node);
+        await this.maintenance.run(job, model, input, this.signal);
+      } catch (error) {
+        this.degradedError = error;
+        try { this.maintenance.recordFailure(job, error); } catch {}
+      }
     };
+    this.maintenance.sweepExpiredLeases(LEASE_SWEEP_GRACE_MS);
     for (let pass = 0; pass < passes && !this.closed && Date.now() < runDeadline; pass += 1) {
       const leafCandidate = this.maintenance.createLeaf(this.maintenance.selectLeaf(raw, this.context.sessionManager.getLeafId()));
       const leaf = leafCandidate ? this.maintenance.getNode(leafCandidate.nodeId) : undefined;
       if (leaf?.state === "pending") {
-        const job = this.maintenance.listJobs().find((item) => item.nodeId === leaf.nodeId);
-        if (job) await runJob(job, leaf);
+        const job = this.maintenance.jobForNode(leaf.nodeId);
+        if (job && this.maintenance.isClaimable(job)) await runJob(job, leaf);
       }
       const branch = this.context.sessionManager.getLeafId();
-      const pending = this.maintenance.listJobs().filter((job) => job.state === "pending").flatMap((job) => {
+      const pending = this.maintenance.claimableJobs(sessionId, CLAIMABLE_JOB_LIMIT).flatMap((job) => {
         const node = this.maintenance.getNode(job.nodeId);
         if (!node || node.sessionId !== sessionId || (branch !== null && node.branch !== branch && node.branch !== null) || !node.sources.every((source) => this.activeSources.has(`${source.sessionId}:${source.entryId}:${source.revision}`))) return [];
         return [{ job, node }];
@@ -275,8 +372,8 @@ export class LcmRuntime {
       if (children.length >= fanIn) {
         const node = this.maintenance.createCondensed(children);
         if (node) {
-          const job = this.maintenance.listJobs().find((item) => item.nodeId === node.nodeId);
-          if (job) await runJob(job, node);
+          const job = this.maintenance.jobForNode(node.nodeId);
+          if (job && this.maintenance.isClaimable(job)) await runJob(job, node);
         }
       }
       if (!leaf && pending.length === 0 && children.length < fanIn) {
@@ -340,7 +437,7 @@ export class LcmRuntime {
       if (!persisted.text) throw new Error("LCM emergency fallback text is missing");
       return { summary: persisted.text, firstKeptEntryId: input.firstKeptEntryId, tokensBefore: input.tokensBefore, source: "emergency", branch: input.branch };
     }
-    const job = this.maintenance.listJobs().find((item) => item.nodeId === leaf.nodeId);
+    const job = this.maintenance.jobForNode(leaf.nodeId);
     if (!job) throw new Error("LCM emergency fallback job was not created");
     const completed = this.maintenance.completeEmergency(this.maintenance.claimEmergency(job.jobId), fallback);
     return { summary: completed.text ?? fallback, firstKeptEntryId: input.firstKeptEntryId, tokensBefore: input.tokensBefore, source: "emergency", branch: input.branch };
@@ -360,7 +457,7 @@ export class LcmRuntime {
         projectKey: this.projectKey,
         sessionId: this.activeSessionId,
         state: this.ledger.operationalState,
-        degraded: this.degradedError === undefined ? undefined : String(this.degradedError instanceof Error ? this.degradedError.message : this.degradedError),
+        degraded: this.degradedMessage(),
         summaryModel: this.options.summaryModel,
         rawEntries: count("SELECT count(*) n FROM raw_entries WHERE project_key=?", this.projectKey),
         sessionEntries: this.activeSessionId === undefined ? 0 : count("SELECT count(*) n FROM raw_entries WHERE project_key=? AND session_id=?", this.projectKey, this.activeSessionId),
@@ -371,6 +468,7 @@ export class LcmRuntime {
         upgradableNodes: count("SELECT count(*) n FROM summary_nodes WHERE project_key=? AND json_extract(payload,'$.modelHash')=?", this.projectKey, "emergency"),
         usage: { calls: usage.calls, inputTokens: usage.input, outputTokens: usage.output, cost: usage.cost, wallMs: usage.wallMs },
         budget: { calls: budget.calls, sessionCalls: budget.sessionCalls, wallMs: budget.wallMs },
+        reconciliation: this.lastReconciliation,
       };
     });
   }

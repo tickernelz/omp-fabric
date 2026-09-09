@@ -87,18 +87,38 @@ const excerpt = (input: string, room: number): string => {
   return clipUtf8(input, left, "") + EMERGENCY_MARKER + clipUtf8End(input, available - left);
 };
 
+const contentFloor = (room: number): number =>
+  Math.min(room, Math.max(Math.min(EMERGENCY_MIN_CONTENT_BYTES, room), Math.ceil(room * EMERGENCY_CONTENT_SHARE)));
+
+const firstAddressBytes = (sources: readonly LcmSourceHandle[]): number => {
+  const first = sources[0];
+  if (!first) return 0;
+  const marker = sources.length > 1 ? `, +${sources.length - 1} more` : "";
+  return utf8Bytes(`${renderLcmSourceAddresses([first], Number.MAX_SAFE_INTEGER)}${marker}\n`);
+};
+
 export function emergencyReduce(input: string, limit = 4_096, sources: readonly LcmSourceHandle[] = []): string {
   if (!Number.isSafeInteger(limit) || limit < 128 || limit > LCM_MAX_OUTPUT_CHARS) throw new Error("invalid emergency limit");
   const inputBytes = utf8Bytes(input);
   if (inputBytes <= 1) return "";
   const bound = Math.min(limit, inputBytes - 1);
   const pointer = `${LCM_RECOVERY_POINTER}\n`;
-  for (const head of [EMERGENCY_HEADER + pointer, EMERGENCY_HEADER, ""]) {
-    const remaining = bound - utf8Bytes(head);
-    if (remaining < EMERGENCY_MIN_CONTENT_BYTES) continue;
-    const contentFloor = Math.min(remaining, Math.max(EMERGENCY_MIN_CONTENT_BYTES, Math.ceil(remaining * EMERGENCY_CONTENT_SHARE)));
-    const addresses = renderLcmSourceAddresses(sources, remaining - contentFloor - 1);
-    const prefix = head + (addresses ? `${addresses}\n` : "");
+  const oneAddress = firstAddressBytes(sources);
+  const levels = [
+    { head: EMERGENCY_HEADER + pointer, addressed: true },
+    { head: EMERGENCY_HEADER, addressed: true },
+    { head: EMERGENCY_HEADER, addressed: false },
+    { head: "", addressed: true },
+    { head: "", addressed: false },
+  ];
+  for (const level of levels) {
+    const room = bound - utf8Bytes(level.head);
+    const reserved = level.addressed ? oneAddress : 0;
+    if (room - reserved < 1) continue;
+    const budget = level.addressed ? Math.max(reserved, room - contentFloor(room) - 1) : 0;
+    const addresses = budget > 0 ? renderLcmSourceAddresses(sources, budget) : "";
+    const prefix = level.head + (addresses ? `${addresses}\n` : "");
+    if (utf8Bytes(prefix) >= bound) continue;
     return clipUtf8(prefix + excerpt(input, bound - utf8Bytes(prefix)), bound, "");
   }
   return clipUtf8(excerpt(input, bound), bound, "");

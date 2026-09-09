@@ -97,6 +97,7 @@ export const renderLcmHeaderLines = (
     `model ${report.summaryModel || "inherit"}`,
     `${report.modelNodes} model · ${report.emergencyNodes} excerpt · ${report.pendingNodes} pending`,
     `today ${formatBudget(report.usage.calls, report.budget.calls)} calls · ${formatCost(report.usage.cost)}`,
+    ...(report.reconciliation?.reasons ?? []),
   ]
     .filter((value): value is string => Boolean(value))
     .join(" · ");

@@ -202,6 +202,27 @@ describe("LCM maintenance branch isolation", () => {
     expect(emergency).toContain("memory.recall");
   });
 
+  it("labels and addresses an excerpt whose input is barely larger than the bound", () => {
+    const sources = [{ sessionId: "01a08363-832a-77ec-b1cc-5cd98d4b738e", entryId: "00000001", revision: 1, payloadHash: "a".repeat(64) }];
+    const emergency = emergencyReduce("A".repeat(200), 4_096, sources);
+
+    expect(Buffer.byteLength(emergency, "utf8")).toBeLessThan(200);
+    expect(emergency).toContain("Nonsemantic deterministic excerpt");
+    const line = emergency.split("\n").find((entry) => entry.startsWith("sources: ")) ?? "";
+    expect(line.slice("sources: ".length)).toBe("lcm.raw:01a08363-832a-77ec-b1cc-5cd98d4b738e:00000001:1");
+    expect(emergency).toContain("A");
+  });
+
+  it("keeps the excerpt label when no address can fit beside it", () => {
+    const sources = [{ sessionId: "s".repeat(64), entryId: "e".repeat(64), revision: 1, payloadHash: "a".repeat(64) }];
+    const emergency = emergencyReduce("A".repeat(100), 4_096, sources);
+
+    expect(Buffer.byteLength(emergency, "utf8")).toBeLessThan(100);
+    expect(emergency).toContain("Nonsemantic deterministic excerpt");
+    expect(emergency).not.toContain("lcm.raw:");
+    expect(emergency).toContain("A");
+  });
+
   it("drops the pointer before it starves content at the smallest limit", () => {
     const emergency = emergencyReduce("kept text ".repeat(30), 128, []);
     expect(Buffer.byteLength(emergency, "utf8")).toBeLessThanOrEqual(128);
