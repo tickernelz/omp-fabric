@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.13.0
+
+### Fixed
+
+- LCM maintenance runs when there is work, so the summary DAG exists before a compaction needs it. 1.12.0 gated maintenance on context occupancy reaching `compaction.softThresholdRatio`, but compaction serves a precomputed frontier and itself pushes occupancy back down, so a real project could sit below the threshold indefinitely while its backlog grew. Measured on a live ledger across a turn boundary: entries rose from 10,001 to 10,005 while pending jobs stayed at 96, completed stayed at 84 and zero model calls were made. A pass is now due when the active branch carries a leaf's worth of uncovered entries, when a claimable job for that branch is waiting, or when occupancy reaches the ratio. The daily and per-session model budgets are the ceiling: an exhausted budget schedules no pass at all, which also stops an exhausted budget from burning a job's attempts until it retires.
+- A maintenance job whose owner died is reclaimed whatever the occupancy. The sweep sat inside the gated pass, so on a project below the threshold a dead lease was stranded forever; the live ledger carried nine, expired between ten and eighteen hours earlier.
+- Long tool rows wrap in the compact display. They were clipped at the right edge with no marker, so the end of a command or an error was simply gone. Compact rows wrap to three rows and say ` …+N` when more was dropped; expanded output is unchanged. The header, the phase row, a failed call's error text and the hidden-calls line were never wrappable in either mode and now are.
+
+### Changed
+
+- `compaction.softThresholdRatio` is a floor that forces a maintenance pass, no longer the permission to run one. Maintenance also runs on its own backlog, so the ratio now covers the tail below one leaf before a compaction asks for it. The `0`-is-off convention, the fail-open on an unreadable occupancy reading, and the clamp range are unchanged.
+
 ## 1.12.0
 
 ### Fixed
