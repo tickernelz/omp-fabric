@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.15.0
+
+### Added
+
+- Support for compaction custom instructions and preserve items in LCM: `renderAddressedFrontier` and `emergencyReduce` now render a `[Compaction Request]` block when instructions or preserve entries are supplied via `compact.request`, matching the deterministic compactor's policy contract.
+- SQLite indexes on `summary_nodes(project_key, created_at, node_id)`, `maintenance_jobs(project_key, status)`, and `summary_edges(child_id, parent_id)` to eliminate unindexed table scans during node listing, job scheduling, and ancestor edge traversal.
+- Warning logging and UI notifications on compaction hook errors before cancellation, preventing silent context blowups.
+
+### Fixed
+
+- Chronological ordering in condensation selection: `selectCondensation` now sorts candidates by `createdAt` before tie-breaking on `nodeId`, ensuring child summaries are assembled and presented to the summarizer in chronological order rather than arbitrary SHA-256 hash order.
+- Transaction batching during session readback and compaction: `readback()` and `compact()` now wrap raw entry persistence in an explicit ledger transaction, collapsing hundreds of sequential synchronous SQLite fsync operations into a single atomic commit.
+- Dirty flag enforcement in `LcmRuntime`: `syncAndSchedule()` now checks `this.dirty` and active session binding to skip redundant full-branch readbacks on idle turns.
+- Memory allocation in `clipUtf8End`: trailing text slices are now bounded to `maxBytes * 2` before codepoint conversion, eliminating multi-megabyte array allocations when producing emergency excerpts.
+
 ## 1.14.0
 
 ### Added

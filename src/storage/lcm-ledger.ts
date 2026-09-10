@@ -40,6 +40,9 @@ CREATE TABLE IF NOT EXISTS orphaned_rows (migration_version INTEGER NOT NULL, ta
 CREATE INDEX IF NOT EXISTS raw_entries_lookup ON raw_entries(project_key, session_id, entry_id, revision);
 DROP INDEX IF EXISTS raw_entries_recent;
 CREATE INDEX IF NOT EXISTS raw_entries_session_order ON raw_entries(project_key, session_id, created_at, revision);
+CREATE INDEX IF NOT EXISTS summary_nodes_order ON summary_nodes(project_key, created_at, node_id);
+CREATE INDEX IF NOT EXISTS maintenance_jobs_status ON maintenance_jobs(project_key, status);
+CREATE INDEX IF NOT EXISTS summary_edges_child ON summary_edges(child_id, parent_id);
 `;
 
 const fileHash = (file: string) => crypto.createHash("sha256").update(fs.readFileSync(file)).digest("hex");

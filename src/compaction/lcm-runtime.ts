@@ -8,6 +8,7 @@ import { LCM_RECOVERY_POINTER } from "./render.js";
 import { reconcileLcmState } from "./lcm-status.js";
 import { DEFAULT_LEAF_ENTRIES, DEFAULT_MAINTENANCE_CONCURRENCY, isLcmCapacityRejection, isLcmRejection, LcmMaintenance, type LcmBudgetPolicy, type LcmJob, type LcmNode } from "./lcm-maintenance.js";
 import type { LcmCompactionInput, LcmCompactionOutput } from "./hook.js";
+import { decodeCompactionInstructions } from "./instructions.js";
 
 type LcmMaintenanceTrigger = "occupancy" | "jobs" | "backlog";
 
@@ -94,43 +95,51 @@ const clipOversized = (
   headBytes: readonly number[],
   footer: string,
   separator: number,
+  requestBlock = "",
 ): string => {
   let widest = 0;
   for (let index = 1; index < blocks.length; index += 1) if (headBytes[index]! > headBytes[widest]!) widest = index;
   const { node } = blocks[widest]!;
   const addressLine = `\n${NODE_ADDRESS_LABEL}${lcmSummaryAddress(node.nodeId)}`;
   const withheld = blocks.filter((_, index) => index !== widest).map((block) => block.node.nodeId);
-  const available = MAX_SUMMARY_BYTES - utf8Bytes(footer) - utf8Bytes(addressLine);
+  const requestBytes = requestBlock ? utf8Bytes(requestBlock) + separator : 0;
+  const available = MAX_SUMMARY_BYTES - utf8Bytes(footer) - utf8Bytes(addressLine) - requestBytes;
   const notice = withheld.length === 0
     ? ""
     : withheldNotice(withheld, Math.max(utf8Bytes(withheldHeadline(withheld.length)), Math.floor(available / 2)));
   const text = clipUtf8(node.text ?? "", available - (notice ? separator + utf8Bytes(notice) : 0));
   const head = text ? `${text}${addressLine}` : addressLine.slice(1);
-  return `${[head, ...(notice ? [notice] : [])].join(BLOCK_SEPARATOR)}${footer}`;
+  const parts = [...(requestBlock ? [requestBlock] : []), head, ...(notice ? [notice] : [])];
+  return `${parts.join(BLOCK_SEPARATOR)}${footer}`;
 };
 
-export const renderAddressedFrontier = (frontier: readonly LcmNode[]): string => {
+export const renderAddressedFrontier = (
+  frontier: readonly LcmNode[],
+  requestLines: readonly string[] = [],
+): string => {
   const blocks = frontier
     .filter((node) => Boolean(node.text))
     .map((node) => ({ node, head: `${node.text ?? ""}\n${NODE_ADDRESS_LABEL}${lcmSummaryAddress(node.nodeId)}` }));
   if (blocks.length === 0) return "";
+  const requestBlock = requestLines.length > 0 ? `[Compaction Request]\n${requestLines.join("\n")}` : "";
   const footer = `\n\n${LCM_RECOVERY_POINTER}`;
   const separator = utf8Bytes(BLOCK_SEPARATOR);
   const footerBytes = utf8Bytes(footer);
+  const requestBytes = requestBlock ? utf8Bytes(requestBlock) + separator : 0;
   const headBytes = blocks.map((block) => utf8Bytes(block.head));
   const floorFor = (kept: number): number =>
     kept === blocks.length ? 0 : separator + utf8Bytes(withheldHeadline(blocks.length - kept));
 
   const kept: number[] = [];
   const withheld: number[] = [];
-  let body = 0;
+  let body = requestBytes;
   for (let index = 0; index < blocks.length; index += 1) {
-    const grown = body + headBytes[index]! + (kept.length > 0 ? separator : 0);
+    const grown = body + headBytes[index]! + (kept.length > 0 || requestBlock ? separator : 0);
     if (grown + footerBytes + floorFor(kept.length + 1) > MAX_SUMMARY_BYTES) { withheld.push(index); continue; }
     kept.push(index);
     body = grown;
   }
-  if (kept.length === 0) return clipOversized(blocks, headBytes, footer, separator);
+  if (kept.length === 0) return clipOversized(blocks, headBytes, footer, separator, requestBlock);
 
   const room = MAX_SUMMARY_BYTES - body - footerBytes - (withheld.length === 0 ? 0 : separator);
   const notice = withheld.length === 0
@@ -144,7 +153,8 @@ export const renderAddressedFrontier = (frontier: readonly LcmNode[]): string =>
       : renderLcmChildAddresses(node.children, perNode);
     return addresses && utf8Bytes(addresses) <= perNode ? `${head}\n${addresses}` : head;
   });
-  return `${[...rendered, ...(notice ? [notice] : [])].join(BLOCK_SEPARATOR)}${footer}`;
+  const parts = [...(requestBlock ? [requestBlock] : []), ...rendered, ...(notice ? [notice] : [])];
+  return `${parts.join(BLOCK_SEPARATOR)}${footer}`;
 };
 
 export class LcmRuntime {
@@ -279,22 +289,24 @@ export class LcmRuntime {
       const branch = this.context.sessionManager.getLeafId();
       const recorded = this.context.sessionManager.getRecordedCwd?.();
       const active = new Set<string>();
-      for (const entry of entries) {
-        const payloadJson = canonicalLcmPayload(entry);
-        const message = entry.type === "message" ? entry.message as { role?: string; content?: unknown } : undefined;
-        const stored = this.ledger.appendRaw({
-          projectKey: this.projectKey,
-          sessionId,
-          entryId: entry.id,
-          role: message?.role ?? entry.type,
-          content: message ? JSON.stringify(message.content ?? "") : payloadJson,
-          payloadJson,
-          parentEntryId: entry.parentId ?? null,
-          branch,
-          ...(recorded || this.context.cwd ? { recordedCwd: recorded || this.context.cwd } : {}),
-        });
-        active.add(`${sessionId}:${stored.entryId}:${stored.revision}`);
-      }
+      this.ledger.transaction(() => {
+        for (const entry of entries) {
+          const payloadJson = canonicalLcmPayload(entry);
+          const message = entry.type === "message" ? entry.message as { role?: string; content?: unknown } : undefined;
+          const stored = this.ledger.appendRaw({
+            projectKey: this.projectKey,
+            sessionId,
+            entryId: entry.id,
+            role: message?.role ?? entry.type,
+            content: message ? JSON.stringify(message.content ?? "") : payloadJson,
+            payloadJson,
+            parentEntryId: entry.parentId ?? null,
+            branch,
+            ...(recorded || this.context.cwd ? { recordedCwd: recorded || this.context.cwd } : {}),
+          });
+          active.add(`${sessionId}:${stored.entryId}:${stored.revision}`);
+        }
+      });
       this.activeSources = active;
       this.activeSessionId = sessionId;
       this.dirty = false;
@@ -304,8 +316,11 @@ export class LcmRuntime {
 
   async syncAndSchedule(): Promise<void> {
     if (this.closed) return;
-    await this.readback();
-    await this.recoverReconciliation();
+    const sessionId = this.context.sessionManager.getSessionId();
+    if (this.dirty || !this.activeSessionId || this.activeSessionId !== sessionId || this.activeSources.size === 0) {
+      await this.readback();
+      await this.recoverReconciliation();
+    }
     this.reclaimExpiredLeases();
     if (this.maintenanceTrigger() !== undefined) this.scheduleMaintenance();
   }
@@ -466,22 +481,26 @@ export class LcmRuntime {
   }
 
   compact(input: LcmCompactionInput): LcmCompactionOutput {
+    const instructions = decodeCompactionInstructions(input.customInstructions);
+    const requestLines = instructions.ok ? instructions.requestLines : [];
     const persistedEntries = new Map<string, RawEntry>();
-    for (const entry of input.branchEntries) {
-      const message = entry.type === "message" ? entry.message as { role?: string; content?: unknown } : undefined;
-      const payloadJson = canonicalLcmPayload(entry);
-      const stored = this.ledger.appendRaw({
-        projectKey: this.projectKey,
-        sessionId: input.sessionId,
-        entryId: entry.id,
-        role: message?.role ?? entry.type,
-        content: message ? JSON.stringify(message.content ?? "") : payloadJson,
-        payloadJson,
-        parentEntryId: entry.parentId ?? null,
-        branch: input.branch,
-      });
-      persistedEntries.set(`${entry.id}:${stored.payloadHash}`, stored);
-    }
+    this.ledger.transaction(() => {
+      for (const entry of input.branchEntries) {
+        const message = entry.type === "message" ? entry.message as { role?: string; content?: unknown } : undefined;
+        const payloadJson = canonicalLcmPayload(entry);
+        const stored = this.ledger.appendRaw({
+          projectKey: this.projectKey,
+          sessionId: input.sessionId,
+          entryId: entry.id,
+          role: message?.role ?? entry.type,
+          content: message ? JSON.stringify(message.content ?? "") : payloadJson,
+          payloadJson,
+          parentEntryId: entry.parentId ?? null,
+          branch: input.branch,
+        });
+        persistedEntries.set(`${entry.id}:${stored.payloadHash}`, stored);
+      }
+    });
     const firstKeptIndex = input.firstKeptEntryId
       ? input.branchEntries.findIndex((entry) => entry.id === input.firstKeptEntryId)
       : input.branchEntries.length;
@@ -495,28 +514,61 @@ export class LcmRuntime {
     const activeSources = new Set(selectedStored.map((entry) => `${entry.sessionId}:${entry.entryId}:${entry.revision}`));
     const frontier = this.maintenance.getFrontier(input.sessionId, input.branch, activeSources);
     const coveredSources = new Set(frontier.flatMap((node) => node.sources.map((source) => `${source.sessionId}:${source.entryId}:${source.revision}`)));
-    const summary = renderAddressedFrontier(frontier);
-    if (summary && selectedStored.every((entry) => coveredSources.has(`${entry.sessionId}:${entry.entryId}:${entry.revision}`))) return { summary, firstKeptEntryId: input.firstKeptEntryId, tokensBefore: input.tokensBefore, source: "ready-frontier", branch: input.branch };
+    const summary = renderAddressedFrontier(frontier, requestLines);
+    const instructionDetails = instructions.ok && (instructions.requestLines.length > 0 || instructions.policy.preserveCount > 0)
+      ? { instructionPolicy: instructions.policy }
+      : undefined;
+    if (summary && selectedStored.every((entry) => coveredSources.has(`${entry.sessionId}:${entry.entryId}:${entry.revision}`))) {
+      return {
+        summary,
+        firstKeptEntryId: input.firstKeptEntryId,
+        tokensBefore: input.tokensBefore,
+        source: "ready-frontier",
+        branch: input.branch,
+        ...(instructionDetails ? { details: instructionDetails } : {}),
+      };
+    }
     if (selectedStored.length === 0) throw new Error("LCM emergency fallback has no persisted sources");
     const payloads = sourceEntries.map((entry) => canonicalLcmPayload(entry)).join("\n");
     const sources = selectedStored.map((stored) => ({ sessionId: stored.sessionId, entryId: stored.entryId, revision: stored.revision, payloadHash: stored.payloadHash }));
-    const fallback = emergencyReduce(payloads, this.options.lcmMaxOutputChars ?? 4_096, sources);
+    const fallback = emergencyReduce(payloads, this.options.lcmMaxOutputChars ?? 4_096, sources, requestLines);
     const leaf = this.maintenance.createLeaf(selectedStored);
     if (!leaf) throw new Error("LCM emergency fallback node was not created");
     const persisted = this.maintenance.getNode(leaf.nodeId);
     if (persisted?.state === "ready") {
       if (persisted.branch !== input.branch || JSON.stringify(persisted.sources) !== JSON.stringify(sources)) throw new Error("LCM emergency fallback provenance mismatch");
       if (!persisted.text) throw new Error("LCM emergency fallback text is missing");
-      return { summary: persisted.text, firstKeptEntryId: input.firstKeptEntryId, tokensBefore: input.tokensBefore, source: "emergency", branch: input.branch };
+      return {
+        summary: persisted.text,
+        firstKeptEntryId: input.firstKeptEntryId,
+        tokensBefore: input.tokensBefore,
+        source: "emergency",
+        branch: input.branch,
+        ...(instructionDetails ? { details: instructionDetails } : {}),
+      };
     }
     const job = this.maintenance.jobForNode(leaf.nodeId);
     if (!job) throw new Error("LCM emergency fallback job was not created");
     try {
       const completed = this.maintenance.completeEmergency(this.maintenance.claimEmergency(job.jobId), fallback);
-      return { summary: completed.text ?? fallback, firstKeptEntryId: input.firstKeptEntryId, tokensBefore: input.tokensBefore, source: "emergency", branch: input.branch };
+      return {
+        summary: completed.text ?? fallback,
+        firstKeptEntryId: input.firstKeptEntryId,
+        tokensBefore: input.tokensBefore,
+        source: "emergency",
+        branch: input.branch,
+        ...(instructionDetails ? { details: instructionDetails } : {}),
+      };
     } catch (error) {
       if (!isLcmRejection(error)) throw error;
-      return { summary: fallback, firstKeptEntryId: input.firstKeptEntryId, tokensBefore: input.tokensBefore, source: "emergency", branch: input.branch };
+      return {
+        summary: fallback,
+        firstKeptEntryId: input.firstKeptEntryId,
+        tokensBefore: input.tokensBefore,
+        source: "emergency",
+        branch: input.branch,
+        ...(instructionDetails ? { details: instructionDetails } : {}),
+      };
     }
   }
 

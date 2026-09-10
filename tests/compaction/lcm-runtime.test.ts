@@ -521,6 +521,43 @@ describe("LCM runtime", () => {
     await runtime.shutdown();
   });
 
+  it("includes custom instructions and preserve items in ready frontier compaction", async () => {
+    const root = makeRoot();
+    const entries = [makeEntry("e1", "old source"), makeEntry("e2", "fresh tail", "e1")];
+    const runtime = openRuntime(makeContext(root, entries), { rootDir: root });
+    await runtime.readback();
+    const head = runtime.raw("session-1").find((row) => row.entryId === "e1");
+    if (!head) throw new Error("expected persisted head entry");
+    const node = runtime.maintenance.createLeaf([head]);
+    if (!node) throw new Error("expected leaf");
+    const job = runtime.maintenance.listJobs().find((item) => item.nodeId === node.nodeId);
+    if (!job) throw new Error("expected leaf job");
+    runtime.maintenance.complete(runtime.maintenance.claim(job.jobId), { text: "ready semantic summary", inputTokens: 1, outputTokens: 1, cost: 0, wallMs: 1, modelHash: "test" }, inputFor("ready semantic summary"));
+    const instructions = "__omp_fabric_compact_request_v1__:{\"version\":1,\"instructions\":\"Keep the API auth context\",\"preserve\":[\"src/auth.ts\"]}";
+    const result = runtime.compact({ branchEntries: entries, sessionId: "session-1", branch: "branch-a", firstKeptEntryId: "e2", tokensBefore: 9000, customInstructions: instructions });
+    expect(result.source).toBe("ready-frontier");
+    expect(result.summary).toContain("[Compaction Request]");
+    expect(result.summary).toContain("Keep the API auth context");
+    expect(result.summary).toContain("src/auth.ts [preserve:0]");
+    expect(result.details).toMatchObject({ instructionPolicy: { preserveCount: 1 } });
+    await runtime.shutdown();
+  });
+
+  it("includes custom instructions and preserve items in emergency fallback compaction", async () => {
+    const root = makeRoot();
+    const entries = [makeEntry("e1", "emergency source"), makeEntry("e2", "fresh tail", "e1")];
+    const runtime = openRuntime(makeContext(root, entries), { rootDir: root });
+    await runtime.readback();
+    const instructions = "__omp_fabric_compact_request_v1__:{\"version\":1,\"instructions\":\"Remember critical invariant\",\"preserve\":[\"src/invariant.ts\"]}";
+    const result = runtime.compact({ branchEntries: entries, sessionId: "session-1", branch: "branch-a", firstKeptEntryId: "missing", tokensBefore: 9000, customInstructions: instructions });
+    expect(result.source).toBe("emergency");
+    expect(result.summary).toContain("[Compaction Request]");
+    expect(result.summary).toContain("Remember critical invariant");
+    expect(result.summary).toContain("src/invariant.ts [preserve:0]");
+    expect(result.details).toMatchObject({ instructionPolicy: { preserveCount: 1 } });
+    await runtime.shutdown();
+  });
+
   it("withholds whole frontier nodes past the byte bound and keeps every address resolvable", () => {
     const frontier = Array.from({ length: 6 }, (_, index) => bigNode(index, 11_600));
     const rendered = renderAddressedFrontier(frontier as unknown as Parameters<typeof renderAddressedFrontier>[0]);

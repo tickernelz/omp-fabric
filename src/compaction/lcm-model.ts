@@ -65,7 +65,8 @@ const EMERGENCY_MARKER = "\n...\n";
 
 const clipUtf8End = (text: string, maxBytes: number): string => {
   if (maxBytes <= 0) return "";
-  const characters = Array.from(text);
+  const slice = text.length > maxBytes * 2 ? text.slice(-maxBytes * 2) : text;
+  const characters = Array.from(slice);
   let used = 0;
   let start = characters.length;
   for (let index = characters.length - 1; index >= 0; index--) {
@@ -97,16 +98,17 @@ const firstAddressBytes = (sources: readonly LcmSourceHandle[]): number => {
   return utf8Bytes(`${renderLcmSourceAddresses([first], Number.MAX_SAFE_INTEGER)}${marker}\n`);
 };
 
-export function emergencyReduce(input: string, limit = 4_096, sources: readonly LcmSourceHandle[] = []): string {
+export function emergencyReduce(input: string, limit = 4_096, sources: readonly LcmSourceHandle[] = [], requestLines: readonly string[] = []): string {
   if (!Number.isSafeInteger(limit) || limit < 128 || limit > LCM_MAX_OUTPUT_CHARS) throw new Error("invalid emergency limit");
   const inputBytes = utf8Bytes(input);
   if (inputBytes <= 1) return "";
   const bound = Math.min(limit, inputBytes - 1);
   const pointer = `${LCM_RECOVERY_POINTER}\n`;
   const oneAddress = firstAddressBytes(sources);
+  const requestHeader = requestLines.length > 0 ? `[Compaction Request]\n${requestLines.join("\n")}\n\n` : "";
   const levels = [
-    { head: EMERGENCY_HEADER + pointer, addressed: true },
-    { head: EMERGENCY_HEADER, addressed: true },
+    { head: requestHeader + EMERGENCY_HEADER + pointer, addressed: true },
+    { head: requestHeader + EMERGENCY_HEADER, addressed: true },
     { head: EMERGENCY_HEADER, addressed: false },
     { head: "", addressed: true },
     { head: "", addressed: false },

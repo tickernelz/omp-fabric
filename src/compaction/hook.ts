@@ -857,7 +857,10 @@ export const registerCompactionHook = (omp: ExtensionAPI, options: CompactionHoo
         tokensBefore: event.preparation.tokensBefore,
         ...(event.customInstructions === undefined ? {} : { customInstructions: event.customInstructions }),
       });
-    } catch {
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.warn(`[omp-fabric] LCM compaction failed: ${message}`);
+      if (context?.hasUI) context.ui.notify(`LCM compaction failed: ${message}`, "error");
       return { cancel: true };
     }
     if (!output || typeof output.summary !== "string" || output.summary.length === 0

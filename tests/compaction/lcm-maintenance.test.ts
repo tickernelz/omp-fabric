@@ -71,6 +71,24 @@ describe("LCM maintenance branch isolation", () => {
     const { ledger, maintenance } = open(); const project = ledger.project.key; const a = ledger.appendRaw(raw(project, "s1", "a", "a", "left")); const b = ledger.appendRaw(raw(project, "s2", "b", "b", "left")); const na = maintenance.createLeaf([a]); const nb = maintenance.createLeaf([b]); if (!na || !nb) throw new Error("missing leaf");
     for (const node of [na, nb]) await maintenance.run(maintenance.listJobs().find(j => j.nodeId === node.nodeId)!, model(result(node.nodeId)), `${node.nodeId} evidence`); expect(maintenance.selectCondensation("s1", new Set(["s1:a:1", "s2:b:1"])).map(n => n.sessionId)).toEqual(["s1"]); ledger.close();
   });
+  it("selects condensation children in chronological created_at order", async () => {
+    let tick = 1000;
+    const { ledger, maintenance } = open({ now: () => (tick += 1000) });
+    const a = ledger.appendRaw(raw(ledger.project.key, "s", "a", "a", "main"));
+    const b = ledger.appendRaw(raw(ledger.project.key, "s", "b", "b", "main"));
+    const na = maintenance.createLeaf([a]);
+    const nb = maintenance.createLeaf([b]);
+    if (!na || !nb) throw new Error("missing leaves");
+    for (const node of [na, nb]) {
+      const job = maintenance.listJobs().find((item) => item.nodeId === node.nodeId);
+      if (!job) throw new Error("missing job");
+      await maintenance.run(job, model(result(node.nodeId)), `${node.nodeId} evidence`);
+    }
+    const scope = new Set(["s:a:1", "s:b:1"]);
+    const selected = maintenance.selectCondensation("s", scope);
+    expect(selected.map((n) => n.nodeId)).toEqual([na.nodeId, nb.nodeId]);
+    ledger.close();
+  });
   it("rejects the next model call at exact project and session caps", async () => {
     const { ledger } = open();
     const limited = new LcmMaintenance(ledger, { budget: { calls: 1, inputTokens: 1, outputTokens: 1, sessionCalls: 1 } });
