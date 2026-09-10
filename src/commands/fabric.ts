@@ -9,6 +9,7 @@ import { armFabricPrewalkSession } from "../prewalk/arm.js";
 import { truncateMiddle } from "../util.js";
 import type { FabricUiController } from "../ui/controller.js";
 import { FABRIC_CONVERSATION_SHORTCUT } from "../ui/conversation-shortcut.js";
+import { lcmStatusLine } from "../compaction/lcm-status.js";
 import { safeText } from "../ui/format.js";
 import {
   FABRIC_PEER_AWAIT_SETTLE_EVENT,
@@ -1174,11 +1175,7 @@ export function registerFabricCommand(omp: ExtensionAPI, deps: FabricCommandDeps
             if (config.compaction.engine !== "lcm") return `compaction: ${config.compaction.engine}`;
             const lcm = state.lcmStatus();
             if (!lcm) return "compaction: lcm · ledger not open yet";
-            const report = lcm.report();
-            const summaries = report.modelNodes + report.emergencyNodes;
-            const model = report.summaryModel || "inherit";
-            const calls = Number.isFinite(report.budget.calls) ? `${report.usage.calls}/${report.budget.calls}` : `${report.usage.calls}`;
-            return `compaction: lcm · ${report.state} · model ${model} · ${report.rawEntries} entries · ${summaries} nodes (${report.modelNodes} by model, ${report.emergencyNodes} excerpt) · today ${calls} calls, ${Math.round(report.usage.wallMs / 1000)}s${report.degraded ? ` · degraded: ${report.degraded}` : ""}`;
+            return lcmStatusLine(lcm.report());
           })(),
           `MCP: ${config.mcp.enabled ? "enabled" : "disabled"}`,
           `UI: ${config.ui.enabled ? `${config.ui.widget} widget above chat` : "disabled"}`,

@@ -1,6 +1,7 @@
 import type { Theme } from "@oh-my-pi/pi-coding-agent";
 import { truncateToWidth, visibleWidth } from "@oh-my-pi/pi-tui";
 import type { LcmDashboardNode, LcmStatusSource } from "../fabric-runtime-state.js";
+import { lcmStatusLabel } from "../compaction/lcm-status.js";
 import { formatClock, formatCost, padToWidth, safeText, wrapPlainText } from "./format.js";
 
 export const LCM_NODE_PAGE = 200;
@@ -89,9 +90,11 @@ export const renderLcmHeaderLines = (
   width: number,
 ): string[] => {
   const { report } = snapshot;
+  const raced = report.reconciliation?.raced ?? 0;
   const summary = [
-    report.state,
-    report.degraded ? `degraded ${report.degraded}` : undefined,
+    lcmStatusLabel(report),
+    report.degraded ? `fault ${report.degraded}` : undefined,
+    raced > 0 ? `reconciliation retried ${raced} raced read${raced === 1 ? "" : "s"}` : undefined,
     `session ${report.sessionId ?? "none"} · ${report.sessionEntries} entries`,
     `ledger ${report.rawEntries} entries`,
     `model ${report.summaryModel || "inherit"}`,

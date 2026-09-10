@@ -800,6 +800,56 @@ describe("LCM runtime", () => {
     await runtime.shutdown();
   });
 
+  it("clears a reconciliation error once a later pass reads the session file", async () => {
+    const root = makeRoot();
+    const selected = path.join(root, "late.jsonl");
+    const runtime = openRuntime(makeContext(root, [makeEntry("e1", "source")], selected), { rootDir: root });
+    await runtime.reconcileSelectedSession();
+
+    expect(runtime.reconciliation?.errors).toBe(1);
+    expect(runtime.report().degraded).toContain("reported 1 error(s)");
+
+    fs.writeFileSync(selected, `${JSON.stringify({ type: "session", id: "session-1", cwd: root, timestamp: "2026-09-01T00:00:00.000Z" })}\n${JSON.stringify(makeEntry("e1", "source"))}\n`);
+    await runtime.maintain();
+
+    expect(runtime.reconciliation?.errors).toBe(0);
+    expect(runtime.report().degraded ?? "").not.toContain("reconciliation");
+    await runtime.shutdown();
+  });
+
+  it("keeps reporting a session file that never becomes readable", async () => {
+    const root = makeRoot();
+    const runtime = openRuntime(makeContext(root, [makeEntry("e1", "source")], path.join(root, "absent.jsonl")), { rootDir: root });
+    await runtime.reconcileSelectedSession();
+
+    for (let turn = 0; turn < 5; turn += 1) await runtime.maintain();
+
+    expect(runtime.reconciliation?.errors).toBe(1);
+    expect(runtime.report().degraded).toContain("reported 1 error(s)");
+    expect(runtime.report().state).toBe("degraded");
+    expect(runtime.report().ledgerState).toBe("healthy");
+    await runtime.shutdown();
+  });
+
+  it("keeps a dropped entry surfaced across later passes", async () => {
+    const root = makeRoot();
+    const selected = path.join(root, "dropped.jsonl");
+    const oversized = { type: "message", id: "huge", parentId: null, timestamp: "2026-09-01T00:00:00.000Z", message: { role: "user", content: "x".repeat(8 * 1_024 * 1_024) } };
+    fs.writeFileSync(selected, `${JSON.stringify({ type: "session", id: "session-1", cwd: root, timestamp: "2026-09-01T00:00:00.000Z" })}\n${JSON.stringify(makeEntry("e1", "source"))}\n${JSON.stringify(oversized)}\n`);
+    const runtime = openRuntime(makeContext(root, [makeEntry("e1", "source")], selected), { rootDir: root });
+    await runtime.reconcileSelectedSession();
+
+    expect(runtime.reconciliation?.drops.entries).toBe(1);
+    expect(runtime.report().degraded).toContain("1 line skipped as oversized");
+
+    await runtime.maintain();
+
+    expect(runtime.report().degraded).toContain("1 line skipped as oversized");
+    expect(runtime.report().state).toBe("degraded");
+    expect(runtime.report().ledgerState).toBe("healthy");
+    await runtime.shutdown();
+  });
+
   it("keeps a reconciliation error visible after the next readback", async () => {
     const root = makeRoot();
     const runtime = openRuntime(makeContext(root, [makeEntry("e1", "source")], path.join(root, "missing.jsonl")), { rootDir: root });

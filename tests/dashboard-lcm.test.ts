@@ -3,6 +3,7 @@ import type { TUI } from "@oh-my-pi/pi-tui";
 import { describe, expect, it, vi } from "vitest";
 import { FabricDashboard } from "../src/ui/dashboard.js";
 import { migrationDropReasons } from "../src/storage/lcm-migration.js";
+import { lcmStatusLabel, lcmStatusLine, reconcileLcmState } from "../src/compaction/lcm-status.js";
 import type { LcmDashboardNode, LcmStatusSource } from "../src/fabric-runtime-state.js";
 import type { FabricDashboardSnapshot } from "../src/ui/types.js";
 
@@ -60,11 +61,14 @@ const node = (
 
 const report = (
   overrides: Partial<ReturnType<LcmStatusSource["report"]>> = {},
-): ReturnType<LcmStatusSource["report"]> => ({
+): ReturnType<LcmStatusSource["report"]> => {
+  const ledgerState = overrides.ledgerState ?? "healthy";
+  const degraded = overrides.degraded;
+  return {
   projectKey: "v1:project",
   sessionId: "session-1",
-  state: "healthy",
-  degraded: undefined,
+  ledgerState,
+  degraded,
   reconciliation: undefined,
   summaryModel: "anthropic/claude-haiku",
   rawEntries: 5_392,
@@ -77,7 +81,9 @@ const report = (
   usage: { calls: 4, inputTokens: 100, outputTokens: 20, cost: 0.031, wallMs: 55_000 },
   budget: { calls: Number.POSITIVE_INFINITY, sessionCalls: 16, wallMs: 7_200_000 },
   ...overrides,
-});
+  state: reconcileLcmState(ledgerState, degraded),
+  };
+};
 
 interface StubOptions {
   nodes?: LcmDashboardNode[];
@@ -311,12 +317,69 @@ describe("Fabric dashboard LCM view", () => {
     }
   });
 
+  it("never prints healthy beside a fault while keeping the ledger fact readable", () => {
+    const faulted = report({ ledgerState: "healthy", degraded: "LCM session reconciliation reported 1 error(s)" });
+
+    expect(faulted.state).toBe("degraded");
+    expect(faulted.ledgerState).toBe("healthy");
+    expect(lcmStatusLabel(faulted)).toBe("degraded (ledger healthy)");
+
+    const line = lcmStatusLine(faulted);
+    expect(line).not.toContain("lcm · healthy");
+    expect(line).toContain("degraded (ledger healthy)");
+    expect(line).toContain("reported 1 error(s)");
+
+    const { source } = stub({ report: { ledgerState: "healthy", degraded: "LCM session reconciliation reported 1 error(s)" } });
+    const { dashboard, rendered } = openLcm(source, 200);
+    try {
+      const unwrapped = rendered.replace(/[│╭╮╰╯─]/g, " ").replace(/\s+/g, " ");
+      expect(unwrapped).toContain("degraded (ledger healthy)");
+      expect(unwrapped).toContain("reported 1 error(s)");
+      expect(unwrapped).not.toMatch(/(?<!\(ledger )healthy/);
+    } finally {
+      dashboard.dispose();
+    }
+  });
+
+  it("keeps a healthy ledger word when nothing faulted", () => {
+    const clean = report();
+
+    expect(clean.state).toBe("healthy");
+    expect(lcmStatusLabel(clean)).toBe("healthy");
+    expect(lcmStatusLine(clean)).toContain("compaction: lcm · healthy · model");
+    expect(lcmStatusLine(clean)).not.toContain("fault:");
+  });
+
+  it("names the raced reads reconciliation retried without calling them a fault", () => {
+    const { source } = stub({
+      report: {
+        reconciliation: {
+          degraded: false,
+          errors: 0,
+          raced: 2,
+          drops: { oversizedFiles: 0, oversizedFileBytes: 0, oversizedLines: 0, oversizedLineBytes: 0, skippedFiles: 0, entries: 0 },
+          reasons: [],
+        },
+      },
+    });
+    const { dashboard, rendered } = openLcm(source, 200);
+    try {
+      const unwrapped = rendered.replace(/[│╭╮╰╯─]/g, " ").replace(/\s+/g, " ");
+      expect(unwrapped).toContain("reconciliation retried 2 raced reads");
+      expect(unwrapped).toContain("healthy");
+      expect(unwrapped).not.toContain("fault");
+    } finally {
+      dashboard.dispose();
+    }
+  });
+
   it("names what reconciliation dropped from the immutable store", () => {
     const { source } = stub({
       report: {
         reconciliation: {
           degraded: true,
           errors: 0,
+          raced: 0,
           drops: {
             oversizedFiles: 2,
             oversizedFileBytes: 3_500_000,

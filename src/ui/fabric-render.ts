@@ -133,7 +133,6 @@ class BoundedLineList implements Component {
     readonly lines: string[],
     private readonly theme?: Theme,
     private readonly diffIntensity: DiffBackgroundIntensity = "off",
-    private readonly wrapLineIndexes?: ReadonlySet<number>,
     private readonly wrapRowLimit?: number,
     private readonly inheritBackground = false,
   ) {}
@@ -147,23 +146,21 @@ class BoundedLineList implements Component {
       const rawLine = this.lines[lineIndex]!;
       const { kind, line } = parseMarkedDiffLine(rawLine);
       if (!kind) {
-        let renderedRows: string[];
-        if (this.wrapLineIndexes?.has(lineIndex)) {
-          const continuationIndent = width > 2 ? "  " : "";
-          const wrapped = wrapTextWithAnsi(
-            line,
-            Math.max(1, width - visibleWidth(continuationIndent)),
-          );
-          const limit = Math.max(1, this.wrapRowLimit ?? wrapped.length);
-          const kept = wrapped.slice(0, limit);
-          const dropped = wrapped.length - kept.length;
-          renderedRows = kept.map((row, index) => {
-            const indented = index === 0 ? row : continuationIndent + row;
-            return dropped > 0 && index === kept.length - 1
-              ? appendWrapDropMarker(indented, width, dropped, this.theme)
-              : truncateBoundedLine(indented, width);
-          });
-        } else renderedRows = [truncateBoundedLine(line, width)];
+        const continuationIndent = width > 2 ? "  " : "";
+        const wrapped = wrapTextWithAnsi(
+          line,
+          Math.max(1, width - visibleWidth(continuationIndent)),
+        );
+        if (wrapped.length === 0) wrapped.push("");
+        const limit = Math.max(1, this.wrapRowLimit ?? wrapped.length);
+        const kept = wrapped.slice(0, limit);
+        const dropped = wrapped.length - kept.length;
+        const renderedRows = kept.map((row, index) => {
+          const indented = index === 0 ? row : continuationIndent + row;
+          return dropped > 0 && index === kept.length - 1
+            ? appendWrapDropMarker(indented, width, dropped, this.theme)
+            : truncateBoundedLine(indented, width);
+        });
         rows.push(...(
           this.inheritBackground
             ? renderedRows.map(inheritEnclosingBackground)
@@ -200,7 +197,6 @@ class BoundedLineList implements Component {
       this.lines,
       this.theme,
       this.diffIntensity,
-      this.wrapLineIndexes,
       this.wrapRowLimit,
       true,
     );
@@ -234,10 +230,11 @@ export const renderBoundedLines = (
   lines: string[],
   theme?: Theme,
   diffIntensity: DiffBackgroundIntensity = "off",
-  wrapLineIndexes?: ReadonlySet<number>,
   wrapRowLimit?: number,
-): Component =>
-  new BoundedLineList(lines, theme, diffIntensity, wrapLineIndexes, wrapRowLimit);
+): Component => new BoundedLineList(lines, theme, diffIntensity, wrapRowLimit);
+
+export const wrapRowLimitFor = (expanded: boolean): number | undefined =>
+  expanded ? undefined : COMPACT_WRAP_ROWS;
 
 export const fabricMulticallCallLimit = (expanded: boolean): number =>
   expanded ? EXPANDED_MULTICALL_LIMIT : COLLAPSED_MULTICALL_LIMIT;
@@ -438,7 +435,7 @@ export const renderFabricWriteArgumentPreview = (
           (input.expanded ? "" : theme.fg("dim", " · ") + expandHint(theme)),
       );
     }
-    return renderBoundedLines(rows);
+    return renderBoundedLines(rows, theme, "off", wrapRowLimitFor(input.expanded));
   }
 
   const completed = Math.max(
@@ -501,7 +498,7 @@ export const renderFabricWriteArgumentPreview = (
         (input.expanded ? "" : theme.fg("dim", " · ") + expandHint(theme)),
     );
   }
-  return renderBoundedLines(rows);
+  return renderBoundedLines(rows, theme, "off", wrapRowLimitFor(input.expanded));
 };
 
 const shortIdOf = (value: unknown): string | undefined =>
@@ -983,10 +980,7 @@ export const renderFabricMulticallPartial = (
   if (progress) header += theme.fg("dim", ` · ${progress}`);
 
   const rows = [header];
-  const wrapLineIndexes = new Set<number>([0]);
-  const wrapRowLimit = input.expanded ? undefined : COMPACT_WRAP_ROWS;
   if (input.phases.length > 0) {
-    wrapLineIndexes.add(rows.length);
     rows.push(theme.fg("dim", input.phases.map((phase) => `◆ ${phase}`).join("  ")));
   }
 
@@ -1013,7 +1007,6 @@ export const renderFabricMulticallPartial = (
     } else if (previewLines[0]) {
       callRow += ` ${previewLines[0]}`;
     }
-    wrapLineIndexes.add(rows.length);
     rows.push(callRow);
     if (audit.success !== false && input.preview?.auditIndex === auditIndex) {
       for (const line of input.preview.body.split("\n")) rows.push(`  ${line}`);
@@ -1027,17 +1020,13 @@ export const renderFabricMulticallPartial = (
       }
     }
     if (audit.success !== false && previewLines.length > 1) {
-      for (const line of previewLines.slice(1)) {
-        wrapLineIndexes.add(rows.length);
-        rows.push(line);
-      }
+      for (const line of previewLines.slice(1)) rows.push(line);
     }
   }
 
   const callsHidden = input.audits.length - callsShown.length;
   if (callsHidden > 0) {
     const label = `… ${callsHidden} nested ${callsHidden === 1 ? "call" : "calls"} hidden`;
-    wrapLineIndexes.add(rows.length);
     rows.push(
       theme.fg("dim", label) +
         (input.expanded ? "" : theme.fg("dim", " · ") + expandHint(theme)),
@@ -1047,8 +1036,7 @@ export const renderFabricMulticallPartial = (
     rows,
     theme,
     input.core?.settings.diffIntensity ?? "off",
-    wrapLineIndexes,
-    wrapRowLimit,
+    wrapRowLimitFor(input.expanded),
   );
 };
 

@@ -66,11 +66,10 @@ describe("TUI width bounds (#84)", () => {
 
   it("bounds wrapped and truncated bounded-line rows at narrow widths", () => {
     for (const width of [50, 51, 20, 11, 3, 1]) {
-      const wrapIndexes = new Set(adversarialLines.map((_line, index) => index));
-      const wrapped = renderBoundedLines(adversarialLines, plainTheme, "off", wrapIndexes);
-      expectBounded(wrapped.render(width), width);
-      const unwrapped = renderBoundedLines(adversarialLines, plainTheme, "off");
-      expectBounded(unwrapped.render(width), width);
+      const bounded = renderBoundedLines(adversarialLines, plainTheme, "off", 3);
+      expectBounded(bounded.render(width), width);
+      const unbounded = renderBoundedLines(adversarialLines, plainTheme, "off");
+      expectBounded(unbounded.render(width), width);
     }
   });
 
@@ -1653,13 +1652,25 @@ b`, theme)).toBe("");
     expect(title).not.toContain("3");
   });
 
-  it("preserves the enclosing Box background when bounded rows are truncated", () => {
+  it("preserves the enclosing Box background across wrapped bounded rows", () => {
     const box = new Box(1, 0, (text) => "\x1b[42m" + text + "\x1b[49m");
     box.addChild(renderBoundedLines(["x".repeat(40)]));
 
+    const lines = box.render(20);
+    expect(lines.every((line) => visibleWidth(line) === 20)).toBe(true);
+    expect(lines.every((line) => line.startsWith("\x1b[42m"))).toBe(true);
+    expect(lines.join("")).not.toContain("\x1b[0m");
+    expect(lines.join("").replace(/\x1b\[[0-9;]*m/g, "").replace(/\s+/g, ""))
+      .toBe("x".repeat(40));
+  });
+
+  it("keeps the enclosing Box background when a bounded row is truncated", () => {
+    const box = new Box(1, 0, (text) => "\x1b[42m" + text + "\x1b[49m");
+    box.addChild(renderBoundedLines(["x".repeat(40)], undefined, "off", 1));
+
     const line = box.render(20)[0]!;
     expect(line).toBe(
-      "\x1b[42m " + "x".repeat(18) + "\x1b[22;23;24;27;29;39m \x1b[49m",
+      "\x1b[42m " + "x".repeat(14) + "\x1b[22;23;24;27;29;39m …+2 \x1b[49m",
     );
     expect(visibleWidth(line)).toBe(20);
   });

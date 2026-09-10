@@ -32,6 +32,10 @@ SQLite uses WAL, `synchronous=FULL`, a serialized writer, a 5-second busy timeou
 
 The selected-session reconciler stores a source generation/checkpoint and resumes after interruption. It does not perform a global three-day migration. The old bulk migration command is not part of normal operation.
 
+Reconciling the live session reads a file the session itself is writing. A read the writer moves under the reader is counted as `raced` and retried up to three times; only a settled read is scanned. A raced read is never counted as an error, and the panel names how many reads were retried. A source that never settles within those attempts is reported as incomplete discovery. An unreadable source, a project-key mismatch, and a dropped entry stay errors and drops.
+
+A reconciliation fault recorded at startup would otherwise last the whole session, because reconciliation runs once at session selection. While the record holds an error, the next three turn boundaries re-run the same reconciliation after readback. A clean pass replaces the record and clears the message; a fault that is still true is recorded again at the same volume. Drops are facts about content already read, so a later pass leaves them standing.
+
 ## Summary maintenance
 
 The dedicated model is selected from `compaction.summaryModel` through OMP's public model registry and session-aware resolver. Pick it in `/fabric settings` under Compaction > Summary model, which lists the models OMP has available and offers Inherit to fall back to the active session model. The runtime resolves compaction options at use time, so a change applies to the next maintenance pass and the next compaction without restarting the session. The active session model is the fallback when the dedicated route is unavailable. Leaf and condensed prompts XML-fence transcript evidence and treat it as untrusted data.
@@ -126,6 +130,8 @@ Raise `lcmMaintenancePasses` (1-64) for more leaves per turn. Model spend carrie
 ## Inspecting a live ledger
 
 `/fabric status` carries one LCM line: operational state, summary model, entry count, how many ready nodes the model wrote against how many exist, and today's calls and model seconds against their budget.
+
+The report carries one reconciled `state` that already accounts for any runtime fault, so a surface that prints it can never place `healthy` beside a fault message. `ledgerState` keeps the ledger's own word, and both renderers print `degraded (ledger healthy)` when the store is intact while the runtime holds a fault. A third surface that prints `state` alone stays truthful without repeating the reconciliation.
 
 Every compaction key appears in `/fabric settings` under Compaction. `/fabric dashboard` carries the ledger on key `3`: the coverage band for the active branch, the node graph paged by depth, the text a compaction would serve right now beside the session payload it draws from, and a node detail that opens the exact stored raw entry behind any source. A node replaced by a model summary keeps its previous text, so an excerpt and the summary that superseded it sit side by side. The reads happen once per refresh; nothing in the render path touches the ledger.
 

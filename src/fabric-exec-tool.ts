@@ -57,6 +57,7 @@ import {
   restoreLegacyBashCommands,
   safeTerminalText,
   singleCallProgressLine,
+  wrapRowLimitFor,
   type FabricAgentPreview,
   type FabricCallHeadlinePreview,
   type FabricCoreToolPreview,
@@ -325,16 +326,21 @@ export const createFabricExecTool = (
         // Session-wide memo keyed by the program string: the same hint serves
         // the live card, the activity feed, and compaction intent.
         const title = display?.name?.trim() || fabricExecTitleHintCached(code);
-        const header = renderBoundedLines(
-          [
-            theme.fg("toolTitle", theme.bold(safeTerminalText(title || "Fabric"))),
-            ...(display?.description
-              ? [theme.fg("dim", safeTerminalText(display.description))]
-              : []),
-          ],
+        const header = new Container();
+        header.addChild(renderBoundedLines(
+          [theme.fg("toolTitle", theme.bold(safeTerminalText(title || "Fabric")))],
           theme,
           codePreviewSettings.diffIntensity,
-        );
+          1,
+        ));
+        if (display?.description) {
+          header.addChild(renderBoundedLines(
+            [theme.fg("dim", safeTerminalText(display.description))],
+            theme,
+            codePreviewSettings.diffIntensity,
+            wrapRowLimitFor(false),
+          ));
+        }
         if (!writePreview) return header;
         const composite = new Container();
         composite.addChild(header);
@@ -452,8 +458,7 @@ export const createFabricExecTool = (
       }
       const phases = details.phases;
       const nl = "\n";
-      const allRowIndexes = (lines: string[], enabled: boolean): ReadonlySet<number> | undefined =>
-        enabled ? new Set(lines.map((_line, index) => index)) : undefined;
+      const wrapRowLimit = wrapRowLimitFor(expanded);
       // Expanded (app.tools.expand / ctrl+o) promotes compact cards to the
       // full rendering; compact only governs the collapsed presentation.
       const compact = !expanded && toolDisplayMode(state) === "compact";
@@ -545,13 +550,12 @@ export const createFabricExecTool = (
             else text = `${text.slice(0, firstBreak)} ${previewLines[0]}${text.slice(firstBreak)}`;
             if (previewLines.length > 1) text += nl + previewLines.slice(1).join(nl);
           }
-          const textLines = text.split(nl);
           return trackRows(
             renderBoundedLines(
-              textLines,
+              text.split(nl),
               theme,
               codePreviewSettings.diffIntensity,
-              allRowIndexes(textLines, previewLines.length > 0),
+              wrapRowLimit,
             ),
           );
         }
@@ -657,7 +661,12 @@ export const createFabricExecTool = (
           if (!expanded) text += theme.fg("dim", " · ") + expandHint(theme);
         }
         return trackRows(
-          renderBoundedLines(text.split(nl), theme, codePreviewSettings.diffIntensity),
+          renderBoundedLines(
+            text.split(nl),
+            theme,
+            codePreviewSettings.diffIntensity,
+            wrapRowLimit,
+          ),
         );
       }
 
@@ -719,13 +728,12 @@ export const createFabricExecTool = (
             if (!expanded) text += theme.fg("dim", " · ") + expandHint(theme);
           }
         }
-        const textLines = text.split(nl);
         return trackRows(
           renderBoundedLines(
-            textLines,
+            text.split(nl),
             theme,
             codePreviewSettings.diffIntensity,
-            allRowIndexes(textLines, previewLines.length > 0),
+            wrapRowLimit,
           ),
         );
       }
@@ -772,7 +780,6 @@ export const createFabricExecTool = (
       }
       let firstNested = true;
       const textRows = text.split(nl);
-      const agentWrapLineIndexes = new Set<number>();
       for (let index = 0; index < callsShown.length; index++) {
         const audit = callsShown[index]!;
         if (expanded && !firstNested) textRows.push("");
@@ -787,20 +794,12 @@ export const createFabricExecTool = (
           ...(context?.invalidate ? { invalidate: context.invalidate } : {}),
         });
         let callRow = `${glyph} ${nestedCallTitle(audit, theme, context?.invalidate, corePreviewContext)}`;
-        if (previewLines[0] && audit.success !== false) {
-          callRow += ` ${previewLines[0]}`;
-          if (expanded) agentWrapLineIndexes.add(textRows.length);
-        }
+        if (previewLines[0] && audit.success !== false) callRow += ` ${previewLines[0]}`;
         textRows.push(callRow);
         if (audit.success === false && audit.error) {
           textRows.push(`  ${theme.fg("error", safeTerminalText(audit.error))}`);
         } else {
-          if (previewLines.length > 1) {
-            for (const line of previewLines.slice(1)) {
-              agentWrapLineIndexes.add(textRows.length);
-              textRows.push(line);
-            }
-          }
+          if (previewLines.length > 1) textRows.push(...previewLines.slice(1));
           const rendered = previewLines.length === 0 && expanded ? renderBody(audit, 40) : null;
           if (rendered) {
             textRows.push(...rendered.body.split(nl));
@@ -845,7 +844,7 @@ export const createFabricExecTool = (
           text.split(nl),
           theme,
           codePreviewSettings.diffIntensity,
-          agentWrapLineIndexes,
+          wrapRowLimit,
         ),
       );
     },

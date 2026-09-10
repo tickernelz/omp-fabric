@@ -5,6 +5,7 @@ import { clipUtf8, MAX_SUMMARY_BYTES, utf8Bytes } from "./bounds.js";
 import { lcmSummaryAddress, renderLcmChildAddresses, renderLcmSourceAddresses } from "./lcm-addresses.js";
 import { emergencyReduce, LcmModelAdapter, type LcmSummarizer } from "./lcm-model.js";
 import { LCM_RECOVERY_POINTER } from "./render.js";
+import { reconcileLcmState } from "./lcm-status.js";
 import { DEFAULT_LEAF_ENTRIES, LcmMaintenance, type LcmBudgetPolicy, type LcmJob, type LcmNode } from "./lcm-maintenance.js";
 import type { LcmCompactionInput, LcmCompactionOutput } from "./hook.js";
 
@@ -22,6 +23,7 @@ export interface LcmPreview {
 export interface LcmReconciliation {
   degraded: boolean;
   errors: number;
+  raced: number;
   drops: MigrationDrops;
   reasons: string[];
 }
@@ -30,6 +32,7 @@ export interface LcmReport {
   projectKey: string;
   sessionId: string | undefined;
   state: string;
+  ledgerState: string;
   degraded: string | undefined;
   summaryModel: string | undefined;
   rawEntries: number;
@@ -63,6 +66,7 @@ export interface LcmRuntimeOptions {
 }
 
 const LEASE_SWEEP_GRACE_MS = 60_000;
+const MAX_RECONCILE_RECOVERIES = 3;
 const CLAIMABLE_JOB_LIMIT = 256;
 const FAILED_JOB_WINDOW_MS = 24 * 60 * 60 * 1_000;
 const NODE_ADDRESS_LABEL = "address: ";
@@ -157,6 +161,7 @@ export class LcmRuntime {
   private activeSources = new Set<string>();
   private activeSessionId: string | undefined;
   private lastReconciliation: LcmReconciliation | undefined;
+  private reconcileRecoveries = 0;
 
   constructor(context: ExtensionContext, options: LcmRuntimeOptions | (() => LcmRuntimeOptions) = {}) {
     this.context = context;
@@ -247,12 +252,21 @@ export class LcmRuntime {
       this.lastReconciliation = {
         degraded: result.degraded,
         errors: result.counts.errors,
+        raced: result.counts.raced,
         drops: result.drops,
         reasons: migrationDropReasons(result.drops),
       };
+      if (result.counts.errors === 0) this.reconcileRecoveries = 0;
       const sessionId = this.context.sessionManager.getSessionId();
       this.refreshActiveSources(sessionId, this.context.sessionManager.getBranch());
     });
+  }
+
+  private recoverReconciliation(): Promise<void> {
+    if ((this.lastReconciliation?.errors ?? 0) === 0) return Promise.resolve();
+    if (this.reconcileRecoveries >= MAX_RECONCILE_RECOVERIES) return Promise.resolve();
+    this.reconcileRecoveries += 1;
+    return this.reconcileSelectedSession();
   }
 
   readback(): Promise<void> {
@@ -290,6 +304,7 @@ export class LcmRuntime {
   async syncAndSchedule(): Promise<void> {
     if (this.closed) return;
     await this.readback();
+    await this.recoverReconciliation();
     this.reclaimExpiredLeases();
     if (this.maintenanceTrigger() !== undefined) this.scheduleMaintenance();
   }
@@ -482,6 +497,8 @@ export class LcmRuntime {
 
   report(): LcmReport {
     const day = new Date(Date.now()).toISOString().slice(0, 10);
+    const degraded = this.degradedMessage();
+    const ledgerState = this.ledger.operationalState;
     return this.ledger.readOnly((db) => {
       const count = (sql: string, ...params: unknown[]): number =>
         Number((db.prepare(sql).get(...params) as { n: number }).n);
@@ -493,8 +510,9 @@ export class LcmRuntime {
       return {
         projectKey: this.projectKey,
         sessionId: this.activeSessionId,
-        state: this.ledger.operationalState,
-        degraded: this.degradedMessage(),
+        state: reconcileLcmState(ledgerState, degraded),
+        ledgerState,
+        degraded,
         summaryModel: this.options.summaryModel,
         rawEntries: count("SELECT count(*) n FROM raw_entries WHERE project_key=?", this.projectKey),
         sessionEntries: this.activeSessionId === undefined ? 0 : count("SELECT count(*) n FROM raw_entries WHERE project_key=? AND session_id=?", this.projectKey, this.activeSessionId),

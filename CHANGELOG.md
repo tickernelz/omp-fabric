@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.13.1
+
+### Fixed
+
+- The status line no longer reads `healthy` beside a fault. `state` described the ledger file and the fault message described the runtime, and printing them side by side produced `lcm · healthy · … · degraded: …`. The report now carries one reconciled status, with the ledger's own word kept separately, so a renderer added later is correct without repeating the reconciliation. When the two facts differ the line says `degraded (ledger healthy)`.
+- Reconciling the live session's own file while that file is being appended is counted as a raced read and retried, no longer as an error. The reader validates the file size before and after, and a session writing its own transcript trips that check by construction. A source that never settles is reported as incomplete discovery. An unreadable file, a cross-project mismatch and a dropped entry are all still counted and surfaced exactly as before.
+- A reconciliation fault no longer outlives its cause. It was recorded once at session selection, and with a single call site nothing revisited it, so one momentary race pinned the message for the rest of the session. While an error is outstanding the runtime re-runs the same check at the turn boundary, at most three times per session, and only a clean pass replaces the record.
+- Long lines wrap on every tool surface. 1.13.0 fixed the multicall renderer; the single-call and settled-result surfaces in `fabric-exec-tool.ts` kept clipping, one of them because wrapping was tied to whether the call happened to produce agent preview lines. That flag was tracked to the commit that introduced it and protected nothing. Wrapping is now the default in `BoundedLineList` and cannot be omitted at a call site; the row limit is the only knob. Nine call sites across two files were audited, and the four that could clip user-visible content now wrap.
+
 ## 1.13.0
 
 ### Fixed

@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { discoverMigrationSessions, migrationDropReasons, migrationWindow, migrateSessions, reconcileSession, sourceStillValid } from "../../src/storage/lcm-migration.js";
 import { openLedger, releaseTemp, tempRoot } from "../fixtures/lcm-temp.js";
 const make = () => tempRoot("lcm-migrate-");
@@ -31,6 +31,76 @@ describe("LCM session migration", () => {
     expect(l.readRaw().map(entry=>entry.entryId)).toEqual(["a","b"]);
     expect(sourceStillValid(100, 220)).toBe(true);
     expect(sourceStillValid(220, 100)).toBe(false);
+  });
+  it("retries a source the live session grew under the reader instead of counting an error", () => {
+    const root=make(); const cwd=path.join(root,"project"); fs.mkdirSync(cwd);
+    const p=file(root,cwd,[header(cwd),msg("a","2026-09-07T00:00:00.000Z")]);
+    const settled=[header(cwd),msg("a","2026-09-07T00:00:00.000Z"),msg("b","2026-09-07T00:00:01.000Z")].map(row=>JSON.stringify(row)).join("\n")+"\n";
+    const readSync=fs.readSync.bind(fs);
+    let grown=false;
+    const spy=vi.spyOn(fs,"readSync").mockImplementation(((...args: Parameters<typeof fs.readSync>) => {
+      if (grown) return readSync(...args);
+      grown=true;
+      fs.writeFileSync(p, settled);
+      return 0;
+    }) as typeof fs.readSync);
+    const l=openLedger({dbPath:path.join(root,"l.sqlite"),project:{liveCwd:cwd}});
+    const result=reconcileSession({agentDir:root,ledger:l,files:[p] as [string],liveCwd:cwd,projectCwd:cwd,apply:true});
+    spy.mockRestore();
+
+    expect(result.counts.errors).toBe(0);
+    expect(result.counts.incompleteDiscovery).toBe(0);
+    expect(result.counts.raced).toBe(1);
+    expect(result.exitCode).toBe(0);
+    expect(l.readRaw().map(entry=>entry.entryId)).toEqual(["a","b"]);
+    l.close();
+  });
+  it("still counts an unreadable source as an error", () => {
+    const root=make(); const cwd=path.join(root,"project"); fs.mkdirSync(cwd);
+    const l=openLedger({dbPath:path.join(root,"l.sqlite"),project:{liveCwd:cwd}});
+
+    const missing=reconcileSession({agentDir:root,ledger:l,files:[path.join(root,"gone.jsonl")] as [string],liveCwd:cwd,projectCwd:cwd,apply:true});
+    expect(missing.counts.errors).toBe(1);
+    expect(missing.counts.raced).toBe(0);
+    expect(missing.exitCode).toBe(1);
+
+    const p=file(root,cwd,[header(cwd),msg("a","2026-09-07T00:00:00.000Z")]);
+    const spy=vi.spyOn(fs,"readSync").mockImplementation((() => { throw Object.assign(new Error("EIO"),{code:"EIO"}); }) as typeof fs.readSync);
+    const unreadable=reconcileSession({agentDir:root,ledger:l,files:[p] as [string],liveCwd:cwd,projectCwd:cwd,apply:true});
+    spy.mockRestore();
+
+    expect(unreadable.counts.errors).toBe(1);
+    expect(unreadable.counts.raced).toBe(0);
+    expect(unreadable.exitCode).toBe(1);
+    expect(l.readRaw()).toHaveLength(0);
+    l.close();
+  });
+  it("still counts a session recorded under another project as an error", () => {
+    const root=make(); const cwd=path.join(root,"project"); const other=path.join(root,"other"); fs.mkdirSync(cwd); fs.mkdirSync(other);
+    const p=file(root,other,[header(other),msg("a","2026-09-07T00:00:00.000Z")]);
+    const l=openLedger({dbPath:path.join(root,"l.sqlite"),project:{liveCwd:cwd}});
+    const result=migrateSessions({agentDir:root,ledger:l,files:[p],now:Date.parse("2026-09-08T00:00:00.000Z"),apply:true});
+
+    expect(result.counts.errors).toBe(1);
+    expect(result.counts.raced).toBe(0);
+    expect(result.counts.imported).toBe(0);
+    expect(result.exitCode).toBe(1);
+    expect(l.readRaw()).toHaveLength(0);
+    l.close();
+  });
+  it("gives up on a source that never settles without calling it an error", () => {
+    const root=make(); const cwd=path.join(root,"project"); fs.mkdirSync(cwd);
+    const p=file(root,cwd,[header(cwd),msg("a","2026-09-07T00:00:00.000Z")]);
+    const spy=vi.spyOn(fs,"readSync").mockImplementation((() => 0) as typeof fs.readSync);
+    const l=openLedger({dbPath:path.join(root,"l.sqlite"),project:{liveCwd:cwd}});
+    const result=reconcileSession({agentDir:root,ledger:l,files:[p] as [string],liveCwd:cwd,projectCwd:cwd,apply:true});
+    spy.mockRestore();
+
+    expect(result.counts.errors).toBe(0);
+    expect(result.counts.incompleteDiscovery).toBe(1);
+    expect(result.counts.raced).toBe(3);
+    expect(result.exitCode).toBe(1);
+    l.close();
   });
   it("adopts the session header after preamble records", () => { const root=make(); const cwd=path.join(root,"project"); fs.mkdirSync(cwd); const p=path.join(root,"sessions","project","run.jsonl"); fs.mkdirSync(path.dirname(p),{recursive:true}); fs.writeFileSync(p,[{type:"title",v:1,title:"Resumed",source:"auto",updatedAt:"2026-09-07T00:00:00.000Z"},header(cwd),msg("a","2026-09-07T00:00:00.000Z"),msg("b","2026-09-07T00:00:01.000Z")].map(row=>JSON.stringify(row)).join("\n")+"\n"); const l=openLedger({dbPath:path.join(root,"l.sqlite"),project:{liveCwd:cwd}}); const r=migrateSessions({agentDir:root,ledger:l,files:[p],now:Date.parse("2026-09-08T00:00:00.000Z"),apply:true}); expect(r.counts.imported).toBe(2); expect(r.counts.malformed).toBe(0); expect(r.exitCode).toBe(0); expect(l.readRaw().map(entry=>entry.sessionId)).toEqual(["run-1","run-1"]); });
   it("reports the entries it drops at the line size cap", () => {

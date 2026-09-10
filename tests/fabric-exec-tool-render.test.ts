@@ -1,4 +1,5 @@
 import type { Theme, ToolRenderResultOptions } from "@oh-my-pi/pi-coding-agent";
+import { visibleWidth } from "@oh-my-pi/pi-tui";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { FabricState } from "../src/fabric-state.js";
 import { createFabricPersistedExecutionDetails } from "../src/audit/index.js";
@@ -782,5 +783,100 @@ describe("registered fabric_exec compact transcript rendering", () => {
     expect(fullAgain).toContain("currentPresentation");
     expect(fullResultAgain).toContain("Fabric");
     expect(fullResultAgain).not.toContain("Evaluated");
+  });
+});
+
+const REPORTED_COMMAND =
+  "cd /home/zhafron/Works/HMX/hmx-002 && echo '=== needs refs to disabled jobs ===' && "
+  + "grep -n 'demo-flow-gate|demo-scene-version-gate' .gitlab-ci.yml && echo '=== glab ===' && "
+  + "(command -v glab && glab auth status)";
+
+const REPORTED_OUTPUT = [
+  "=== needs refs to disabled jobs ===",
+  "385:demo-scene-version-gate:",
+  "1022:demo-flow-gate:",
+].join("\n");
+
+const reportedDetails = {
+  success: true,
+  phases: [],
+  audits: [
+    {
+      ref: "omp.bash",
+      provider: "omp",
+      tool: "bash",
+      success: true,
+      args: { command: REPORTED_COMMAND },
+      result: REPORTED_OUTPUT,
+    },
+  ],
+};
+
+const normalize = (rendered: string): string => rendered.replace(/\s+/g, " ");
+
+describe("compact single-call rows reach their end", () => {
+  it("wraps the reported bash command instead of clipping it at the terminal edge", () => {
+    const rendered = renderResult(
+      toolFor(stateFor("compact")),
+      { code: "await omp.bash({ cmd: '…' });" },
+      reportedDetails,
+      REPORTED_OUTPUT,
+      { width: 100 },
+    );
+    const rows = rendered.split("\n");
+
+    expect(REPORTED_COMMAND.length).toBeGreaterThan(180);
+    expect(rows.every((row) => visibleWidth(row) <= 100)).toBe(true);
+    expect(normalize(rendered)).toContain(REPORTED_COMMAND);
+    expect(rendered).not.toContain(" …+");
+  });
+
+  it("bounds the collapsed command and leaves the expanded one unbounded", () => {
+    const args = { code: "await omp.bash({ cmd: '…' });" };
+    const collapsed = renderResult(
+      toolFor(stateFor("compact")),
+      args,
+      reportedDetails,
+      REPORTED_OUTPUT,
+      { width: 40 },
+    );
+    const expanded = renderResult(
+      toolFor(stateFor("compact")),
+      args,
+      reportedDetails,
+      REPORTED_OUTPUT,
+      { width: 40, expanded: true },
+    );
+    expect(collapsed.split("\n").every((row) => visibleWidth(row) <= 40)).toBe(true);
+    expect(collapsed).toMatch(/ …\+\d+/);
+    expect(collapsed).not.toContain("glab auth status)");
+
+    expect(expanded.split("\n").every((row) => visibleWidth(row) <= 40)).toBe(true);
+    expect(expanded).not.toContain(" …+");
+    expect(normalize(expanded)).toContain("glab auth status)");
+    expect(expanded.split("\n").length).toBeGreaterThan(collapsed.split("\n").length);
+  });
+
+  it("elides a long compact title on one row and wraps its description", () => {
+    const description =
+      "Persist the verified setting across every profile so the collapsed card still "
+      + "carries the whole declared objective without dropping its ending silently.";
+    const rows = toolFor(stateFor("compact")).renderCall!(
+      {
+        code: "await omp.bash({ command: 'echo hi' });",
+        display: {
+          name: "Apply the verified migration across every configured deployment profile",
+          description,
+        },
+      } as never,
+      { expanded: false, isPartial: false },
+      plainTheme,
+    ).render(48);
+
+    expect(rows.every((row) => visibleWidth(row) <= 48)).toBe(true);
+    expect(rows[0]).toMatch(/ …\+\d+$/);
+    expect(rows[0]).toContain("Apply the verified migration");
+    expect(rows[1]).not.toMatch(/^\s*Apply/);
+    expect(normalize(rows.slice(1).join(" "))).toContain("carries the whole declared objective");
   });
 });

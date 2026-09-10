@@ -42,6 +42,7 @@ interface MigrationCounts {
   malformed: number;
   oversized: number;
   incompleteDiscovery: number;
+  raced: number;
   errors: number;
 }
 export interface MigrationDrops {
@@ -80,6 +81,41 @@ const record = (value: unknown): Record<string, unknown> | undefined =>
 const nonblank = (value: unknown): value is string => typeof value === "string" && value.trim().length > 0;
 /** Session JSONL is append-only, so a longer file is the live session growing. */
 export const sourceStillValid = (before: number, after: number): boolean => after >= before;
+const SOURCE_READ_ATTEMPTS = 3;
+class SourceChangedError extends Error {}
+type SourceRead =
+  | { kind: "data"; raced: number; data: Buffer }
+  | { kind: "not-file"; raced: number }
+  | { kind: "oversized"; raced: number; size: number }
+  | { kind: "over-budget"; raced: number }
+  | { kind: "raced"; raced: number }
+  | { kind: "error"; raced: number };
+const readSource = (file: string, maxFileBytes: number, remainingBytes: number): SourceRead => {
+  let raced = 0;
+  for (let attempt = 0; attempt < SOURCE_READ_ATTEMPTS; attempt += 1) {
+    let fd: number | undefined;
+    try {
+      fd = fs.openSync(file, "r");
+      const before = fs.fstatSync(fd);
+      if (!before.isFile()) return { kind: "not-file", raced };
+      if (before.size > maxFileBytes) return { kind: "oversized", raced, size: before.size };
+      if (before.size > remainingBytes) return { kind: "over-budget", raced };
+      const data = Buffer.allocUnsafe(before.size);
+      let offset = 0;
+      while (offset < data.length) {
+        const size = fs.readSync(fd, data, offset, data.length - offset, offset);
+        if (size === 0) throw new SourceChangedError("source shortened during read");
+        offset += size;
+      }
+      if (!sourceStillValid(before.size, fs.fstatSync(fd).size)) throw new SourceChangedError("source shrank during read");
+      return { kind: "data", raced, data };
+    } catch (error) {
+      if (!(error instanceof SourceChangedError)) return { kind: "error", raced };
+      raced += 1;
+    } finally { if (fd !== undefined) fs.closeSync(fd); }
+  }
+  return { kind: "raced", raced };
+};
 const utc = (value: string): number => {
   if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?(?:Z|\+00:00)$/.test(value)) throw new Error("timestamps must be explicit UTC ISO-8601 values");
   const at = Date.parse(value);
@@ -163,7 +199,7 @@ export function migrateSessions(options: MigrationOptions): MigrationResult {
   const discovery = discoverMigrationSessions(options);
   const result: MigrationResult = {
     mode: options.apply ? "apply" : "dry-run", since: new Date(window.since).toISOString(), until: new Date(window.until).toISOString(),
-    counts: { eligible: 0, imported: 0, skippedDuplicate: 0, skippedOutOfWindow: 0, malformed: 0, oversized: 0, incompleteDiscovery: discovery.incomplete, errors: 0 },
+    counts: { eligible: 0, imported: 0, skippedDuplicate: 0, skippedOutOfWindow: 0, malformed: 0, oversized: 0, incompleteDiscovery: discovery.incomplete, raced: 0, errors: 0 },
     drops: { oversizedFiles: 0, oversizedFileBytes: 0, oversizedLines: 0, oversizedLineBytes: 0, skippedFiles: 0, entries: 0 },
     degraded: false,
     filesScanned: 0, bytesScanned: 0, generations: [], exitCode: 0,
@@ -171,26 +207,20 @@ export function migrateSessions(options: MigrationOptions): MigrationResult {
   const counts = result.counts;
   const drops = result.drops;
   const drySeen = new Set<string>();
-  for (const [position, file] of discovery.files.entries()) {
-    let data: Buffer;
-    let fd: number | undefined;
-    try {
-      fd = fs.openSync(file, "r");
-      const before = fs.fstatSync(fd);
-      if (!before.isFile()) { counts.incompleteDiscovery++; continue; }
-      if (before.size > maxFileBytes) { counts.oversized++; drops.oversizedFiles++; drops.oversizedFileBytes += before.size; continue; }
-      if (result.bytesScanned + before.size > maxTotalBytes) { counts.incompleteDiscovery++; drops.skippedFiles += discovery.files.length - position; break; }
-      data = Buffer.allocUnsafe(before.size);
-      let offset = 0;
-      while (offset < data.length) {
-        const size = fs.readSync(fd, data, offset, data.length - offset, offset);
-        if (size === 0) throw new Error("source shortened during read");
-        offset += size;
+  files: for (const [position, file] of discovery.files.entries()) {
+    const read = readSource(file, maxFileBytes, maxTotalBytes - result.bytesScanned);
+    counts.raced += read.raced;
+    if (read.kind !== "data") {
+      switch (read.kind) {
+        case "not-file": counts.incompleteDiscovery++; break;
+        case "oversized": counts.oversized++; drops.oversizedFiles++; drops.oversizedFileBytes += read.size; break;
+        case "over-budget": counts.incompleteDiscovery++; drops.skippedFiles += discovery.files.length - position; break files;
+        case "raced": counts.incompleteDiscovery++; break;
+        default: counts.errors++; counts.incompleteDiscovery++;
       }
-      const after = fs.fstatSync(fd);
-      if (!sourceStillValid(before.size, after.size)) throw new Error("source shrank during read");
-    } catch { counts.errors++; counts.incompleteDiscovery++; continue; }
-    finally { if (fd !== undefined) fs.closeSync(fd); }
+      continue;
+    }
+    const data = read.data;
     result.filesScanned++;
     result.bytesScanned += data.length;
     const sourceHash = hash(data);
