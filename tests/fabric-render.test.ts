@@ -86,6 +86,8 @@ describe("TUI width bounds (#84)", () => {
   });
 });
 
+const COMPACT_WRAP_ROWS = 3;
+
 describe("fabric nested rendering", () => {
   it("renders the whole expand hint dim", () => {
     expect(expandHint(theme)).toMatch(/^\x1b\[dim\].+ to expand\x1b\[0m$/);
@@ -443,7 +445,7 @@ omp.write({ path: "nested.md", metadata: { content: payloads.wrong }, text: payl
     expect(lines).toContain("… 2 nested calls hidden");
   });
 
-  it("clips collapsed multicall narrative inline and reveals it when expanded", () => {
+  it("bounds the collapsed multicall narrative inline and reveals it when expanded", () => {
     const narrative = "A long agent update that must remain visible across narrow terminal rows without losing its ending.";
     const audits = [{
       ref: "agents.wait",
@@ -469,11 +471,78 @@ omp.write({ path: "nested.md", metadata: { content: payloads.wrong }, text: payl
       plainTheme,
     ).render(40);
 
-    expect(collapsed).toHaveLength(2);
+    expect(collapsed.length).toBeLessThanOrEqual(1 + COMPACT_WRAP_ROWS);
     expect(collapsed.every((line) => visibleWidth(line) <= 40)).toBe(true);
-    expect(collapsed.join(" ")).not.toContain("without losing its ending.");
-    expect(expanded.length).toBeGreaterThan(2);
+    expect(expanded.length).toBeGreaterThan(collapsed.length);
     expect(expanded.join(" ").replace(/\s+/g, " ")).toContain("without losing its ending.");
+  });
+
+  it("wraps a compact call row instead of clipping it at the terminal edge", () => {
+    const command = "psql -d dcm19 -At -c \"SELECT name, state FROM ir_module_module\"";
+    const audits = [{
+      ref: "omp.bash",
+      provider: "omp",
+      tool: "bash",
+      success: true,
+      args: { cmd: command },
+    }];
+    const narrow = renderFabricMulticallPartial(
+      { audits, phases: [], expanded: false },
+      plainTheme,
+    ).render(40);
+    const wide = renderFabricMulticallPartial(
+      { audits, phases: [], expanded: false },
+      plainTheme,
+    ).render(160);
+
+    expect(narrow.every((line) => visibleWidth(line) <= 40)).toBe(true);
+    expect(narrow.length).toBeGreaterThan(2);
+    expect(narrow.slice(2).every((line) => line.startsWith("  "))).toBe(true);
+    expect(narrow.slice(1).join("").replace(/\s+/g, " ")).toContain(command);
+    expect(narrow.join("")).not.toContain(" …+");
+    expect(wide[1]).toContain(command);
+  });
+
+  it("bounds a compact call row and marks the rows it dropped", () => {
+    const error = "PostgresError: relation does not exist while executing the staged catalogue probe; verify the database was restored and the module registry migrated before retrying the upgrade sweep";
+    const audits = [{
+      ref: "omp.bash",
+      provider: "omp",
+      tool: "bash",
+      success: false,
+      error,
+      args: { cmd: "psql -d dcm19" },
+    }];
+    const collapsed = renderFabricMulticallPartial(
+      { audits, phases: [], expanded: false },
+      plainTheme,
+    ).render(40);
+
+    expect(collapsed).toHaveLength(1 + COMPACT_WRAP_ROWS);
+    expect(collapsed.every((line) => visibleWidth(line) <= 40)).toBe(true);
+    expect(collapsed[collapsed.length - 1]).toMatch(/ …\+\d+$/);
+    expect(collapsed.join(" ")).not.toContain("retrying the upgrade sweep");
+  });
+
+  it("keeps expanded call rows wrapping without a bound or a drop marker", () => {
+    const error = "PostgresError: relation does not exist while executing the staged catalogue probe; verify the database was restored and the module registry migrated before retrying the upgrade sweep";
+    const audits = [{
+      ref: "omp.bash",
+      provider: "omp",
+      tool: "bash",
+      success: false,
+      error,
+      args: { cmd: "psql -d dcm19" },
+    }];
+    const expanded = renderFabricMulticallPartial(
+      { audits, phases: [], expanded: true },
+      plainTheme,
+    ).render(40);
+
+    expect(expanded.length).toBeGreaterThan(1 + COMPACT_WRAP_ROWS);
+    expect(expanded.every((line) => visibleWidth(line) <= 40)).toBe(true);
+    expect(expanded.join("")).not.toContain(" …+");
+    expect(expanded.slice(1).join("").replace(/\s+/g, " ")).toContain(error);
   });
 
   it("renders child-agent tool activity as one line beneath its parent call", () => {
@@ -1719,8 +1788,9 @@ b`, theme)).toBe("");
     expect(wide.slice(1)).not.toContain("four");
 
     const narrow = component.render(24);
-    expect(narrow).toHaveLength(wide.length);
     expect(narrow.every((line) => visibleWidth(line) <= 24)).toBe(true);
+    expect(narrow.join(" ")).toContain("four");
+    expect(narrow.length).toBeLessThanOrEqual(wide.length * COMPACT_WRAP_ROWS);
   });
 
   it("uses the completed-render call cap while a multicall is partial", () => {

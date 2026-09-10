@@ -5,8 +5,10 @@ import { clipUtf8, MAX_SUMMARY_BYTES, utf8Bytes } from "./bounds.js";
 import { lcmSummaryAddress, renderLcmChildAddresses, renderLcmSourceAddresses } from "./lcm-addresses.js";
 import { emergencyReduce, LcmModelAdapter, type LcmSummarizer } from "./lcm-model.js";
 import { LCM_RECOVERY_POINTER } from "./render.js";
-import { LcmMaintenance, type LcmBudgetPolicy, type LcmJob, type LcmNode } from "./lcm-maintenance.js";
+import { DEFAULT_LEAF_ENTRIES, LcmMaintenance, type LcmBudgetPolicy, type LcmJob, type LcmNode } from "./lcm-maintenance.js";
 import type { LcmCompactionInput, LcmCompactionOutput } from "./hook.js";
+
+type LcmMaintenanceTrigger = "occupancy" | "jobs" | "backlog";
 
 export interface LcmPreview {
   text: string;
@@ -288,7 +290,33 @@ export class LcmRuntime {
   async syncAndSchedule(): Promise<void> {
     if (this.closed) return;
     await this.readback();
-    if (this.maintenanceOccupancyReached()) this.scheduleMaintenance();
+    this.reclaimExpiredLeases();
+    if (this.maintenanceTrigger() !== undefined) this.scheduleMaintenance();
+  }
+
+  reclaimExpiredLeases(): number {
+    if (this.closed) return 0;
+    try {
+      return this.maintenance.sweepExpiredLeases(LEASE_SWEEP_GRACE_MS).length;
+    } catch (error) {
+      this.degradedError = error;
+      return 0;
+    }
+  }
+
+  maintenanceTrigger(): LcmMaintenanceTrigger | undefined {
+    const sessionId = this.activeSessionId;
+    if (this.closed || !sessionId || this.activeSources.size === 0) return undefined;
+    try {
+      if (!this.maintenance.withinBudget(sessionId)) return undefined;
+      if (this.maintenanceOccupancyReached()) return "occupancy";
+      if (this.actionableJobs(sessionId, this.context.sessionManager.getLeafId(), 1).length > 0) return "jobs";
+      const { active, covered } = this.coverage();
+      return active - covered >= Math.max(1, this.options.maxLeafEntries ?? DEFAULT_LEAF_ENTRIES) ? "backlog" : undefined;
+    } catch (error) {
+      this.degradedError = error;
+      return undefined;
+    }
   }
 
   /** Fails open: an unreadable occupancy never disables maintenance. */
@@ -312,6 +340,20 @@ export class LcmRuntime {
     if (this.closed) return;
     const run = this.maintenancePending.then(() => this.runMaintenance());
     this.maintenancePending = run.catch((error) => { this.degradedError = error; });
+  }
+
+  private actionableJobs(sessionId: string, branch: string | null, limit: number): Array<{ job: LcmJob; node: LcmNode }> {
+    const found: Array<{ job: LcmJob; node: LcmNode }> = [];
+    if (limit <= 0) return found;
+    for (const job of this.maintenance.claimableJobs(sessionId, CLAIMABLE_JOB_LIMIT)) {
+      const node = this.maintenance.getNode(job.nodeId);
+      if (!node || node.sessionId !== sessionId) continue;
+      if (branch !== null && node.branch !== branch && node.branch !== null) continue;
+      if (!node.sources.every((source) => this.activeSources.has(this.sourceKey(source)))) continue;
+      found.push({ job, node });
+      if (found.length >= limit) break;
+    }
+    return found;
   }
 
   private async runMaintenance(): Promise<void> {
@@ -353,7 +395,7 @@ export class LcmRuntime {
         try { this.maintenance.recordFailure(job, error); } catch {}
       }
     };
-    this.maintenance.sweepExpiredLeases(LEASE_SWEEP_GRACE_MS);
+    this.reclaimExpiredLeases();
     for (let pass = 0; pass < passes && !this.closed && Date.now() < runDeadline; pass += 1) {
       const leafCandidate = this.maintenance.createLeaf(this.maintenance.selectLeaf(raw, this.context.sessionManager.getLeafId()));
       const leaf = leafCandidate ? this.maintenance.getNode(leafCandidate.nodeId) : undefined;
@@ -361,12 +403,7 @@ export class LcmRuntime {
         const job = this.maintenance.jobForNode(leaf.nodeId);
         if (job && this.maintenance.isClaimable(job)) await runJob(job, leaf);
       }
-      const branch = this.context.sessionManager.getLeafId();
-      const pending = this.maintenance.claimableJobs(sessionId, CLAIMABLE_JOB_LIMIT).flatMap((job) => {
-        const node = this.maintenance.getNode(job.nodeId);
-        if (!node || node.sessionId !== sessionId || (branch !== null && node.branch !== branch && node.branch !== null) || !node.sources.every((source) => this.activeSources.has(`${source.sessionId}:${source.entryId}:${source.revision}`))) return [];
-        return [{ job, node }];
-      }).slice(0, passes);
+      const pending = this.actionableJobs(sessionId, this.context.sessionManager.getLeafId(), passes);
       for (const item of pending) await runJob(item.job, item.node);
       const children = this.maintenance.selectCondensation(sessionId, this.activeSources, this.context.sessionManager.getLeafId());
       if (children.length >= fanIn) {

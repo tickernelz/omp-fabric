@@ -2181,7 +2181,7 @@ export const buildFabricSettingsItems = (
             String(config.compaction.softThresholdRatio),
             {
               description:
-                "Occupancy that must be reached before LCM spends model calls on summaries. Persistence is never gated by it. 0 runs maintenance at any occupancy.",
+                "Occupancy floor that forces an LCM maintenance pass even when the branch has no full leaf of uncovered material. Maintenance also runs on its own backlog, and persistence is never gated. 0 forces a pass on every sync.",
               values: COMPACTION_SOFT_RATIOS,
             },
           ),

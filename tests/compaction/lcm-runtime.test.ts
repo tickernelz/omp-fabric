@@ -656,6 +656,98 @@ describe("LCM runtime", () => {
     }
   });
 
+  it("reclaims a dead lease below the maintenance occupancy", async () => {
+    const root = makeRoot();
+    const context = makeContext(root, [makeEntry("e1", "source")]);
+    (context as unknown as { getContextUsage: () => unknown }).getContextUsage = () => ({ tokens: 1_000, contextWindow: 100_000, percent: 20 });
+    const runtime = openRuntime(context, { rootDir: root, softThresholdRatio: 0.55 });
+    await runtime.readback();
+    const stranded = runtime.maintenance.createLeaf([historyEntry(runtime, 0)]);
+    if (!stranded) throw new Error("expected a stranded node");
+    const job = runtime.maintenance.jobForNode(stranded.nodeId);
+    if (!job) throw new Error("expected a stranded job");
+    const claimed = runtime.maintenance.claim(job.jobId);
+    runtime.ledger.transaction((db) => db.prepare("UPDATE maintenance_jobs SET payload=? WHERE job_id=? AND project_key=?")
+      .run(JSON.stringify({ ...claimed, leaseUntil: Date.now() - 18 * 60 * 60 * 1_000 }), claimed.jobId, runtime.projectKey));
+    expect(runtime.maintenance.jobForNode(stranded.nodeId)?.state).toBe("running");
+
+    let scheduled = 0;
+    (runtime as unknown as { scheduleMaintenance: () => void }).scheduleMaintenance = () => { scheduled += 1; };
+    await runtime.syncAndSchedule();
+
+    expect(runtime.maintenanceOccupancyReached()).toBe(false);
+    expect(runtime.maintenance.jobForNode(stranded.nodeId)?.state).toBe("pending");
+    expect(scheduled).toBe(0);
+    await runtime.shutdown();
+  });
+
+  it("schedules a pass on branch backlog the occupancy floor never reaches", async () => {
+    const chain = (count: number): SessionEntry[] => Array.from({ length: count }, (_, index) =>
+      makeEntry("e" + index, "backlog source " + index, index === 0 ? null : "e" + (index - 1)));
+    const below = (entries: SessionEntry[]): LcmRuntime => {
+      const root = makeRoot();
+      const context = makeContext(root, entries);
+      (context as unknown as { getContextUsage: () => unknown }).getContextUsage = () => ({ tokens: 1_000, contextWindow: 100_000, percent: 20 });
+      return openRuntime(context, { rootDir: root, softThresholdRatio: 0.55, maxLeafEntries: 4 });
+    };
+
+    const trivial = below(chain(2));
+    let trivialPasses = 0;
+    (trivial as unknown as { scheduleMaintenance: () => void }).scheduleMaintenance = () => { trivialPasses += 1; };
+    await trivial.syncAndSchedule();
+    expect(trivial.maintenanceOccupancyReached()).toBe(false);
+    expect(trivial.maintenanceTrigger()).toBeUndefined();
+    expect(trivialPasses).toBe(0);
+    await trivial.shutdown();
+
+    const busy = below(chain(6));
+    let busyPasses = 0;
+    (busy as unknown as { scheduleMaintenance: () => void }).scheduleMaintenance = () => { busyPasses += 1; };
+    await busy.syncAndSchedule();
+    expect(busy.maintenanceOccupancyReached()).toBe(false);
+    expect(busy.maintenanceTrigger()).toBe("backlog");
+    expect(busyPasses).toBe(1);
+    await busy.shutdown();
+  });
+
+  it("schedules no pass at all once the model budget is exhausted", async () => {
+    const root = makeRoot();
+    const entries = Array.from({ length: 8 }, (_, index) =>
+      makeEntry("e" + index, "budgeted source " + index, index === 0 ? null : "e" + (index - 1)));
+    const context = makeContext(root, entries);
+    (context as unknown as { getContextUsage: () => unknown }).getContextUsage = () => ({ tokens: 80_000, contextWindow: 100_000, percent: 80 });
+    const runtime = openRuntime(context, { rootDir: root, softThresholdRatio: 0.55, maxLeafEntries: 4, maxDailyModelCalls: 2 });
+    await runtime.readback();
+    expect(runtime.maintenanceTrigger()).toBe("occupancy");
+
+    runtime.ledger.transaction((db) => db.prepare("INSERT INTO maintenance_usage(project_key,day,session_id,calls,input_tokens,output_tokens,cost,wall_ms) VALUES(?,?,?,?,?,?,?,?)")
+      .run(runtime.projectKey, new Date().toISOString().slice(0, 10), "session-1", 2, 10, 5, 0, 100));
+
+    expect(runtime.maintenanceTrigger()).toBeUndefined();
+    await runtime.syncAndSchedule();
+    await settle(runtime);
+    expect(runtime.maintenance.listNodes(100)).toHaveLength(0);
+    expect(runtime.maintenance.listJobs()).toHaveLength(0);
+    await runtime.shutdown();
+  });
+
+  it("holds a ready frontier at compaction time below the occupancy floor", async () => {
+    const root = makeRoot();
+    const entries = Array.from({ length: 12 }, (_, index) =>
+      makeEntry("e" + index, "compaction source " + index, index === 0 ? null : "e" + (index - 1)));
+    const context = makeContext(root, entries);
+    (context as unknown as { getContextUsage: () => unknown }).getContextUsage = () => ({ tokens: 20_000, contextWindow: 100_000, percent: 20 });
+    const runtime = openRuntime(context, { rootDir: root, softThresholdRatio: 0.55, maxLeafEntries: 4, maxMaintenancePasses: 4 });
+
+    await runtime.syncAndSchedule();
+    await settle(runtime);
+
+    expect(runtime.maintenanceOccupancyReached()).toBe(false);
+    const compacted = runtime.compact({ branchEntries: entries, sessionId: "session-1", branch: "branch-a", firstKeptEntryId: "e8", tokensBefore: 100 });
+    expect(compacted.source).toBe("ready-frontier");
+    await runtime.shutdown();
+  });
+
   it("covers the live branch when completed history outgrows the job page", async () => {
     const root = makeRoot();
     const entries = [makeEntry("e1", "live source one"), makeEntry("e2", "live source two", "e1")];
