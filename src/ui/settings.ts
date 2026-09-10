@@ -2075,6 +2075,16 @@ export const buildFabricSettingsItems = (
             },
           ),
           setting(
+            "compaction.lcmMaintenanceConcurrency",
+            "Maintenance concurrency",
+            String(config.compaction.lcmMaintenanceConcurrency),
+            {
+              description:
+                "Summary calls a maintenance run may keep in flight. Spend per run scales with this number, and the daily and session call caps still bound what a run may issue.",
+              submenu: numericSubmenu(theme, [1, 2, 3, 4, 5, 6, 7, 8], String, "Maintenance concurrency", "Summary calls in flight at once."),
+            },
+          ),
+          setting(
             "compaction.lcmMaxLeafEntries",
             "Leaf entries",
             String(config.compaction.lcmMaxLeafEntries),

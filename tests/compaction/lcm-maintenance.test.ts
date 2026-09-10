@@ -2,7 +2,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { canonicalLcmPayload } from "../../src/storage/lcm-ledger.js";
 import { openLedger, releaseTemp, tempRoot } from "../fixtures/lcm-temp.js";
-import { LcmMaintenance } from "../../src/compaction/lcm-maintenance.js";
+import { LEASE_MS, LEASE_SWEEP_GRACE_MS, LcmMaintenance } from "../../src/compaction/lcm-maintenance.js";
 import { emergencyReduce, type LcmModelResult, type LcmSummarizer } from "../../src/compaction/lcm-model.js";
 
 const raw = (projectKey: string, sessionId: string, entryId: string, text: string, branch: string | null) => ({ projectKey, sessionId, entryId, role: "user", content: text, payloadJson: canonicalLcmPayload({ type: "message", id: entryId, parentId: null, timestamp: "2026-09-01T00:00:00.000Z", message: { role: "user", content: [{ type: "text", text }] } }), parentEntryId: null, branch, createdAt: 0 });
@@ -120,7 +120,9 @@ describe("LCM maintenance branch isolation", () => {
     const job = maintenance.listJobs()[0];
     if (!job) throw new Error("missing job");
     const first = maintenance.claim(job.jobId, "one");
-    now += 30_001;
+    now += LEASE_MS + LEASE_SWEEP_GRACE_MS - 1;
+    expect(() => maintenance.claim(job.jobId, "two")).toThrow("job lease held");
+    now += 1;
     const second = maintenance.claim(job.jobId, "two");
     expect(second.ownerId).toBe("two");
     expect(second.leaseToken).not.toBe(first.leaseToken);

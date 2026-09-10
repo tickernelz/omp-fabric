@@ -529,6 +529,7 @@ export default async function ompFabric(omp: ExtensionAPI): Promise<void> {
         maxLeafEntries: state.config.compaction.lcmMaxLeafEntries,
         maxCondenseChildren: state.config.compaction.lcmMaxCondenseChildren,
         maxMaintenancePasses: state.config.compaction.lcmMaintenancePasses,
+        maintenanceConcurrency: state.config.compaction.lcmMaintenanceConcurrency,
         modelSummaries: state.config.compaction.lcmModelSummaries,
         modelTimeoutSeconds: state.config.compaction.lcmModelTimeoutSeconds,
         maxDailyModelCalls: state.config.compaction.lcmMaxDailyModelCalls,

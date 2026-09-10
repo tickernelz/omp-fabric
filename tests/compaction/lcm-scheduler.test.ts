@@ -90,9 +90,10 @@ describe("LCM maintenance queue", () => {
     expect(maintenance.sweepExpiredLeases()).toHaveLength(0);
 
     clock.now += 2_000;
-    expect(maintenance.sweepExpiredLeases(60_000)).toHaveLength(0);
+    expect(maintenance.sweepExpiredLeases()).toHaveLength(0);
     expect(maintenance.jobForNode(node.nodeId)?.state).toBe("running");
 
+    clock.now += 60_000;
     const swept = maintenance.sweepExpiredLeases();
     expect(swept.map((item) => item.jobId)).toEqual([job.jobId]);
     const reclaimed = maintenance.jobForNode(node.nodeId);

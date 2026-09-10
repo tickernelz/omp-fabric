@@ -213,6 +213,7 @@ interface FabricCompactionConfig {
   lcmMaxLeafEntries: number;
   lcmMaxCondenseChildren: number;
   lcmMaintenancePasses: number;
+  lcmMaintenanceConcurrency: number;
   lcmModelSummaries: boolean;
   lcmModelTimeoutSeconds: number;
   lcmMaxDailyModelCalls: number;
@@ -508,6 +509,7 @@ export const DEFAULT_FABRIC_CONFIG: FabricConfig = {
     lcmMaxLeafEntries: 32,
     lcmMaxCondenseChildren: 4,
     lcmMaintenancePasses: 8,
+    lcmMaintenanceConcurrency: 3,
     lcmModelSummaries: true,
     lcmModelTimeoutSeconds: 120,
     lcmMaxDailyModelCalls: 0,
@@ -1160,6 +1162,7 @@ export const normalizeFabricConfig = (input: Record<string, unknown>): FabricCon
       lcmMaxLeafEntries: boundedInteger(compaction.lcmMaxLeafEntries, DEFAULT_FABRIC_CONFIG.compaction.lcmMaxLeafEntries, 1, 128),
       lcmMaxCondenseChildren: boundedInteger(compaction.lcmMaxCondenseChildren, DEFAULT_FABRIC_CONFIG.compaction.lcmMaxCondenseChildren, 2, 32),
       lcmMaintenancePasses: boundedInteger(compaction.lcmMaintenancePasses, DEFAULT_FABRIC_CONFIG.compaction.lcmMaintenancePasses, 1, 64),
+      lcmMaintenanceConcurrency: boundedInteger(compaction.lcmMaintenanceConcurrency, DEFAULT_FABRIC_CONFIG.compaction.lcmMaintenanceConcurrency, 1, 8),
       lcmModelSummaries: booleanValue(compaction.lcmModelSummaries, DEFAULT_FABRIC_CONFIG.compaction.lcmModelSummaries),
       lcmModelTimeoutSeconds: boundedInteger(compaction.lcmModelTimeoutSeconds, DEFAULT_FABRIC_CONFIG.compaction.lcmModelTimeoutSeconds, 10, 900),
       lcmMaxDailyModelCalls: boundedInteger(compaction.lcmMaxDailyModelCalls, DEFAULT_FABRIC_CONFIG.compaction.lcmMaxDailyModelCalls, 0, 100_000),

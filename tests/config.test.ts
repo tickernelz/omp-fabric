@@ -13,6 +13,7 @@ import {
   normalizeFabricConfig,
   saveFabricConfig,
 } from "../src/config.js";
+import { DEFAULT_MAINTENANCE_CONCURRENCY } from "../src/compaction/lcm-maintenance.js";
 import {
   configureOutputArtifactRetention,
   outputArtifactRetention,
@@ -659,6 +660,24 @@ describe("Fabric configuration", () => {
     }
     const untouched = normalizeFabricConfig({ compaction: { softThresholdRatio: 0.4, hardThresholdRatio: 0.8 } }).compaction;
     expect(untouched.softThresholdRatio).toBe(0.4);
+  });
+
+  it("carries maintenance concurrency through a normalize round trip and clamps it", () => {
+    expect(DEFAULT_FABRIC_CONFIG.compaction.lcmMaintenanceConcurrency).toBe(DEFAULT_MAINTENANCE_CONCURRENCY);
+    expect(normalizeFabricConfig({}).compaction.lcmMaintenanceConcurrency).toBe(DEFAULT_MAINTENANCE_CONCURRENCY);
+    expect(normalizeFabricConfig({ compaction: { lcmMaintenanceConcurrency: 5 } }).compaction.lcmMaintenanceConcurrency).toBe(5);
+    expect(normalizeFabricConfig({ compaction: { lcmMaintenanceConcurrency: 0 } }).compaction.lcmMaintenanceConcurrency).toBe(1);
+    expect(normalizeFabricConfig({ compaction: { lcmMaintenanceConcurrency: 99 } }).compaction.lcmMaintenanceConcurrency).toBe(8);
+    expect(normalizeFabricConfig({ compaction: { lcmMaxLeafEntries: 16 } }).compaction.lcmMaintenanceConcurrency).toBe(DEFAULT_MAINTENANCE_CONCURRENCY);
+
+    const root = temporaryDirectory();
+    const cwd = path.join(root, "project");
+    const agentDir = path.join(root, "agent");
+    fs.mkdirSync(path.join(cwd, ".omp"), { recursive: true });
+    fs.mkdirSync(agentDir, { recursive: true });
+    const location = { cwd, agentDir, projectTrusted: true };
+    saveFabricConfig({ ...location, scope: "global" }, { compaction: { lcmMaintenanceConcurrency: 4 } });
+    expect(loadFabricConfig(location).compaction.lcmMaintenanceConcurrency).toBe(4);
   });
 
   it("does not set a compaction engine environment override", () => {

@@ -6,7 +6,7 @@ import { lcmSummaryAddress, renderLcmChildAddresses, renderLcmSourceAddresses } 
 import { emergencyReduce, LcmModelAdapter, type LcmSummarizer } from "./lcm-model.js";
 import { LCM_RECOVERY_POINTER } from "./render.js";
 import { reconcileLcmState } from "./lcm-status.js";
-import { DEFAULT_LEAF_ENTRIES, LcmMaintenance, type LcmBudgetPolicy, type LcmJob, type LcmNode } from "./lcm-maintenance.js";
+import { DEFAULT_LEAF_ENTRIES, DEFAULT_MAINTENANCE_CONCURRENCY, isLcmCapacityRejection, isLcmRejection, LcmMaintenance, type LcmBudgetPolicy, type LcmJob, type LcmNode } from "./lcm-maintenance.js";
 import type { LcmCompactionInput, LcmCompactionOutput } from "./hook.js";
 
 type LcmMaintenanceTrigger = "occupancy" | "jobs" | "backlog";
@@ -56,6 +56,7 @@ export interface LcmRuntimeOptions {
   lcmMaxOutputTokens?: number;
   lcmMaxOutputChars?: number;
   maxMaintenancePasses?: number;
+  maintenanceConcurrency?: number;
   modelSummaries?: boolean;
   modelTimeoutSeconds?: number;
   maxDailyModelCalls?: number;
@@ -65,7 +66,6 @@ export interface LcmRuntimeOptions {
   softThresholdRatio?: number;
 }
 
-const LEASE_SWEEP_GRACE_MS = 60_000;
 const MAX_RECONCILE_RECOVERIES = 3;
 const CLAIMABLE_JOB_LIMIT = 256;
 const FAILED_JOB_WINDOW_MS = 24 * 60 * 60 * 1_000;
@@ -179,6 +179,7 @@ export class LcmRuntime {
       ...(initial.lcmMaxInputChars === undefined ? {} : { maxInputChars: initial.lcmMaxInputChars }),
       ...(initial.lcmMaxOutputChars === undefined ? {} : { maxOutputChars: initial.lcmMaxOutputChars }),
       ...(initial.modelTimeoutSeconds === undefined ? {} : { modelTimeoutMs: initial.modelTimeoutSeconds * 1_000 }),
+      maxConcurrentJobs: () => this.resolveOptions().maintenanceConcurrency ?? DEFAULT_MAINTENANCE_CONCURRENCY,
       budget: {
         ...(initial.maxDailyModelCalls ? { calls: initial.maxDailyModelCalls } : {}),
         ...(initial.maxSessionModelCalls ? { sessionCalls: initial.maxSessionModelCalls } : {}),
@@ -312,7 +313,7 @@ export class LcmRuntime {
   reclaimExpiredLeases(): number {
     if (this.closed) return 0;
     try {
-      return this.maintenance.sweepExpiredLeases(LEASE_SWEEP_GRACE_MS).length;
+      return this.maintenance.sweepExpiredLeases().length + this.maintenance.recoverLegacyContentionRetirements().length;
     } catch (error) {
       this.degradedError = error;
       return 0;
@@ -401,25 +402,44 @@ export class LcmRuntime {
         return entry.payloadJson;
       }).join("\n");
     };
-    const runJob = async (job: LcmJob, node: LcmNode): Promise<void> => {
+    const runJob = async (job: LcmJob, node: LcmNode): Promise<"done" | "rejected" | "capacity"> => {
       try {
         const input = inputFor(node);
         await this.maintenance.run(job, model, input, this.signal);
+        return "done";
       } catch (error) {
+        if (isLcmCapacityRejection(error)) return "capacity";
+        if (isLcmRejection(error)) return "rejected";
         this.degradedError = error;
         try { this.maintenance.recordFailure(job, error); } catch {}
+        return "done";
       }
+    };
+    const dispatch = async (items: ReadonlyArray<{ job: LcmJob; node: LcmNode }>): Promise<void> => {
+      let next = 0;
+      const worker = async (slot: number): Promise<void> => {
+        while (!this.closed && Date.now() < runDeadline && slot < this.maintenance.concurrencyLimit) {
+          const item = items[next];
+          if (!item) return;
+          next += 1;
+          if (await runJob(item.job, item.node) === "capacity") return;
+        }
+      };
+      await Promise.all(Array.from({ length: Math.min(this.maintenance.concurrencyLimit, items.length) }, (_unused, slot) => worker(slot)));
     };
     this.reclaimExpiredLeases();
     for (let pass = 0; pass < passes && !this.closed && Date.now() < runDeadline; pass += 1) {
       const leafCandidate = this.maintenance.createLeaf(this.maintenance.selectLeaf(raw, this.context.sessionManager.getLeafId()));
       const leaf = leafCandidate ? this.maintenance.getNode(leafCandidate.nodeId) : undefined;
+      const batch: Array<{ job: LcmJob; node: LcmNode }> = [];
+      const queued = new Set<string>();
       if (leaf?.state === "pending") {
         const job = this.maintenance.jobForNode(leaf.nodeId);
-        if (job && this.maintenance.isClaimable(job)) await runJob(job, leaf);
+        if (job && this.maintenance.isClaimable(job)) { batch.push({ job, node: leaf }); queued.add(job.jobId); }
       }
       const pending = this.actionableJobs(sessionId, this.context.sessionManager.getLeafId(), passes);
-      for (const item of pending) await runJob(item.job, item.node);
+      for (const item of pending) if (!queued.has(item.job.jobId)) { queued.add(item.job.jobId); batch.push(item); }
+      await dispatch(batch);
       const children = this.maintenance.selectCondensation(sessionId, this.activeSources, this.context.sessionManager.getLeafId());
       if (children.length >= fanIn) {
         const node = this.maintenance.createCondensed(children);
@@ -491,8 +511,13 @@ export class LcmRuntime {
     }
     const job = this.maintenance.jobForNode(leaf.nodeId);
     if (!job) throw new Error("LCM emergency fallback job was not created");
-    const completed = this.maintenance.completeEmergency(this.maintenance.claimEmergency(job.jobId), fallback);
-    return { summary: completed.text ?? fallback, firstKeptEntryId: input.firstKeptEntryId, tokensBefore: input.tokensBefore, source: "emergency", branch: input.branch };
+    try {
+      const completed = this.maintenance.completeEmergency(this.maintenance.claimEmergency(job.jobId), fallback);
+      return { summary: completed.text ?? fallback, firstKeptEntryId: input.firstKeptEntryId, tokensBefore: input.tokensBefore, source: "emergency", branch: input.branch };
+    } catch (error) {
+      if (!isLcmRejection(error)) throw error;
+      return { summary: fallback, firstKeptEntryId: input.firstKeptEntryId, tokensBefore: input.tokensBefore, source: "emergency", branch: input.branch };
+    }
   }
 
   report(): LcmReport {
