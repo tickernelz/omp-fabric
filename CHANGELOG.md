@@ -10,7 +10,6 @@
 
 ### Fixed
 
-- Chronological ordering in condensation selection: `selectCondensation` now sorts candidates by `createdAt` before tie-breaking on `nodeId`, ensuring child summaries are assembled and presented to the summarizer in chronological order rather than arbitrary SHA-256 hash order.
 - Transaction batching during session readback and compaction: `readback()` and `compact()` now wrap raw entry persistence in an explicit ledger transaction, collapsing hundreds of sequential synchronous SQLite fsync operations into a single atomic commit.
 - Dirty flag enforcement in `LcmRuntime`: `syncAndSchedule()` now checks `this.dirty` and active session binding to skip redundant full-branch readbacks on idle turns.
 - Memory allocation in `clipUtf8End`: trailing text slices are now bounded to `maxBytes * 2` before codepoint conversion, eliminating multi-megabyte array allocations when producing emergency excerpts.
