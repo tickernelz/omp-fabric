@@ -31,7 +31,7 @@ const callSiteCounts = (): Map<string, number> => {
   const counts = new Map<string, number>();
   for (const file of walk(SRC)) {
     const calls = readFileSync(file, "utf8").match(/renderBoundedLines\(/g)?.length ?? 0;
-    if (calls > 0) counts.set(file.slice(SRC.length + 1), calls);
+    if (calls > 0) counts.set(path.relative(SRC, file).split(path.sep).join("/"), calls);
   }
   return counts;
 };
