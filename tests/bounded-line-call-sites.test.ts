@@ -1,9 +1,9 @@
 import { readdirSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import path, { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { renderBoundedLines } from "../src/ui/fabric-render.js";
 
-const SRC = new URL("../src", import.meta.url).pathname;
+const SRC = path.resolve(import.meta.dirname, "..", "src");
 
 const REGISTERED_CALL_SITES: Record<string, { calls: number; surface: string }> = {
   "fabric-exec-tool.ts": {
