@@ -13,7 +13,6 @@ import {
   visibleWidth,
 } from "@oh-my-pi/pi-tui";
 import type { FabricActivityRun } from "../activity/types.js";
-import type { LcmStatusSource } from "../fabric-runtime-state.js";
 import type { MeshEvent } from "../mesh/store.js";
 import type { FabricAgentMessageDelivery } from "../main-agent.js";
 import type {
@@ -37,20 +36,6 @@ import {
   type StatusFilter,
 } from "./dashboard-model.js";
 import { colorStatus, entityTail, statusGlyph } from "./dashboard-presentation.js";
-import {
-  lcmNodeDetail,
-  lcmUnavailableLine,
-  LCM_NODE_PAGE,
-  readLcmSnapshot,
-  renderLcmCoverageLine,
-  renderLcmDetailLines,
-  renderLcmHeaderLines,
-  renderLcmNodeLines,
-  renderLcmPreviewLines,
-  type LcmNodeDetail,
-  type LcmSourceEntry,
-  type LcmViewSnapshot,
-} from "./lcm-panel.js";
 import {
   DashboardDetailRenderer,
   type FabricTranscriptTarget,
@@ -123,13 +108,6 @@ export class FabricDashboard implements Component, Focusable {
   focused = false;
   private pane: Pane = "phases";
   private overviewView: OverviewView = "activity";
-  private lcmSnapshot: LcmViewSnapshot | undefined;
-  private lcmSnapshotTick: number | undefined;
-  private lcmOffset = 0;
-  private lcmIndex = 0;
-  private lcmDetail: LcmNodeDetail | undefined;
-  private lcmSourceIndex = 0;
-  private lcmSourceEntry: LcmSourceEntry | undefined;
   private graphPositions = new Map<string, FabricGraphPoint>();
   private graphCamera: FabricGraphPoint = { x: 0, y: 0 };
   private graphCameraTarget: FabricGraphPoint = { x: 0, y: 0 };
@@ -191,7 +169,6 @@ export class FabricDashboard implements Component, Focusable {
     | (FabricDashboardMessageTarget & { delivery: FabricAgentMessageDelivery })
     | undefined;
   private pendingStop: { id: string; expiresAt: number } | undefined;
-  private readonly lcmStatus: (() => LcmStatusSource | undefined) | undefined;
   private readonly modelSource: ModelSource | undefined;
   private readonly claudeModelSource: ModelSource | undefined;
   private readonly onAgentSteer: ((agentId: string, message: string) => void) | undefined;
@@ -260,7 +237,6 @@ export class FabricDashboard implements Component, Focusable {
     readonly done: () => void,
     options: {
       modelSource?: ModelSource;
-      lcmStatus?: () => LcmStatusSource | undefined;
       codePreviewSettings?: CodePreviewSettings;
       keybindings?: FabricDashboardKeybindings;
       claudeModelSource?: ModelSource;
@@ -317,7 +293,6 @@ export class FabricDashboard implements Component, Focusable {
   ) {
     this.focused = true;
     this.modelSource = options.modelSource;
-    this.lcmStatus = options.lcmStatus;
     this.codePreviewSettings = options.codePreviewSettings;
     this.keybindings = options.keybindings;
     this.claudeModelSource = options.claudeModelSource;
@@ -426,18 +401,6 @@ export class FabricDashboard implements Component, Focusable {
       this.mode = "help";
       this.tui.requestRender();
       return;
-    }
-
-    if (this.overviewView === "lcm") {
-      const outcome = this.handleLcmInput(data);
-      if (outcome === "exit") {
-        this.done();
-        return;
-      }
-      if (outcome === "handled") {
-        this.tui.requestRender();
-        return;
-      }
     }
 
     if (this.detailId) {
@@ -600,9 +563,8 @@ export class FabricDashboard implements Component, Focusable {
       return;
     }
 
-    if (data === "1" || data === "2" || data === "3") {
-      const nextOverview: OverviewView =
-        data === "1" ? "activity" : data === "2" ? "topology" : "lcm";
+    if (data === "1" || data === "2") {
+      const nextOverview: OverviewView = data === "1" ? "activity" : "topology";
       if (nextOverview !== this.overviewView) {
         if (nextOverview !== "topology") {
           this.stopGraphAnimation();
@@ -613,8 +575,6 @@ export class FabricDashboard implements Component, Focusable {
         this.entityIndex = 0;
         this.selectedEntityId = undefined;
         this.pendingStop = undefined;
-        if (nextOverview === "lcm") this.enterLcmView();
-        else this.closeLcmDetail();
       }
       this.tui.requestRender();
       return;
@@ -907,7 +867,6 @@ export class FabricDashboard implements Component, Focusable {
     ) {
       return this.renderPicker(width);
     }
-    if (this.overviewView === "lcm") return this.renderLcmView(width);
     const snapshot = this.snapshot();
     const run = this.selectRun(snapshot);
     const panels = phasePanels(snapshot, run);
@@ -1157,7 +1116,7 @@ export class FabricDashboard implements Component, Focusable {
     ].filter((value): value is string => Boolean(value));
     const help = [
       ["Navigate", "Topology: arrows/h/l move spatially · j/k ordered selection · tab next · enter inspect · esc back"],
-      ["Views", "1 Activity · 2 unified Topology · 3 LCM ledger"],
+      ["Views", "1 Activity · 2 unified Topology · /fabric lcm for the ledger"],
       [
         "LCM",
         "↑↓/jk node · g/G first/last node · [ ] page 200 nodes · enter inspect node · in a node: ↑↓/jk source · enter open/close the stored raw entry · esc back",
@@ -1667,7 +1626,7 @@ export class FabricDashboard implements Component, Focusable {
       return [
         title,
         this.theme.fg("dim", summaryText || "No Fabric activity yet"),
-        this.theme.fg("dim", "1 activity · 2 topology · 3 lcm · arrows move · esc close"),
+        this.theme.fg("dim", "1 activity · 2 topology · arrows move · esc close"),
       ]
         .slice(0, overlayRows)
         .map((line) => truncateToWidth(line, width, ""));
@@ -1814,8 +1773,8 @@ export class FabricDashboard implements Component, Focusable {
       this.overviewView === "topology"
         ? this.graphReplayIndex !== undefined
           ? `replay ${this.graphReplayIndex + 1}/${Math.max(1, this.graphReplayLength)}${this.graphReplayLabel ? ` · ${safeText(this.graphReplayLabel)}` : ""} · r live · space ${this.graphReplayPlaying ? "pause" : "play"} · ←/→ step · +/- speed:${this.graphReplaySpeed}× · H history · M motion:${this.graphReducedMotion ? "reduced" : "full"} · ? help`
-          : `arrows/h/l move · j/k order · r replay · H history · M motion:${this.graphReducedMotion ? "reduced" : "full"} · f filter:${this.filter} · 1 activity · 3 lcm · ? help`
-        : `↑↓/jk select · ←→/tab pane · enter inspect · f filter:${this.filter} · 2 topology · 3 lcm · [ older · ] newer · ? help`;
+          : `arrows/h/l move · j/k order · r replay · H history · M motion:${this.graphReducedMotion ? "reduced" : "full"} · f filter:${this.filter} · 1 activity · ? help`
+        : `↑↓/jk select · ←→/tab pane · enter inspect · f filter:${this.filter} · 2 topology · [ older · ] newer · ? help`;
     lines.push(this.row(width, this.theme.fg("dim", navigationHint)));
     const selectedEntity = entities[this.entityIndex];
     const actionHint =
@@ -2271,176 +2230,6 @@ export class FabricDashboard implements Component, Focusable {
     this.transcriptPageAnchor = undefined;
     this.detailView = "summary";
     this.transcriptFollowing = true;
-  }
-
-  private enterLcmView(): void {
-    this.lcmOffset = 0;
-    this.lcmIndex = 0;
-    this.closeLcmDetail();
-    this.refreshLcm();
-  }
-
-  private closeLcmDetail(): void {
-    this.lcmDetail = undefined;
-    this.lcmSourceIndex = 0;
-    this.lcmSourceEntry = undefined;
-  }
-
-  private refreshLcm(): void {
-    this.lcmSnapshotTick = this.snapshot().now;
-    const source = this.lcmStatus?.();
-    this.lcmSnapshot = source ? readLcmSnapshot(source, this.lcmOffset) : undefined;
-    const total = this.lcmSnapshot?.nodes.length ?? 0;
-    this.lcmIndex = total === 0 ? 0 : Math.max(0, Math.min(this.lcmIndex, total - 1));
-  }
-
-  private openLcmNode(): void {
-    const nodeId = this.lcmSnapshot?.nodes[this.lcmIndex]?.nodeId;
-    const source = nodeId ? this.lcmStatus?.() : undefined;
-    this.lcmDetail = source && nodeId ? lcmNodeDetail(source, nodeId) : undefined;
-    this.lcmSourceIndex = 0;
-    this.lcmSourceEntry = undefined;
-  }
-
-  private openLcmSource(): void {
-    const selected = this.lcmDetail?.node.sources[this.lcmSourceIndex];
-    if (!selected) return;
-    if (this.lcmSourceEntry) {
-      this.lcmSourceEntry = undefined;
-      return;
-    }
-    this.lcmSourceEntry = this.lcmStatus?.()?.source(
-      selected.sessionId,
-      selected.entryId,
-      selected.revision,
-    );
-  }
-
-  private pageLcmNodes(direction: -1 | 1): void {
-    const snapshot = this.lcmSnapshot;
-    if (!snapshot) return;
-    if (direction === 1 && !snapshot.hasMore) return;
-    const next = Math.max(0, snapshot.offset + direction * LCM_NODE_PAGE);
-    if (next === snapshot.offset) return;
-    this.lcmOffset = next;
-    this.lcmIndex = 0;
-    this.refreshLcm();
-  }
-
-  private handleLcmInput(data: string): "exit" | "handled" | "ignored" {
-    if (data === "1" || data === "2" || data === "3") return "ignored";
-    const back = matchesKey(data, Key.escape) || matchesKey(data, Key.ctrl("c"));
-    if (this.lcmDetail) {
-      const sources = this.lcmDetail.node.sources.length;
-      if (back || matchesKey(data, Key.left) || data === "h") {
-        if (this.lcmSourceEntry) this.lcmSourceEntry = undefined;
-        else this.closeLcmDetail();
-      } else if (matchesKey(data, Key.up) || data === "k") {
-        this.lcmSourceIndex = Math.max(0, this.lcmSourceIndex - 1);
-        this.lcmSourceEntry = undefined;
-      } else if (matchesKey(data, Key.down) || data === "j") {
-        this.lcmSourceIndex = Math.min(Math.max(0, sources - 1), this.lcmSourceIndex + 1);
-        this.lcmSourceEntry = undefined;
-      } else if (matchesKey(data, Key.enter)) {
-        this.openLcmSource();
-      }
-      return "handled";
-    }
-    if (back) return "exit";
-    const total = this.lcmSnapshot?.nodes.length ?? 0;
-    if (matchesKey(data, Key.up) || data === "k") {
-      this.lcmIndex = Math.max(0, this.lcmIndex - 1);
-    } else if (matchesKey(data, Key.down) || data === "j") {
-      this.lcmIndex = Math.min(Math.max(0, total - 1), this.lcmIndex + 1);
-    } else if (data === "g") {
-      this.lcmIndex = 0;
-    } else if (data === "G") {
-      this.lcmIndex = Math.max(0, total - 1);
-    } else if (data === "[") {
-      this.pageLcmNodes(-1);
-    } else if (data === "]") {
-      this.pageLcmNodes(1);
-    } else if (matchesKey(data, Key.enter)) {
-      this.openLcmNode();
-    }
-    return "handled";
-  }
-
-  private renderLcmView(width: number): string[] {
-    if (width < 24) return this.renderNarrowFallback(width, "Fabric · LCM", "1 activity · esc close");
-    if (this.snapshot().now !== this.lcmSnapshotTick) this.refreshLcm();
-    const innerWidth = width - 2;
-    const overlayRows = dashboardOverlayRows(
-      Math.max(1, this.tui.terminal?.rows ?? process.stdout.rows ?? 28),
-    );
-    const lines = [this.topBorder(width, "Fabric · LCM")];
-    const snapshot = this.lcmSnapshot;
-    if (!snapshot) {
-      lines.push(this.row(width, this.theme.fg("muted", lcmUnavailableLine())));
-      lines.push(this.middleBorder(width));
-      lines.push(
-        this.row(width, this.theme.fg("dim", "1 activity · 2 topology · ? help · esc close")),
-      );
-      lines.push(this.bottomBorder(width));
-      return lines.map((line) => truncateToWidth(line, width, ""));
-    }
-    const maxBody = Math.max(3, Math.min(34, overlayRows - 5));
-    if (this.lcmDetail) {
-      for (const line of renderLcmDetailLines(
-        this.theme,
-        this.lcmDetail,
-        this.lcmSourceIndex,
-        this.lcmSourceEntry,
-        innerWidth,
-        maxBody,
-      )) {
-        lines.push(this.row(width, line));
-      }
-      lines.push(this.middleBorder(width));
-      lines.push(
-        this.row(
-          width,
-          this.theme.fg(
-            "dim",
-            `↑↓/jk source · enter ${this.lcmSourceEntry ? "close" : "open"} raw entry · esc back · ? help`,
-          ),
-        ),
-      );
-      lines.push(this.bottomBorder(width));
-      return lines.map((line) => truncateToWidth(line, width, ""));
-    }
-    const headerLines = renderLcmHeaderLines(this.theme, snapshot, innerWidth);
-    for (const line of headerLines) lines.push(this.row(width, line));
-    lines.push(this.row(width, renderLcmCoverageLine(this.theme, snapshot, innerWidth)));
-    lines.push(this.middleBorder(width));
-    const body = Math.max(2, maxBody - headerLines.length - 2);
-    const previewRows = Math.max(2, Math.min(6, Math.floor(body / 3)));
-    const nodeRows = Math.max(1, body - previewRows - 1);
-    for (const line of renderLcmNodeLines(
-      this.theme,
-      snapshot,
-      innerWidth,
-      nodeRows,
-      this.lcmIndex,
-    )) {
-      lines.push(this.row(width, line));
-    }
-    lines.push(this.middleBorder(width));
-    for (const line of renderLcmPreviewLines(this.theme, snapshot, innerWidth, previewRows)) {
-      lines.push(this.row(width, line));
-    }
-    lines.push(this.middleBorder(width));
-    lines.push(
-      this.row(
-        width,
-        this.theme.fg(
-          "dim",
-          `↑↓/jk node · g/G first/last · [ ] node page · enter inspect · 1 activity · 2 topology · ? help`,
-        ),
-      ),
-    );
-    lines.push(this.bottomBorder(width));
-    return lines.map((line) => truncateToWidth(line, width, ""));
   }
 
   private renderNarrowFallback(width: number, label: string, hint: string): string[] {

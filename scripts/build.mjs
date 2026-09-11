@@ -36,6 +36,8 @@ const lazyEntryPoints = [
   "src/runtime/type-checker.ts",
   "src/speculation/scanner.ts",
   "src/ui/dashboard.ts",
+  "src/ui/lcm-dashboard.ts",
+  "src/ui/lcm-panel.ts",
   "src/ui/conversation.ts",
   "src/ui/conversation-targets.ts",
   "src/ui/conversation-chrome.ts",

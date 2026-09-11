@@ -2,13 +2,14 @@ import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
 import { sqliteDriver, type SqliteDatabase } from "./sqlite.js";
-import { canonicalLcmPayload, canonicalProjectIdentity, createDeleteConfirmationToken, defaultLedgerPath, hash, hashLcmPayload, type DeleteConfirmationToken, type ProjectIdentity, type ProjectIdentityInput, type RawEntry, type SessionEntry } from "./lcm-identity.js";
+import { stableProjectKey } from "./lcm-directory.js";
+import { canonicalLcmPayload, canonicalProjectIdentity, createDeleteConfirmationToken, defaultLedgerPath, defaultLedgerRoot, hash, hashLcmPayload, type DeleteConfirmationToken, type ProjectIdentity, type ProjectIdentityInput, type RawEntry, type SessionEntry } from "./lcm-identity.js";
 
 export { canonicalLcmPayload, canonicalProjectIdentity, createDeleteConfirmationToken, defaultLedgerPath, hashLcmPayload };
 export type { DeleteConfirmationToken, ProjectIdentity, RawEntry, SessionEntry };
 const LCM_LEDGER_WARNING_BYTES = 8 * 1024 ** 3;
 const LCM_LEDGER_MAINTENANCE_BYTES = 10 * 1024 ** 3;
-export interface LedgerOptions { dbPath?: string; rootDir?: string; project?: ProjectIdentityInput; now?: () => number; warningBytes?: number; maintenanceBytes?: number }
+export interface LedgerOptions { dbPath?: string; rootDir?: string; project?: ProjectIdentityInput; projectKey?: string; now?: () => number; warningBytes?: number; maintenanceBytes?: number }
 export type OperationalState = "healthy" | "warning" | "maintenance" | "degraded";
 export interface CheckpointMetrics { mode: "passive" | "truncate"; busy: number; logPages: number; checkpointedPages: number; truncated: boolean }
 export interface BackupManifest { format: "lcm-ledger-backup"; version: number; source: string; destination: string; sourceSha256: string; backupSha256: string; sourceStateSha256: string; rowCounts: Record<string, number>; integrity: "ok" | string; createdAt: number }
@@ -17,10 +18,10 @@ export interface LcmSearchOptions { sessionId?: string; query?: string; mode: Lc
 export interface LcmSearchPage { rows: RawEntry[]; total: number; scanned: number; complete: boolean }
 export interface DeleteManifest { format: "lcm-ledger-delete"; version: number; projectKey: string; deletedAt: number; integrity: string; remaining: number; remainingByTable: Record<string, number>; unattributed: number; unattributedByTable: Record<string, number> }
 export interface LedgerMigrationReport { version: number; name: string; applied: boolean; reason?: string; counts: Record<string, number> }
-const LEDGER_SCHEMA_VERSION = 3;
-const BACKUP_MANIFEST_VERSION = 2;
+const LEDGER_SCHEMA_VERSION = 4;
+const BACKUP_MANIFEST_VERSION = 3;
 const DELETE_MANIFEST_VERSION = 2;
-const PROJECT_KEYED_TABLES = ["projects", "project_aliases", "sessions", "raw_entries", "summary_nodes", "summary_node_revisions", "frontiers", "maintenance_jobs", "maintenance_usage"] as const;
+const PROJECT_KEYED_TABLES = ["projects", "project_aliases", "sessions", "raw_entries", "summary_nodes", "summary_node_revisions", "frontiers", "maintenance_jobs", "maintenance_usage", "repair_ladder"] as const;
 const LCM_SEARCH_SCAN_LIMIT = 5_000;
 const LCM_SCAN_BATCH = 500;
 
@@ -36,6 +37,7 @@ CREATE TABLE IF NOT EXISTS summary_edges (parent_id TEXT NOT NULL REFERENCES sum
 CREATE TABLE IF NOT EXISTS frontiers (project_key TEXT NOT NULL, frontier_id TEXT NOT NULL, node_id TEXT NOT NULL, created_at INTEGER NOT NULL, PRIMARY KEY(project_key, frontier_id, node_id));
 CREATE TABLE IF NOT EXISTS maintenance_jobs (job_id TEXT PRIMARY KEY, project_key TEXT NOT NULL, status TEXT NOT NULL, payload TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS maintenance_usage (project_key TEXT NOT NULL, day TEXT NOT NULL, session_id TEXT NOT NULL, calls INTEGER NOT NULL, input_tokens INTEGER NOT NULL, output_tokens INTEGER NOT NULL, cost REAL NOT NULL, wall_ms INTEGER NOT NULL, PRIMARY KEY(project_key,day,session_id));
+CREATE TABLE IF NOT EXISTS repair_ladder (project_key TEXT NOT NULL, fault TEXT NOT NULL, attempts INTEGER NOT NULL, next_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, detail TEXT NOT NULL, PRIMARY KEY(project_key, fault));
 CREATE TABLE IF NOT EXISTS orphaned_rows (migration_version INTEGER NOT NULL, table_name TEXT NOT NULL, row_json TEXT NOT NULL, detected_at INTEGER NOT NULL);
 CREATE INDEX IF NOT EXISTS raw_entries_lookup ON raw_entries(project_key, session_id, entry_id, revision);
 DROP INDEX IF EXISTS raw_entries_recent;
@@ -48,7 +50,7 @@ CREATE INDEX IF NOT EXISTS summary_edges_child ON summary_edges(child_id, parent
 const fileHash = (file: string) => crypto.createHash("sha256").update(fs.readFileSync(file)).digest("hex");
 const snapshotHash = (db: SqliteDatabase): string => {
   const digest = crypto.createHash("sha256");
-  for (const [table, order] of [["schema_metadata", "key"], ["projects", "project_key"], ["project_aliases", "alias"], ["sessions", "project_key,session_id"], ["raw_entries", "project_key,session_id,entry_id,revision"], ["summary_nodes", "node_id"], ["summary_edges", "parent_id,child_id"], ["frontiers", "project_key,frontier_id,node_id"], ["maintenance_jobs", "job_id"], ["maintenance_usage", "project_key,day,session_id"], ["orphaned_rows", "migration_version,table_name,row_json"]] as const) {
+  for (const [table, order] of [["schema_metadata", "key"], ["projects", "project_key"], ["project_aliases", "alias"], ["sessions", "project_key,session_id"], ["raw_entries", "project_key,session_id,entry_id,revision"], ["summary_nodes", "node_id"], ["summary_edges", "parent_id,child_id"], ["frontiers", "project_key,frontier_id,node_id"], ["maintenance_jobs", "job_id"], ["maintenance_usage", "project_key,day,session_id"], ["repair_ladder", "project_key,fault"], ["orphaned_rows", "migration_version,table_name,row_json"]] as const) {
     digest.update(`${table}\0`);
     for (const row of db.prepare(`SELECT * FROM ${table} ORDER BY ${order}`).all()) digest.update(`${JSON.stringify(row)}\0`);
   }
@@ -104,7 +106,10 @@ export class LcmLedger {
     if (!Number.isSafeInteger(this.warningBytes) || !Number.isSafeInteger(this.maintenanceBytes) || this.warningBytes < 0 || this.maintenanceBytes < this.warningBytes) {
       throw new Error("invalid ledger size thresholds");
     }
-    this.project = canonicalProjectIdentity(options.project ?? { liveCwd: process.cwd() });
+    const identity = canonicalProjectIdentity(options.project ?? { liveCwd: process.cwd() });
+    const adopted = options.projectKey
+      ?? (options.dbPath ? identity.key : stableProjectKey(options.rootDir ?? defaultLedgerRoot(), identity, this.now()));
+    this.project = adopted === identity.key ? identity : { ...identity, key: adopted };
     const dbPath = options.dbPath ?? defaultLedgerPath(options.rootDir, this.project.key);
     fs.mkdirSync(path.dirname(dbPath), { recursive: true });
     this.dbPath = dbPath;
@@ -125,7 +130,18 @@ export class LcmLedger {
       this.registerProject(this.project);
     } catch (error) { this.degraded = true; throw new LedgerDegradedError("ledger startup failed", error); }
   }
+  readRepairLadder(projectKey = this.project.key): Map<string, { attempts: number; nextAt: number; detail: string; updatedAt: number }> {
+    return this.readOnly(db => new Map((db.prepare("SELECT fault,attempts,next_at,detail,updated_at FROM repair_ladder WHERE project_key=?").all(projectKey) as Array<{ fault: string; attempts: number; next_at: number; detail: string; updated_at: number }>).map(row => [row.fault, { attempts: Number(row.attempts), nextAt: Number(row.next_at), detail: row.detail, updatedAt: Number(row.updated_at) }])));
+  }
+  writeRepairLadder(fault: string, attempts: number, nextAt: number, detail: string): void {
+    this.transaction(db => db.prepare("INSERT INTO repair_ladder(project_key,fault,attempts,next_at,updated_at,detail) VALUES(?,?,?,?,?,?) ON CONFLICT(project_key,fault) DO UPDATE SET attempts=excluded.attempts,next_at=excluded.next_at,updated_at=excluded.updated_at,detail=excluded.detail").run(this.project.key, fault, attempts, nextAt, this.now(), detail));
+  }
+  clearRepairLadder(fault: string): void {
+    this.transaction(db => db.prepare("DELETE FROM repair_ladder WHERE project_key=? AND fault=?").run(this.project.key, fault));
+  }
   get isDegraded() { return this.degraded; }
+  get file(): string { return this.dbPath; }
+  get bytes(): number { try { return fs.statSync(this.dbPath).size; } catch { return 0; } }
   get operationalState(): OperationalState {
     if (this.degraded) return "degraded";
     try { const size = fs.statSync(this.dbPath).size; if (size >= this.maintenanceBytes) return "maintenance"; if (size >= this.warningBytes) return "warning"; } catch {}
@@ -330,7 +346,7 @@ ALTER TABLE summary_node_revisions_next RENAME TO summary_node_revisions;`);
       const rowCounts: Record<string, number> = {};
       try {
         integrity = (copy.prepare("PRAGMA integrity_check").get() as { integrity_check?: string }).integrity_check ?? "unknown";
-        for (const table of ["projects", "sessions", "raw_entries", "summary_nodes", "summary_node_revisions", "summary_edges", "frontiers", "maintenance_jobs", "maintenance_usage", "orphaned_rows"]) {
+        for (const table of ["projects", "sessions", "raw_entries", "summary_nodes", "summary_node_revisions", "summary_edges", "frontiers", "maintenance_jobs", "maintenance_usage", "repair_ladder", "orphaned_rows"]) {
           rowCounts[table] = Number((copy.prepare(`SELECT count(*) n FROM ${table}`).get() as { n: number }).n);
         }
         backupStateSha256 = snapshotHash(copy);
@@ -392,7 +408,7 @@ ALTER TABLE summary_node_revisions_next RENAME TO summary_node_revisions;`);
         if (this.orphanOwner(db, row.row_json) === this.project.key) purge.run(row.id);
       }
       db.prepare("DELETE FROM summary_edges WHERE parent_id IN (SELECT node_id FROM summary_nodes WHERE project_key=?) OR child_id IN (SELECT node_id FROM summary_nodes WHERE project_key=?)").run(this.project.key, this.project.key);
-      for (const table of ["raw_entries", "sessions", "frontiers", "summary_node_revisions", "summary_nodes", "maintenance_jobs", "maintenance_usage"]) db.prepare(`DELETE FROM ${table} WHERE project_key=?`).run(this.project.key);
+      for (const table of ["raw_entries", "sessions", "frontiers", "summary_node_revisions", "summary_nodes", "maintenance_jobs", "maintenance_usage", "repair_ladder"]) db.prepare(`DELETE FROM ${table} WHERE project_key=?`).run(this.project.key);
       if (this.fts) db.prepare("DELETE FROM raw_entries_fts WHERE project_key=?").run(this.project.key);
       db.prepare("DELETE FROM project_aliases WHERE project_key=?").run(this.project.key);
       db.prepare("DELETE FROM projects WHERE project_key=?").run(this.project.key);

@@ -134,7 +134,26 @@ Raise `lcmMaintenancePasses` (1-64) for more leaves per turn. `lcmMaintenanceCon
 
 The report carries one reconciled `state` that already accounts for any runtime fault, so a surface that prints it can never place `healthy` beside a fault message. `ledgerState` keeps the ledger's own word, and both renderers print `degraded (ledger healthy)` when the store is intact while the runtime holds a fault. A third surface that prints `state` alone stays truthful without repeating the reconciliation.
 
-Every compaction key appears in `/fabric settings` under Compaction. `/fabric dashboard` carries the ledger on key `3`: the coverage band for the active branch, the node graph paged by depth, the text a compaction would serve right now beside the session payload it draws from, and a node detail that opens the exact stored raw entry behind any source. A node replaced by a model summary keeps its previous text, so an excerpt and the summary that superseded it sit side by side. The reads happen once per refresh; nothing in the render path touches the ledger.
+Every compaction key appears in `/fabric settings` under Compaction. `/fabric lcm` opens a dashboard of its own with four tabs:
+
+- `1 health` runs the doctor: one line per check (ledger, session, readback, reconcile, coverage, jobs, model), each naming the evidence it read. A check that can be repaired offers the repair on `r`; `R` runs the first one offered. Repairs are idempotent and report the delta they caused, and the last eight appear under the checks.
+- `2 graph` pages the node graph by depth. `enter` opens a node: its sources, ancestors, children, and the exact stored raw entry behind any source. A node replaced by a model summary keeps its previous text, so an excerpt and the summary that superseded it sit side by side.
+- `3 coverage` draws every stored entry of the branch as one cell, aggregated losslessly when the branch is wider than the terminal, above the text a compaction would serve right now and the session payload it draws from.
+- `4 jobs` lists maintenance jobs failure-first with attempts, error, and retry time. `r` requeues failed jobs; `l` releases expired leases.
+
+The header states the verdict (`healthy`, `priming`, `attention`, `degraded`), the project key, live versus stored entry counts, and today's model spend. Each projection is read once per refresh; nothing in the render path touches the ledger.
+
+A session whose file the host has not written yet reads `priming`: reconciliation reports the file as absent, and the branch still in memory lands in the ledger on the next message.
+
+## Repair
+
+The ledger keeps a repair budget per fault class. On every turn boundary the runtime runs at most one repair, preferring a failing check over a warning one, records the attempt, and backs off exponentially from 30 seconds to 8 minutes across the five attempts it is allowed. After the fifth the fault parks and the health tab says so. A budget clears only once its check has been quiet for half an hour, so a repair that keeps resurrecting the same fault still reaches the park. The budget lives in the ledger, so restarting resumes it. `r` on the health tab runs the same repair on demand and ignores the budget.
+
+Readback hashes each branch entry and appends only the ones whose payload the session has not stored yet, so it runs on every message and the dashboard never trails the conversation. An entry amended in place gains a revision the same way a fresh one does. Changing session re-reads the whole branch.
+
+## Ledger identity and retention
+
+A project is keyed by the device and inode of its directory, which a rebuild or a remount changes. `projects.json` in the ledger root remembers the key each canonical path was first filed under, so a project that changes inode keeps its history and no empty ledger appears beside it. Once a day, and only when a recorded project directory no longer exists and nothing has written its ledger for 30 days, that ledger is deleted.
 
 ## Performance gate
 

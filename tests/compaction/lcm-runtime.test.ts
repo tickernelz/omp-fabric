@@ -1,11 +1,12 @@
 import fs from "node:fs";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ExtensionContext, SessionEntry } from "@oh-my-pi/pi-coding-agent";
 import { canonicalLcmPayload } from "../../src/storage/lcm-ledger.js";
 import { LcmRuntime, renderAddressedFrontier } from "../../src/compaction/lcm-runtime.js";
 import { LCM_RECOVERY_POINTER } from "../../src/compaction/render.js";
 import { MAX_SUMMARY_BYTES } from "../../src/compaction/bounds.js";
+import type { LcmJob } from "../../src/compaction/lcm-maintenance.js";
 import { closeAfterTest, releaseTemp, tempRoot } from "../fixtures/lcm-temp.js";
 
 const makeRoot = (): string => tempRoot("lcm-runtime-");
@@ -39,6 +40,12 @@ const makeEntry = (id: string, text: string, parentId: string | null = null): Se
   timestamp: "2026-09-01T00:00:00.000Z",
   message: { role: "user", content: [{ type: "text", text }] },
 } as SessionEntry);
+const writeSession = (root: string, name: string): string => {
+  const file = path.join(root, name);
+  fs.writeFileSync(file, `${JSON.stringify({ type: "session", id: "session-1", cwd: root, timestamp: "2026-09-01T00:00:00.000Z" })}\n${JSON.stringify(makeEntry("e1", "source"))}\n`);
+  return file;
+};
+const failReads = () => vi.spyOn(fs, "readSync").mockImplementation((() => { throw Object.assign(new Error("EIO"), { code: "EIO" }); }) as typeof fs.readSync);
 const makeContext = (root: string, entries: SessionEntry[], sessionFile?: string): ExtensionContext => ({
   cwd: root,
   model: undefined,
@@ -837,16 +844,29 @@ describe("LCM runtime", () => {
     await runtime.shutdown();
   });
 
+  it("leaves a session whose file is not written yet healthy", async () => {
+    const root = makeRoot();
+    const runtime = openRuntime(makeContext(root, [makeEntry("e1", "source")], path.join(root, "unwritten.jsonl")), { rootDir: root });
+    await runtime.reconcileSelectedSession();
+
+    expect(runtime.reconciliation?.errors).toBe(0);
+    expect(runtime.reconciliation?.absent).toBe(1);
+    expect(runtime.status).toBe("healthy");
+    expect(runtime.report().degraded).toBeUndefined();
+    await runtime.shutdown();
+  });
+
   it("clears a reconciliation error once a later pass reads the session file", async () => {
     const root = makeRoot();
-    const selected = path.join(root, "late.jsonl");
+    const selected = writeSession(root, "late.jsonl");
     const runtime = openRuntime(makeContext(root, [makeEntry("e1", "source")], selected), { rootDir: root });
+    const unreadable = failReads();
     await runtime.reconcileSelectedSession();
 
     expect(runtime.reconciliation?.errors).toBe(1);
     expect(runtime.report().degraded).toContain("reported 1 error(s)");
 
-    fs.writeFileSync(selected, `${JSON.stringify({ type: "session", id: "session-1", cwd: root, timestamp: "2026-09-01T00:00:00.000Z" })}\n${JSON.stringify(makeEntry("e1", "source"))}\n`);
+    unreadable.mockRestore();
     await runtime.maintain();
 
     expect(runtime.reconciliation?.errors).toBe(0);
@@ -856,10 +876,13 @@ describe("LCM runtime", () => {
 
   it("keeps reporting a session file that never becomes readable", async () => {
     const root = makeRoot();
-    const runtime = openRuntime(makeContext(root, [makeEntry("e1", "source")], path.join(root, "absent.jsonl")), { rootDir: root });
+    const selected = writeSession(root, "unreadable.jsonl");
+    const runtime = openRuntime(makeContext(root, [makeEntry("e1", "source")], selected), { rootDir: root });
+    const unreadable = failReads();
     await runtime.reconcileSelectedSession();
 
     for (let turn = 0; turn < 5; turn += 1) await runtime.maintain();
+    unreadable.mockRestore();
 
     expect(runtime.reconciliation?.errors).toBe(1);
     expect(runtime.report().degraded).toContain("reported 1 error(s)");
@@ -889,7 +912,9 @@ describe("LCM runtime", () => {
 
   it("keeps a reconciliation error visible after the next readback", async () => {
     const root = makeRoot();
-    const runtime = openRuntime(makeContext(root, [makeEntry("e1", "source")], path.join(root, "missing.jsonl")), { rootDir: root });
+    const selected = writeSession(root, "still-broken.jsonl");
+    const runtime = openRuntime(makeContext(root, [makeEntry("e1", "source")], selected), { rootDir: root });
+    const unreadable = failReads();
     await runtime.reconcileSelectedSession();
 
     expect(runtime.reconciliation?.errors).toBe(1);
@@ -897,10 +922,223 @@ describe("LCM runtime", () => {
     expect(runtime.report().degraded?.match(/reported 1 error/g)).toHaveLength(1);
 
     await runtime.readback();
+    unreadable.mockRestore();
 
     expect(runtime.reconciliation?.errors).toBe(1);
     expect(runtime.status).toBe("degraded");
     expect(runtime.report().degraded).toContain("reported 1 error(s)");
+    await runtime.shutdown();
+  });
+
+  it("repairs a readable session file on request and records the outcome", async () => {
+    const root = makeRoot();
+    const selected = writeSession(root, "repairable.jsonl");
+    const runtime = openRuntime(makeContext(root, [makeEntry("e1", "source")], selected), { rootDir: root });
+    const unreadable = failReads();
+    await runtime.reconcileSelectedSession();
+
+    expect(runtime.status).toBe("degraded");
+
+    unreadable.mockRestore();
+    const outcome = await runtime.repair("reconcile");
+
+    expect(outcome.changed).toBe(true);
+    expect(runtime.status).toBe("healthy");
+    expect(runtime.diagnostics().repairs[0]?.id).toBe("reconcile");
+    await runtime.shutdown();
+  });
+
+  it("appends only the branch entries it has not stored yet", async () => {
+    const root = makeRoot();
+    const entries = [makeEntry("e1", "first"), makeEntry("e2", "second")];
+    const runtime = openRuntime(makeContext(root, entries), { rootDir: root });
+    await runtime.readback();
+
+    const append = vi.spyOn(runtime.ledger, "appendRaw");
+    await runtime.readback();
+
+    expect(append).not.toHaveBeenCalled();
+
+    entries.push(makeEntry("e3", "third"));
+    await runtime.readback();
+
+    expect(append).toHaveBeenCalledTimes(1);
+    expect(runtime.ledger.readRaw(runtime.projectKey)).toHaveLength(3);
+    expect(runtime.coverage().active).toBe(3);
+    append.mockRestore();
+    await runtime.shutdown();
+  });
+
+  it("re-reads the whole branch when the session changes", async () => {
+    const root = makeRoot();
+    const entries = [makeEntry("e1", "first")];
+    let sessionId = "session-1";
+    const context = makeContext(root, entries);
+    context.sessionManager.getSessionId = () => sessionId;
+    const runtime = openRuntime(context, { rootDir: root });
+    await runtime.readback();
+
+    sessionId = "session-2";
+    const append = vi.spyOn(runtime.ledger, "appendRaw");
+    await runtime.readback();
+
+    expect(append).toHaveBeenCalledTimes(1);
+    expect(runtime.ledger.readRaw(runtime.projectKey, "session-2")).toHaveLength(1);
+    append.mockRestore();
+    await runtime.shutdown();
+  });
+
+  it("budgets automatic repair per fault and parks it after the last attempt", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-09-11T00:00:00.000Z"));
+    const root = makeRoot();
+    const selected = writeSession(root, "budgeted.jsonl");
+    const runtime = openRuntime(makeContext(root, [makeEntry("e1", "source")], selected), { rootDir: root });
+    const unreadable = failReads();
+    await runtime.reconcileSelectedSession();
+
+    expect(runtime.status).toBe("degraded");
+    expect((await runtime.autoRepair())?.id).toBe("reconcile");
+    expect(runtime.diagnostics().autoRepairs[0]).toMatchObject({ fault: "reconcile", attempts: 1 });
+    expect(await runtime.autoRepair()).toBeUndefined();
+
+    for (let attempt = 2; attempt <= 5; attempt += 1) {
+      vi.setSystemTime(Date.now() + 20 * 60 * 1_000);
+      expect((await runtime.autoRepair())?.id).toBe("reconcile");
+    }
+
+    expect(runtime.diagnostics().autoRepairs[0]?.attempts).toBe(5);
+    vi.setSystemTime(Date.now() + 24 * 60 * 60 * 1_000);
+
+    expect(await runtime.autoRepair()).toBeUndefined();
+    expect(runtime.status).toBe("degraded");
+    unreadable.mockRestore();
+    vi.useRealTimers();
+    await runtime.shutdown();
+  });
+
+  it("recovers the runtime once the fault it tracked is gone", async () => {
+    const root = makeRoot();
+    const selected = writeSession(root, "recovering.jsonl");
+    const runtime = openRuntime(makeContext(root, [makeEntry("e1", "source")], selected), { rootDir: root });
+    const unreadable = failReads();
+    await runtime.reconcileSelectedSession();
+    await runtime.autoRepair();
+
+    expect(runtime.diagnostics().autoRepairs).toHaveLength(1);
+
+    unreadable.mockRestore();
+    await runtime.reconcileSelectedSession();
+
+    expect(runtime.status).toBe("healthy");
+    await runtime.shutdown();
+  });
+
+  it("stops reporting an absent session file once the host writes it", async () => {
+    const root = makeRoot();
+    const selected = path.join(root, "deferred.jsonl");
+    const runtime = openRuntime(makeContext(root, [makeEntry("e1", "source")], selected), { rootDir: root });
+    await runtime.reconcileSelectedSession();
+
+    expect(runtime.reconciliation?.absent).toBe(1);
+
+    writeSession(root, "deferred.jsonl");
+    await runtime.syncAndSchedule();
+
+    expect(runtime.reconciliation?.absent).toBe(0);
+    expect(runtime.diagnostics().sessionFilePresent).toBe(true);
+    await runtime.shutdown();
+  });
+
+  it("stores a new revision for a branch entry amended in place", async () => {
+    const root = makeRoot();
+    const entry = makeEntry("e1", "first") as SessionEntry & { message: { content: Array<{ type: string; text: string }> } };
+    const runtime = openRuntime(makeContext(root, [entry]), { rootDir: root });
+    await runtime.readback();
+
+    entry.message.content[0]!.text = "amended";
+    await runtime.readback();
+
+    const stored = runtime.ledger.readRaw(runtime.projectKey, "session-1");
+    expect(stored.map((row) => row.revision)).toEqual([1, 2]);
+    expect(runtime.coverage()).toEqual({ active: 1, covered: 0 });
+    expect(runtime.frontier("session-1", "branch-a")).toHaveLength(0);
+    await runtime.shutdown();
+  });
+
+  it("holds a repair inside its backoff and releases it when the delay passes", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-09-11T00:00:00.000Z"));
+    const root = makeRoot();
+    const selected = writeSession(root, "backoff.jsonl");
+    const runtime = openRuntime(makeContext(root, [makeEntry("e1", "source")], selected), { rootDir: root });
+    const unreadable = failReads();
+    await runtime.reconcileSelectedSession();
+    await runtime.autoRepair();
+
+    vi.setSystemTime(Date.now() + 29_000);
+    expect(await runtime.autoRepair()).toBeUndefined();
+    vi.setSystemTime(Date.now() + 2_000);
+    expect((await runtime.autoRepair())?.id).toBe("reconcile");
+
+    vi.setSystemTime(Date.now() + 59_000);
+    expect(await runtime.autoRepair()).toBeUndefined();
+    vi.setSystemTime(Date.now() + 2_000);
+    expect((await runtime.autoRepair())?.id).toBe("reconcile");
+
+    expect(runtime.diagnostics().autoRepairs[0]?.attempts).toBe(3);
+    unreadable.mockRestore();
+    vi.useRealTimers();
+    await runtime.shutdown();
+  });
+
+  it("keeps a repair budget alive while its fault keeps coming back", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-09-11T00:00:00.000Z"));
+    const root = makeRoot();
+    const selected = writeSession(root, "flapping.jsonl");
+    const runtime = openRuntime(makeContext(root, [makeEntry("e1", "source")], selected), { rootDir: root });
+    const unreadable = failReads();
+    await runtime.reconcileSelectedSession();
+    await runtime.autoRepair();
+    unreadable.mockRestore();
+    await runtime.reconcileSelectedSession();
+
+    vi.setSystemTime(Date.now() + 60_000);
+    await runtime.autoRepair();
+
+    expect(runtime.diagnostics().autoRepairs[0]).toMatchObject({ fault: "reconcile", attempts: 1 });
+
+    vi.setSystemTime(Date.now() + 31 * 60_000);
+    await runtime.autoRepair();
+
+    expect(runtime.diagnostics().autoRepairs).toHaveLength(0);
+    vi.useRealTimers();
+    await runtime.shutdown();
+  });
+
+  it("lists failed maintenance jobs ahead of the page limit", async () => {
+    const root = makeRoot();
+    const runtime = openRuntime(makeContext(root, [makeEntry("e1", "source")]), { rootDir: root });
+    await runtime.readback();
+    for (let index = 0; index < 3; index += 1) {
+      const stored = historyEntry(runtime, index);
+      const node = runtime.maintenance.createLeaf([stored]);
+      if (!node) throw new Error("missing node");
+      const job = runtime.maintenance.jobForNode(node.nodeId);
+      if (!job) throw new Error("missing job");
+      if (index === 2) {
+        let failing: LcmJob | undefined = job;
+        for (let attempt = 0; attempt < 3 && failing; attempt += 1) failing = runtime.maintenance.recordFailure(failing, "boom");
+      } else {
+        runtime.maintenance.completeEmergency(runtime.maintenance.claimEmergency(job.jobId), `summary ${index}`);
+      }
+    }
+
+    const page = runtime.jobs(1);
+
+    expect(page).toHaveLength(1);
+    expect(page[0]?.state).toBe("failed");
     await runtime.shutdown();
   });
 });

@@ -1,5 +1,6 @@
 import type { ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 import type { LcmPreview, LcmReport } from "./compaction/lcm-runtime.js";
+import type { LcmDiagnostics, LcmRepairId, LcmRepairOutcome } from "./compaction/lcm-doctor.js";
 import { resolveAgentDir } from "./core/agent-dir.js";
 import {
   resolveAvailableOmpModel,
@@ -167,6 +168,19 @@ export interface LcmStatusSource {
     ancestors: string[];
   } | undefined;
   source(sessionId: string, entryId: string, revision: number): { payloadJson: string; content: string; role: string; createdAt: number } | undefined;
+  diagnostics(report?: LcmReport): LcmDiagnostics;
+  repair(id: LcmRepairId): Promise<LcmRepairOutcome>;
+  jobs(limit?: number): LcmDashboardJob[];
+}
+
+export interface LcmDashboardJob {
+  jobId: string;
+  nodeId: string;
+  state: string;
+  attempts: number;
+  error?: string;
+  nextRetryAt: number;
+  updatedAt: number;
 }
 
 export interface LcmDashboardNode {

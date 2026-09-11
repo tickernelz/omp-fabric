@@ -122,6 +122,7 @@ Fabric includes a live activity surface in OMP:
 
 - A compact widget above the chat (like `pi-supervisor`) whose header follows the current phase while its rows show active/completed agents, active actors, and their recent nested tool or code-change activity.
 - `/fabric` (or `/fabric dashboard`): opens the **Activity** and **Topology** views. The user-facing OMP session appears as **Main**. You can queue or steer participants and inspect the project topology.
+- `/fabric lcm`: opens the LCM ledger dashboard with health checks and one-key repairs, the summary node graph, branch coverage, and maintenance jobs.
 - `/fabric settings`: mirrors OMP's `/settings` and writes changes to `fabric.json`. TUI hosts get the searchable settings component; RPC hosts get the same nested sections, value/input/model pickers, list editors, and project/global save scopes through native dialog primitives.
 - `Tool display` (`compact` by default, or `full`) is configured under `/fabric settings` → **UI**; compact elevates the declared display intent, hides the outer TypeScript, and applies to the current transcript immediately. OMP's tool-expand keybinding (`ctrl+o` by default) expands a compact card to the full transcript.
 

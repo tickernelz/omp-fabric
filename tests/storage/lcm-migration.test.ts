@@ -55,14 +55,21 @@ describe("LCM session migration", () => {
     expect(l.readRaw().map(entry=>entry.entryId)).toEqual(["a","b"]);
     l.close();
   });
-  it("still counts an unreadable source as an error", () => {
+  it("treats a session file that does not exist yet as absent, not an error", () => {
     const root=make(); const cwd=path.join(root,"project"); fs.mkdirSync(cwd);
     const l=openLedger({dbPath:path.join(root,"l.sqlite"),project:{liveCwd:cwd}});
 
     const missing=reconcileSession({agentDir:root,ledger:l,files:[path.join(root,"gone.jsonl")] as [string],liveCwd:cwd,projectCwd:cwd,apply:true});
-    expect(missing.counts.errors).toBe(1);
+
+    expect(missing.counts.errors).toBe(0);
+    expect(missing.counts.absent).toBe(1);
+    expect(missing.counts.incompleteDiscovery).toBe(1);
     expect(missing.counts.raced).toBe(0);
-    expect(missing.exitCode).toBe(1);
+    l.close();
+  });
+  it("still counts an unreadable source as an error", () => {
+    const root=make(); const cwd=path.join(root,"project"); fs.mkdirSync(cwd);
+    const l=openLedger({dbPath:path.join(root,"l.sqlite"),project:{liveCwd:cwd}});
 
     const p=file(root,cwd,[header(cwd),msg("a","2026-09-07T00:00:00.000Z")]);
     const spy=vi.spyOn(fs,"readSync").mockImplementation((() => { throw Object.assign(new Error("EIO"),{code:"EIO"}); }) as typeof fs.readSync);

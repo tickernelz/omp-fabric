@@ -189,7 +189,7 @@ describe("Fabric tool display lifecycle", () => {
       isProjectTrusted: () => true,
       hasUI: false,
       ui: { setStatus: vi.fn(), notify: vi.fn() },
-      sessionManager: { getBranch: () => [], getSessionId: () => "test-session" },
+      sessionManager: { getBranch: () => [], getSessionId: () => "test-session", getLeafId: () => null },
     } as unknown as ExtensionContext;
     await commandHandler!("settings", context);
     await flushDisplayRefresh();
@@ -246,7 +246,7 @@ describe("Fabric tool display lifecycle", () => {
         isProjectTrusted: () => true,
         hasUI: false,
         ui: { setStatus: vi.fn(), notify: vi.fn() },
-        sessionManager: { getBranch: () => [], getSessionId: () => sessionId },
+        sessionManager: { getBranch: () => [], getSessionId: () => sessionId, getLeafId: () => null },
       }) as unknown as ExtensionContext;
 
       // Session A bootstraps compact successfully.
@@ -320,7 +320,7 @@ describe("Fabric tool display lifecycle", () => {
         isProjectTrusted: () => true,
         hasUI: false,
         ui: { setStatus: vi.fn(), notify: vi.fn() },
-        sessionManager: { getBranch: () => [], getSessionId: () => "resumed-session" },
+        sessionManager: { getBranch: () => [], getSessionId: () => "resumed-session", getLeafId: () => null },
       } as unknown as ExtensionContext;
       await emit(handlers, "session_start", context);
 

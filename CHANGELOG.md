@@ -1,5 +1,25 @@
 # Changelog
 
+## 1.16.0
+
+### Added
+
+- `/fabric lcm` opens a dashboard of its own for the LCM ledger, with four tabs: `health` runs a doctor over seven checks and offers a one-key repair for the ones that carry one, `graph` pages the summary nodes and opens the raw entry behind any source, `coverage` draws every stored branch entry as one aggregated cell above the text a compaction would serve, and `jobs` lists maintenance work failure-first with `r` to requeue and `l` to release stuck leases.
+- An automatic repair ladder persisted in the ledger (`repair_ladder`): one repair per turn boundary, a failing check preferred over a warning one, five attempts per fault class with 30-second backoff doubling to 8 minutes, parked and reported once the budget is spent, and cleared after its check has been quiet for half an hour.
+- A ledger directory (`projects.json`) that remembers the key each project path was first filed under, so a project whose directory changes inode keeps its history, plus a daily sweep that removes a ledger only when its project directory is gone and nothing has written it for 30 days.
+
+### Fixed
+
+- A session file the host has not written yet is reported as absent rather than as a reconciliation error, so a fresh session no longer opens `degraded` with a fault it cannot act on. Reconciliation re-runs once the file appears.
+- Readback hashes each branch entry and appends only the ones whose payload is not stored yet, which lets it run on every message instead of once a turn; an entry amended in place still gains a revision.
+- The frontier cache is invalidated whenever readback, reconciliation, maintenance, compaction, or a repair changes what it summarises, so coverage can no longer report a stale figure.
+- The jobs page orders failures first in SQL, so a recent failure is visible on a ledger holding more jobs than one page.
+- `BACKUP_MANIFEST_VERSION` moves to 3 because the ledger snapshot now digests the repair table; an older backup is refused with the versioned message instead of a raw SQLite error.
+
+### Changed
+
+- The LCM view left the shared `/fabric dashboard`; key `3` is gone and the help screen points at `/fabric lcm`.
+
 ## 1.15.0
 
 ### Added

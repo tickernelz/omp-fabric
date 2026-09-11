@@ -37,6 +37,10 @@ export function canonicalProjectIdentity(input: ProjectIdentityInput): ProjectId
   return { version: 1, key, canonicalPath, ...ids, aliases: [normalized, canonicalPath] };
 }
 
-export function defaultLedgerPath(rootDir = path.join(process.env.XDG_STATE_HOME || path.join(process.env.HOME || ".", ".local", "state"), "omp-fabric", "lcm"), projectKey = "default"): string {
+export function defaultLedgerRoot(): string {
+  return path.join(process.env.XDG_STATE_HOME || path.join(process.env.HOME || ".", ".local", "state"), "omp-fabric", "lcm");
+}
+
+export function defaultLedgerPath(rootDir = defaultLedgerRoot(), projectKey = "default"): string {
   return path.join(rootDir, `${hash(projectKey).slice(0, 24)}.sqlite`);
 }

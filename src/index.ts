@@ -543,7 +543,11 @@ export default async function ompFabric(omp: ExtensionAPI): Promise<void> {
       lcmCwd = lcmRuntime ? context.cwd : undefined;
       lcmProjectKey = lcmRuntime?.projectKey;
     }
-    if (state.config.compaction.engine === "lcm" && lcmRuntime) await lcmRuntime.reconcileSelectedSession();
+    if (state.config.compaction.engine === "lcm" && lcmRuntime) {
+      await lcmRuntime.reconcileSelectedSession();
+      await lcmRuntime.syncAndSchedule().catch(() => {});
+      lcmRuntime.sweepLedgers();
+    }
     refreshCodePreviewSettings();
     applyFabricMode();
     if (!updateCheckStarted) {
@@ -679,8 +683,9 @@ export default async function ompFabric(omp: ExtensionAPI): Promise<void> {
     return changed ? { content } : undefined;
   });
 
-  omp.on("message_end", () => {
+  omp.on("message_end", (_event, _context) => {
     lcmRuntime?.markDirty();
+    lcmRuntime?.syncEntries();
   });
 
   omp.on("message_end", (event) => {

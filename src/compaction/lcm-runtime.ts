@@ -1,11 +1,16 @@
+import fs from "node:fs";
 import type { ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 import { canonicalLcmPayload, canonicalProjectIdentity, hashLcmPayload, LcmLedger, type RawEntry } from "../storage/lcm-ledger.js";
+import { defaultLedgerRoot, hash } from "../storage/lcm-identity.js";
+
+import { sweepLedgers, type LcmSweepResult } from "../storage/lcm-directory.js";
 import { migrationDropReasons, reconcileSession, type MigrationDrops } from "../storage/lcm-migration.js";
 import { clipUtf8, MAX_SUMMARY_BYTES, utf8Bytes } from "./bounds.js";
 import { lcmSummaryAddress, renderLcmChildAddresses, renderLcmSourceAddresses } from "./lcm-addresses.js";
 import { emergencyReduce, LcmModelAdapter, type LcmSummarizer } from "./lcm-model.js";
 import { LCM_RECOVERY_POINTER } from "./render.js";
 import { reconcileLcmState } from "./lcm-status.js";
+import { lcmChecks, type LcmAutoRepair, type LcmCheck, type LcmDiagnostics, type LcmRepairId, type LcmRepairOutcome } from "./lcm-doctor.js";
 import { DEFAULT_LEAF_ENTRIES, DEFAULT_MAINTENANCE_CONCURRENCY, isLcmCapacityRejection, isLcmRejection, LcmMaintenance, type LcmBudgetPolicy, type LcmJob, type LcmNode } from "./lcm-maintenance.js";
 import type { LcmCompactionInput, LcmCompactionOutput } from "./hook.js";
 import { decodeCompactionInstructions } from "./instructions.js";
@@ -25,6 +30,7 @@ export interface LcmReconciliation {
   degraded: boolean;
   errors: number;
   raced: number;
+  absent: number;
   drops: MigrationDrops;
   reasons: string[];
 }
@@ -67,7 +73,10 @@ export interface LcmRuntimeOptions {
   softThresholdRatio?: number;
 }
 
-const MAX_RECONCILE_RECOVERIES = 3;
+const MAX_AUTO_REPAIR_ATTEMPTS = 5;
+const AUTO_REPAIR_DELAY_MS = 30_000;
+const AUTO_REPAIR_CLEAR_MS = 1_800_000;
+const MAX_REPAIR_LOG = 8;
 const CLAIMABLE_JOB_LIMIT = 256;
 const FAILED_JOB_WINDOW_MS = 24 * 60 * 60 * 1_000;
 const NODE_ADDRESS_LABEL = "address: ";
@@ -170,8 +179,9 @@ export class LcmRuntime {
   private degradedError: unknown;
   private activeSources = new Set<string>();
   private activeSessionId: string | undefined;
+  private persisted = new WeakMap<object, { key: string; contentHash: string }>();
+  private persistedSessionId: string | undefined;
   private lastReconciliation: LcmReconciliation | undefined;
-  private reconcileRecoveries = 0;
 
   constructor(context: ExtensionContext, options: LcmRuntimeOptions | (() => LcmRuntimeOptions) = {}) {
     this.context = context;
@@ -241,6 +251,11 @@ export class LcmRuntime {
       [...latest.values()].map((entry) => `${entry.sessionId}:${entry.entryId}:${entry.revision}`),
     );
     this.activeSessionId = sessionId;
+    this.invalidateFrontier();
+  }
+
+  private invalidateFrontier(): void {
+    this.frontierCache = undefined;
   }
 
   reconcileSelectedSession(): Promise<void> {
@@ -264,22 +279,16 @@ export class LcmRuntime {
         degraded: result.degraded,
         errors: result.counts.errors,
         raced: result.counts.raced,
+        absent: result.counts.absent,
         drops: result.drops,
         reasons: migrationDropReasons(result.drops),
       };
-      if (result.counts.errors === 0) this.reconcileRecoveries = 0;
       const sessionId = this.context.sessionManager.getSessionId();
       this.refreshActiveSources(sessionId, this.context.sessionManager.getBranch());
     });
   }
 
-  private recoverReconciliation(): Promise<void> {
-    if ((this.lastReconciliation?.errors ?? 0) === 0) return Promise.resolve();
-    if (this.reconcileRecoveries >= MAX_RECONCILE_RECOVERIES) return Promise.resolve();
-    this.reconcileRecoveries += 1;
-    return this.reconcileSelectedSession();
-  }
-
+  /** Appends only the entries this session has not stored yet; the rest are already addressed. */
   readback(): Promise<void> {
     if (this.closed) return Promise.resolve();
     return this.enqueueWrite(() => {
@@ -288,30 +297,52 @@ export class LcmRuntime {
       const sessionId = this.context.sessionManager.getSessionId();
       const branch = this.context.sessionManager.getLeafId();
       const recorded = this.context.sessionManager.getRecordedCwd?.();
+      if (this.persistedSessionId !== sessionId) {
+        this.persisted = new WeakMap();
+        this.persistedSessionId = sessionId;
+      }
       const active = new Set<string>();
-      this.ledger.transaction(() => {
-        for (const entry of entries) {
-          const payloadJson = canonicalLcmPayload(entry);
-          const message = entry.type === "message" ? entry.message as { role?: string; content?: unknown } : undefined;
-          const stored = this.ledger.appendRaw({
-            projectKey: this.projectKey,
-            sessionId,
-            entryId: entry.id,
-            role: message?.role ?? entry.type,
-            content: message ? JSON.stringify(message.content ?? "") : payloadJson,
-            payloadJson,
-            parentEntryId: entry.parentId ?? null,
-            branch,
-            ...(recorded || this.context.cwd ? { recordedCwd: recorded || this.context.cwd } : {}),
-          });
-          active.add(`${sessionId}:${stored.entryId}:${stored.revision}`);
-        }
-      });
+      const pending: Array<{ entry: (typeof entries)[number]; payloadJson: string; contentHash: string }> = [];
+      for (const entry of entries) {
+        const payloadJson = canonicalLcmPayload(entry);
+        const contentHash = hash(payloadJson);
+        const known = this.persisted.get(entry);
+        if (known?.contentHash === contentHash) active.add(known.key);
+        else pending.push({ entry, payloadJson, contentHash });
+      }
+      if (pending.length > 0) {
+        this.ledger.transaction(() => {
+          for (const { entry, payloadJson, contentHash } of pending) {
+            const message = entry.type === "message" ? entry.message as { role?: string; content?: unknown } : undefined;
+            const stored = this.ledger.appendRaw({
+              projectKey: this.projectKey,
+              sessionId,
+              entryId: entry.id,
+              role: message?.role ?? entry.type,
+              content: message ? JSON.stringify(message.content ?? "") : payloadJson,
+              payloadJson,
+              parentEntryId: entry.parentId ?? null,
+              branch,
+              ...(recorded || this.context.cwd ? { recordedCwd: recorded || this.context.cwd } : {}),
+            });
+            const key = `${sessionId}:${stored.entryId}:${stored.revision}`;
+            this.persisted.set(entry, { key, contentHash });
+            active.add(key);
+          }
+        });
+      }
       this.activeSources = active;
       this.activeSessionId = sessionId;
+      this.invalidateFrontier();
       this.dirty = false;
       this.degradedError = undefined;
     });
+  }
+
+  /** Mid-turn sync: the write path already records its own failure. */
+  syncEntries(): void {
+    if (this.closed) return;
+    void this.readback().catch(() => {});
   }
 
   async syncAndSchedule(): Promise<void> {
@@ -319,10 +350,56 @@ export class LcmRuntime {
     const sessionId = this.context.sessionManager.getSessionId();
     if (this.dirty || !this.activeSessionId || this.activeSessionId !== sessionId || this.activeSources.size === 0) {
       await this.readback();
-      await this.recoverReconciliation();
     }
+    if ((this.lastReconciliation?.absent ?? 0) > 0 && this.sessionFilePresent()) await this.reconcileSelectedSession();
     this.reclaimExpiredLeases();
+    await this.autoRepair();
     if (this.maintenanceTrigger() !== undefined) this.scheduleMaintenance();
+  }
+
+  /** One repair per beat, budgeted per fault class in the ledger so a restart resumes the budget. */
+  async autoRepair(): Promise<LcmRepairOutcome | undefined> {
+    if (this.closed) return undefined;
+    let ladder: Map<string, { attempts: number; nextAt: number; detail: string; updatedAt: number }>;
+    let checks: LcmCheck[];
+    try {
+      ladder = this.ledger.readRepairLadder();
+      if (ladder.size === 0 && this.degradedMessage() === undefined) return undefined;
+      checks = lcmChecks(this.diagnostics());
+    } catch (error) {
+      this.degradedError = error;
+      return undefined;
+    }
+    const now = Date.now();
+    const actionable = new Map<string, { check: LcmCheck; repair: LcmRepairId }>();
+    for (const check of checks) {
+      const repair = check.repair;
+      if (!repair || (check.severity !== "warn" && check.severity !== "fail")) continue;
+      actionable.set(check.id, { check, repair });
+    }
+    for (const [fault, state] of ladder) {
+      if (!actionable.has(fault) && now - state.updatedAt >= AUTO_REPAIR_CLEAR_MS) this.ledger.clearRepairLadder(fault);
+    }
+    const eligible = [...actionable.values()].filter(({ check }) => {
+      const state = ladder.get(check.id);
+      return !state || (state.attempts < MAX_AUTO_REPAIR_ATTEMPTS && state.nextAt <= now);
+    });
+    const target = eligible.find(({ check }) => check.severity === "fail") ?? eligible[0];
+    if (!target) return undefined;
+    const outcome = await this.repair(target.repair);
+    const attempts = (ladder.get(target.check.id)?.attempts ?? 0) + 1;
+    this.ledger.writeRepairLadder(target.check.id, attempts, now + AUTO_REPAIR_DELAY_MS * 2 ** (attempts - 1), outcome.detail);
+    return outcome;
+  }
+
+  /** Reclaims ledgers whose project directory is gone; bounded to one sweep a day. */
+  sweepLedgers(): LcmSweepResult {
+    if (this.closed) return { removed: [], bytes: 0, skipped: true };
+    try {
+      return sweepLedgers(this.options.rootDir ?? defaultLedgerRoot(), { keepKey: this.projectKey });
+    } catch {
+      return { removed: [], bytes: 0, skipped: true };
+    }
   }
 
   reclaimExpiredLeases(): number {
@@ -388,7 +465,16 @@ export class LcmRuntime {
   }
 
   private async runMaintenance(): Promise<void> {
-    if (this.closed || !this.activeSessionId || this.activeSources.size === 0) return;
+    const sessionId = this.activeSessionId;
+    if (this.closed || !sessionId || this.activeSources.size === 0) return;
+    try {
+      await this.runMaintenancePasses(sessionId);
+    } finally {
+      this.invalidateFrontier();
+    }
+  }
+
+  private async runMaintenancePasses(sessionId: string): Promise<void> {
     const wantsModel = this.options.modelSummaries !== false;
     let model: LcmSummarizer;
     try {
@@ -405,7 +491,6 @@ export class LcmRuntime {
     const fanIn = Math.max(2, this.options.maxCondenseChildren ?? 4);
     const passes = Math.max(1, this.options.maxMaintenancePasses ?? 4);
     const runDeadline = Date.now() + Math.max(1, this.options.maintenanceRunSeconds ?? 60) * 1_000;
-    const sessionId = this.activeSessionId;
     const raw = this.ledger.readRaw(this.projectKey, sessionId).filter((entry) =>
       this.activeSources.has(`${entry.sessionId}:${entry.entryId}:${entry.revision}`),
     );
@@ -501,6 +586,7 @@ export class LcmRuntime {
         persistedEntries.set(`${entry.id}:${stored.payloadHash}`, stored);
       }
     });
+    this.invalidateFrontier();
     const firstKeptIndex = input.firstKeptEntryId
       ? input.branchEntries.findIndex((entry) => entry.id === input.firstKeptEntryId)
       : input.branchEntries.length;
@@ -605,6 +691,126 @@ export class LcmRuntime {
     });
   }
 
+  private readonly repairLog: LcmRepairOutcome[] = [];
+
+  private branchLength(): number {
+    try { return this.context.sessionManager.getBranch().length; } catch { return 0; }
+  }
+
+  private sessionFile(): string | undefined {
+    const getSessionFile = this.context.sessionManager.getSessionFile;
+    if (typeof getSessionFile !== "function") return undefined;
+    return getSessionFile.call(this.context.sessionManager) ?? undefined;
+  }
+
+  private sessionFilePresent(): boolean {
+    const file = this.sessionFile();
+    return file !== undefined && fs.existsSync(file);
+  }
+
+  private countJobs(state: "pending" | "running", since = 0): number {
+    try { return this.maintenance.countJobs(state, since); } catch { return 0; }
+  }
+
+  diagnostics(report = this.report()): LcmDiagnostics {
+    const coverage = this.coverage();
+    const sessionFile = this.sessionFile();
+    const sessionId = this.activeSessionId;
+    let withinBudget = true;
+    try { withinBudget = sessionId === undefined || this.maintenance.withinBudget(sessionId); } catch { withinBudget = true; }
+    let expiredLeases = 0;
+    try { expiredLeases = this.maintenance.expiredLeases(); } catch { expiredLeases = 0; }
+    return {
+      projectKey: this.projectKey,
+      ledgerPath: this.ledger.file,
+      ledgerBytes: this.ledger.bytes,
+      ledgerState: report.ledgerState,
+      runtimeError: this.degradedError === undefined
+        ? undefined
+        : String(this.degradedError instanceof Error ? this.degradedError.message : this.degradedError),
+      sessionId,
+      sessionFile,
+      sessionFilePresent: this.sessionFilePresent(),
+      liveBranchEntries: this.branchLength(),
+      ledgerSessionEntries: report.sessionEntries,
+      ledgerEntries: report.rawEntries,
+      activeSources: coverage.active,
+      coveredSources: coverage.covered,
+      backlogThreshold: Math.max(1, this.options.maxLeafEntries ?? DEFAULT_LEAF_ENTRIES),
+      pendingNodes: report.pendingNodes,
+      pendingJobs: this.countJobs("pending"),
+      runningJobs: this.countJobs("running"),
+      failedJobs: this.recentlyFailedJobs(),
+      expiredLeases,
+      modelSummaries: this.options.modelSummaries !== false,
+      summaryModel: this.options.summaryModel,
+      budgetCalls: report.budget.calls,
+      usedCalls: report.usage.calls,
+      withinBudget,
+      reconciliation: this.lastReconciliation
+        ? {
+            errors: this.lastReconciliation.errors,
+            raced: this.lastReconciliation.raced,
+            absent: this.lastReconciliation.absent,
+            reasons: this.lastReconciliation.reasons,
+          }
+        : undefined,
+      repairs: this.repairLog,
+      autoRepairs: this.autoRepairState(),
+    };
+  }
+
+  private autoRepairState(): LcmAutoRepair[] {
+    try {
+      return [...this.ledger.readRepairLadder()]
+        .map(([fault, state]) => ({ fault, attempts: state.attempts, nextAt: state.nextAt, detail: state.detail }))
+        .sort((left, right) => left.fault.localeCompare(right.fault));
+    } catch {
+      return [];
+    }
+  }
+
+  get repairs(): readonly LcmRepairOutcome[] { return this.repairLog; }
+
+  private record(id: LcmRepairId, changed: boolean, detail: string): LcmRepairOutcome {
+    const outcome: LcmRepairOutcome = { id, changed, detail, at: Date.now() };
+    this.repairLog.unshift(outcome);
+    if (this.repairLog.length > MAX_REPAIR_LOG) this.repairLog.length = MAX_REPAIR_LOG;
+    this.invalidateFrontier();
+    return outcome;
+  }
+
+  /** Every repair is idempotent and reports the delta it caused. */
+  async repair(id: LcmRepairId): Promise<LcmRepairOutcome> {
+    if (this.closed) return this.record(id, false, "the runtime is closed");
+    try {
+      if (id === "reconcile") {
+        await this.reconcileSelectedSession();
+        const errors = this.lastReconciliation?.errors ?? 0;
+        if (errors > 0) return this.record(id, false, `still ${errors} unreadable session file(s)`);
+        const absent = this.lastReconciliation?.absent ?? 0;
+        return this.record(id, absent === 0, absent > 0 ? "session file is not on disk yet" : "session file re-read into the ledger");
+      }
+      if (id === "readback") {
+        const before = this.report().sessionEntries;
+        this.degradedError = undefined;
+        this.markDirty();
+        await this.readback();
+        const after = this.report().sessionEntries;
+        return this.record(id, after !== before, `${after - before} entr${after - before === 1 ? "y" : "ies"} imported · ${after} stored`);
+      }
+      if (id === "leases") {
+        const swept = this.maintenance.sweepExpiredLeases().length;
+        return this.record(id, swept > 0, `${swept} lease(s) released`);
+      }
+      const retried = this.maintenance.retryFailedJobs().length;
+      if (retried > 0) this.scheduleMaintenance();
+      return this.record(id, retried > 0, `${retried} job(s) requeued`);
+    } catch (error) {
+      return this.record(id, false, String(error instanceof Error ? error.message : error));
+    }
+  }
+
   private frontierCache: { at: number; sessionId: string; branch: string | null; nodes: LcmNode[]; covered: Set<string> } | undefined;
 
   /** One frontier walk shared by preview, coverage, and the coverage map. */
@@ -648,6 +854,10 @@ export class LcmRuntime {
     const { covered } = this.frontierSnapshot();
     return this.ledger.readRawKeys(this.projectKey, sessionId, limit)
       .map(entry => { const key = this.sourceKey(entry); return { key, covered: covered.has(key) }; });
+  }
+
+  jobs(limit = 64): LcmJob[] {
+    try { return this.maintenance.recentJobs(limit); } catch { return []; }
   }
 
   nodes(limit = 200, offset = 0): LcmNode[] {

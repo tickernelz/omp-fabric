@@ -299,6 +299,7 @@ export function registerFabricCommand(omp: ExtensionAPI, deps: FabricCommandDeps
       const subcommands = [
         "status",
         "dashboard",
+        "lcm",
         "chat",
         "settings",
         "schema",
@@ -552,6 +553,10 @@ export function registerFabricCommand(omp: ExtensionAPI, deps: FabricCommandDeps
       }
       if (command === "dashboard" || command === "ui") {
         await fabricUi.openDashboard(context);
+        return;
+      }
+      if (command === "lcm") {
+        await fabricUi.openLcmDashboard(context);
         return;
       }
       if (command === "providers") {
@@ -1139,7 +1144,7 @@ export function registerFabricCommand(omp: ExtensionAPI, deps: FabricCommandDeps
       }
       if (command !== "status") {
         context.ui.notify(
-          "Usage: /fabric [status|dashboard|chat [id-or-name]|prewalk [task]|prewalk --off|--disable|--enable|reload|providers|agents|actors|global|import <name> [as <new>]|export <id> [--overwrite]|messages <id>|clear-messages <id>|events <id> [event...]|log <id>|export-log <id>|attach <id>|stop <id>|remove <id>|kill <id>|repairs|entropy]",
+          "Usage: /fabric [status|dashboard|lcm|chat [id-or-name]|prewalk [task]|prewalk --off|--disable|--enable|reload|providers|agents|actors|global|import <name> [as <new>]|export <id> [--overwrite]|messages <id>|clear-messages <id>|events <id> [event...]|log <id>|export-log <id>|attach <id>|stop <id>|remove <id>|kill <id>|repairs|entropy]",
           "warning",
         );
         return;

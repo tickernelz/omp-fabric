@@ -71,6 +71,7 @@ export class FabricUiController {
   #lastRefreshAt = 0;
   #dashboardOpen = false;
   #conversationOpen = false;
+  #lcmOpen = false;
   #conversationState: FabricConversationState | undefined;
   #conversationView: FabricConversationView | undefined;
   #conversationTui: TUI | undefined;
@@ -151,7 +152,7 @@ export class FabricUiController {
 
   /** True while Fabric owns keyboard input, including asynchronous view setup. */
   get ownsInput(): boolean {
-    return this.#dashboardOpen || this.#conversationOpen;
+    return this.#dashboardOpen || this.#conversationOpen || this.#lcmOpen;
   }
 
   async openConversation(context: ExtensionContext, query?: string): Promise<void> {
@@ -288,6 +289,45 @@ export class FabricUiController {
         this.#conversationOpen = false;
         this.#schedulePoll(true);
       }
+    }
+  }
+
+  async openLcmDashboard(context: ExtensionContext): Promise<void> {
+    if (this.ownsInput) return;
+    if (context.mode !== "tui") {
+      context.ui.notify("The Fabric LCM dashboard is available in TUI mode", "warning");
+      return;
+    }
+    if (!this.state.config.ui.enabled) {
+      context.ui.notify("The Fabric UI is disabled by ui.enabled", "warning");
+      return;
+    }
+    const [{ FabricLcmDashboard }, { lcmUnavailableLine }] = await Promise.all([
+      import("./lcm-dashboard.js"),
+      import("./lcm-panel.js"),
+    ]);
+    if (!this.state.lcmStatus()) {
+      context.ui.notify(lcmUnavailableLine(), "warning");
+      return;
+    }
+    this.#lcmOpen = true;
+    try {
+      await context.ui.custom<void>(
+        (tui, theme, _keybindings, done) =>
+          new FabricLcmDashboard(tui, theme, () => this.state.lcmStatus(), () => done(undefined)),
+        {
+          overlay: true,
+          overlayOptions: {
+            width: "94%",
+            minWidth: 40,
+            maxHeight: "90%",
+            anchor: "center",
+            margin: 1,
+          },
+        },
+      );
+    } finally {
+      this.#lcmOpen = false;
     }
   }
 
@@ -462,7 +502,6 @@ export class FabricUiController {
           return new FabricDashboard(tui, theme, () => this.#snapshot, () => done(undefined), {
             modelSource,
             keybindings,
-            lcmStatus: () => this.state.lcmStatus(),
             ...(this.codePreviewSettings
               ? { codePreviewSettings: this.codePreviewSettings }
               : {}),

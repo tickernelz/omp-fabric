@@ -66,9 +66,6 @@ const formatBytes = (bytes: number): string => {
   return `${(bytes / 1_048_576).toFixed(1)} MB`;
 };
 
-const formatBudget = (used: number, limit: number): string =>
-  Number.isFinite(limit) ? `${used}/${limit}` : `${used}/no limit`;
-
 const formatPercent = (value: number): string =>
   value > 0 && value < 1 ? `${value.toFixed(value < 0.1 ? 2 : 1)}%` : `${Math.round(value)}%`;
 
@@ -83,29 +80,6 @@ const textBytes = (text: string | undefined): number =>
 
 export const lcmUnavailableLine = (): string =>
   "LCM ledger unavailable · set compaction.engine to lcm and start a session to populate it";
-
-export const renderLcmHeaderLines = (
-  theme: Theme,
-  snapshot: LcmViewSnapshot,
-  width: number,
-): string[] => {
-  const { report } = snapshot;
-  const raced = report.reconciliation?.raced ?? 0;
-  const summary = [
-    lcmStatusLabel(report),
-    report.degraded ? `fault ${report.degraded}` : undefined,
-    raced > 0 ? `reconciliation retried ${raced} raced read${raced === 1 ? "" : "s"}` : undefined,
-    `session ${report.sessionId ?? "none"} · ${report.sessionEntries} entries`,
-    `ledger ${report.rawEntries} entries`,
-    `model ${report.summaryModel || "inherit"}`,
-    `${report.modelNodes} model · ${report.emergencyNodes} excerpt · ${report.pendingNodes} pending`,
-    `today ${formatBudget(report.usage.calls, report.budget.calls)} calls · ${formatCost(report.usage.cost)}`,
-    ...(report.reconciliation?.reasons ?? []),
-  ]
-    .filter((value): value is string => Boolean(value))
-    .join(" · ");
-  return wrapPlainText(summary, width, 2).map((line) => theme.fg("dim", line));
-};
 
 const bandRun = (theme: Theme, char: string, length: number): string => {
   const color = char === "█" ? "success" : char === "▓" ? "warning" : "dim";

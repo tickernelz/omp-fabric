@@ -41,6 +41,7 @@ interface MigrationCounts {
   skippedOutOfWindow: number;
   malformed: number;
   oversized: number;
+  absent: number;
   incompleteDiscovery: number;
   raced: number;
   errors: number;
@@ -85,6 +86,7 @@ const SOURCE_READ_ATTEMPTS = 3;
 class SourceChangedError extends Error {}
 type SourceRead =
   | { kind: "data"; raced: number; data: Buffer }
+  | { kind: "absent"; raced: number }
   | { kind: "not-file"; raced: number }
   | { kind: "oversized"; raced: number; size: number }
   | { kind: "over-budget"; raced: number }
@@ -110,6 +112,7 @@ const readSource = (file: string, maxFileBytes: number, remainingBytes: number):
       if (!sourceStillValid(before.size, fs.fstatSync(fd).size)) throw new SourceChangedError("source shrank during read");
       return { kind: "data", raced, data };
     } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return { kind: "absent", raced };
       if (!(error instanceof SourceChangedError)) return { kind: "error", raced };
       raced += 1;
     } finally { if (fd !== undefined) fs.closeSync(fd); }
@@ -199,7 +202,7 @@ export function migrateSessions(options: MigrationOptions): MigrationResult {
   const discovery = discoverMigrationSessions(options);
   const result: MigrationResult = {
     mode: options.apply ? "apply" : "dry-run", since: new Date(window.since).toISOString(), until: new Date(window.until).toISOString(),
-    counts: { eligible: 0, imported: 0, skippedDuplicate: 0, skippedOutOfWindow: 0, malformed: 0, oversized: 0, incompleteDiscovery: discovery.incomplete, raced: 0, errors: 0 },
+    counts: { eligible: 0, imported: 0, skippedDuplicate: 0, skippedOutOfWindow: 0, malformed: 0, oversized: 0, absent: 0, incompleteDiscovery: discovery.incomplete, raced: 0, errors: 0 },
     drops: { oversizedFiles: 0, oversizedFileBytes: 0, oversizedLines: 0, oversizedLineBytes: 0, skippedFiles: 0, entries: 0 },
     degraded: false,
     filesScanned: 0, bytesScanned: 0, generations: [], exitCode: 0,
@@ -212,6 +215,7 @@ export function migrateSessions(options: MigrationOptions): MigrationResult {
     counts.raced += read.raced;
     if (read.kind !== "data") {
       switch (read.kind) {
+        case "absent": counts.absent++; counts.incompleteDiscovery++; break;
         case "not-file": counts.incompleteDiscovery++; break;
         case "oversized": counts.oversized++; drops.oversizedFiles++; drops.oversizedFileBytes += read.size; break;
         case "over-budget": counts.incompleteDiscovery++; drops.skippedFiles += discovery.files.length - position; break files;

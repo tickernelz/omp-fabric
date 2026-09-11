@@ -78,7 +78,7 @@ export interface PhasePanel {
 }
 
 export type Pane = "phases" | "entities";
-export type OverviewView = "activity" | "topology" | "lcm";
+export type OverviewView = "activity" | "topology";
 
 type EntityGroupKind =
   | FabricActivityKind
