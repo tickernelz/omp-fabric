@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.18.2
+
+### Fixed
+
+- Closing a session no longer reports `handler timed out after 2000ms`. Teardown awaited two things without a bound: maintenance that shutdown had just aborted, and an entropy compile in flight. A summary model call can hold its side for as long as its own timeout allows, so a session closed shortly after a turn spent that wait inside the host's 2-second teardown budget. Both now wait briefly and then detach, and the ledger closes when the aborted work finally unwinds.
+
 ## 1.18.1
 
 ### Changed

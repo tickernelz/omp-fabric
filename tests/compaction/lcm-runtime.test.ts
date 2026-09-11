@@ -1342,4 +1342,22 @@ describe("LCM runtime", () => {
     expect(runtime.maintenance.selectLeaf(live, active).map((row) => row.entryId)).toEqual(["e1", "e2"]);
     await runtime.shutdown();
   });
+
+  it("closes within its grace when aborted maintenance has not unwound", async () => {
+    const root = makeRoot();
+    const runtime = openRuntime(makeContext(root, [makeEntry("e1", "one")]), { rootDir: root });
+    await runtime.readback();
+    let release: (() => void) | undefined;
+    const stuck = new Promise<void>((resolve) => { release = resolve; });
+    (runtime as unknown as { maintenancePending: Promise<void> }).maintenancePending = stuck;
+
+    const started = Date.now();
+    await runtime.shutdown();
+    const elapsed = Date.now() - started;
+
+    expect(elapsed).toBeLessThan(1_500);
+    expect(runtime.ledger.isDegraded).toBe(false);
+    release?.();
+    await stuck;
+  });
 });

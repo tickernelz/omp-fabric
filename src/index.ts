@@ -117,6 +117,7 @@ import { fileURLToPath } from "node:url";
 // OMP processes that load Fabric with -e (agents and actors) discover the
 // same fabric-exec / fabric-advisor / fabric-council skill references as the
 // main agent, which gets them through the package manifest.
+const ENTROPY_SETTLE_BUDGET_MS = 600;
 const FABRIC_EXTENSION_ENTRY_PATH = path.resolve(fileURLToPath(import.meta.url));
 const FABRIC_ENTRY_DIR = path.dirname(FABRIC_EXTENSION_ENTRY_PATH);
 const FABRIC_RUNTIME_PATHS = {
@@ -488,8 +489,16 @@ export default async function ompFabric(omp: ExtensionAPI): Promise<void> {
     launchEntropyCompile(request);
   };
 
-  const settleEntropyCompiles = async (): Promise<void> => {
-    while (entropyCompileInFlight) await entropyCompileInFlight;
+  /** Teardown shares one budget, so a compile that outlives it keeps running detached. */
+  const settleEntropyCompiles = async (deadline = Number.POSITIVE_INFINITY): Promise<void> => {
+    const until = Date.now() + deadline;
+    while (entropyCompileInFlight && Date.now() < until) {
+      const grace = new Promise<void>((resolve) => {
+        const timer = setTimeout(resolve, Math.max(0, until - Date.now()));
+        timer.unref?.();
+      });
+      await Promise.race([entropyCompileInFlight, grace]);
+    }
   };
 
   omp.on("session_start", async (_event, context) => {
@@ -908,7 +917,7 @@ export default async function ompFabric(omp: ExtensionAPI): Promise<void> {
       entropyEvidenceThisTurn = false;
       scheduleEntropyCompile(context, 0);
     }
-    await settleEntropyCompiles();
+    await settleEntropyCompiles(ENTROPY_SETTLE_BUDGET_MS);
     entropyLifecycleEpoch += 1;
     entropyCompilePending = undefined;
     unsubscribeComponentRegistration();

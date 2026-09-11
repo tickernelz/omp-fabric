@@ -73,6 +73,7 @@ export interface LcmRuntimeOptions {
   softThresholdRatio?: number;
 }
 
+const SHUTDOWN_GRACE_MS = 500;
 const MAX_AUTO_REPAIR_ATTEMPTS = 5;
 const AUTO_REPAIR_DELAY_MS = 30_000;
 const AUTO_REPAIR_CLEAR_MS = 1_800_000;
@@ -903,12 +904,23 @@ export class LcmRuntime {
 
   raw(sessionId?: string): RawEntry[] { return this.ledger.readRaw(this.projectKey, sessionId); }
 
+  /** Waits for writes, then gives aborted maintenance a bounded grace before detaching the ledger close. */
   async shutdown(): Promise<void> {
     if (this.closed) return;
     this.closed = true;
     this.abort.abort();
     await this.writePending.catch(() => undefined);
-    await this.maintenancePending.catch(() => undefined);
-    this.ledger.close();
+    const pending = this.maintenancePending.catch(() => undefined);
+    const grace = new Promise<false>((resolve) => {
+      const timer = setTimeout(() => resolve(false), SHUTDOWN_GRACE_MS);
+      timer.unref?.();
+    });
+    if (await Promise.race([pending.then(() => true), grace])) {
+      this.ledger.close();
+      return;
+    }
+    void pending.then(() => {
+      try { this.ledger.close(); } catch {}
+    });
   }
 }
