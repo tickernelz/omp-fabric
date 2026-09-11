@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { stableProjectKey, sweepLedgers } from "../../src/storage/lcm-directory.js";
-import { canonicalProjectIdentity, defaultLedgerPath } from "../../src/storage/lcm-identity.js";
+import { canonicalProjectIdentity, defaultLedgerPath, type ProjectIdentity } from "../../src/storage/lcm-identity.js";
 import { LcmLedger } from "../../src/storage/lcm-ledger.js";
 
 const roots: string[] = [];
@@ -17,6 +17,13 @@ afterEach(() => {
   for (const root of roots.splice(0)) fs.rmSync(root, { recursive: true, force: true });
 });
 
+const identity = (canonicalPath: string, key: string): ProjectIdentity => ({
+  version: 1,
+  key,
+  canonicalPath,
+  aliases: [canonicalPath],
+});
+
 const DAY = 24 * 60 * 60 * 1_000;
 
 describe("LCM ledger directory", () => {
@@ -24,58 +31,49 @@ describe("LCM ledger directory", () => {
     const base = make();
     const ledgers = path.join(base, "ledgers");
     const project = path.join(base, "project");
-    fs.mkdirSync(project);
-    const first = canonicalProjectIdentity({ liveCwd: project });
+    const first = identity(project, "v1:devino:10:100");
+    const moved = identity(project, "v1:devino:10:200");
+
     expect(stableProjectKey(ledgers, first)).toBe(first.key);
-
     fs.writeFileSync(defaultLedgerPath(ledgers, first.key), "");
-    fs.rmSync(project, { recursive: true, force: true });
-    fs.mkdirSync(project);
-    const second = canonicalProjectIdentity({ liveCwd: project });
 
-    expect(second.key).not.toBe(first.key);
-    expect(stableProjectKey(ledgers, second)).toBe(first.key);
+    expect(stableProjectKey(ledgers, moved)).toBe(first.key);
   });
 
   it("files a new project under its own key when no ledger was kept", () => {
     const base = make();
     const ledgers = path.join(base, "ledgers");
     const project = path.join(base, "project");
-    fs.mkdirSync(project);
-    const first = canonicalProjectIdentity({ liveCwd: project });
-    stableProjectKey(ledgers, first);
+    stableProjectKey(ledgers, identity(project, "v1:devino:10:100"));
+    const moved = identity(project, "v1:devino:10:200");
 
-    fs.rmSync(project, { recursive: true, force: true });
-    fs.mkdirSync(project);
-    const second = canonicalProjectIdentity({ liveCwd: project });
-
-    expect(stableProjectKey(ledgers, second)).toBe(second.key);
+    expect(stableProjectKey(ledgers, moved)).toBe(moved.key);
   });
 
-  it("opens the same ledger file for a project whose inode moved", () => {
+  it("opens the ledger a project was first filed under", () => {
     const base = make();
     const ledgers = path.join(base, "ledgers");
     const project = path.join(base, "project");
     fs.mkdirSync(project);
-    const first = new LcmLedger({ rootDir: ledgers, project: { liveCwd: project } });
-    first.appendRaw({
-      projectKey: first.project.key,
+    const filed = "v1:devino:10:100";
+    stableProjectKey(ledgers, identity(project, filed));
+    const seeded = new LcmLedger({ rootDir: ledgers, projectKey: filed, project: { liveCwd: project } });
+    seeded.appendRaw({
+      projectKey: filed,
       sessionId: "session-1",
       entryId: "e1",
       role: "user",
       content: "hello",
       payloadJson: JSON.stringify({ type: "message", id: "e1" }),
     });
-    const key = first.project.key;
-    first.close();
+    seeded.close();
 
-    fs.rmSync(project, { recursive: true, force: true });
-    fs.mkdirSync(project);
-    const second = new LcmLedger({ rootDir: ledgers, project: { liveCwd: project } });
+    const opened = new LcmLedger({ rootDir: ledgers, project: { liveCwd: project } });
 
-    expect(second.project.key).toBe(key);
-    expect(second.readRaw(second.project.key)).toHaveLength(1);
-    second.close();
+    expect(canonicalProjectIdentity({ liveCwd: project }).key).not.toBe(filed);
+    expect(opened.project.key).toBe(filed);
+    expect(opened.readRaw(filed)).toHaveLength(1);
+    opened.close();
   });
 
   it("removes an abandoned ledger and keeps live and active ones", () => {
@@ -121,5 +119,20 @@ describe("LCM ledger directory", () => {
 
     expect(sweepLedgers(ledgers, { keepKey: "active", force: true }).skipped).toBe(false);
     expect(sweepLedgers(ledgers, { keepKey: "active" }).skipped).toBe(true);
+  });
+
+  it("keeps the active project's ledger even when its directory is gone", () => {
+    const base = make();
+    const ledgers = path.join(base, "ledgers");
+    const project = path.join(base, "active");
+    fs.mkdirSync(project);
+    const key = stableProjectKey(ledgers, identity(project, "v1:devino:10:100"), Date.now() - 90 * DAY);
+    fs.writeFileSync(defaultLedgerPath(ledgers, key), "x");
+    const old = new Date(Date.now() - 90 * DAY);
+    fs.utimesSync(defaultLedgerPath(ledgers, key), old, old);
+    fs.rmSync(project, { recursive: true, force: true });
+
+    expect(sweepLedgers(ledgers, { keepKey: key, force: true }).removed).toEqual([]);
+    expect(fs.existsSync(defaultLedgerPath(ledgers, key))).toBe(true);
   });
 });
