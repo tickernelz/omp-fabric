@@ -1,21 +1,13 @@
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { stableProjectKey, sweepLedgers } from "../../src/storage/lcm-directory.js";
 import { canonicalProjectIdentity, defaultLedgerPath, type ProjectIdentity } from "../../src/storage/lcm-identity.js";
-import { LcmLedger } from "../../src/storage/lcm-ledger.js";
+import { openLedger, releaseTemp, tempRoot } from "../fixtures/lcm-temp.js";
 
-const roots: string[] = [];
-const make = (): string => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "lcm-directory-"));
-  roots.push(root);
-  return root;
-};
+const make = (): string => tempRoot("lcm-directory-");
 
-afterEach(() => {
-  for (const root of roots.splice(0)) fs.rmSync(root, { recursive: true, force: true });
-});
+afterEach(releaseTemp);
 
 const canonical = (directory: string): string =>
   canonicalProjectIdentity({ liveCwd: directory }).canonicalPath ?? directory;
@@ -60,7 +52,7 @@ describe("LCM ledger directory", () => {
     fs.mkdirSync(project);
     const filed = "v1:devino:10:100";
     stableProjectKey(ledgers, identity(project, filed));
-    const seeded = new LcmLedger({ rootDir: ledgers, projectKey: filed, project: { liveCwd: project } });
+    const seeded = openLedger({ rootDir: ledgers, projectKey: filed, project: { liveCwd: project } });
     seeded.appendRaw({
       projectKey: filed,
       sessionId: "session-1",
@@ -69,14 +61,12 @@ describe("LCM ledger directory", () => {
       content: "hello",
       payloadJson: JSON.stringify({ type: "message", id: "e1" }),
     });
-    seeded.close();
 
-    const opened = new LcmLedger({ rootDir: ledgers, project: { liveCwd: project } });
+    const opened = openLedger({ rootDir: ledgers, project: { liveCwd: project } });
 
     expect(canonicalProjectIdentity({ liveCwd: project }).key).not.toBe(filed);
     expect(opened.project.key).toBe(filed);
     expect(opened.readRaw(filed)).toHaveLength(1);
-    opened.close();
   });
 
   it("removes an abandoned ledger and keeps live and active ones", () => {
