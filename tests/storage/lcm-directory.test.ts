@@ -17,12 +17,13 @@ afterEach(() => {
   for (const root of roots.splice(0)) fs.rmSync(root, { recursive: true, force: true });
 });
 
-const identity = (canonicalPath: string, key: string): ProjectIdentity => ({
-  version: 1,
-  key,
-  canonicalPath,
-  aliases: [canonicalPath],
-});
+const canonical = (directory: string): string =>
+  canonicalProjectIdentity({ liveCwd: directory }).canonicalPath ?? directory;
+
+const identity = (directory: string, key: string): ProjectIdentity => {
+  const canonicalPath = canonical(directory);
+  return { version: 1, key, canonicalPath, aliases: [canonicalPath] };
+};
 
 const DAY = 24 * 60 * 60 * 1_000;
 
@@ -31,6 +32,7 @@ describe("LCM ledger directory", () => {
     const base = make();
     const ledgers = path.join(base, "ledgers");
     const project = path.join(base, "project");
+    fs.mkdirSync(project, { recursive: true });
     const first = identity(project, "v1:devino:10:100");
     const moved = identity(project, "v1:devino:10:200");
 
@@ -44,6 +46,7 @@ describe("LCM ledger directory", () => {
     const base = make();
     const ledgers = path.join(base, "ledgers");
     const project = path.join(base, "project");
+    fs.mkdirSync(project, { recursive: true });
     stableProjectKey(ledgers, identity(project, "v1:devino:10:100"));
     const moved = identity(project, "v1:devino:10:200");
 
@@ -83,6 +86,7 @@ describe("LCM ledger directory", () => {
     const live = path.join(base, "live");
     const active = path.join(base, "active");
     for (const directory of [gone, live, active]) fs.mkdirSync(directory);
+    const canonicalGone = canonical(gone);
     const keys = [gone, live, active].map((directory) =>
       stableProjectKey(ledgers, canonicalProjectIdentity({ liveCwd: directory }), Date.now() - 90 * DAY),
     );
@@ -93,7 +97,7 @@ describe("LCM ledger directory", () => {
 
     const result = sweepLedgers(ledgers, { keepKey: keys[2]!, force: true });
 
-    expect(result.removed).toEqual([gone]);
+    expect(result.removed).toEqual([canonicalGone]);
     expect(fs.existsSync(defaultLedgerPath(ledgers, keys[0]!))).toBe(false);
     expect(fs.existsSync(defaultLedgerPath(ledgers, keys[1]!))).toBe(true);
     expect(fs.existsSync(defaultLedgerPath(ledgers, keys[2]!))).toBe(true);
