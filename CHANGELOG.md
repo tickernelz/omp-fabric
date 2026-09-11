@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.18.0
+
+### Fixed
+
+- A forked session no longer starts with an empty frontier. LCM identified a source by `sessionId:entryId:revision`, and a fork mints a new session id while keeping the entries it inherited, so every summary the parent built fell out of the fork on its first readback. A source is now identified by its entry id and payload hash, and the live source set decides membership instead of the session id. Measured on a production ledger, a 400-entry branch that covered 160 sources keeps all 160 after the fork; it covered 0 before.
+- `memory.recall` and `memory.expand` accept an inherited summary and its raw sources. The active-branch binding resolved by session id, so a fork was served summaries whose addresses it then refused to open.
+- A summary the parent left pending no longer suppresses the fork's own leaf over the same entries, which previously dropped up to one leaf window from coverage until the parent session was resumed.
+
+### Changed
+
+- `LcmLedger.readRawKeys` returns `contentHash` alongside each key so the coverage map builds the same identity the frontier uses.
+
 ## 1.17.0
 
 ### Fixed

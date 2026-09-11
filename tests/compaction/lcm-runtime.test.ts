@@ -7,6 +7,7 @@ import { LcmRuntime, renderAddressedFrontier } from "../../src/compaction/lcm-ru
 import { LCM_RECOVERY_POINTER } from "../../src/compaction/render.js";
 import { MAX_SUMMARY_BYTES } from "../../src/compaction/bounds.js";
 import type { LcmJob } from "../../src/compaction/lcm-maintenance.js";
+import { LcmMemoryAdapter } from "../../src/memory/lcm-adapter.js";
 import { closeAfterTest, releaseTemp, tempRoot } from "../fixtures/lcm-temp.js";
 
 const makeRoot = (): string => tempRoot("lcm-runtime-");
@@ -519,7 +520,7 @@ describe("LCM runtime", () => {
     const replacementJob = runtime.maintenance.listJobs().find((job) => job.nodeId === replacement.nodeId);
     if (!replacementJob) throw new Error("expected replacement job");
     await runtime.maintenance.run(replacementJob, { modelHash: "test", generate: async () => ({ text: "replacement", inputTokens: 1, outputTokens: 1, cost: 0, wallMs: 1, modelHash: "test" }) }, revisionTwo.payloadJson);
-    (runtime as unknown as { activeSources: Set<string> }).activeSources = new Set(runtime.raw("session-1").map((entry) => `${entry.sessionId}:${entry.entryId}:${entry.revision}`));
+    (runtime as unknown as { activeSources: Set<string> }).activeSources = new Set(runtime.raw("session-1").map((entry) => `${entry.entryId}:${entry.contentHash}`));
     const inputs: string[] = [];
     (runtime.maintenance as unknown as { run: (...args: unknown[]) => Promise<unknown> }).run = async (_job, _model, input) => { inputs.push(String(input)); return undefined; };
     await (runtime as unknown as { runMaintenance: () => Promise<void> }).runMaintenance();
@@ -1242,6 +1243,103 @@ describe("LCM runtime", () => {
     expect(frontier).toHaveLength(1);
     expect(frontier[0]?.sources).toHaveLength(3);
     expect(runtime.coverage()).toEqual({ active: 3, covered: 3 });
+    await runtime.shutdown();
+  });
+
+  it("inherits the parent summaries when a fork keeps the same entries", async () => {
+    const root = makeRoot();
+    const entries = [makeEntry("e1", "one"), makeEntry("e2", "two", "e1")];
+    let sessionId = "session-parent";
+    const context = makeContext(root, entries);
+    context.sessionManager.getSessionId = () => sessionId;
+    const runtime = openRuntime(context, { rootDir: root });
+    await runtime.readback();
+    const node = runtime.maintenance.createLeaf(runtime.ledger.readRaw(runtime.projectKey, "session-parent"));
+    if (!node) throw new Error("missing node");
+    const job = runtime.maintenance.jobForNode(node.nodeId);
+    if (!job) throw new Error("missing job");
+    runtime.maintenance.completeEmergency(runtime.maintenance.claimEmergency(job.jobId), "parent summary");
+
+    expect(runtime.coverage()).toEqual({ active: 2, covered: 2 });
+
+    sessionId = "session-fork";
+    await runtime.readback();
+
+    expect(runtime.report().sessionId).toBe("session-fork");
+    expect(runtime.coverage()).toEqual({ active: 2, covered: 2 });
+    expect(runtime.frontier("session-fork").map((entry) => entry.text)).toEqual(["parent summary"]);
+    await runtime.shutdown();
+  });
+
+  it("does not lend a summary to a session that only shares an entry id", async () => {
+    const root = makeRoot();
+    const original = [makeEntry("e1", "one"), makeEntry("e2", "two", "e1")];
+    let entries = original;
+    let sessionId = "session-parent";
+    const context = makeContext(root, entries);
+    context.sessionManager.getSessionId = () => sessionId;
+    context.sessionManager.getBranch = () => entries;
+    const runtime = openRuntime(context, { rootDir: root });
+    await runtime.readback();
+    const node = runtime.maintenance.createLeaf(runtime.ledger.readRaw(runtime.projectKey, "session-parent"));
+    if (!node) throw new Error("missing node");
+    const job = runtime.maintenance.jobForNode(node.nodeId);
+    if (!job) throw new Error("missing job");
+    runtime.maintenance.completeEmergency(runtime.maintenance.claimEmergency(job.jobId), "parent summary");
+
+    sessionId = "session-other";
+    entries = [makeEntry("e1", "one"), makeEntry("e2", "different text", "e1")];
+    await runtime.readback();
+
+    expect(runtime.coverage()).toEqual({ active: 2, covered: 0 });
+    expect(runtime.frontier("session-other")).toHaveLength(0);
+    await runtime.shutdown();
+  });
+
+  it("expands an inherited summary and its raw sources after a fork", async () => {
+    const root = makeRoot();
+    const entries = [makeEntry("e1", "one"), makeEntry("e2", "two", "e1")];
+    let sessionId = "session-parent";
+    const context = makeContext(root, entries);
+    context.sessionManager.getSessionId = () => sessionId;
+    const runtime = openRuntime(context, { rootDir: root });
+    await runtime.readback();
+    const node = runtime.maintenance.createLeaf(runtime.ledger.readRaw(runtime.projectKey, "session-parent"));
+    if (!node) throw new Error("missing node");
+    const job = runtime.maintenance.jobForNode(node.nodeId);
+    if (!job) throw new Error("missing job");
+    runtime.maintenance.completeEmergency(runtime.maintenance.claimEmergency(job.jobId), "parent summary");
+
+    sessionId = "session-fork";
+    await runtime.readback();
+    const adapter = new LcmMemoryAdapter(runtime.memoryContext() as ConstructorParameters<typeof LcmMemoryAdapter>[0]);
+    const expanded = adapter.expand({ session: `lcm.summary:${node.nodeId}` });
+
+    expect(expanded.error).toBeUndefined();
+    expect((expanded.entries as Array<{ text: string }>).map((entry) => entry.text).join(" ")).toContain("one");
+    expect((expanded.entries as Array<{ text: string }>).map((entry) => entry.text).join(" ")).toContain("two");
+    await runtime.shutdown();
+  });
+
+  it("keeps building leaves when a fork inherits a summary that never became ready", async () => {
+    const root = makeRoot();
+    const entries = [makeEntry("e1", "one"), makeEntry("e2", "two", "e1")];
+    let sessionId = "session-parent";
+    const context = makeContext(root, entries);
+    context.sessionManager.getSessionId = () => sessionId;
+    const runtime = openRuntime(context, { rootDir: root });
+    await runtime.readback();
+    const pending = runtime.maintenance.createLeaf(runtime.ledger.readRaw(runtime.projectKey, "session-parent"));
+    if (!pending) throw new Error("missing node");
+
+    expect(runtime.maintenance.getNode(pending.nodeId)?.state).toBe("pending");
+
+    sessionId = "session-fork";
+    await runtime.readback();
+    const live = runtime.ledger.readRaw(runtime.projectKey, "session-fork");
+    const active = new Set(live.map((row) => `${row.entryId}:${row.payloadHash}`));
+
+    expect(runtime.maintenance.selectLeaf(live, active).map((row) => row.entryId)).toEqual(["e1", "e2"]);
     await runtime.shutdown();
   });
 });

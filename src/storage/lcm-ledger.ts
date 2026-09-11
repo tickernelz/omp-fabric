@@ -309,12 +309,12 @@ ALTER TABLE summary_node_revisions_next RENAME TO summary_node_revisions;`);
     return { rows, total: found.length, scanned, complete: degraded ? false : exhausted };
   }
   /** Identity columns only, so a coverage scan never loads payloads. */
-  readRawKeys(projectKey = this.project.key, sessionId?: string, limit = 100_000): Array<{ sessionId: string; entryId: string; revision: number }> {
+  readRawKeys(projectKey = this.project.key, sessionId?: string, limit = 100_000): Array<{ sessionId: string; entryId: string; revision: number; contentHash: string }> {
     this.guard(); this.assertProjectKey(projectKey);
     const rows = sessionId
-      ? this.db.prepare("SELECT session_id, entry_id, revision FROM raw_entries WHERE project_key=? AND session_id=? ORDER BY created_at,revision,rowid LIMIT ?").all(projectKey, sessionId, limit)
-      : this.db.prepare("SELECT session_id, entry_id, revision FROM raw_entries WHERE project_key=? ORDER BY created_at,session_id,entry_id,revision LIMIT ?").all(projectKey, limit);
-    return (rows as Array<Record<string, unknown>>).map(row => ({ sessionId: row.session_id as string, entryId: row.entry_id as string, revision: Number(row.revision) }));
+      ? this.db.prepare("SELECT session_id, entry_id, revision, content_hash FROM raw_entries WHERE project_key=? AND session_id=? ORDER BY created_at,revision,rowid LIMIT ?").all(projectKey, sessionId, limit)
+      : this.db.prepare("SELECT session_id, entry_id, revision, content_hash FROM raw_entries WHERE project_key=? ORDER BY created_at,session_id,entry_id,revision LIMIT ?").all(projectKey, limit);
+    return (rows as Array<Record<string, unknown>>).map(row => ({ sessionId: row.session_id as string, entryId: row.entry_id as string, revision: Number(row.revision), contentHash: row.content_hash as string }));
   }
   /** Total stored payload bytes for one session, as a single aggregate. */
   payloadBytes(projectKey = this.project.key, sessionId?: string): number {

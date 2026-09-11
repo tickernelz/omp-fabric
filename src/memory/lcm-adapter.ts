@@ -145,8 +145,7 @@ const excerpt = (text: string, max = 480): { snippet: string; truncated: boolean
 
 const isLowSurrogate = (code: number): boolean => code >= 0xdc00 && code <= 0xdfff;
 
-const sourceKey = (sessionId: string, entryId: string, revision: number): string =>
-  `${sessionId}:${entryId}:${revision}`;
+const sourceKey = (entryId: string, contentHash: string): string => `${entryId}:${contentHash}`;
 
 const activeBinding = (
   options: LcmMemoryAdapterOptions,
@@ -381,7 +380,7 @@ export class LcmMemoryAdapter {
       if (page.rows.length === 0) break;
       for (const entry of page.rows) {
         consumed += 1;
-        const allowed = activeAllowed(branches, activeBinding(this.options, entry.sessionId), sourceKey(entry.sessionId, entry.entryId, entry.revision));
+        const allowed = activeAllowed(branches, activeBinding(this.options, entry.sessionId), sourceKey(entry.entryId, entry.contentHash));
         if (!allowed.allowed) {
           if (allowed.reason) reasons.add(allowed.reason);
           continue;
@@ -449,7 +448,7 @@ export class LcmMemoryAdapter {
           continue;
         }
         const active = activeSourceSet(binding);
-        if (active && node.sources.some((source) => !active.has(sourceKey(node.sessionId, source.entryId, source.revision)))) {
+        if (active && node.sources.some((source) => !active.has(sourceKey(source.entryId, source.contentHash)))) {
           reasons.add("summary_off_active_branch");
           continue;
         }
@@ -504,7 +503,7 @@ export class LcmMemoryAdapter {
     const active = activeSourceSet(binding);
     if (branches === "active") {
       if (!binding || !binding.ready) return { entries: [], next: null, error: { code: "incomplete_coverage", message: "summary lineage is not ready" } };
-      if (active && node.sources.some((source) => !active.has(sourceKey(node.sessionId, source.entryId, source.revision)))) {
+      if (active && node.sources.some((source) => !active.has(sourceKey(source.entryId, source.contentHash)))) {
         return { entries: [], next: null, error: { code: "stale_pointer", message: "summary is outside the active branch" } };
       }
     }
@@ -638,7 +637,7 @@ export class LcmMemoryAdapter {
     const reachable: LcmSummaryNode["sources"] = [];
     let unavailable = 0;
     for (const source of node.sources) {
-      const key = sourceKey(node.sessionId, source.entryId, source.revision);
+      const key = sourceKey(source.entryId, source.contentHash);
       if (branches === "active" && active && !active.has(key)) {
         unavailable += 1;
         continue;
@@ -693,7 +692,7 @@ export class LcmMemoryAdapter {
       }
       if (branches === "active") {
         const active = activeSourceSet(activeBinding(this.options, child.sessionId));
-        if (active && child.sources.some((source) => !active.has(sourceKey(child.sessionId, source.entryId, source.revision)))) {
+        if (active && child.sources.some((source) => !active.has(sourceKey(source.entryId, source.contentHash)))) {
           unavailable += 1;
           continue;
         }
@@ -727,7 +726,7 @@ export class LcmMemoryAdapter {
     const entry = this.options.ledger.readRawEntry(sessionId, entryId, revision);
     if (!entry) return { entries: [], next: null, error: { code: "stale_pointer", message: "raw source is unavailable" } };
     const binding = activeBinding(this.options, sessionId);
-    const allowed = activeAllowed(branches, binding, sourceKey(sessionId, entryId, revision));
+    const allowed = activeAllowed(branches, binding, sourceKey(entryId, entry.contentHash));
     if (!allowed.allowed) return { entries: [], next: null, error: { code: allowed.reason === "source_off_active_branch" ? "stale_pointer" : "incomplete_coverage", message: allowed.reason ?? "raw lineage is unavailable" } };
     const payload = JSON.parse(entry.payloadJson) as Record<string, unknown>;
     const sourceHash = hashLcmPayload(payload);

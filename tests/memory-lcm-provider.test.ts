@@ -51,7 +51,7 @@ describe("MemoryProvider LCM seam", () => {
         ledger: capability(ledger),
         currentSessionId: "session-1",
         summaries: { listNodes: () => [], getNode: () => undefined },
-        branchForSession: () => ({ activeSourceKeys: ["session-1:entry-1:" + raw.revision], ready: true }),
+        branchForSession: () => ({ activeSourceKeys: [`${raw.entryId}:${raw.contentHash}`], ready: true }),
       },
     });
     const recalled = await provider.invoke("recall", { query: "exact fact" }, context) as {

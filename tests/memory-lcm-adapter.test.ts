@@ -4,6 +4,7 @@ import type { LcmLedger } from "../src/storage/lcm-ledger.js";
 import { openLedger, releaseTemp, tempRoot } from "./fixtures/lcm-temp.js";
 import { LcmMemoryAdapter, type LcmMemoryLedger, type LcmSummaryNode } from "../src/memory/lcm-adapter.js";
 
+const key = (row: { entryId: string; contentHash: string }): string => `${row.entryId}:${row.contentHash}`;
 const capability = (ledger: LcmLedger): LcmMemoryLedger => ({
   projectKey: ledger.project.key,
   readRaw: (sessionId?: string) => ledger.readRaw(ledger.project.key, sessionId),
@@ -70,7 +71,7 @@ describe("LCM memory retrieval", () => {
     const adapter = new LcmMemoryAdapter({
       ledger: capability(ledger),
       currentSessionId: "s",
-      branchForSession: () => ({ activeSourceKeys: ["s:e:" + raw.revision], ready: true }),
+      branchForSession: () => ({ activeSourceKeys: [`${raw.entryId}:${raw.contentHash}`], ready: true }),
       summaries: { listNodes: () => [node], getNode: (id) => (id === "n" ? node : undefined) },
     });
     const result = adapter.recall({ query: "alpha", pageSize: 1 });
@@ -189,7 +190,7 @@ describe("LCM memory retrieval", () => {
     const adapter = new LcmMemoryAdapter({
       ledger: capability(ledger),
       currentSessionId: "s",
-      branchForSession: () => ({ activeSourceKeys: ["s:e1:1", "s:e2:1"], ready: true }),
+      branchForSession: () => ({ activeSourceKeys: [key(first), key(second)], ready: true }),
       summaries: { listNodes: () => nodes, getNode: (id) => nodes.find((node) => node.nodeId === id) },
     });
 
@@ -274,7 +275,7 @@ describe("LCM memory retrieval", () => {
     const adapter = new LcmMemoryAdapter({
       ledger: capability(ledger),
       currentSessionId: "s",
-      branchForSession: () => ({ activeSourceKeys: ["s:e1:1"], ready: true }),
+      branchForSession: () => ({ activeSourceKeys: [key(kept)], ready: true }),
       summaries: { listNodes: () => [node], getNode: (id) => (id === "leaf" ? node : undefined) },
     });
     expect(adapter.expand({ session: "lcm.summary:leaf" })).toMatchObject({ error: { code: "stale_pointer" } });
@@ -469,7 +470,7 @@ describe("LCM memory retrieval", () => {
       sources: [reference(first), reference(second)],
       createdAt: 40,
     };
-    let activeSourceKeys = ["s:e1:1", "s:e2:1"];
+    let activeSourceKeys = [key(first), key(second)];
     let reads = 0;
     const adapter = new LcmMemoryAdapter({
       ledger: {
@@ -496,17 +497,17 @@ describe("LCM memory retrieval", () => {
     expect(descend("active")).toMatchObject({ texts: ["first body", "second body"], reads: 2 });
     expect(descend("active")).toMatchObject({ texts: ["first body", "second body"], reads: 0 });
 
-    activeSourceKeys = ["s:e1:1"];
+    activeSourceKeys = [key(first)];
     expect(descend("active")).toMatchObject({ texts: [], error: { code: "stale_pointer" } });
-    activeSourceKeys = ["s:e1:1", "s:e2:1"];
+    activeSourceKeys = [key(first), key(second)];
 
     node.sources = [reference(first), reference(third)];
-    activeSourceKeys = ["s:e1:1", "s:e3:1"];
+    activeSourceKeys = [key(first), key(third)];
     expect(descend("active")).toMatchObject({ texts: ["first body", "third body"], reads: 2 });
 
     node.sources = [reference(first), reference(second)];
     node.sourceHash = "hash-b";
-    activeSourceKeys = ["s:e1:1", "s:e2:1"];
+    activeSourceKeys = [key(first), key(second)];
     expect(descend("active")).toMatchObject({ texts: ["first body", "second body"], reads: 2 });
     expect(adapter.expand({ session: "lcm.summary:leaf" }).sourceHash).toBe("hash-b");
   });

@@ -248,7 +248,7 @@ export class LcmRuntime {
       if (!previous || previous.revision < entry.revision) latest.set(entry.entryId, entry);
     }
     this.activeSources = new Set(
-      [...latest.values()].map((entry) => `${entry.sessionId}:${entry.entryId}:${entry.revision}`),
+      [...latest.values()].map((entry) => this.sourceKey(entry)),
     );
     this.activeSessionId = sessionId;
     this.invalidateFrontier();
@@ -323,7 +323,7 @@ export class LcmRuntime {
               parentEntryId: entry.parentId ?? null,
               ...(recorded || this.context.cwd ? { recordedCwd: recorded || this.context.cwd } : {}),
             });
-            const key = `${sessionId}:${stored.entryId}:${stored.revision}`;
+            const key = this.sourceKey(stored);
             this.persisted.set(entry, { key, contentHash });
             active.add(key);
           }
@@ -489,7 +489,7 @@ export class LcmRuntime {
     const passes = Math.max(1, this.options.maxMaintenancePasses ?? 4);
     const runDeadline = Date.now() + Math.max(1, this.options.maintenanceRunSeconds ?? 60) * 1_000;
     const raw = this.ledger.readRaw(this.projectKey, sessionId).filter((entry) =>
-      this.activeSources.has(`${entry.sessionId}:${entry.entryId}:${entry.revision}`),
+      this.activeSources.has(this.sourceKey(entry)),
     );
     const inputFor = (node: NonNullable<ReturnType<LcmMaintenance["getNode"]>>): string => {
       if (node.kind === "condensed") return node.children.map((id) => this.maintenance.getNode(id)?.text ?? "").filter(Boolean).join("\n\n");
@@ -593,14 +593,14 @@ export class LcmRuntime {
       if (!stored) throw new Error("compaction source was not persisted");
       return stored;
     });
-    const activeSources = new Set(selectedStored.map((entry) => `${entry.sessionId}:${entry.entryId}:${entry.revision}`));
+    const activeSources = new Set(selectedStored.map((entry) => this.sourceKey(entry)));
     const frontier = this.maintenance.getFrontier(input.sessionId, activeSources);
-    const coveredSources = new Set(frontier.flatMap((node) => node.sources.map((source) => `${source.sessionId}:${source.entryId}:${source.revision}`)));
+    const coveredSources = new Set(frontier.flatMap((node) => node.sources.map((source) => this.sourceKey(source))));
     const summary = renderAddressedFrontier(frontier, requestLines);
     const instructionDetails = instructions.ok && (instructions.requestLines.length > 0 || instructions.policy.preserveCount > 0)
       ? { instructionPolicy: instructions.policy }
       : undefined;
-    if (summary && selectedStored.every((entry) => coveredSources.has(`${entry.sessionId}:${entry.entryId}:${entry.revision}`))) {
+    if (summary && selectedStored.every((entry) => coveredSources.has(this.sourceKey(entry)))) {
       return {
         summary,
         firstKeptEntryId: input.firstKeptEntryId,
@@ -818,8 +818,9 @@ export class LcmRuntime {
     return { nodes, covered };
   }
 
-  private sourceKey(source: { sessionId: string; entryId: string; revision: number }): string {
-    return `${source.sessionId}:${source.entryId}:${source.revision}`;
+  /** Content identity, so a fork keeps the summaries built over the entries it inherited. */
+  private sourceKey(source: { entryId: string; payloadHash: string }): string {
+    return `${source.entryId}:${source.payloadHash}`;
   }
 
   /** Assembles what a compaction would serve now. Reads only; it never persists a node. */
@@ -844,7 +845,7 @@ export class LcmRuntime {
     if (!sessionId) return [];
     const { covered } = this.frontierSnapshot();
     return this.ledger.readRawKeys(this.projectKey, sessionId, limit)
-      .map(entry => { const key = this.sourceKey(entry); return { key, covered: covered.has(key) }; });
+      .map(entry => { const key = this.sourceKey({ entryId: entry.entryId, payloadHash: entry.contentHash }); return { key, covered: covered.has(key) }; });
   }
 
   jobs(limit = 64): LcmJob[] {
@@ -890,9 +891,9 @@ export class LcmRuntime {
           return node ? { ...node, text: node.text ?? "", sources: node.sources.map((source) => ({ entryId: source.entryId, revision: source.revision, contentHash: source.payloadHash })) } : undefined;
         },
       },
-      branchForSession: (sessionId: string) => sessionId === this.activeSessionId
-        ? { activeSourceKeys: [...this.activeSources], ready: this.status === "healthy" }
-        : undefined,
+      branchForSession: () => this.activeSessionId === undefined
+        ? undefined
+        : { activeSourceKeys: [...this.activeSources], ready: this.status === "healthy" },
     };
   }
 
