@@ -690,12 +690,9 @@ export class LcmMemoryAdapter {
         unavailable += 1;
         continue;
       }
-      if (branches === "active") {
-        const active = activeSourceSet(activeBinding(this.options, child.sessionId));
-        if (active && child.sources.some((source) => !active.has(sourceKey(source.entryId, source.contentHash)))) {
-          unavailable += 1;
-          continue;
-        }
+      if (branches === "active" && child.sources.some((source) => !activeAllowed(branches, activeBinding(this.options, child.sessionId), sourceKey(source.entryId, source.contentHash)).allowed)) {
+        unavailable += 1;
+        continue;
       }
       items.push({
         entryId: child.nodeId,
