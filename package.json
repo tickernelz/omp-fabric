@@ -1,6 +1,6 @@
 {
   "name": "omp-fabric",
-  "version": "1.18.0",
+  "version": "1.18.1",
   "description": "A programmable tool and agent runtime for Oh My Pi (OMP)",
   "type": "module",
   "main": "./dist/index.js",

@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.18.1
+
+### Changed
+
+- Summary descent asks the same active-branch predicate every other call site asks. It had expressed the rule a second way, treating a missing branch binding as permission where the rest of the adapter treats it as refusal. The divergence was unreachable, because `expandSummary` refuses a missing binding first and the binding stopped resolving by session id in 1.18.0, so no behaviour changes.
+
 ## 1.18.0
 
 ### Fixed
