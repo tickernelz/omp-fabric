@@ -218,7 +218,6 @@ describe("Fabric execution trace compaction", () => {
     });
   });
 
-
   it("keeps multibyte intent bounded without clipping outcome or source address", () => {
     const events = normalizeEntries([
       fabricCall("mb1", "multibyte", "fake", null, {
@@ -319,7 +318,7 @@ describe("deterministic Fabric branch summaries", () => {
           firstKeptEntryId: input.branchEntries[0]?.id ?? "",
           tokensBefore: input.tokensBefore,
           source: "emergency" as const,
-          branch: input.branch,
+
         }),
       },
     });
@@ -376,7 +375,7 @@ describe("deterministic Fabric branch summaries", () => {
           firstKeptEntryId: input.branchEntries[0]?.id ?? "",
           tokensBefore: input.tokensBefore,
           source: "emergency" as const,
-          branch: input.branch,
+
         }),
       },
     });

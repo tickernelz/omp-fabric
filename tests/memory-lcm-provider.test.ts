@@ -41,7 +41,6 @@ describe("MemoryProvider LCM seam", () => {
       content: "provider seam exact fact",
       payloadJson: canonicalLcmPayload(payload),
       parentEntryId: null,
-      branch: "leaf-1",
     });
     const provider = new MemoryProvider({
       agentDir: root,
@@ -150,7 +149,6 @@ describe("MemoryProvider LCM seam", () => {
       nodeId: "leaf",
       projectKey: ledger.project.key,
       sessionId: "session-1",
-      branch: null,
       kind: "leaf",
       sourceHash: "leaf-hash",
       lineageFingerprint: "lineage-1",
@@ -224,7 +222,6 @@ return { seen, walk };
       nodeId: "leaf",
       projectKey: ledger.project.key,
       sessionId: "session-1",
-      branch: null,
       kind: "leaf",
       sourceHash: "leaf-hash",
       state: "ready",
@@ -296,7 +293,6 @@ return { seen, walk };
       nodeId: "wide",
       projectKey: ledger.project.key,
       sessionId: "session-1",
-      branch: null,
       kind: "leaf",
       sourceHash: "wide-hash",
       state: "ready",

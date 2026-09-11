@@ -151,6 +151,14 @@ The ledger keeps a repair budget per fault class. On every turn boundary the run
 
 Readback hashes each branch entry and appends only the ones whose payload the session has not stored yet, so it runs on every message and the dashboard never trails the conversation. An entry amended in place gains a revision the same way a fresh one does. Changing session re-reads the whole branch.
 
+## Branch isolation
+
+A summary is served only when every source it covers is still on the live branch. That set is rebuilt from the session on every readback, so a rewind drops the summaries that covered the abandoned entries on the next sync, and a fork keeps the ones whose sources it inherited.
+
+The check is per source. No branch label takes part: summary nodes carry none, and the `branch` column on a stored entry is provenance from the session file, read by nothing.
+
+An earlier design stamped each stored entry with the host's leaf id, which is the id of the newest entry and therefore moves with every message, then filtered the frontier on it. A summary built at one leaf stopped matching one message later and left the frontier for good. On a 5,400-entry production ledger that pinned 106 of 133 nodes behind 36 dead leaf values and held coverage at 2 of 400 sources; the same branch reaches 160 of 400 once the label is out of the way. Ledgers written by that design keep their labels, and nothing reads them, so no migration runs and a leaf window that spans two of them is built like any other.
+
 ## Ledger identity and retention
 
 A project is keyed by the device and inode of its directory, which a rebuild or a remount changes. `projects.json` in the ledger root remembers the key each canonical path was first filed under, so a project that changes inode keeps its history and no empty ledger appears beside it. Once a day, and only when a recorded project directory no longer exists and nothing has written its ledger for 30 days, that ledger is deleted.

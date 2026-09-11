@@ -262,7 +262,7 @@ export const renderLcmDetailLines = (
     ),
     theme.fg(
       "dim",
-      truncateToWidth(safeText(`model hash ${node.modelHash} · branch ${node.branch ?? "none"}`), width, ""),
+      truncateToWidth(safeText(`model hash ${node.modelHash}`), width, ""),
     ),
     theme.fg(
       "dim",

@@ -406,7 +406,7 @@ describe("LCM emergency compaction under a held lease", () => {
     return { runtime, entries, job, nodeId: leaf.nodeId };
   };
   const compact = (runtime: LcmRuntime, entries: SessionEntry[]) =>
-    runtime.compact({ branchEntries: entries, sessionId: "session-1", branch: "branch-a", firstKeptEntryId: "e2", tokensBefore: 1_000 });
+    runtime.compact({ branchEntries: entries, sessionId: "session-1", firstKeptEntryId: "e2", tokensBefore: 1_000 });
 
   it("serves the excerpt instead of cancelling when a dead worker still holds the leaf", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });

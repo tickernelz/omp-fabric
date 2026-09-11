@@ -17,7 +17,6 @@ const tui = () => ({ requestRender: vi.fn(), terminal: { rows: 40 } }) as unknow
 
 const node = (overrides: Partial<LcmDashboardNode> & { nodeId: string }): LcmDashboardNode => ({
   sessionId: "session-1",
-  branch: "main",
   kind: "condensed",
   depth: 0,
   state: "ready",

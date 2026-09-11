@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.17.0
+
+### Fixed
+
+- Summaries stopped leaving the frontier one message after they were built. LCM stamped each stored entry with the host's leaf id, which is the id of the newest entry, and then filtered the frontier on it, so a node matched only until the next message arrived. The label is gone from the model: `LcmNode` no longer carries it, leaf and condensed identity no longer hash it, and the four selectors no longer filter on it. A production ledger of 5,400 entries held 106 of 133 nodes behind 36 dead leaf values and served 2 of 400 sources; the same branch now serves 160 of 400. Existing ledgers keep the labels in a column nothing reads, so nothing migrates.
+- Branch isolation now rests where it was already exact: a summary is served only when every source it covers is on the live branch. `selectLeaf` applies that same predicate when it decides which entries are already summarised, so an entry covered only by a node the live branch cannot serve is summarised again instead of being skipped forever.
+- `getFrontier` drops a node whose sources another selected node fully contains, so a rewind that remints a covered prefix can no longer put the same range into a compacted prompt twice.
+
+### Changed
+
+- `branch` was removed from `LcmCompactionInput`, `LcmCompactionOutput`, `LcmSummaryNode`, `LcmDashboardNode` and the memory branch binding. `createLeaf` and `createCondensed` now require their arguments rather than defaulting to an unscoped selection.
+
 ## 1.16.0
 
 ### Added

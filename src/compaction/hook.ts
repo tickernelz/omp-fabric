@@ -800,7 +800,6 @@ const SECTION_HEADERS: { key: keyof Sections; header: string }[] = [
 export interface LcmCompactionInput {
   branchEntries: readonly SessionEntry[];
   sessionId: string;
-  branch: string | null;
   firstKeptEntryId: string;
   tokensBefore: number;
   customInstructions?: string;
@@ -811,7 +810,6 @@ export interface LcmCompactionOutput {
   firstKeptEntryId: string;
   tokensBefore: number;
   source: "ready-frontier" | "emergency";
-  branch: string | null;
   details?: unknown;
 }
 
@@ -846,13 +844,11 @@ export const registerCompactionHook = (omp: ExtensionAPI, options: CompactionHoo
     const branchEntries = event.branchEntries ?? [];
     const sessionManager = context?.sessionManager;
     const sessionId = sessionManager?.getSessionId?.() ?? "";
-    const branch = sessionManager?.getLeafId?.() ?? null;
     let output: LcmCompactionOutput | undefined;
     try {
       output = options.lcm.compact({
         branchEntries,
         sessionId,
-        branch,
         firstKeptEntryId: event.preparation.firstKeptEntryId,
         tokensBefore: event.preparation.tokensBefore,
         ...(event.customInstructions === undefined ? {} : { customInstructions: event.customInstructions }),
@@ -866,7 +862,6 @@ export const registerCompactionHook = (omp: ExtensionAPI, options: CompactionHoo
     if (!output || typeof output.summary !== "string" || output.summary.length === 0
       || (output.source !== "ready-frontier" && output.source !== "emergency")
       || output.tokensBefore !== event.preparation.tokensBefore
-      || output.branch !== branch
       || typeof output.firstKeptEntryId !== "string"
       || branchEntries.length === 0
       || (output.firstKeptEntryId.length > 0 && !branchEntries.some((entry) => entry.id === output.firstKeptEntryId))) {
@@ -880,7 +875,6 @@ export const registerCompactionHook = (omp: ExtensionAPI, options: CompactionHoo
         details: {
           compactor: "lcm",
           source: output.source,
-          branch,
           ...(output.details && typeof output.details === "object" ? output.details : {}),
         },
       },

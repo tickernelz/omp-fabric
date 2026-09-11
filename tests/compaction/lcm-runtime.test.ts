@@ -142,7 +142,7 @@ describe("LCM runtime", () => {
     const job = runtime.maintenance.listJobs().find((item) => item.nodeId === leaf?.nodeId);
     runtime.maintenance.completeEmergency(runtime.maintenance.claimEmergency(job!.jobId), "[Nonsemantic deterministic excerpt; not a model summary]\nfallback");
     expect(runtime.maintenance.getNode(leaf!.nodeId)?.modelHash).toBe("emergency");
-    expect(runtime.maintenance.selectUpgrades("session-1", undefined, "branch-a", 5).map((node) => node.nodeId)).toEqual([leaf!.nodeId]);
+    expect(runtime.maintenance.selectUpgrades("session-1", undefined, 5).map((node) => node.nodeId)).toEqual([leaf!.nodeId]);
 
     const reopened = runtime.maintenance.reopen(leaf!.nodeId);
     const claimed = runtime.maintenance.claim(reopened.jobId);
@@ -151,7 +151,7 @@ describe("LCM runtime", () => {
     expect(upgraded.nodeId).toBe(leaf!.nodeId);
     expect(upgraded.text).toBe("a real model summary");
     expect(upgraded.modelHash).toBe("model-abc");
-    expect(runtime.maintenance.selectUpgrades("session-1", undefined, "branch-a", 5)).toHaveLength(0);
+    expect(runtime.maintenance.selectUpgrades("session-1", undefined, 5)).toHaveLength(0);
     expect(() => runtime.maintenance.reopen(leaf!.nodeId)).toThrow("node already carries a model summary");
     await runtime.shutdown();
   });
@@ -297,13 +297,14 @@ describe("LCM runtime", () => {
 
   it("reads compaction options at use time so a settings change applies mid-session", async () => {
     const root = makeRoot();
-    const entry = makeEntry("live", "live option source ".repeat(600));
+    const first = makeEntry("live-first", "live option source ".repeat(600));
+    const second = makeEntry("live-second", "later option source ".repeat(600), "live-first");
     let outputChars = 4_096;
-    const runtime = openRuntime(makeContext(root, [entry]), () => ({ rootDir: root, lcmMaxOutputChars: outputChars }));
+    const runtime = openRuntime(makeContext(root, [first, second]), () => ({ rootDir: root, lcmMaxOutputChars: outputChars }));
     await runtime.readback();
-    const wide = runtime.compact({ branchEntries: [entry], sessionId: "session-1", branch: "branch-a", firstKeptEntryId: "missing", tokensBefore: 100 });
+    const wide = runtime.compact({ branchEntries: [first], sessionId: "session-1", firstKeptEntryId: "missing", tokensBefore: 100 });
     outputChars = 1_200;
-    const narrow = runtime.compact({ branchEntries: [entry], sessionId: "session-1", branch: "branch-b", firstKeptEntryId: "missing", tokensBefore: 100 });
+    const narrow = runtime.compact({ branchEntries: [second], sessionId: "session-1", firstKeptEntryId: "missing", tokensBefore: 100 });
     expect(wide.source).toBe("emergency");
     expect(narrow.source).toBe("emergency");
     expect(Buffer.byteLength(narrow.summary, "utf8")).toBeLessThanOrEqual(1_200);
@@ -366,11 +367,50 @@ describe("LCM runtime", () => {
     await runtime.shutdown();
   });
 
-  it("keeps identical source ranges distinct across branches", async () => {
-    const root = makeRoot(); const entry = makeEntry("shared", "shared source"); const runtime = openRuntime(makeContext(root, [entry]), { rootDir: root });
-    const left = runtime.compact({ branchEntries: [entry], sessionId: "session-1", branch: "left", firstKeptEntryId: "missing", tokensBefore: 100 });
-    const right = runtime.compact({ branchEntries: [entry], sessionId: "session-1", branch: "right", firstKeptEntryId: "missing", tokensBefore: 100 });
-    expect(left.source).toBe("emergency"); expect(right.source).toBe("emergency"); expect(runtime.frontier("session-1", "left")).toHaveLength(1); expect(runtime.frontier("session-1", "right")).toHaveLength(1); expect(runtime.frontier("session-1", "left")[0]?.nodeId).not.toBe(runtime.frontier("session-1", "right")[0]?.nodeId); await runtime.shutdown();
+  it("reuses one summary for an identical source range instead of minting a second", async () => {
+    const root = makeRoot();
+    const entry = makeEntry("shared", "shared source");
+    const runtime = openRuntime(makeContext(root, [entry]), { rootDir: root });
+
+    const first = runtime.compact({ branchEntries: [entry], sessionId: "session-1", firstKeptEntryId: "missing", tokensBefore: 100 });
+    const second = runtime.compact({ branchEntries: [entry], sessionId: "session-1", firstKeptEntryId: "missing", tokensBefore: 100 });
+
+    expect(first.source).toBe("emergency");
+    expect(second.source).toBe("ready-frontier");
+    expect(runtime.frontier("session-1")).toHaveLength(1);
+    await runtime.shutdown();
+  });
+
+  it("keeps a summary usable as the branch tip advances and drops it after a rewind", async () => {
+    const root = makeRoot();
+    const entries = [makeEntry("e1", "one"), makeEntry("e2", "two", "e1")];
+    let leaf = "e2";
+    const context = makeContext(root, entries);
+    context.sessionManager.getLeafId = () => leaf;
+    const runtime = openRuntime(context, { rootDir: root });
+    await runtime.readback();
+    const node = runtime.maintenance.createLeaf(runtime.ledger.readRaw(runtime.projectKey, "session-1"));
+    if (!node) throw new Error("missing node");
+    const job = runtime.maintenance.jobForNode(node.nodeId);
+    if (!job) throw new Error("missing job");
+    runtime.maintenance.completeEmergency(runtime.maintenance.claimEmergency(job.jobId), "summary of both");
+
+    expect(runtime.coverage()).toEqual({ active: 2, covered: 2 });
+
+    entries.push(makeEntry("e3", "three", "e2"));
+    leaf = "e3";
+    await runtime.readback();
+
+    expect(runtime.coverage()).toEqual({ active: 3, covered: 2 });
+    expect(runtime.frontier("session-1")).toHaveLength(1);
+
+    entries.splice(1);
+    leaf = "e1";
+    await runtime.readback();
+
+    expect(runtime.frontier("session-1")).toHaveLength(0);
+    expect(runtime.coverage()).toEqual({ active: 1, covered: 0 });
+    await runtime.shutdown();
   });
   it("uses the historical branch payload revision", async () => {
     const root = makeRoot();
@@ -379,7 +419,7 @@ describe("LCM runtime", () => {
     await runtime.readback();
     const newer = makeEntry("same-entry", "newer payload");
     runtime.ledger.appendRaw({ projectKey: runtime.projectKey, sessionId: "session-1", entryId: newer.id, role: "user", content: "newer payload", payloadJson: canonicalLcmPayload(newer) });
-    const result = runtime.compact({ branchEntries: [historical], sessionId: "session-1", branch: "branch-a", firstKeptEntryId: "missing", tokensBefore: 100 });
+    const result = runtime.compact({ branchEntries: [historical], sessionId: "session-1", firstKeptEntryId: "missing", tokensBefore: 100 });
     expect(result.summary).toContain("lcm.raw:session-1:same-entry:1");
     expect(result.summary).not.toContain("lcm.raw:session-1:same-entry:2");
     const stored = runtime.ledger.readRawEntry(runtime.projectKey, "session-1", "same-entry", 1);
@@ -389,7 +429,7 @@ describe("LCM runtime", () => {
   it("falls back when the ready frontier covers only part of the source range", async () => {
     const root = makeRoot(); const entries = [makeEntry("old", "old source"), makeEntry("new", "new source", "old")]; const runtime = openRuntime(makeContext(root, entries), { rootDir: root }); await runtime.readback();
     const rows = runtime.raw("session-1"); const leaf = runtime.maintenance.createLeaf([rows[0]!]); if (!leaf) throw new Error("expected leaf"); const job = runtime.maintenance.listJobs().find((item) => item.nodeId === leaf.nodeId); if (!job) throw new Error("expected job"); const claimed = runtime.maintenance.claim(job.jobId); runtime.maintenance.complete(claimed, { text: "partial summary", inputTokens: 1, outputTokens: 1, cost: 0, wallMs: 1, modelHash: "test" }, inputFor("partial summary"));
-    const result = runtime.compact({ branchEntries: entries, sessionId: "session-1", branch: "branch-a", firstKeptEntryId: "missing", tokensBefore: 100 });
+    const result = runtime.compact({ branchEntries: entries, sessionId: "session-1", firstKeptEntryId: "missing", tokensBefore: 100 });
     expect(result.source).toBe("emergency");
     const addressed = /sources: (.+)/.exec(result.summary)?.[1] ?? "";
     const listed = addressed.split(", ").filter((part) => part.startsWith("lcm.raw:session-1:")).length;
@@ -401,16 +441,16 @@ describe("LCM runtime", () => {
     const root = makeRoot();
     const entries = [makeEntry("new-entry", "new source ".repeat(1000))];
     const runtime = openRuntime(makeContext(root, entries), { rootDir: root, lcmMaxOutputChars: 1_024 });
-    const result = runtime.compact({ branchEntries: entries, sessionId: "session-1", branch: "branch-a", firstKeptEntryId: "missing", tokensBefore: 100 });
+    const result = runtime.compact({ branchEntries: entries, sessionId: "session-1", firstKeptEntryId: "missing", tokensBefore: 100 });
     expect(result.source).toBe("emergency");
     const stored = runtime.raw("session-1")[0];
     expect(stored?.revision).toBe(1);
     expect(result.summary).toContain("lcm.raw:session-1:new-entry:1");
     expect(Buffer.byteLength(result.summary, "utf8")).toBeLessThanOrEqual(1_024);
-    expect(runtime.frontier("session-1", "branch-a")).toHaveLength(1);
+    expect(runtime.frontier("session-1")).toHaveLength(1);
     await runtime.shutdown();
     const restarted = openRuntime(makeContext(root, []), { rootDir: root });
-    expect(restarted.frontier("session-1", "branch-a")[0]?.text).toBe(result.summary);
+    expect(restarted.frontier("session-1")[0]?.text).toBe(result.summary);
     await restarted.shutdown();
   });
   it("readbacks authoritative branch entries and returns a bounded emergency result", async () => {
@@ -423,7 +463,6 @@ describe("LCM runtime", () => {
     const result = runtime.compact({
       branchEntries: entries,
       sessionId: "session-1",
-      branch: "branch-a",
       firstKeptEntryId: "e2",
       tokensBefore: 9000,
     });
@@ -451,7 +490,6 @@ describe("LCM runtime", () => {
     const result = runtime.compact({
       branchEntries: entries,
       sessionId: "session-1",
-      branch: "branch-a",
       firstKeptEntryId: "e2",
       tokensBefore: 9000,
     });
@@ -494,7 +532,7 @@ describe("LCM runtime", () => {
     const runtime = openRuntime(makeContext(root, entries), { rootDir: root });
     await expect(runtime.syncAndSchedule()).resolves.toBeUndefined();
     await (runtime as unknown as { maintenancePending: Promise<void> }).maintenancePending;
-    const frontier = runtime.frontier("session-1", "branch-a");
+    const frontier = runtime.frontier("session-1");
     expect(frontier).toHaveLength(1);
     expect(frontier[0]?.state).toBe("ready");
     expect(frontier[0]?.modelHash).toBe("emergency");
@@ -517,9 +555,9 @@ describe("LCM runtime", () => {
     const job = runtime.maintenance.listJobs().find((item) => item.nodeId === node.nodeId);
     if (!job) throw new Error("expected leaf job");
     runtime.maintenance.complete(runtime.maintenance.claim(job.jobId), { text: "ready semantic summary", inputTokens: 1, outputTokens: 1, cost: 0, wallMs: 1, modelHash: "test" }, inputFor("ready semantic summary"));
-    const result = runtime.compact({ branchEntries: entries, sessionId: "session-1", branch: "branch-a", firstKeptEntryId: "e2", tokensBefore: 9000 });
+    const result = runtime.compact({ branchEntries: entries, sessionId: "session-1", firstKeptEntryId: "e2", tokensBefore: 9000 });
     expect(result.source).toBe("ready-frontier");
-    const frontier = runtime.frontier("session-1", "branch-a");
+    const frontier = runtime.frontier("session-1");
     expect(frontier.length).toBeGreaterThan(0);
     for (const rendered of frontier) expect(result.summary).toContain(`lcm.summary:${rendered.nodeId}`);
     expect(result.summary).toContain(`lcm.raw:session-1:e1:${head.revision}`);
@@ -541,7 +579,7 @@ describe("LCM runtime", () => {
     if (!job) throw new Error("expected leaf job");
     runtime.maintenance.complete(runtime.maintenance.claim(job.jobId), { text: "ready semantic summary", inputTokens: 1, outputTokens: 1, cost: 0, wallMs: 1, modelHash: "test" }, inputFor("ready semantic summary"));
     const instructions = "__omp_fabric_compact_request_v1__:{\"version\":1,\"instructions\":\"Keep the API auth context\",\"preserve\":[\"src/auth.ts\"]}";
-    const result = runtime.compact({ branchEntries: entries, sessionId: "session-1", branch: "branch-a", firstKeptEntryId: "e2", tokensBefore: 9000, customInstructions: instructions });
+    const result = runtime.compact({ branchEntries: entries, sessionId: "session-1", firstKeptEntryId: "e2", tokensBefore: 9000, customInstructions: instructions });
     expect(result.source).toBe("ready-frontier");
     expect(result.summary).toContain("[Compaction Request]");
     expect(result.summary).toContain("Keep the API auth context");
@@ -556,7 +594,7 @@ describe("LCM runtime", () => {
     const runtime = openRuntime(makeContext(root, entries), { rootDir: root });
     await runtime.readback();
     const instructions = "__omp_fabric_compact_request_v1__:{\"version\":1,\"instructions\":\"Remember critical invariant\",\"preserve\":[\"src/invariant.ts\"]}";
-    const result = runtime.compact({ branchEntries: entries, sessionId: "session-1", branch: "branch-a", firstKeptEntryId: "missing", tokensBefore: 9000, customInstructions: instructions });
+    const result = runtime.compact({ branchEntries: entries, sessionId: "session-1", firstKeptEntryId: "missing", tokensBefore: 9000, customInstructions: instructions });
     expect(result.source).toBe("emergency");
     expect(result.summary).toContain("[Compaction Request]");
     expect(result.summary).toContain("Remember critical invariant");
@@ -787,7 +825,7 @@ describe("LCM runtime", () => {
     await settle(runtime);
 
     expect(runtime.maintenanceOccupancyReached()).toBe(false);
-    const compacted = runtime.compact({ branchEntries: entries, sessionId: "session-1", branch: "branch-a", firstKeptEntryId: "e8", tokensBefore: 100 });
+    const compacted = runtime.compact({ branchEntries: entries, sessionId: "session-1", firstKeptEntryId: "e8", tokensBefore: 100 });
     expect(compacted.source).toBe("ready-frontier");
     await runtime.shutdown();
   });
@@ -1062,7 +1100,7 @@ describe("LCM runtime", () => {
     const stored = runtime.ledger.readRaw(runtime.projectKey, "session-1");
     expect(stored.map((row) => row.revision)).toEqual([1, 2]);
     expect(runtime.coverage()).toEqual({ active: 1, covered: 0 });
-    expect(runtime.frontier("session-1", "branch-a")).toHaveLength(0);
+    expect(runtime.frontier("session-1")).toHaveLength(0);
     await runtime.shutdown();
   });
 
@@ -1139,6 +1177,71 @@ describe("LCM runtime", () => {
 
     expect(page).toHaveLength(1);
     expect(page[0]?.state).toBe("failed");
+    await runtime.shutdown();
+  });
+
+  it("builds a leaf across rows an earlier version labelled with different leaf ids", async () => {
+    const root = makeRoot();
+    const entries = [makeEntry("e1", "one"), makeEntry("e2", "two", "e1"), makeEntry("e3", "three", "e2"), makeEntry("e4", "four", "e3")];
+    const runtime = openRuntime(makeContext(root, entries), { rootDir: root, maxLeafEntries: 3 });
+    runtime.ledger.transaction(() => {
+      for (const [index, entry] of entries.entries()) {
+        runtime.ledger.appendRaw({
+          projectKey: runtime.projectKey,
+          sessionId: "session-1",
+          entryId: entry.id,
+          role: "user",
+          content: "seeded",
+          payloadJson: canonicalLcmPayload(entry),
+          branch: index < 2 ? "leaf-A" : "leaf-B",
+        });
+      }
+    });
+    await runtime.readback();
+    const stored = runtime.ledger.readRaw(runtime.projectKey, "session-1");
+
+    expect(new Set(stored.map((row) => row.branch)).size).toBe(2);
+
+    const picked = runtime.maintenance.selectLeaf(stored, new Set(stored.map((row) => `session-1:${row.entryId}:${row.revision}`)));
+
+    expect(picked.map((row) => row.entryId)).toEqual(["e1", "e2", "e3"]);
+    expect(runtime.maintenance.createLeaf(picked)?.sources).toHaveLength(3);
+    await runtime.shutdown();
+  });
+
+  it("serves one summary after a rewind remints a prefix another node already covers", async () => {
+    const root = makeRoot();
+    const entries = [makeEntry("e1", "one"), makeEntry("e2", "two", "e1"), makeEntry("e3", "three", "e2")];
+    const runtime = openRuntime(makeContext(root, entries), { rootDir: root });
+    const summarize = async (): Promise<void> => {
+      const live = runtime.ledger
+        .readRaw(runtime.projectKey, "session-1")
+        .filter((row) => entries.some((entry) => entry.id === row.entryId));
+      const active = new Set(live.map((row) => `session-1:${row.entryId}:${row.revision}`));
+      const picked = runtime.maintenance.selectLeaf(live, active);
+      if (picked.length === 0) return;
+      const node = runtime.maintenance.createLeaf(picked);
+      if (!node) return;
+      const job = runtime.maintenance.jobForNode(node.nodeId);
+      if (!job) throw new Error("missing job");
+      runtime.maintenance.completeEmergency(runtime.maintenance.claimEmergency(job.jobId), `summary of ${picked.length}`);
+    };
+    await runtime.readback();
+    await summarize();
+
+    expect(runtime.frontier("session-1")).toHaveLength(1);
+
+    entries.splice(2);
+    await runtime.readback();
+    await summarize();
+    entries.push(makeEntry("e3", "three", "e2"));
+    await runtime.readback();
+
+    const frontier = runtime.frontier("session-1");
+
+    expect(frontier).toHaveLength(1);
+    expect(frontier[0]?.sources).toHaveLength(3);
+    expect(runtime.coverage()).toEqual({ active: 3, covered: 3 });
     await runtime.shutdown();
   });
 });

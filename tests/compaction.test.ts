@@ -328,12 +328,11 @@ type FabricCompactionEvent = SessionBeforeCompactEvent & {
  
 
 const testLcm = {
-  compact: (input: { branchEntries: readonly SessionEntry[]; branch: string | null; tokensBefore: number }) => ({
+  compact: (input: { branchEntries: readonly SessionEntry[]; tokensBefore: number }) => ({
     summary: input.branchEntries.length > 0 ? "deterministic LCM summary" : "emergency LCM summary",
     firstKeptEntryId: input.branchEntries[0]?.id ?? "",
     tokensBefore: input.tokensBefore,
     source: input.branchEntries.length > 0 ? "ready-frontier" as const : "emergency" as const,
-    branch: input.branch,
   }),
 };
 
@@ -373,7 +372,7 @@ describe("OMP compaction hook", () => {
     const event = compactionEvent(buildSession(user("all history"), assistant(textPart("summarize all"))));
     let handler: ((event: SessionBeforeCompactEvent) => unknown) | undefined;
     const omp = { on(name: string, candidate: unknown) { if (name === "session_before_compact") handler = candidate as (event: SessionBeforeCompactEvent) => unknown; } } as unknown as ExtensionAPI;
-    registerCompactionHook(omp, { getEngine: () => "lcm", lcm: { compact: (input) => ({ summary: "all", firstKeptEntryId: "", tokensBefore: input.tokensBefore, source: "emergency", branch: null }) } });
+    registerCompactionHook(omp, { getEngine: () => "lcm", lcm: { compact: (input) => ({ summary: "all", firstKeptEntryId: "", tokensBefore: input.tokensBefore, source: "emergency" }) } });
     expect(await handler!(event)).toMatchObject({ compaction: { summary: "all", firstKeptEntryId: "" } });
   });
 

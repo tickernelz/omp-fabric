@@ -14,7 +14,6 @@ export interface LcmSummaryNode {
   nodeId: string;
   projectKey: string;
   sessionId: string;
-  branch: string | null;
   kind?: "leaf" | "condensed";
   sourceHash: string;
   lineageFingerprint?: string;
@@ -26,13 +25,12 @@ export interface LcmSummaryNode {
 }
 
 export interface LcmSummaryReader {
-  listNodes(input: { sessionId?: string; branch?: string | null; limit: number }): LcmSummaryNode[];
+  listNodes(input: { sessionId?: string; limit: number }): LcmSummaryNode[];
   getNode(nodeId: string): LcmSummaryNode | undefined;
 }
 
 export interface LcmBranchBinding {
   sessionId?: string;
-  branch?: string | null;
   sourceHash?: string;
   lineageFingerprint?: string;
   activeSourceKeys?: readonly string[];
@@ -430,12 +428,9 @@ export class LcmMemoryAdapter {
     predicate: QueryPredicate,
     reasons: Set<string>,
   ): LcmMemoryHit[] {
-    const summaryBranch = branches === "active" && selectedSession !== undefined
-      ? activeBinding(this.options, selectedSession)?.branch
-      : undefined;
     const nodes = selectedSession === undefined
       ? this.options.summaries.listNodes({ limit: this.maxSummary + 1 })
-      : this.options.summaries.listNodes({ sessionId: selectedSession, limit: this.maxSummary + 1, ...(summaryBranch === undefined ? {} : { branch: summaryBranch }) });
+      : this.options.summaries.listNodes({ sessionId: selectedSession, limit: this.maxSummary + 1 });
     if (nodes.length > this.maxSummary) reasons.add("summary_node_limit");
     const hits: Array<{ hit: LcmMemoryHit; createdAt: number; nodeId: string }> = [];
     for (const node of nodes.slice(0, this.maxSummary)) {
@@ -605,7 +600,6 @@ export class LcmMemoryAdapter {
       node: {
         nodeId: node.nodeId,
         sessionId: node.sessionId,
-        branch: node.branch,
         kind: node.kind ?? (node.sources.length > 0 ? "leaf" : "condensed"),
         state: node.state,
         text: node.text,

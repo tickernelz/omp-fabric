@@ -186,7 +186,6 @@ export interface LcmDashboardJob {
 export interface LcmDashboardNode {
   nodeId: string;
   sessionId: string;
-  branch: string | null;
   kind: "leaf" | "condensed";
   depth: number;
   state: string;

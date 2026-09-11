@@ -295,7 +295,6 @@ export class LcmRuntime {
       if (this.closed) return;
       const entries = this.context.sessionManager.getBranch();
       const sessionId = this.context.sessionManager.getSessionId();
-      const branch = this.context.sessionManager.getLeafId();
       const recorded = this.context.sessionManager.getRecordedCwd?.();
       if (this.persistedSessionId !== sessionId) {
         this.persisted = new WeakMap();
@@ -322,7 +321,6 @@ export class LcmRuntime {
               content: message ? JSON.stringify(message.content ?? "") : payloadJson,
               payloadJson,
               parentEntryId: entry.parentId ?? null,
-              branch,
               ...(recorded || this.context.cwd ? { recordedCwd: recorded || this.context.cwd } : {}),
             });
             const key = `${sessionId}:${stored.entryId}:${stored.revision}`;
@@ -418,7 +416,7 @@ export class LcmRuntime {
     try {
       if (!this.maintenance.withinBudget(sessionId)) return undefined;
       if (this.maintenanceOccupancyReached()) return "occupancy";
-      if (this.actionableJobs(sessionId, this.context.sessionManager.getLeafId(), 1).length > 0) return "jobs";
+      if (this.actionableJobs(sessionId, 1).length > 0) return "jobs";
       const { active, covered } = this.coverage();
       return active - covered >= Math.max(1, this.options.maxLeafEntries ?? DEFAULT_LEAF_ENTRIES) ? "backlog" : undefined;
     } catch (error) {
@@ -450,13 +448,12 @@ export class LcmRuntime {
     this.maintenancePending = run.catch((error) => { this.degradedError = error; });
   }
 
-  private actionableJobs(sessionId: string, branch: string | null, limit: number): Array<{ job: LcmJob; node: LcmNode }> {
+  private actionableJobs(sessionId: string, limit: number): Array<{ job: LcmJob; node: LcmNode }> {
     const found: Array<{ job: LcmJob; node: LcmNode }> = [];
     if (limit <= 0) return found;
     for (const job of this.maintenance.claimableJobs(sessionId, CLAIMABLE_JOB_LIMIT)) {
       const node = this.maintenance.getNode(job.nodeId);
       if (!node || node.sessionId !== sessionId) continue;
-      if (branch !== null && node.branch !== branch && node.branch !== null) continue;
       if (!node.sources.every((source) => this.activeSources.has(this.sourceKey(source)))) continue;
       found.push({ job, node });
       if (found.length >= limit) break;
@@ -529,7 +526,7 @@ export class LcmRuntime {
     };
     this.reclaimExpiredLeases();
     for (let pass = 0; pass < passes && !this.closed && Date.now() < runDeadline; pass += 1) {
-      const leafCandidate = this.maintenance.createLeaf(this.maintenance.selectLeaf(raw, this.context.sessionManager.getLeafId()));
+      const leafCandidate = this.maintenance.createLeaf(this.maintenance.selectLeaf(raw, this.activeSources));
       const leaf = leafCandidate ? this.maintenance.getNode(leafCandidate.nodeId) : undefined;
       const batch: Array<{ job: LcmJob; node: LcmNode }> = [];
       const queued = new Set<string>();
@@ -537,10 +534,10 @@ export class LcmRuntime {
         const job = this.maintenance.jobForNode(leaf.nodeId);
         if (job && this.maintenance.isClaimable(job)) { batch.push({ job, node: leaf }); queued.add(job.jobId); }
       }
-      const pending = this.actionableJobs(sessionId, this.context.sessionManager.getLeafId(), passes);
+      const pending = this.actionableJobs(sessionId, passes);
       for (const item of pending) if (!queued.has(item.job.jobId)) { queued.add(item.job.jobId); batch.push(item); }
       await dispatch(batch);
-      const children = this.maintenance.selectCondensation(sessionId, this.activeSources, this.context.sessionManager.getLeafId());
+      const children = this.maintenance.selectCondensation(sessionId, this.activeSources);
       if (children.length >= fanIn) {
         const node = this.maintenance.createCondensed(children);
         if (node) {
@@ -549,7 +546,7 @@ export class LcmRuntime {
         }
       }
       if (!leaf && pending.length === 0 && children.length < fanIn) {
-        const upgrades = this.maintenance.selectUpgrades(sessionId, this.activeSources, this.context.sessionManager.getLeafId(), 1);
+        const upgrades = this.maintenance.selectUpgrades(sessionId, this.activeSources, 1);
         const upgrade = upgrades[0];
         if (!upgrade) break;
         const job = this.maintenance.reopen(upgrade.nodeId);
@@ -581,7 +578,6 @@ export class LcmRuntime {
           content: message ? JSON.stringify(message.content ?? "") : payloadJson,
           payloadJson,
           parentEntryId: entry.parentId ?? null,
-          branch: input.branch,
         });
         persistedEntries.set(`${entry.id}:${stored.payloadHash}`, stored);
       }
@@ -598,7 +594,7 @@ export class LcmRuntime {
       return stored;
     });
     const activeSources = new Set(selectedStored.map((entry) => `${entry.sessionId}:${entry.entryId}:${entry.revision}`));
-    const frontier = this.maintenance.getFrontier(input.sessionId, input.branch, activeSources);
+    const frontier = this.maintenance.getFrontier(input.sessionId, activeSources);
     const coveredSources = new Set(frontier.flatMap((node) => node.sources.map((source) => `${source.sessionId}:${source.entryId}:${source.revision}`)));
     const summary = renderAddressedFrontier(frontier, requestLines);
     const instructionDetails = instructions.ok && (instructions.requestLines.length > 0 || instructions.policy.preserveCount > 0)
@@ -610,7 +606,6 @@ export class LcmRuntime {
         firstKeptEntryId: input.firstKeptEntryId,
         tokensBefore: input.tokensBefore,
         source: "ready-frontier",
-        branch: input.branch,
         ...(instructionDetails ? { details: instructionDetails } : {}),
       };
     }
@@ -622,14 +617,13 @@ export class LcmRuntime {
     if (!leaf) throw new Error("LCM emergency fallback node was not created");
     const persisted = this.maintenance.getNode(leaf.nodeId);
     if (persisted?.state === "ready") {
-      if (persisted.branch !== input.branch || JSON.stringify(persisted.sources) !== JSON.stringify(sources)) throw new Error("LCM emergency fallback provenance mismatch");
+      if (JSON.stringify(persisted.sources) !== JSON.stringify(sources)) throw new Error("LCM emergency fallback provenance mismatch");
       if (!persisted.text) throw new Error("LCM emergency fallback text is missing");
       return {
         summary: persisted.text,
         firstKeptEntryId: input.firstKeptEntryId,
         tokensBefore: input.tokensBefore,
         source: "emergency",
-        branch: input.branch,
         ...(instructionDetails ? { details: instructionDetails } : {}),
       };
     }
@@ -642,7 +636,6 @@ export class LcmRuntime {
         firstKeptEntryId: input.firstKeptEntryId,
         tokensBefore: input.tokensBefore,
         source: "emergency",
-        branch: input.branch,
         ...(instructionDetails ? { details: instructionDetails } : {}),
       };
     } catch (error) {
@@ -652,7 +645,6 @@ export class LcmRuntime {
         firstKeptEntryId: input.firstKeptEntryId,
         tokensBefore: input.tokensBefore,
         source: "emergency",
-        branch: input.branch,
         ...(instructionDetails ? { details: instructionDetails } : {}),
       };
     }
@@ -811,19 +803,18 @@ export class LcmRuntime {
     }
   }
 
-  private frontierCache: { at: number; sessionId: string; branch: string | null; nodes: LcmNode[]; covered: Set<string> } | undefined;
+  private frontierCache: { at: number; sessionId: string; nodes: LcmNode[]; covered: Set<string> } | undefined;
 
   /** One frontier walk shared by preview, coverage, and the coverage map. */
   private frontierSnapshot(): { nodes: LcmNode[]; covered: Set<string> } {
     const sessionId = this.activeSessionId ?? "";
-    const branch = this.context.sessionManager.getLeafId();
     const cached = this.frontierCache;
-    if (cached && cached.sessionId === sessionId && cached.branch === branch && Date.now() - cached.at < 250) {
+    if (cached && cached.sessionId === sessionId && Date.now() - cached.at < 250) {
       return { nodes: cached.nodes, covered: cached.covered };
     }
-    const nodes = sessionId ? this.maintenance.getFrontier(sessionId, branch, this.activeSources) : [];
+    const nodes = sessionId ? this.maintenance.getFrontier(sessionId, this.activeSources) : [];
     const covered = new Set(nodes.flatMap(node => node.sources.map(source => this.sourceKey(source))));
-    this.frontierCache = { at: Date.now(), sessionId, branch, nodes, covered };
+    this.frontierCache = { at: Date.now(), sessionId, nodes, covered };
     return { nodes, covered };
   }
 
@@ -893,20 +884,20 @@ export class LcmRuntime {
       },
       ...(this.activeSessionId === undefined ? {} : { currentSessionId: this.activeSessionId }),
       summaries: {
-        listNodes: ({ sessionId, branch, limit }: { sessionId?: string; branch?: string | null; limit: number }) => this.maintenance.getFrontier(sessionId, branch, sessionId === this.activeSessionId ? this.activeSources : undefined).slice(0, limit).map((node) => ({ ...node, text: node.text ?? "", sources: node.sources.map((source) => ({ entryId: source.entryId, revision: source.revision, contentHash: source.payloadHash })) })),
+        listNodes: ({ sessionId, limit }: { sessionId?: string; limit: number }) => this.maintenance.getFrontier(sessionId, sessionId === this.activeSessionId ? this.activeSources : undefined).slice(0, limit).map((node) => ({ ...node, text: node.text ?? "", sources: node.sources.map((source) => ({ entryId: source.entryId, revision: source.revision, contentHash: source.payloadHash })) })),
         getNode: (nodeId: string) => {
           const node = this.maintenance.getNode(nodeId);
           return node ? { ...node, text: node.text ?? "", sources: node.sources.map((source) => ({ entryId: source.entryId, revision: source.revision, contentHash: source.payloadHash })) } : undefined;
         },
       },
       branchForSession: (sessionId: string) => sessionId === this.activeSessionId
-        ? { branch: this.context.sessionManager.getLeafId(), activeSourceKeys: [...this.activeSources], ready: this.status === "healthy" }
+        ? { activeSourceKeys: [...this.activeSources], ready: this.status === "healthy" }
         : undefined,
     };
   }
 
-  frontier(sessionId?: string, branch?: string | null) {
-    return this.maintenance.getFrontier(sessionId, branch, sessionId === this.activeSessionId ? this.activeSources : undefined);
+  frontier(sessionId?: string) {
+    return this.maintenance.getFrontier(sessionId, sessionId === this.activeSessionId ? this.activeSources : undefined);
   }
 
   raw(sessionId?: string): RawEntry[] { return this.ledger.readRaw(this.projectKey, sessionId); }
