@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.18.3
+
+### Fixed
+
+- A captured tool that re-registers a built-in keeps its delegation seam when called through `fabric_exec`. The capture wrapper mirrors the host's `wrapRegisteredTool`, but built the tool context with a bare `createContext()`; the host passes a second argument naming the tool, and that name is the only thing that makes `ctx.invokeTool` exist. Found through `@tickernelz/omp-telegram`, whose `ask` replaces the built-in and races the TUI dialog against Telegram buttons: through Fabric the TUI arm was skipped and only Telegram answered. Bounded by `hasNativeTool`, so a captured tool that shadows nothing still receives `undefined`, and an explicitly supplied context is still passed through untouched.
+- The packing gate reads `npm pack --json` from npm 12, which reports an object keyed by package name where npm 11 reported an array. The gate had indexed `[0]`, so it compared against no files at all instead of failing.
+
 ## 1.18.2
 
 ### Fixed

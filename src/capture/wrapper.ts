@@ -25,7 +25,7 @@ export interface WrappedRegisteredTool {
   execute: WrappedExecute;
 }
 
-export interface CapturedToolDelegation {
+interface CapturedToolDelegation {
   toolName: string;
   signal?: unknown;
   onUpdate?: (update: any) => void;

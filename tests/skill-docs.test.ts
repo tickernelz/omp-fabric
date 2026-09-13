@@ -7,6 +7,12 @@ import { describe, expect, it } from "vitest";
 import { GUEST_TYPE_DECLARATIONS } from "../src/runtime/guest-types.js";
 import { typeCheckFabricCode } from "../src/runtime/type-checker.js";
 
+interface NpmPackEntry {
+  files: Array<{ path: string }>;
+}
+
+type NpmPackReport = NpmPackEntry[] | Record<string, NpmPackEntry>;
+
 const stableProviderActions = {
   memory: ["recall", "expand", "sessions"],
   state: ["transition", "get", "history", "complexity", "verify", "goal", "checkGoal"],
@@ -190,8 +196,10 @@ describe("fabric-exec skill provider contracts", () => {
         ? ["/d", "/s", "/c", "npm", "pack", "--ignore-scripts", "--dry-run", "--json"]
         : ["pack", "--ignore-scripts", "--dry-run", "--json"],
       { cwd: process.cwd(), encoding: "utf8" },
-    )) as Array<{ files: Array<{ path: string }> }>;
-    const files = new Set(packed[0]!.files.map((entry) => entry.path));
+    )) as NpmPackReport;
+    const reports = Array.isArray(packed) ? packed : Object.values(packed);
+    const files = new Set((reports[0]?.files ?? []).map((entry) => entry.path));
+    expect(files.size, "npm pack reported no packed files").toBeGreaterThan(0);
     expect(files).toContain("docs/skills.md");
     expect(files).toContain("skills/fabric-ambient/references/setup.md");
     for (const entry of fs.readdirSync("skills", { withFileTypes: true })) {
