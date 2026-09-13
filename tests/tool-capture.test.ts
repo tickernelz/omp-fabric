@@ -5,6 +5,7 @@ import type { ExtensionRunner, RegisteredTool } from "@oh-my-pi/pi-coding-agent"
 import { Type } from "@oh-my-pi/omptype/typebox";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { CapturedToolCatalog } from "../src/capture/catalog.js";
+import { wrapRegisteredToolForCapture } from "../src/capture/wrapper.js";
 import {
   bundleExtensionRunnerConstructors,
   installRegisteredToolCapture,
@@ -274,3 +275,72 @@ describe("registered extension tool capture", () => {
     }
   });
 });
+
+describe("captured tool host delegation seam", () => {
+  const recordingTool = (name: string) => {
+    const seen: unknown[] = [];
+    return {
+      seen,
+      definition: {
+        name,
+        label: name,
+        description: `${name} description`,
+        parameters: Type.Object({ value: Type.Optional(Type.String()) }),
+        execute: async (_id: string, _params: unknown, _signal: unknown, _onUpdate: unknown, ctx: unknown) => {
+          seen.push(ctx);
+          return { content: [{ type: "text" as const, text: name }], details: {} };
+        },
+      } as unknown as ReturnType<typeof tool>,
+    };
+  };
+
+  const delegatingRunner = (natives: string[]) => {
+    const createContext = vi.fn((_model?: unknown, delegation?: { toolName: string }) => ({
+      invokeTool:
+        delegation !== undefined && natives.includes(delegation.toolName)
+          ? () => Promise.resolve({ content: [], details: {} })
+          : undefined,
+    }));
+    const runner = { createContext, getActiveTools: () => [] };
+    return { createContext, runner: runner as unknown as ExtensionRunner };
+  };
+
+  it("names the tool so a builtin it shadows stays reachable", async () => {
+    const { seen, definition } = recordingTool("read");
+    const { createContext, runner } = delegatingRunner(["read"]);
+    const wrapped = wrapRegisteredToolForCapture(registered(definition, "/ext"), runner);
+    const signal = new AbortController().signal;
+    const onUpdate = () => {};
+
+    await wrapped.execute("call-1", {}, signal, onUpdate);
+
+    expect(createContext).toHaveBeenCalledWith(
+      undefined,
+      expect.objectContaining({ toolName: "read", signal, onUpdate }),
+    );
+    expect(typeof (seen[0] as { invokeTool?: unknown }).invokeTool).toBe("function");
+  });
+
+  it("leaves a tool that shadows nothing without a delegation seam", async () => {
+    const { seen, definition } = recordingTool("deploy_release");
+    const { runner } = delegatingRunner(["read"]);
+    const wrapped = wrapRegisteredToolForCapture(registered(definition, "/ext"), runner);
+
+    await wrapped.execute("call-2", {}, new AbortController().signal, () => {});
+
+    expect((seen[0] as { invokeTool?: unknown }).invokeTool).toBeUndefined();
+  });
+
+  it("keeps an explicitly supplied context untouched", async () => {
+    const { seen, definition } = recordingTool("read");
+    const { createContext, runner } = delegatingRunner(["read"]);
+    const wrapped = wrapRegisteredToolForCapture(registered(definition, "/ext"), runner);
+    const caller = { marker: "caller-owned" };
+
+    await wrapped.execute("call-3", {}, new AbortController().signal, () => {}, caller);
+
+    expect(createContext).not.toHaveBeenCalled();
+    expect(seen[0]).toBe(caller);
+  });
+});
+

@@ -25,9 +25,15 @@ export interface WrappedRegisteredTool {
   execute: WrappedExecute;
 }
 
+export interface CapturedToolDelegation {
+  toolName: string;
+  signal?: unknown;
+  onUpdate?: (update: any) => void;
+}
+
 const wrapToolDefinition = (
   definition: ToolDefinition<any, any>,
-  ctxFactory: () => unknown,
+  ctxFactory: (delegation: CapturedToolDelegation) => unknown,
 ): WrappedRegisteredTool => {
   const execute = definition.execute as unknown as WrappedExecute;
   return {
@@ -39,7 +45,13 @@ const wrapToolDefinition = (
     prepareArguments: undefined,
     executionMode: undefined,
     execute: (toolCallId, params, signal, onUpdate, ctx) =>
-      execute(toolCallId, params, signal, onUpdate, ctx ?? ctxFactory()),
+      execute(
+        toolCallId,
+        params,
+        signal,
+        onUpdate,
+        ctx ?? ctxFactory({ toolName: definition.name, signal, onUpdate }),
+      ),
   };
 };
 
@@ -49,7 +61,7 @@ export const wrapRegisteredToolForCapture = (
 ): WrappedRegisteredTool => {
   const tool = wrapToolDefinition(
     registeredTool.definition as ToolDefinition<any, any>,
-    () => runner.createContext(),
+    (delegation) => runner.createContext(undefined, delegation as never),
   );
   const execute = tool.execute;
   return {
