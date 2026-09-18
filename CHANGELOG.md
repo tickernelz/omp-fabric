@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.18.4
+
+### Fixed
+
+- Full code mode names the file-editing path. It hides OMP's native `edit` and `write` from the model by default — `effectiveToolCaptureConfig` strips every core name but `fabric_exec` from `keepVisible` — while the guidance mentioned `omp.edit`/`omp.write` only as return-shape examples, so a model that had lost its edit tool reached for `omp.bash` and tried to reshape TypeScript through `sed`, a heredoc and `node -e` across three consecutive turns before reverting its own work with `git checkout`. The clause states a preference rather than a prohibition, so shell-driven formatters and codemods stay allowed, which is what `prewalk.detectShellWrites` exists to catch; and it rides `fabricExecutionKernelGuidance` rather than the replaceable execution slot, so a custom execution profile registered with `placement: "replace"` cannot delete it. An `omp.write` / `omp.read` round-trip of a payload carrying backticks, `${}`, a backslash, an escaped quote, `\u00e9` and an emoji returns byte-identical at 223 of 223 characters, so the edit path itself was never the defect.
+- The advisor no longer prescribes tools it has not seen. Its prompt receives the parent event and recent transcript but never the host's tool surface, and on the escaping failure above it emitted a blocker telling the main agent to use "the session's native `write` or `edit` tool directly on the file path" — advice full code mode makes impossible to follow. Both advisor prompts now require transcript evidence that a tool is callable before naming it, and state that the main agent's file tools are `omp.edit`/`omp.write` under full code mode. The copy in `fabric-ambient` is corrected alongside `fabric-advisor`, since both create the same `advisor` actor through the same setup program.
+
 ## 1.18.3
 
 ### Fixed

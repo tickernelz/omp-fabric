@@ -10,6 +10,9 @@ export const fabricExecutionKernelGuidance = (fullCodeMode: boolean): string =>
     // use; this line rides the turn-stable kernel guidance so provider prefix
     // caches stay warm.
     `Read every file the user provides (images, screenshots, code, text) with the ${fullCodeMode ? "`omp.read`" : "`read`"} tool before responding — never assume its contents.`,
+    ...(fullCodeMode
+      ? ["Prefer `omp.edit`/`omp.write` for source edits over hand-assembled shell or Node string literals, where nested escaping breaks; running a formatter or codemod through `omp.bash` is a different case."]
+      : []),
   ].join(" ");
 
 export const defaultFabricExecutionGuidance = (fullCodeMode: boolean): string =>
