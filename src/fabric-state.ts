@@ -50,6 +50,7 @@ export interface FabricStateOptions {
   runtimeLoader?: () => Promise<typeof import("./fabric-runtime-state.js")>;
   lcmContext?: FabricRuntimeStateOptions["lcmContext"];
   lcmRuntime?: FabricRuntimeStateOptions["lcmRuntime"];
+  hostActiveTools?: FabricRuntimeStateOptions["hostActiveTools"];
 }
 
 type ActivationHook = (context: ExtensionContext) => void | Promise<void>;
@@ -453,6 +454,7 @@ export class FabricState {
         ...(this.#options.paths ? { paths: this.#options.paths } : {}),
         ...(this.#options.lcmContext ? { lcmContext: this.#options.lcmContext } : {}),
         ...(this.#options.lcmRuntime ? { lcmRuntime: this.#options.lcmRuntime } : {}),
+        ...(this.#options.hostActiveTools ? { hostActiveTools: this.#options.hostActiveTools } : {}),
       },
     );
   }

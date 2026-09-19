@@ -1,7 +1,10 @@
 import { existsSync, readFileSync } from "node:fs";
 import * as path from "node:path";
 
-export const fabricExecutionKernelGuidance = (fullCodeMode: boolean): string =>
+export const fabricExecutionKernelGuidance = (
+  fullCodeMode: boolean,
+  deniedCoreTools: readonly string[] = [],
+): string =>
   [
     fullCodeMode
       ? "OMP Fabric full code mode: `fabric_exec` is the only way to call OMP core tools — use them as `omp.*` inside `code`."
@@ -10,8 +13,11 @@ export const fabricExecutionKernelGuidance = (fullCodeMode: boolean): string =>
     // use; this line rides the turn-stable kernel guidance so provider prefix
     // caches stay warm.
     `Read every file the user provides (images, screenshots, code, text) with the ${fullCodeMode ? "`omp.read`" : "`read`"} tool before responding — never assume its contents.`,
-    ...(fullCodeMode
+    ...(fullCodeMode && !deniedCoreTools.includes("edit") && !deniedCoreTools.includes("write")
       ? ["Prefer `omp.edit`/`omp.write` for source edits over hand-assembled shell or Node string literals, where nested escaping breaks; running a formatter or codemod through `omp.bash` is a different case."]
+      : []),
+    ...(fullCodeMode && deniedCoreTools.length > 0
+      ? [`OMP has these core tools turned off, so ${deniedCoreTools.map((name) => `\`omp.${name}\``).join(", ")} ${deniedCoreTools.length === 1 ? "is" : "are"} unavailable and calling ${deniedCoreTools.length === 1 ? "it" : "them"} fails.`]
       : []),
   ].join(" ");
 

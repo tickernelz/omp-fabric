@@ -18,3 +18,14 @@ export const isOmpShellToolName = (name: string): name is OmpShellToolName => na
 export const isOmpShellRef = (ref: string): boolean => ref === "omp.bash";
 
 export const OMP_CORE_TOOL_NAME_SET: ReadonlySet<string> = new Set(OMP_CORE_TOOL_NAMES);
+
+/** An empty host selection reads as unknown, so it denies nothing. */
+export const ompCoreToolDenied = (
+  name: string,
+  hostActiveTools: ReadonlySet<string> | undefined,
+): boolean => Boolean(hostActiveTools?.size) && !hostActiveTools!.has(name);
+
+export const deniedOmpCoreTools = (
+  hostActiveTools: ReadonlySet<string> | undefined,
+): readonly OmpCoreToolName[] =>
+  OMP_CORE_TOOL_NAMES.filter((name) => ompCoreToolDenied(name, hostActiveTools));

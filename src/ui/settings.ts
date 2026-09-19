@@ -1108,8 +1108,8 @@ export const buildFabricSettingsItems = (
     apply(id, coerceValue(id, newValue, config));
   const envFullCode = process.env.OMP_FABRIC_FULL_CODE_MODE;
   const fullCodeDescription = envFullCode
-    ? "Fabric owns OMP core tools (read, bash, edit, write, grep, find, ls) via fabric_exec. Currently overridden by the OMP_FABRIC_FULL_CODE_MODE environment variable."
-    : "Fabric owns OMP core tools (read, bash, edit, write, grep, find, ls) via fabric_exec. Disable to keep native tools model-facing (orchestration-only mode).";
+    ? "Fabric owns OMP core tools (read, bash, edit, write, grep, find, ls) via fabric_exec; only tools active in OMP stay reachable. Currently overridden by the OMP_FABRIC_FULL_CODE_MODE environment variable."
+    : "Fabric owns OMP core tools (read, bash, edit, write, grep, find, ls) via fabric_exec; only tools active in OMP stay reachable. Disable to keep native tools model-facing (orchestration-only mode).";
   const executorMemoryDescription = (): string =>
     config.executor.runtime === "quickjs"
       ? "Maximum QuickJS heap size. WASM32 limits this to less than 4 GiB."

@@ -60,7 +60,7 @@ import {
   expandSkillDirMarkersInSkillBlock,
 } from "./core/skill-dir.js";
 import { coreOverridePromptGuidance } from "./core/core-override-guidance.js";
-import { OMP_CORE_TOOL_NAMES } from "./core/omp-tools.js";
+import { deniedOmpCoreTools, OMP_CORE_TOOL_NAMES } from "./core/omp-tools.js";
 import {
   fabricExecutionKernelGuidance,
   defaultFabricExecutionGuidance,
@@ -182,6 +182,7 @@ export default async function ompFabric(omp: ExtensionAPI): Promise<void> {
     paths: FABRIC_RUNTIME_PATHS,
     lcmContext: () => lcmRuntime?.memoryContext(),
     lcmRuntime: () => lcmRuntime,
+    hostActiveTools: () => toolOwnership.hostActiveTools(),
   });
   const directToolApproval = new FabricDirectToolApproval(
     omp,
@@ -848,7 +849,10 @@ export default async function ompFabric(omp: ExtensionAPI): Promise<void> {
     // from the current prompt (skill references) rides
     // the message channel so provider prefix caches never cold-prefill.
     const guidance = [
-      fabricExecutionKernelGuidance(effectiveFullCodeMode),
+      fabricExecutionKernelGuidance(
+        effectiveFullCodeMode,
+        effectiveFullCodeMode ? deniedOmpCoreTools(toolOwnership.hostActiveTools()) : [],
+      ),
       resolvedGuidance.slotText,
       fabricSchemaGuidance(schemaMode),
       overrideGuidance,

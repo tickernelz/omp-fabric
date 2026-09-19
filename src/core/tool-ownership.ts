@@ -142,6 +142,7 @@ export class FabricToolOwnership {
   // happens here, in the active set. Removed names are remembered so leaving
   // full code mode (or adding a name to `capture.keepVisible`) re-exposes them.
   #savedHiddenExtensionTools = new Map<string, number>();
+  readonly #hiddenCoreTools = new Set<string>();
 
   constructor(readonly host: FabricToolOwnershipHost) {}
 
@@ -168,6 +169,9 @@ export class FabricToolOwnership {
       this.#savedNativeCoreTools ??= active.flatMap((name, index) =>
         OMP_CORE_TOOL_NAME_SET.has(name) ? [{ name, index }] : [],
       );
+      for (const name of active) {
+        if (OMP_CORE_TOOL_NAME_SET.has(name)) this.#hiddenCoreTools.add(name);
+      }
     }
     const next: string[] = [];
     for (const [index, name] of active.entries()) {
@@ -194,12 +198,21 @@ export class FabricToolOwnership {
     return this.#restore(this.host.getActiveTools());
   }
 
+  /** Host tool authority: the active set with fabric's own hiding undone. */
+  hostActiveTools(): ReadonlySet<string> {
+    const names = new Set(this.host.getActiveTools());
+    for (const name of this.#hiddenCoreTools) names.add(name);
+    for (const name of this.#savedHiddenExtensionTools.keys()) names.add(name);
+    return names;
+  }
+
   #restore(active: string[]): boolean {
     const saved = this.#savedNativeCoreTools;
     const savedHidden = this.#savedHiddenExtensionTools;
     if (!saved && savedHidden.size === 0) return false;
     this.#savedNativeCoreTools = undefined;
     this.#savedHiddenExtensionTools = new Map();
+    this.#hiddenCoreTools.clear();
     const next = [...active];
     for (const { name, index } of saved ?? []) {
       if (!next.includes(name)) next.splice(Math.min(index, next.length), 0, name);

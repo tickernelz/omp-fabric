@@ -125,6 +125,42 @@ describe("FabricToolOwnership", () => {
 
     expect(ownership.release()).toBe(false);
   });
+
+  it("reports the host tool authority with its own hiding undone", () => {
+    const state = hostWith(["read", "bash", "ask_user_question", "fabric_exec"]);
+    const ownership = new FabricToolOwnership(state.host);
+
+    expect([...ownership.hostActiveTools()].sort())
+      .toEqual(["ask_user_question", "bash", "fabric_exec", "read"]);
+
+    ownership.apply(true, new Set(["ask_user_question"]));
+    expect(state.active()).toEqual(["fabric_exec"]);
+    expect([...ownership.hostActiveTools()].sort())
+      .toEqual(["ask_user_question", "bash", "fabric_exec", "read"]);
+  });
+
+  it("keeps a core tool the host enables mid-session in the authority", () => {
+    const state = hostWith(["read", "fabric_exec"]);
+    const ownership = new FabricToolOwnership(state.host);
+
+    ownership.apply(true);
+    state.host.setActiveTools(["bash", ...state.active()]);
+    ownership.apply(true);
+
+    expect(state.active()).toEqual(["fabric_exec"]);
+    expect([...ownership.hostActiveTools()].sort()).toEqual(["bash", "fabric_exec", "read"]);
+  });
+
+  it("drops released tools from the authority", () => {
+    const state = hostWith(["read", "bash", "fabric_exec"]);
+    const ownership = new FabricToolOwnership(state.host);
+
+    ownership.apply(true);
+    ownership.release();
+    state.host.setActiveTools(["read", "fabric_exec"]);
+
+    expect([...ownership.hostActiveTools()].sort()).toEqual(["fabric_exec", "read"]);
+  });
 });
 
 describe("createToolOwnershipReassertion", () => {

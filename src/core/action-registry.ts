@@ -1518,6 +1518,8 @@ export class ActionRegistry {
         suggestions: [],
       };
     }
+    const denial = provider.denialMessage?.(actionName);
+    if (denial) throw new FabricResolutionError(denial);
     if (!allowRepair) return { suggestions: [] };
     const declared = (await this.#declaredActionNames(provider, context)).filter(
       (name) => !activeQuarantinedRefNames().has(`${provider.name}.${name}`),

@@ -118,7 +118,11 @@ import {
 import { McpProvider, type McpProviderHooks } from "./providers/mcp-provider.js";
 import { MemoryProvider, type MemoryProviderContext } from "./providers/memory-provider.js";
 import { MeshProvider } from "./providers/mesh-provider.js";
-import { OmpToolsProvider, setOmpSessionIdentity } from "./providers/omp-tools-provider.js";
+import {
+  OmpToolsProvider,
+  setOmpSessionIdentity,
+  type FabricHostToolAuthority,
+} from "./providers/omp-tools-provider.js";
 import { SchemaProvider } from "./providers/schema-provider.js";
 import { StateProvider } from "./providers/state-provider.js";
 import { SchemaController } from "./schema/controller.js";
@@ -204,6 +208,7 @@ export interface FabricRuntimeStateOptions {
   paths?: FabricRuntimePaths;
   lcmContext?: () => MemoryProviderContext["lcm"];
   lcmRuntime?: () => LcmStatusSource | undefined;
+  hostActiveTools?: FabricHostToolAuthority;
 }
 
 export class FabricRuntimeState {
@@ -243,6 +248,7 @@ export class FabricRuntimeState {
   readonly sessionApprovals: FabricSessionApprovals;
   readonly #lcmContext: FabricRuntimeStateOptions["lcmContext"];
   readonly #lcmRuntime: FabricRuntimeStateOptions["lcmRuntime"];
+  readonly #hostActiveTools: FabricRuntimeStateOptions["hostActiveTools"];
   readonly #paths: FabricRuntimePaths | undefined;
   #widgetDismissedAt = 0;
   #suppressResidentGuidanceSync = false;
@@ -258,6 +264,7 @@ export class FabricRuntimeState {
     this.sessionApprovals = options.sessionApprovals ?? new FabricSessionApprovals();
     this.#lcmContext = options.lcmContext;
     this.#lcmRuntime = options.lcmRuntime;
+    this.#hostActiveTools = options.hostActiveTools;
     this.#paths = options.paths;
   }
 
@@ -566,6 +573,7 @@ export class FabricRuntimeState {
           context.cwd,
           this.capturedTools,
           capturedToolsProvider,
+          this.#hostActiveTools,
         ),
       }));
     }

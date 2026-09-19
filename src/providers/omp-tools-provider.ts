@@ -23,7 +23,9 @@ import { runAbortable, throwIfAborted } from "../async-settlement.js";
 import { CapturedToolCatalog } from "../capture/catalog.js";
 import {
   isOmpShellToolName,
+  ompCoreToolDenied,
   OMP_CORE_TOOL_NAMES,
+  OMP_CORE_TOOL_NAME_SET,
   type OmpCoreToolName,
 } from "../core/omp-tools.js";
 import { classifyOmpBashError, ompBashExitError, ompBashResultError, stripOmpBashTiming } from "../core/omp-bash-error.js";
@@ -776,17 +778,22 @@ interface OmpToolResult {
   terminate?: boolean;
 }
 
+/** Live view of the tools OMP itself has active, or undefined when unknown. */
+export type FabricHostToolAuthority = () => ReadonlySet<string> | undefined;
+
 export class OmpToolsProvider implements FabricProvider {
   static async create(
     cwd: string,
     catalog?: CapturedToolCatalog,
     capturedTools?: CapturedToolsProvider,
+    hostActiveTools?: FabricHostToolAuthority,
   ): Promise<OmpToolsProvider> {
-    return new OmpToolsProvider(cwd, catalog, capturedTools);
+    return new OmpToolsProvider(cwd, catalog, capturedTools, hostActiveTools);
   }
   readonly name = "omp";
   readonly description = "OMP's built-in coding tools";
   readonly #allowedTools = readChildToolAllowlist();
+  readonly #hostActiveTools: FabricHostToolAuthority | undefined;
   readonly #tools: Partial<Record<OmpCoreToolName, ToolDefinition<any, any>>>;
   readonly #catalog: CapturedToolCatalog | undefined;
   readonly #capturedTools: CapturedToolsProvider | undefined;
@@ -798,7 +805,9 @@ export class OmpToolsProvider implements FabricProvider {
     cwd: string,
     catalog?: CapturedToolCatalog,
     capturedTools?: CapturedToolsProvider,
+    hostActiveTools?: FabricHostToolAuthority,
   ) {
+    this.#hostActiveTools = hostActiveTools;
     this.#cwd = cwd;
     this.#tools = {
       read: createNativeReadToolDefinition(cwd),
@@ -833,7 +842,7 @@ export class OmpToolsProvider implements FabricProvider {
     _context: FabricInvocationContext,
   ): Promise<FabricActionDescriptor | undefined> {
     const name = actionName as OmpCoreToolName;
-    if (this.#allowedTools && !this.#allowedTools.has(name)) return undefined;
+    if (this.denialMessage(name)) return undefined;
     const tool = this.#tools[name];
     if (!tool) return undefined;
     const override = await this.#capturedTools?.describe(name, _context);
@@ -864,9 +873,21 @@ export class OmpToolsProvider implements FabricProvider {
   }
 
   #assertAllowed(name: string): void {
-    if (this.#allowedTools && !this.#allowedTools.has(name)) {
-      throw new Error(`OMP tool ${name} is not permitted by this child's tool allowlist`);
-    }
+    const message = this.denialMessage(name);
+    if (message) throw new Error(message);
+  }
+
+  denialMessage(actionName: string): string | undefined {
+    const source = this.#denialSource(actionName);
+    return source ? `OMP tool ${actionName} is not permitted by ${source}` : undefined;
+  }
+
+  #denialSource(name: string): string | undefined {
+    if (!OMP_CORE_TOOL_NAME_SET.has(name)) return undefined;
+    if (this.#allowedTools && !this.#allowedTools.has(name)) return "this child's tool allowlist";
+    return ompCoreToolDenied(name, this.#hostActiveTools?.())
+      ? "OMP's active tool selection"
+      : undefined;
   }
 
   // Keep a cwd-bound definition for hosts without argument preparation, while newer hosts receive the

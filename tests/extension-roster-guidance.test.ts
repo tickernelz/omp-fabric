@@ -2,11 +2,28 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { extensionToolRosterGuidance } from "../src/core/system-guidance.js";
+import {
+  extensionToolRosterGuidance,
+  fabricExecutionKernelGuidance,
+} from "../src/core/system-guidance.js";
 
 const entry = (name: string, sourceInfo?: { source?: string; path?: string }) => ({
   name,
   ...(sourceInfo === undefined ? {} : { sourceInfo }),
+});
+
+describe("fabricExecutionKernelGuidance", () => {
+  it("names the core tools OMP has turned off and stops recommending them", () => {
+    const guidance = fabricExecutionKernelGuidance(true, ["edit", "write"]);
+    expect(guidance).toContain("`omp.edit`, `omp.write` are unavailable");
+    expect(guidance).not.toContain("Prefer `omp.edit`");
+  });
+
+  it("keeps the edit preference when nothing is denied", () => {
+    const guidance = fabricExecutionKernelGuidance(true);
+    expect(guidance).toContain("Prefer `omp.edit`/`omp.write`");
+    expect(guidance).not.toContain("turned off");
+  });
 });
 
 describe("extensionToolRosterGuidance", () => {

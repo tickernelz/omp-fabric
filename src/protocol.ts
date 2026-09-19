@@ -355,6 +355,8 @@ export interface FabricProvider {
     context: FabricInvocationContext,
   ): Promise<FabricActionDescriptor[]>;
   listCoverage?(): FabricProviderListCoverage;
+  /** Why an action the provider knows is refused; undefined when it is permitted or unknown. */
+  denialMessage?(actionName: string): string | undefined;
   describe(
     actionName: string,
     context: FabricInvocationContext,
