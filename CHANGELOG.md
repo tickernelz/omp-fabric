@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.19.0
+
+### Changed
+
+- `omp.*` no longer reaches a core tool OMP itself has turned off. Discovery omits the denied names, and a call rejects with `OMP tool bash is not permitted by OMP's active tool selection`; a child worker's inherited `OMP_FABRIC_TOOL_ALLOWLIST` keeps its own message and the two intersect. A denied name is refused before the registry's name repair runs, because a hidden action otherwise looks like a typo: with `grep` denied, `omp.grep({ pattern, path })` repaired into `omp.find` through the shared synonym class and searched for filenames, which validates and answers the wrong question. Providers declare this through the optional `denialMessage(actionName)` hook. The authority is the host's active set with Fabric's own hiding undone, because full code mode removes the native core tools before the runtime activates: reading `getActiveTools()` at that moment returns `["fabric_exec", "task"]`, measured by driving the extension entry, which would have denied all seven core calls in the only mode where the adapter is installed. It is read per call rather than snapshotted, so toggling a tool takes effect without rebuilding the runtime, and an empty host set reads as unknown and denies nothing.
+- The kernel guidance names the denied core tools for the session and stops recommending `omp.edit`/`omp.write` when the host has turned them off, so the model is not steered toward a call that can only fail. The guest type declaration is unchanged: property-existence diagnostics (TS2339) are deliberately dropped by the guest checker, so narrowing the declared surface would have been decoration rather than a gate.
+
 ## 1.18.4
 
 ### Fixed
