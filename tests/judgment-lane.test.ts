@@ -1,5 +1,6 @@
 import type { Answer, Judge, JudgmentRequest, JudgmentResult, Questions } from "@oh-my-pi/pi-ai";
 import { tokenUsage } from "@oh-my-pi/pi-ai";
+import { getEventListeners } from "node:events";
 import { describe, expect, it } from "vitest";
 import { DEFAULT_FABRIC_CONFIG, type FabricJudgmentConfig } from "../src/config.js";
 import { FabricJudgmentLane } from "../src/judgment/lane.js";
@@ -55,6 +56,33 @@ const recordingJudge = (behaviour?: { fail?: Error; hang?: boolean; omit?: strin
         answers: answers as JudgmentResult<Q>["answers"],
         usage: tokenUsage(10, 5),
       };
+    },
+  };
+};
+
+
+const concurrencyJudge = (): { judge: Judge; peak: () => number } => {
+  let live = 0;
+  let peak = 0;
+  return {
+    peak: () => peak,
+    judge: {
+      label: "test/slow",
+      async judge<Q extends Questions>(request: JudgmentRequest<Q>): Promise<JudgmentResult<Q>> {
+        live++;
+        peak = Math.max(peak, live);
+        await new Promise((settle) => setTimeout(settle, 10));
+        live--;
+        const answers: Record<string, Answer> = {};
+        for (const id in request.questions) answers[id] = { type: "noul", noul: 0.5 };
+        return {
+          api: "test",
+          provider: "test",
+          model: "fake-1",
+          answers: answers as JudgmentResult<Q>["answers"],
+          usage: tokenUsage(1, 1),
+        };
+      },
     },
   };
 };
@@ -131,9 +159,9 @@ describe("FabricJudgmentLane", () => {
     expect(lane.stats().refusals).toBe(1);
   });
 
-  it("flushes early instead of exceeding the per-request question cap", async () => {
+  it("flushes a pending batch early rather than letting it cross the question cap", async () => {
     const judge = recordingJudge();
-    const lane = new FabricJudgmentLane(config({ maxQuestionsPerRequest: 2 }), async () => judge);
+    const lane = new FabricJudgmentLane(config({ maxQuestionsPerRequest: 3 }), async () => judge);
     const state = "shared";
 
     const [first, second] = await Promise.all([
@@ -141,12 +169,155 @@ describe("FabricJudgmentLane", () => {
         a: { type: "noul", instructions: "a?" },
         b: { type: "noul", instructions: "b?" },
       }),
-      lane.ask(state, { c: { type: "noul", instructions: "c?" } }),
+      lane.ask(state, {
+        c: { type: "noul", instructions: "c?" },
+        d: { type: "noul", instructions: "d?" },
+      }),
     ]);
 
-    expect(judge.requests).toHaveLength(2);
+    expect(judge.requests.map((request) => Object.keys(request.questions).length)).toEqual([2, 2]);
     expect(first.ok).toBe(true);
     expect(second.ok).toBe(true);
+  });
+
+  it("shares one resolution across concurrent batches", async () => {
+    const judge = recordingJudge();
+    let resolverCalls = 0;
+    const lane = new FabricJudgmentLane(config(), async () => {
+      resolverCalls++;
+      await new Promise((settle) => setTimeout(settle, 5));
+      return judge;
+    });
+
+    await Promise.all([
+      lane.ask("first", { a: { type: "noul", instructions: "a?" } }),
+      lane.ask("second", { b: { type: "noul", instructions: "b?" } }),
+    ]);
+
+    expect(resolverCalls).toBe(1);
+  });
+
+  it("retries a failed resolution instead of stranding the session", async () => {
+    const judge = recordingJudge();
+    let attempt = 0;
+    const lane = new FabricJudgmentLane(config(), async () => {
+      attempt++;
+      if (attempt === 1) throw new Error("registry not ready");
+      return judge;
+    });
+
+    const first = await lane.ask("state", { a: { type: "noul", instructions: "a?" } });
+    const second = await lane.ask("state", { a: { type: "noul", instructions: "a?" } });
+
+    expect(first).toEqual({ ok: false, reason: "unsupported", detail: "registry not ready" });
+    expect(second.ok).toBe(true);
+  });
+
+  it("bounds the backend requests it keeps in flight", async () => {
+    const backend = concurrencyJudge();
+    const lane = new FabricJudgmentLane(config({ maxConcurrent: 2 }), async () => backend.judge);
+
+    const outcomes = await Promise.all(
+      ["a", "b", "c", "d", "e"].map((state) =>
+        lane.ask(state, { q: { type: "noul", instructions: "yes?" } }),
+      ),
+    );
+
+    expect(outcomes.every((outcome) => outcome.ok)).toBe(true);
+    expect(backend.peak()).toBe(2);
+  });
+
+  it("holds the slot for a batch chained off an answer", async () => {
+    const backend = concurrencyJudge();
+    const lane = new FabricJudgmentLane(
+      config({ maxConcurrent: 1, maxQuestionsPerRequest: 1 }),
+      async () => backend.judge,
+    );
+    const question = { q: { type: "noul", instructions: "yes?" } } as const;
+
+    const chained = lane.ask("a", question).then(() => lane.ask("c", question));
+    const parallel = lane.ask("b", question);
+    await Promise.all([chained, parallel]);
+
+    expect(backend.peak()).toBe(1);
+  });
+
+  it("does not pay for a queued batch whose callers all left", async () => {
+    const backend = concurrencyJudge();
+    const lane = new FabricJudgmentLane(
+      config({ maxConcurrent: 1, coalesceMs: 1 }),
+      async () => backend.judge,
+    );
+    const controller = new AbortController();
+    const question = { q: { type: "noul", instructions: "yes?" } } as const;
+
+    const held = lane.ask("holds-the-slot", question);
+    await new Promise((settle) => setTimeout(settle, 5));
+    const queued = lane.ask("queued", question, { signal: controller.signal });
+    await new Promise((settle) => setTimeout(settle, 3));
+    controller.abort();
+
+    expect(await queued).toEqual({ ok: false, reason: "aborted" });
+    expect((await held).ok).toBe(true);
+    await new Promise((settle) => setTimeout(settle, 20));
+    expect(lane.stats().requests).toBe(1);
+  });
+
+  it("refuses a state it cannot serialize", async () => {
+    const judge = recordingJudge();
+    const lane = new FabricJudgmentLane(config(), async () => judge);
+    const cyclic: Record<string, unknown> = { name: "loop" };
+    cyclic.self = cyclic;
+
+    const outcome = await lane.ask(cyclic as never, { a: { type: "noul", instructions: "a?" } });
+
+    expect(outcome).toEqual({ ok: false, reason: "refused", detail: "state is not JSON-encodable" });
+    expect(judge.requests).toHaveLength(0);
+  });
+
+  it("settles callers when the backend ignores the deadline", async () => {
+    const judge: Judge = {
+      label: "test/hung",
+      judge: () => new Promise(() => {}),
+    };
+    const lane = new FabricJudgmentLane(config({ timeoutMs: 20 }), async () => judge);
+
+    const outcome = await lane.ask("state", { a: { type: "noul", instructions: "yes?" } });
+
+    expect(outcome.ok === false && outcome.reason).toBe("timeout");
+  });
+
+  it("blames the deadline when the backend rejects from its own abort listener", async () => {
+    const judge: Judge = {
+      label: "test/abort-rejects",
+      judge: (_request, options) =>
+        new Promise((_settle, fail) => {
+          options?.signal?.addEventListener("abort", () => fail(new Error("AbortError: request aborted")), {
+            once: true,
+          });
+        }),
+    };
+    const lane = new FabricJudgmentLane(config({ timeoutMs: 20 }), async () => judge);
+
+    const outcome = await lane.ask("state", { a: { type: "noul", instructions: "yes?" } });
+
+    expect(outcome).toEqual({ ok: false, reason: "timeout", detail: "no answer within 20ms" });
+    expect(lane.stats().timeouts).toBe(1);
+    expect(lane.stats().failures).toBe(0);
+  });
+
+  it("leaves no abort listener behind on a settled ask", async () => {
+    const judge = recordingJudge();
+    const lane = new FabricJudgmentLane(config(), async () => judge);
+    const controller = new AbortController();
+
+    for (let index = 0; index < 5; index++) {
+      await lane.ask(`state-${index}`, { a: { type: "noul", instructions: "a?" } }, {
+        signal: controller.signal,
+      });
+    }
+
+    expect(getEventListeners(controller.signal, "abort")).toHaveLength(0);
   });
 
   it("refuses a single call that exceeds the question cap", async () => {

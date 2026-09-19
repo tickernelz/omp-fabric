@@ -2703,6 +2703,16 @@ export const buildFabricSettingsItems = (
               "Deadline for one backend request; a slower answer is discarded.",
             ),
           }),
+          setting("judgment.maxConcurrent", "Max concurrent", String(config.judgment.maxConcurrent), {
+            description: "Backend requests in flight at once; a further batch waits for a slot.",
+            submenu: numericSubmenu(
+              theme,
+              [1, 2, 4, 8, 16, 32, 64],
+              String,
+              "Max concurrent",
+              "Backend requests in flight at once; a further batch waits for a slot.",
+            ),
+          }),
           setting(
             "judgment.maxQuestionsPerRequest",
             "Max questions",

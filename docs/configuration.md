@@ -519,6 +519,17 @@ Mesh topics, shared state, and the participant directory remain project-scoped. 
 - `memory.regexMaxHaystackBytes` (default 2 MiB) caps the bytes one regex search scans.
 - `memory.regexTimeoutMs` (10-10000, default 250) bounds one regex search.
 
+## Judgment
+
+`judgment` configures the typed judgments behind `judgment.ask`, documented in [Judgment](judgment.md). Edit it under `/fabric settings` → **Judgment**. Fabric installs the provider at startup, so a change applies after `/fabric reload` or in the next session. The backend itself is the host's: `providers.judgmentProvider` in OMP settings decides between TypeSafe and a chat model.
+
+- `judgment.enabled` (default `true`) exposes the `judgment.*` actions. With it off the provider is not registered at all: the actions are unavailable and the `judgment` guest global is removed, so no refusal is answered.
+- `judgment.maxConcurrent` (1-64, default 8) bounds the backend requests in flight; a further batch waits for a slot.
+- `judgment.coalesceMs` (0-1000, default 8) is the window in which judgments over an identical state merge into one backend request.
+- `judgment.timeoutMs` (250-120000, default 8000) bounds one backend request; a later answer is discarded and the call returns `reason: "timeout"`.
+- `judgment.maxQuestionsPerRequest` (1-256, default 32) bounds a single ask and a merged batch. A batch that would cross it flushes early; a single ask that crosses it is refused.
+- `judgment.maxStateBytes` (1 KiB-512 KiB, default 64 KiB) bounds the judged state. A larger state is refused, never truncated, because silently cutting the evidence changes the answer while reporting nothing.
+
 ## File-only settings
 
 Every key that carries a default value is editable under `/fabric settings`, with two deliberate exceptions. The panel names them in `FILE_ONLY_CONFIG_KEYS` (`src/ui/settings.ts`), and `tests/settings-parity.test.ts` fails when any other default key loses its row:

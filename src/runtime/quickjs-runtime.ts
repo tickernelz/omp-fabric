@@ -648,6 +648,7 @@ globalThis.schema = __providerProxy("schema");
 globalThis.components = __providerProxy("components");
 globalThis.compact = __providerProxy("compact");
 globalThis.codemap = __providerProxy("codemap");
+globalThis.judgment = __providerProxy("judgment");
 const __createActor = async (args = {}) => {
   if (!args || typeof args !== "object" || Array.isArray(args)) {
     throw new TypeError("agents.create expects an options object");

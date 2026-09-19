@@ -356,6 +356,8 @@ export interface FabricJudgmentConfig {
   coalesceMs: number;
   /** Deadline for one backend request; a slower answer is discarded. */
   timeoutMs: number;
+  /** Backend requests allowed in flight at once; a further batch waits for a slot. */
+  maxConcurrent: number;
   /** Questions one request may carry; a larger ask is refused rather than split blindly. */
   maxQuestionsPerRequest: number;
   /** Byte ceiling on the judged state; a larger state is refused rather than truncated. */
@@ -596,6 +598,7 @@ export const DEFAULT_FABRIC_CONFIG: FabricConfig = {
     enabled: true,
     coalesceMs: 8,
     timeoutMs: 8_000,
+    maxConcurrent: 8,
     maxQuestionsPerRequest: 32,
     maxStateBytes: 64 * 1024,
   },
@@ -1441,6 +1444,12 @@ export const normalizeFabricConfig = (input: Record<string, unknown>): FabricCon
         DEFAULT_FABRIC_CONFIG.judgment.timeoutMs,
         250,
         120_000,
+      ),
+      maxConcurrent: boundedInteger(
+        judgment.maxConcurrent,
+        DEFAULT_FABRIC_CONFIG.judgment.maxConcurrent,
+        1,
+        64,
       ),
       maxQuestionsPerRequest: boundedInteger(
         judgment.maxQuestionsPerRequest,

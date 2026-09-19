@@ -57,7 +57,7 @@ return {
 };
 ```
 
-Independent calls run in parallel, and the returned object enters the model context. Known providers support concise direct calls such as `mcp.fal_ai.get_model_schema(...)`, `memory.recall(...)`, `state.get()`, `schema.status()`, and `compact.status()`. Refs found or computed at runtime use `tools.call({ ref, args })`.
+Independent calls run in parallel, and the returned object enters the model context. Known providers support concise direct calls such as `mcp.fal_ai.get_model_schema(...)`, `memory.recall(...)`, `state.get()`, `schema.status()`, `compact.status()`, and `judgment.ask(...)`. Refs found or computed at runtime use `tools.call({ ref, args })`.
 
 ## Install
 
@@ -160,6 +160,7 @@ The command bills your provider and stops at `OMP_FABRIC_BENCH_MAX_USD`. Without
 
 - [Configuration](docs/configuration.md): `fabric.json`, code modes, tool capture, approvals, and budgets.
 - [Code map](docs/codemap.md): the native symbol index, token-budgeted disclosure, and git co-change ranking.
+- [Judgment](docs/judgment.md): calibrated choice, bool, and score answers over one state, batched into a single backend request.
 - [Memory & recall](docs/memory-recall.md): compact ranked hits, uniform follow calls, lossless expansion, and guest-local `memory.walk` computation.
 - [Interface & commands](docs/interface.md): dashboard, settings, keybindings, slash commands, and headless runs.
 - [Agents, actors & mesh](docs/agents.md): model handoff, `/fabric prewalk`, runners, transports, actors, councils, recursive queries, and durable coordination.

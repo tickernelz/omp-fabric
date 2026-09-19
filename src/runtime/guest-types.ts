@@ -1347,6 +1347,70 @@ interface FabricWorkflowApi {
   log(...values: unknown[]): void;
   budget: { total: number; spent(): number; remaining(): number };
 }
+interface FabricJudgmentChoiceQuestion {
+  type: "choice";
+  instructions: string;
+  criteria: Record<string, string | null>;
+}
+interface FabricJudgmentBoolQuestion {
+  type: "bool";
+  instructions: string;
+  criteria?: { true?: string; false?: string };
+}
+interface FabricJudgmentScoreQuestion {
+  type: "score";
+  instructions: string;
+  criteria: [string, string, ...string[]];
+}
+type FabricJudgmentQuestion =
+  | FabricJudgmentChoiceQuestion
+  | FabricJudgmentBoolQuestion
+  | FabricJudgmentScoreQuestion;
+interface FabricJudgmentChoiceAnswer {
+  type: "choice";
+  choice: string;
+  probabilities: Record<string, number>;
+  confidence: number;
+}
+interface FabricJudgmentBoolAnswer {
+  type: "bool";
+  bool: number;
+}
+interface FabricJudgmentScoreAnswer {
+  type: "score";
+  score: number;
+  probabilities: Record<string, number>;
+  confidence: number;
+}
+type FabricJudgmentAnswer =
+  | FabricJudgmentChoiceAnswer
+  | FabricJudgmentBoolAnswer
+  | FabricJudgmentScoreAnswer;
+interface FabricJudgmentApi {
+  ask(args: {
+    state: unknown;
+    questions: Record<string, FabricJudgmentQuestion>;
+  }): Promise<
+    | { ok: true; backend: string; answers: Record<string, FabricJudgmentAnswer> }
+    | {
+      ok: false;
+      reason: "disabled" | "unsupported" | "refused" | "failed" | "timeout" | "aborted";
+      detail?: string;
+    }
+  >;
+  stats(): Promise<{
+    enabled: boolean;
+    requests: number;
+    batched: number;
+    questions: number;
+    merged: number;
+    failures: number;
+    refusals: number;
+    timeouts: number;
+    lastBackend?: string;
+    lastError?: string;
+  }>;
+}
 declare const tools: FabricToolsApi;
 declare const omp: OmpToolsApi;
 declare const extensions: FabricExtensionsApi;
@@ -1359,6 +1423,7 @@ declare const schema: FabricSchemaApi;
 declare const components: FabricComponentsApi;
 declare const compact: FabricCompactApi;
 declare const codemap: FabricCodemapApi;
+declare const judgment: FabricJudgmentApi;
 declare const council: FabricCouncilApi;
 declare const workflow: FabricWorkflowApi;
 declare function agent<T = string>(prompt: string, options?: FabricWorkflowAgentOptions): Promise<T>;

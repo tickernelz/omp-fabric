@@ -31,9 +31,19 @@ type TokenMessage = {
   images?: readonly unknown[];
 };
 
-const contentParts = (content: unknown): readonly TokenContentPart[] => {
-  if (typeof content !== "string") return (content ?? []) as readonly TokenContentPart[];
-  return [];
+const contentParts = (content: unknown): readonly TokenContentPart[] =>
+  Array.isArray(content) ? (content as readonly TokenContentPart[]) : [];
+
+const stringifyArguments = (value: unknown): string => {
+  try {
+    return JSON.stringify(value) ?? "null";
+  } catch {
+    try {
+      return JSON.stringify(value, (_key, nested) => (typeof nested === "bigint" ? nested.toString() : nested)) ?? "null";
+    } catch {
+      return "null";
+    }
+  }
 };
 
 const blockTokens = (chars: number): number => (chars > 0 ? Math.ceil(chars / 4) : 0);
@@ -62,11 +72,11 @@ export const estimateTokens = (message: TokenMessage): number => {
           tokens += blockTokens(textLength(block.thinkingSignature));
         } else if (block.type === "toolCall") {
           tokens += blockTokens(textLength(block.name));
-          tokens += blockTokens(textLength(JSON.stringify(block.arguments) ?? "null"));
+          tokens += blockTokens(textLength(stringifyArguments(block.arguments)));
         } else if (block.type === "redactedThinking") {
           tokens += blockTokens(textLength(block.data));
         } else if (block.type === "anthropicServerTool") {
-          tokens += blockTokens(textLength(JSON.stringify(block.block) ?? "null"));
+          tokens += blockTokens(textLength(stringifyArguments(block.block)));
         }
       }
       return tokens;

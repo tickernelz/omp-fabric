@@ -41,7 +41,7 @@ const descriptors: FabricActionDescriptor[] = [
   {
     name: "stats",
     description:
-      "Counters for this session's judgment lane: requests, batched requests, questions asked, refusals, failures, and the backend that answered last.",
+      "Counters for this session's judgment lane: requests, batched requests, merged callers, questions asked, refusals, failures, timeouts, and the backend and error seen last.",
     inputSchema: statsSchema.toJsonSchema() as unknown as Record<string, unknown>,
     risk: "read",
   },
@@ -140,7 +140,10 @@ interface AskArguments {
 const checked = <T>(action: string, schema: { toJsonSchema(): unknown }, args: Record<string, unknown>): T => {
   const validation = validateJsonSchemaValue(schema.toJsonSchema() as Record<string, unknown>, args);
   if (!validation.success) {
-    const message = validation.issues.slice(0, 5).map((issue) => issue.message).join("; ");
+    const message = validation.issues
+      .slice(0, 5)
+      .map((issue) => (issue.path.length > 0 ? `${issue.path.join(".")} ${issue.message}` : issue.message))
+      .join("; ");
     throw new Error(`Invalid judgment.${action} arguments: ${message}`);
   }
   return args as T;
