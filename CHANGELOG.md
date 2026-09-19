@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.20.0
+
+### Added
+
+- `judgment.ask` answers typed questions about one state and returns calibrated probabilities: a `choice` picks one label and reports the distribution across them, a `bool` returns the probability of yes, a `score` returns a probability-weighted position on ordered levels. The backend is the host's judge, resolved lazily at first use through `@oh-my-pi/pi-coding-agent/judgment`, so `providers.judgmentProvider` keeps deciding between TypeSafe System One and the `tiny`/`smol` chat chain and Fabric does not hold a second opinion. Full code mode hides `eval`, which is where the host's own `judge()` helper lives, so a Fabric program previously had no way to ask a calibrated question at all. Verified inside a real session driven with `omp --no-extensions -e`: the resolved judge reported kind `typesafe`, label `typesafe/jev-latest`, and `usesTypeSafeJudge` true against the operator's own credential.
+- Judgments raised over an identical state inside `judgment.coalesceMs` merge into one backend request, and the answers are split back to the callers that asked them, so two parts of a program that do not know about each other still share the wire. Measured against the live API, three questions from two independent callers cost one request and 440 input tokens; the same three asked one at a time cost three requests and 1,038 input tokens. Only an identical state merges, because the wire format carries one state per request. `judgment.maxConcurrent` bounds the requests in flight at 8 by default for the same reason: a program that judges a hundred items in parallel would otherwise open a hundred requests at once, and this surface spends real tokens.
+- `judgment.ask` never throws for an operational reason. A host without the judgment module, a budget refusal, a state `JSON.stringify` cannot take, a backend failure, a blown deadline and a caller abort each resolve `{ ok: false, reason }`, so a judgment that cannot be obtained degrades to the decision the program would have made without it rather than becoming a new way for a turn to fail. The deadline settles the callers itself rather than trusting the backend to observe an abort signal. An oversized state is refused rather than truncated: cutting the evidence silently would change the answer instead of reporting the limit, and only the caller knows which part of its state is expendable. A failed first resolution is retried on the next batch rather than stranding the session, and concurrent first uses share one resolution. The six `judgment.*` keys are editable under `/fabric settings` → **Judgment** and documented in `docs/judgment.md`.
+
+### Changed
+
+- Host packages move from 18.1.10 to 18.2.6, which is where the judgment module ships. The bump carries API drift: `ThemeColor` now lives in `@oh-my-pi/pi-tui/theme`, `UserMessageComponent` takes `UserBubbleOptions` where it took a `synthetic` boolean, and `RegisteredTool` requires `sourceInfo`.
+
+### Fixed
+
+- The mirrored host tokenizer in `src/core/token-math.ts` under-counted every message the host had started charging for. OMP 18.2.6 charges 1200 tokens per image on `user` and `developer` messages rather than only on `toolResult`, counts `custom` and `hookMessage` like `toolResult`, adds `thinkingSignature`, `redactedThinking` and `anthropicServerTool`, bills `compactionSummary` frames at 5024, and measures UTF-8 bytes rather than characters. A user message carrying one image and the text `abc` scored 1 token against the host's 1201, so compaction thresholds fired late on any session holding images. `tests/host-parity.test.ts` now covers every arm it was missing, including a multibyte case that pins the byte semantics, and the mirror no longer throws on shapes the host tolerates: a non-array `content` object and a BigInt inside tool-call arguments both counted rather than aborting the estimate inside the compaction hook.
+
 ## 1.19.0
 
 ### Changed
