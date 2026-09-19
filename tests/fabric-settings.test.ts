@@ -175,11 +175,12 @@ describe("FabricSettingsComponent", () => {
       "Mesh",
       "Memory",
       "Speculation",
+      "Judgment",
       "Code previews",
     ]) {
       expect(labels).toContain(label);
     }
-    expect(items.length).toBe(17);
+    expect(items.length).toBe(18);
   });
 
   it("marks submenu rows with a drill-in marker and leaves inline toggles plain", () => {

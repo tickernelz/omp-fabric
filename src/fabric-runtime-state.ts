@@ -108,6 +108,9 @@ import {
 import { AgentsProvider } from "./providers/agents-provider.js";
 import { CapturedToolsProvider } from "./providers/captured-tools-provider.js";
 import { CodemapProvider } from "./providers/codemap-provider.js";
+import { JudgmentProvider } from "./providers/judgment-provider.js";
+import { FabricJudgmentLane } from "./judgment/lane.js";
+import { resolveHostJudge } from "./judgment/host-judge.js";
 import { CompactProvider } from "./providers/compact-provider.js";
 import { ComponentsProvider } from "./providers/components-provider.js";
 import {
@@ -714,6 +717,24 @@ export class FabricRuntimeState {
         'disabled by configuration (codemap.enabled=false); set "codemap": { "enabled": true } in .omp/fabric.json or the agent fabric.json to enable codemap.* actions',
       );
     }
+    if (this.#config.judgment.enabled) {
+      const judgmentConfig = this.#config.judgment;
+      await installBuiltin(createProviderComponent({
+        provider: "judgment",
+        description: "Typed judgments with calibrated probabilities",
+        create: () => new JudgmentProvider(new FabricJudgmentLane(judgmentConfig, () =>
+          resolveHostJudge({
+            modelRegistry: context.modelRegistry,
+            ...(context.model !== undefined ? { model: context.model } : {}),
+            sessionId: context.sessionManager.getSessionId(),
+          }))),
+      }));
+    } else {
+      this.#registry.markUnavailable(
+        "judgment",
+        'disabled by configuration (judgment.enabled=false); set "judgment": { "enabled": true } in .omp/fabric.json or the agent fabric.json to enable judgment.* actions',
+      );
+    }
     const agentConfig = enforceSchema
       ? { ...this.#config.agents, enabled: false }
       : this.#config.agents;
@@ -1040,6 +1061,7 @@ export class FabricRuntimeState {
       "schema",
       "compact",
       ...(this.#config.codemap.enabled ? ["codemap"] : []),
+      ...(this.#config.judgment.enabled ? ["judgment"] : []),
       "agents",
       ...(this.#config.memory.enabled ? ["memory"] : []),
     ]);

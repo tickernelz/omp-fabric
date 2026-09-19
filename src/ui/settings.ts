@@ -129,6 +129,7 @@ export const ROOT_ITEM_IDS = [
   "mesh",
   "memory",
   "speculation",
+  "judgment",
   "codePreview",
 ] as const;
 const RELOAD_SECTIONS = new Set(["mesh", "agents", "mcp", "retention", "memory"]);
@@ -479,6 +480,8 @@ const summaryFor = (id: string, config: FabricConfig): string => {
       return config.speculation.enabled
         ? `${config.speculation.maxConcurrent} concurrent`
         : "disabled";
+    case "judgment":
+      return config.judgment.enabled ? formatMs(config.judgment.timeoutMs) : "disabled";
     case "codePreview":
       return config.codePreview.shikiTheme;
     default:
@@ -2665,6 +2668,66 @@ export const buildFabricSettingsItems = (
               ),
             },
           ),
+        ],
+        persist,
+      ),
+    }),
+    setting("judgment", "Judgment", summaryFor("judgment", config), {
+      description: "Typed judgments with calibrated probabilities over one state.",
+      submenu: sectionSubmenu(
+        theme,
+        "Judgment",
+        "Typed judgments (choice, bool, score) answered by the host judge: TypeSafe when credentialed, else the tiny/smol chat chain.",
+        [
+          setting("judgment.enabled", "Enabled", config.judgment.enabled ? "true" : "false", {
+            description: "Master switch for the judgment.* actions.",
+            values: BOOLEANS,
+          }),
+          setting("judgment.coalesceMs", "Coalesce window", formatMs(config.judgment.coalesceMs), {
+            description: "Window in which judgments over the same state merge into one backend request.",
+            submenu: numericSubmenu(
+              theme,
+              [0, 4, 8, 16, 32, 64, 250],
+              formatMs,
+              "Coalesce window",
+              "Window in which judgments over the same state merge into one backend request.",
+            ),
+          }),
+          setting("judgment.timeoutMs", "Request deadline", formatMs(config.judgment.timeoutMs), {
+            description: "Deadline for one backend request; a slower answer is discarded.",
+            submenu: numericSubmenu(
+              theme,
+              [1_000, 2_000, 4_000, 8_000, 15_000, 30_000, 60_000],
+              formatMs,
+              "Request deadline",
+              "Deadline for one backend request; a slower answer is discarded.",
+            ),
+          }),
+          setting(
+            "judgment.maxQuestionsPerRequest",
+            "Max questions",
+            String(config.judgment.maxQuestionsPerRequest),
+            {
+              description: "Questions one request may carry; a larger ask is refused, never split blindly.",
+              submenu: numericSubmenu(
+                theme,
+                [4, 8, 16, 32, 64, 128, 256],
+                String,
+                "Max questions",
+                "Questions one request may carry; a larger ask is refused, never split blindly.",
+              ),
+            },
+          ),
+          setting("judgment.maxStateBytes", "Max state", formatBytes(config.judgment.maxStateBytes), {
+            description: "Byte ceiling on the judged state; a larger state is refused, never truncated.",
+            submenu: numericSubmenu(
+              theme,
+              [8 * 1024, 16 * 1024, 32 * 1024, 64 * 1024, 128 * 1024, 256 * 1024, 512 * 1024],
+              formatBytes,
+              "Max state",
+              "Byte ceiling on the judged state; a larger state is refused, never truncated.",
+            ),
+          }),
         ],
         persist,
       ),

@@ -349,6 +349,19 @@ export interface FabricSpeculationConfig {
 }
 
 
+export interface FabricJudgmentConfig {
+  /** Master switch for typed judgments; off leaves every `judgment.*` call unanswered. */
+  enabled: boolean;
+  /** Window in which judgments over the same state merge into one backend request. */
+  coalesceMs: number;
+  /** Deadline for one backend request; a slower answer is discarded. */
+  timeoutMs: number;
+  /** Questions one request may carry; a larger ask is refused rather than split blindly. */
+  maxQuestionsPerRequest: number;
+  /** Byte ceiling on the judged state; a larger state is refused rather than truncated. */
+  maxStateBytes: number;
+}
+
 export interface FabricModelsConfig {
   /** Alias name → ordered provider/model fallback chain, first available wins. */
   aliases: Record<string, string[]>;
@@ -375,6 +388,7 @@ export interface FabricConfig {
   update: FabricUpdateConfig;
   schema: FabricSchemaConfig;
   speculation: FabricSpeculationConfig;
+  judgment: FabricJudgmentConfig;
   codePreview: CodePreviewSettings;
 }
 
@@ -578,6 +592,13 @@ export const DEFAULT_FABRIC_CONFIG: FabricConfig = {
     entryTtlMs: 180_000,
     mcpAllowlist: [],
   },
+  judgment: {
+    enabled: true,
+    coalesceMs: 8,
+    timeoutMs: 8_000,
+    maxQuestionsPerRequest: 32,
+    maxStateBytes: 64 * 1024,
+  },
   codePreview: defaultCodePreviewSettings(),
 };
 
@@ -761,6 +782,7 @@ export const normalizeFabricConfig = (input: Record<string, unknown>): FabricCon
   const schema = objectValue(input.schema);
   const schemaMode = schemaModeValue(schema.mode, DEFAULT_FABRIC_CONFIG.schema.mode);
   const speculation = objectValue(input.speculation);
+  const judgment = objectValue(input.judgment);
   const configuredExecutorRuntime = executorRuntimeValue(
     executor.runtime,
     DEFAULT_FABRIC_CONFIG.executor.runtime,
@@ -1405,6 +1427,33 @@ export const normalizeFabricConfig = (input: Record<string, unknown>): FabricCon
             .map((entry) => entry.trim().slice(0, 256)),
         ),
       ].slice(0, 256),
+    },
+    judgment: {
+      enabled: booleanValue(judgment.enabled, DEFAULT_FABRIC_CONFIG.judgment.enabled),
+      coalesceMs: boundedInteger(
+        judgment.coalesceMs,
+        DEFAULT_FABRIC_CONFIG.judgment.coalesceMs,
+        0,
+        1_000,
+      ),
+      timeoutMs: boundedInteger(
+        judgment.timeoutMs,
+        DEFAULT_FABRIC_CONFIG.judgment.timeoutMs,
+        250,
+        120_000,
+      ),
+      maxQuestionsPerRequest: boundedInteger(
+        judgment.maxQuestionsPerRequest,
+        DEFAULT_FABRIC_CONFIG.judgment.maxQuestionsPerRequest,
+        1,
+        256,
+      ),
+      maxStateBytes: boundedInteger(
+        judgment.maxStateBytes,
+        DEFAULT_FABRIC_CONFIG.judgment.maxStateBytes,
+        1_024,
+        512 * 1024,
+      ),
     },
     codePreview: normalizeCodePreviewSettings(input.codePreview),
   };

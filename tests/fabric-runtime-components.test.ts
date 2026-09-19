@@ -122,6 +122,7 @@ describe("Fabric runtime provider components", () => {
           "fabric.provider.codemap",
           "fabric.provider.compact",
           "fabric.provider.extensions",
+          "fabric.provider.judgment",
           "fabric.provider.mcp",
           "fabric.provider.memory",
           "fabric.provider.mesh",
