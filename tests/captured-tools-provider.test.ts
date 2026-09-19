@@ -7,6 +7,7 @@ import {
 import { Type } from "@oh-my-pi/omptype/typebox";
 import { describe, expect, it, vi } from "vitest";
 import { CapturedToolCatalog } from "../src/capture/catalog.js";
+import { fixtureRegisteredTool } from "./registered-tool-fixture.js";
 import { DEFAULT_FABRIC_CONFIG } from "../src/config.js";
 import { ActionRegistry } from "../src/core/action-registry.js";
 import { CapturedToolsProvider } from "../src/providers/captured-tools-provider.js";
@@ -48,7 +49,7 @@ describe("CapturedToolsProvider", async () => {
       },
       execute,
     } as ToolDefinition & { prepareArguments(args: Record<string, unknown>): Record<string, unknown> });
-    const registeredTool: RegisteredTool = { definition, extensionPath: "/extensions/pi-compat/index.ts" };
+    const registeredTool: RegisteredTool = fixtureRegisteredTool(definition, "/extensions/pi-compat/index.ts");
     const lifecycleEvents: string[] = [];
     const runner = {
       createContext: () => ({ cwd: "/captured-context" }),
@@ -131,12 +132,7 @@ describe("CapturedToolsProvider", async () => {
     } as unknown as ExtensionRunner;
     const catalog = new CapturedToolCatalog();
     catalog.replace(
-      [
-        {
-          definition,
-          extensionPath: "/extensions/audited-read.ts",
-        },
-      ],
+      [fixtureRegisteredTool(definition, "/extensions/audited-read.ts")],
       runner,
       DEFAULT_FABRIC_CONFIG.capture,
       "/extensions/omp-fabric/index.ts",
@@ -180,10 +176,7 @@ describe("CapturedToolsProvider", async () => {
     } as unknown as ExtensionRunner;
     const catalog = new CapturedToolCatalog();
     catalog.replace(
-      [{
-        definition,
-        extensionPath: "/extensions/pi-fovea/src/index.ts",
-      }],
+      [fixtureRegisteredTool(definition, "/extensions/pi-fovea/src/index.ts")],
       runner,
       DEFAULT_FABRIC_CONFIG.capture,
       "/extensions/omp-fabric/index.ts",
@@ -221,10 +214,10 @@ describe("CapturedToolsProvider", async () => {
     const catalog = new CapturedToolCatalog();
     catalog.replace(
       [
-        { definition: definition("deploy_release"), extensionPath: "/extensions/omp-deploy/src/index.ts" },
-        { definition: definition("bundled_tool"), extensionPath: "/ext/pi-foo/dist/esm/index.js" },
-        { definition: definition("nested_tool"), extensionPath: "/home/dev/omp-extensions/my-tool/index.ts" },
-        { definition: definition("prototype_tool"), extensionPath: "/ext/omp-proto/constructor/index.js" },
+        fixtureRegisteredTool(definition("deploy_release"), "/extensions/omp-deploy/src/index.ts"),
+        fixtureRegisteredTool(definition("bundled_tool"), "/ext/pi-foo/dist/esm/index.js"),
+        fixtureRegisteredTool(definition("nested_tool"), "/home/dev/omp-extensions/my-tool/index.ts"),
+        fixtureRegisteredTool(definition("prototype_tool"), "/ext/omp-proto/constructor/index.js"),
       ],
       runner,
       DEFAULT_FABRIC_CONFIG.capture,
@@ -275,10 +268,9 @@ describe("CapturedToolsProvider", async () => {
     } as unknown as ExtensionRunner;
     const catalog = new CapturedToolCatalog();
     catalog.replace(
-      [hanging, sequential].map((definition) => ({
-        definition,
-        extensionPath: `/extensions/${definition.name}.ts`,
-      })),
+      [hanging, sequential].map((definition) =>
+        fixtureRegisteredTool(definition, `/extensions/${definition.name}.ts`),
+      ),
       runner,
       DEFAULT_FABRIC_CONFIG.capture,
       "/extensions/omp-fabric/index.ts",
@@ -349,10 +341,9 @@ describe("CapturedToolsProvider", async () => {
     } as unknown as ExtensionRunner;
     const catalog = new CapturedToolCatalog();
     catalog.replace(
-      definitions.map((definition) => ({
-        definition,
-        extensionPath: `/extensions/${definition.name}.ts`,
-      })),
+      definitions.map((definition) =>
+        fixtureRegisteredTool(definition, `/extensions/${definition.name}.ts`),
+      ),
       runner,
       DEFAULT_FABRIC_CONFIG.capture,
       "/extensions/omp-fabric/index.ts",

@@ -218,7 +218,7 @@ export class FabricConversationTranscriptRenderer {
   private renderCustom(message: CustomAgentMessage, width: number, options: FabricConversationTranscriptRenderOptions, lines: string[]): void {
     const text = textOf(message.content);
     if (!message.display || !text) return;
-    this.push(lines, safeRender(new UserMessageComponent(terminalSafe(text, false), true), width, () => this.fallback(text, width)));
+    this.push(lines, safeRender(new UserMessageComponent(terminalSafe(text, false), { synthetic: true }), width, () => this.fallback(text, width)));
   }
 
   private renderSummary<M extends CompactionSummaryAgentMessage | BranchSummaryAgentMessage>(message: M, width: number, options: FabricConversationTranscriptRenderOptions, lines: string[], ComponentClass: new (message: M) => Component): void {

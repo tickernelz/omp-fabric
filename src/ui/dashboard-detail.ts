@@ -1,7 +1,7 @@
 import type { Theme } from "@oh-my-pi/pi-coding-agent";
 import { Ellipsis, Markdown, truncateToWidth, wrapTextWithAnsi, visibleWidth } from "@oh-my-pi/pi-tui";
 import type { MarkdownTheme, SymbolTheme, TUI } from "@oh-my-pi/pi-tui";
-import type { ThemeColor } from "@oh-my-pi/pi-coding-agent/modes/theme/theme";
+import type { ThemeColor } from "@oh-my-pi/pi-tui/theme";
 import type { FabricActivityCall } from "../activity/types.js";
 import { formatFabricEffectConflict } from "../core/effect-conflict.js";
 import type { CodePreviewSettings } from "./code-preview.js";

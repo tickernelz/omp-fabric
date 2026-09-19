@@ -131,7 +131,7 @@ describe("focused conversation native component rendering", () => {
         assistantMessage("A **normal OMP** response."),
       ],
     }), 80);
-    const nativeUser = new UserMessageComponent("Please inspect **the result**.", undefined, [undefined]).render(80);
+    const nativeUser = new UserMessageComponent("Please inspect **the result**.", { imageLinks: [undefined] }).render(80);
     const nativeAssistant = new AssistantMessageComponent(assistantMessage("A **normal OMP** response."), false, undefined, undefined, undefined).render(80);
     // Native rows in native order — no glyph/heading. The user card begins
     // with its own padded background rows; no extra spacer at transcript start.

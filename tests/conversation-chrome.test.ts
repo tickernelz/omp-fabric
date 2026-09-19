@@ -29,7 +29,7 @@ describe("native conversation chrome", () => {
     initThemeSync(undefined, false, "dark");
     const renderer = new FabricConversationTranscriptRenderer(tui, theme);
     const lines = renderer.render(nativeTranscript([userMessage("Hello!")]), 80, { target, toolsExpanded: false });
-    const native = new UserMessageComponent("Hello!", undefined, undefined).render(80);
+    const native = new UserMessageComponent("Hello!").render(80);
     expect(plain(lines)).toEqual(plain(native));
     expect(lines.every((line) => visibleWidth(line) === 80)).toBe(true);
   });

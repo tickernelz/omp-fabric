@@ -18,6 +18,7 @@ import {
 } from "../src/execution-service.js";
 import { CapturedToolsProvider } from "../src/providers/captured-tools-provider.js";
 import { OmpToolsProvider } from "../src/providers/omp-tools-provider.js";
+import { fixtureSourceInfo } from "./registered-tool-fixture.js";
 
 const makeRunner = (): ExtensionRunner => ({
   createContext: () => ({ cwd: process.cwd() }),
@@ -43,6 +44,7 @@ const makeOverride = (
   calls: Array<Record<string, unknown>>,
   output = name,
 ): RegisteredTool => ({
+  sourceInfo: fixtureSourceInfo("/extensions/core-override/index.ts"),
   definition: ({
     name,
     label: `${name} override`,

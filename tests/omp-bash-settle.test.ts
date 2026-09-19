@@ -12,6 +12,7 @@ import { ActionRegistry } from "../src/core/action-registry.js";
 import { FabricExecutionService } from "../src/execution-service.js";
 import { OmpToolsProvider } from "../src/providers/omp-tools-provider.js";
 import { CapturedToolsProvider } from "../src/providers/captured-tools-provider.js";
+import { fixtureRegisteredTool } from "./registered-tool-fixture.js";
 
 type Patch = "none" | "prefix" | "suffix" | "replace" | "deny" | "recover";
 type ResultEvent = ToolResultEvent;
@@ -56,10 +57,10 @@ async function run(
   const catalog = new CapturedToolCatalog();
   const shellDefinition = createBashToolDefinition(cwd);
   const capturedDefinition = shellDefinition;
-  catalog.replace(options.captured ? [{
-    definition: capturedDefinition as RegisteredTool["definition"],
-    extensionPath: "/extensions/bash-override/index.ts",
-  }] : [], runner, DEFAULT_FABRIC_CONFIG.capture, "/extensions/omp-fabric/index.ts");
+  catalog.replace(options.captured ? [fixtureRegisteredTool(
+    capturedDefinition as RegisteredTool["definition"],
+    "/extensions/bash-override/index.ts",
+  )] : [], runner, DEFAULT_FABRIC_CONFIG.capture, "/extensions/omp-fabric/index.ts");
   const registry = new ActionRegistry();
   registry.register(new OmpToolsProvider(cwd, options.noRunner ? undefined : catalog, new CapturedToolsProvider(catalog)));
   const config = structuredClone(DEFAULT_FABRIC_CONFIG);

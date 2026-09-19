@@ -12,6 +12,7 @@ import {
   type RegisteredToolCaptureController,
 } from "../src/capture/interceptor.js";
 import { DEFAULT_FABRIC_CONFIG, effectiveToolCaptureConfig } from "../src/config.js";
+import { fixtureSourceInfo } from "./registered-tool-fixture.js";
 
 const controllers: RegisteredToolCaptureController[] = [];
 const capturePolicy = { ...DEFAULT_FABRIC_CONFIG.capture, enabled: true };
@@ -29,6 +30,7 @@ const tool = (name: string) => ({
 
 const registered = (definition: ReturnType<typeof tool>, sourcePath: string): RegisteredTool => ({
   definition,
+  sourceInfo: fixtureSourceInfo(sourcePath),
   extensionPath: sourcePath,
 });
 

@@ -41,6 +41,16 @@ describe("host parity", () => {
       { role: "bashExecution", command: "echo hi", output: "hi" },
       { role: "branchSummary", summary: "branch" },
       { role: "compactionSummary", summary: "compaction" },
+      { role: "developer", content: [{ type: "text", text: "dev" }, { type: "image" }] },
+      { role: "user", content: [{ type: "image" }, { type: "image" }] },
+      { role: "hookMessage", content: [{ type: "text", text: "hook" }, { type: "image" }] },
+      { role: "custom", customType: "x", content: [{ type: "text", text: "blocks" }] },
+      { role: "assistant", content: [{ type: "thinking", thinking: "t", thinkingSignature: "s".repeat(64) }] },
+      { role: "assistant", content: [{ type: "redactedThinking", data: "d".repeat(128) }] },
+      { role: "assistant", content: [{ type: "anthropicServerTool", block: { name: "web_search", input: { q: "x" } } }] },
+      { role: "compactionSummary", summary: "s", blocks: [{ type: "text", text: "kept" }, { type: "image" }] },
+      { role: "compactionSummary", summary: "s", images: [{ type: "image" }, { type: "image" }] },
+      { role: "user", content: "héllo wörld — ünïcode" },
     ];
     for (const message of messages) {
       expect(localEstimateTokens(message as never)).toBe(hostEstimateTokens(message as never));

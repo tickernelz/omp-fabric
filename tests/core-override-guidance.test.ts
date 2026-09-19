@@ -11,6 +11,7 @@ import { CapturedToolCatalog } from "../src/capture/catalog.js";
 import { coreOverridePromptGuidance } from "../src/core/core-override-guidance.js";
 import { DEFAULT_FABRIC_CONFIG } from "../src/config.js";
 import { FabricState } from "../src/fabric-state.js";
+import { fixtureRegisteredTool } from "./registered-tool-fixture.js";
 
 const runner = {
   createContext: () => ({ cwd: process.cwd() }),
@@ -34,14 +35,14 @@ describe("core override prompt guidance", () => {
     const catalog = new CapturedToolCatalog();
     catalog.replace(
       [
-        {
-          definition: captured("read", "structure-aware reads", ["Prefer symbol IDs when available."]),
-          extensionPath: "/extensions/organon/index.ts",
-        },
-        {
-          definition: captured("deploy", "not a core slot", ["Do not advertise this here."]),
-          extensionPath: "/extensions/deploy/index.ts",
-        },
+        fixtureRegisteredTool(
+          captured("read", "structure-aware reads", ["Prefer symbol IDs when available."]),
+          "/extensions/organon/index.ts",
+        ),
+        fixtureRegisteredTool(
+          captured("deploy", "not a core slot", ["Do not advertise this here."]),
+          "/extensions/deploy/index.ts",
+        ),
       ],
       runner,
       DEFAULT_FABRIC_CONFIG.capture,
@@ -59,10 +60,7 @@ describe("core override prompt guidance", () => {
   it("tracks replacement and removal without persisted prompt state", () => {
     const catalog = new CapturedToolCatalog();
     const replace = (snippet: string) => catalog.replace(
-      [{
-        definition: captured("edit", snippet),
-        extensionPath: "/extensions/editor/index.ts",
-      }],
+      [fixtureRegisteredTool(captured("edit", snippet), "/extensions/editor/index.ts")],
       runner,
       DEFAULT_FABRIC_CONFIG.capture,
       "/extensions/omp-fabric/index.ts",
@@ -231,10 +229,7 @@ describe("core override prompt guidance", () => {
   it("adds no prose when an override has no prompt metadata", () => {
     const catalog = new CapturedToolCatalog();
     catalog.replace(
-      [{
-        definition: captured("read"),
-        extensionPath: "/extensions/reader/index.ts",
-      }],
+      [fixtureRegisteredTool(captured("read"), "/extensions/reader/index.ts")],
       runner,
       DEFAULT_FABRIC_CONFIG.capture,
       "/extensions/omp-fabric/index.ts",
