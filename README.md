@@ -34,6 +34,7 @@ Fabric gives OMP one programmable tool called `fabric_exec`, which composes core
 | 🧰 | **Capability routing** | Call OMP core tools, MCP servers, captured extension tools, or Fabric providers through one runtime. |
 | 🧑‍🤝‍🧑 | **Agent runtime** | One-shot workers, durable resident agents, persistent event-driven actors, councils, and bounded recursive queries. |
 | 🕸️ | **Workflows + mesh** | Phased progress plus durable topics, shared tasks, and compare-and-swap state. |
+| ⚖️ | **Typed judgment** | Calibrated choice, bool, and score answers about one state, batched into one backend request, with four optional gates that read them. |
 | 🛡️ | **Guardrails** | Approvals, isolation, timeouts, concurrency, recursion depth, and shared cost budgets. |
 | 🎛️ | **Native TUI** | Live activity, an interactive dashboard, and settings without leaving OMP. |
 
@@ -160,7 +161,7 @@ The command bills your provider and stops at `OMP_FABRIC_BENCH_MAX_USD`. Without
 
 - [Configuration](docs/configuration.md): `fabric.json`, code modes, tool capture, approvals, and budgets.
 - [Code map](docs/codemap.md): the native symbol index, token-budgeted disclosure, and git co-change ranking.
-- [Judgment](docs/judgment.md): calibrated choice, bool, and score answers over one state, batched into a single backend request.
+- [Judgment](docs/judgment.md): calibrated choice, bool, and score answers over one state, batched into a single backend request, and the four gates that read them.
 - [Memory & recall](docs/memory-recall.md): compact ranked hits, uniform follow calls, lossless expansion, and guest-local `memory.walk` computation.
 - [Interface & commands](docs/interface.md): dashboard, settings, keybindings, slash commands, and headless runs.
 - [Agents, actors & mesh](docs/agents.md): model handoff, `/fabric prewalk`, runners, transports, actors, councils, recursive queries, and durable coordination.
@@ -188,8 +189,11 @@ The test suite covers:
 - provider dispatch, registered-tool execution, QuickJS isolation, and OMP built-in calls
 - agent fixtures for Claude and Veda
 - workflows, durable mesh state, actor mailboxes, subscriptions, and actor restoration
+- the judgment lane, its provider, the guest surface, and the four gates
 
-Claude and Veda fixtures use local test processes with zero billable requests.
+Claude and Veda fixtures use local test processes with zero billable requests. The judgment tests use scripted judges and spend nothing either.
+
+`bun run benchmark:skill-router` measures the skill gate against a fixture of labelled turns. It needs `TYPESAFE_API_KEY` and makes real requests, so it is not part of `bun test`.
 
 ## Acknowledgments
 

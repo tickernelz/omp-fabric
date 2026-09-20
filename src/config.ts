@@ -349,6 +349,17 @@ export interface FabricSpeculationConfig {
 }
 
 
+export interface FabricJudgmentGatesConfig {
+  /** Judge a core or captured tool call before it runs. */
+  toolExec: boolean;
+  /** Judge fetched tool output before it enters the model's context. */
+  toolOutput: boolean;
+  /** Judge which agent kind and effort a delegated run should take. */
+  delegation: boolean;
+  /** Rank the skill roster for the turn before the model reads it. */
+  skills: boolean;
+}
+
 export interface FabricJudgmentConfig {
   /** Master switch for typed judgments; off leaves every `judgment.*` call unanswered. */
   enabled: boolean;
@@ -362,6 +373,8 @@ export interface FabricJudgmentConfig {
   maxQuestionsPerRequest: number;
   /** Byte ceiling on the judged state; a larger state is refused rather than truncated. */
   maxStateBytes: number;
+  /** Per-gate switches; every gate ships off and is turned on one at a time. */
+  gates: FabricJudgmentGatesConfig;
 }
 
 export interface FabricModelsConfig {
@@ -601,6 +614,12 @@ export const DEFAULT_FABRIC_CONFIG: FabricConfig = {
     maxConcurrent: 8,
     maxQuestionsPerRequest: 32,
     maxStateBytes: 64 * 1024,
+    gates: {
+      toolExec: false,
+      toolOutput: false,
+      delegation: false,
+      skills: false,
+    },
   },
   codePreview: defaultCodePreviewSettings(),
 };
@@ -786,6 +805,7 @@ export const normalizeFabricConfig = (input: Record<string, unknown>): FabricCon
   const schemaMode = schemaModeValue(schema.mode, DEFAULT_FABRIC_CONFIG.schema.mode);
   const speculation = objectValue(input.speculation);
   const judgment = objectValue(input.judgment);
+  const judgmentGates = objectValue(judgment.gates);
   const configuredExecutorRuntime = executorRuntimeValue(
     executor.runtime,
     DEFAULT_FABRIC_CONFIG.executor.runtime,
@@ -1463,6 +1483,18 @@ export const normalizeFabricConfig = (input: Record<string, unknown>): FabricCon
         1_024,
         512 * 1024,
       ),
+      gates: {
+        toolExec: booleanValue(judgmentGates.toolExec, DEFAULT_FABRIC_CONFIG.judgment.gates.toolExec),
+        toolOutput: booleanValue(
+          judgmentGates.toolOutput,
+          DEFAULT_FABRIC_CONFIG.judgment.gates.toolOutput,
+        ),
+        delegation: booleanValue(
+          judgmentGates.delegation,
+          DEFAULT_FABRIC_CONFIG.judgment.gates.delegation,
+        ),
+        skills: booleanValue(judgmentGates.skills, DEFAULT_FABRIC_CONFIG.judgment.gates.skills),
+      },
     },
     codePreview: normalizeCodePreviewSettings(input.codePreview),
   };

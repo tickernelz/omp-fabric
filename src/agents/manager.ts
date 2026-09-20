@@ -59,6 +59,14 @@ import {
   readBudgetLedgerDetailed,
 } from "./budget-ledger.js";
 import type { BudgetLedgerDetail } from "./budget-ledger.js";
+import type { FabricJudgmentLane } from "../judgment/lane.js";
+import type { FabricJudgmentGatesConfig } from "../config.js";
+import {
+  eligibleRunners,
+  judgeDelegation,
+  type DelegationGateCandidate,
+  type DelegationGateDecision,
+} from "../judgment/gates/delegation.js";
 import type { BudgetLedgerState } from "./budget-ledger.js";
 import { readJsonlPage } from "../log-tail.js";
 import {
@@ -369,6 +377,8 @@ const failedRecord = (
 export class AgentManager {
   readonly #runs = new Map<string, ManagedAgent>();
   readonly #semaphore: Semaphore;
+  readonly #judgment: FabricJudgmentLane | undefined;
+  readonly #judgmentGates: (() => FabricJudgmentGatesConfig) | undefined;
   readonly #worktrees = new WorktreeManager();
   readonly #runRoot: string;
   readonly #managedTempRoot: boolean;
@@ -429,8 +439,12 @@ export class AgentManager {
       onLifecycle?: (event: FabricLifecyclePublishRequest) => void;
       prepareOmpModel?: (model: string | undefined) => Promise<string | void>;
       resolveParticipantGuidance?: AgentParticipantGuidanceResolver;
+      judgment?: FabricJudgmentLane;
+      judgmentGates?: () => FabricJudgmentGatesConfig;
     } = {},
   ) {
+    this.#judgment = options.judgment;
+    this.#judgmentGates = options.judgmentGates;
     this.#semaphore = new Semaphore(config.maxConcurrent);
     this.#managedTempRoot = options.runRoot === undefined && process.env.OMP_FABRIC_RUN_ROOT === undefined;
     this.#runRoot =
@@ -530,41 +544,41 @@ export class AgentManager {
     if (residency !== "session" && residency !== "durable") {
       throw new Error(`Invalid Fabric agent residency: ${String(request.residency)}`);
     }
-    const runner = request.runner ?? this.config.runner;
-    if (runner !== "omp" && runner !== "claude" && runner !== "veda") {
-      throw new Error(`Unsupported Fabric agent runner: ${String(runner)}`);
+    const requestedRunner = request.runner ?? this.config.runner;
+    if (
+      requestedRunner !== "omp" &&
+      requestedRunner !== "claude" &&
+      requestedRunner !== "veda"
+    ) {
+      throw new Error(`Unsupported Fabric agent runner: ${String(requestedRunner)}`);
     }
-    if (request.persona && runner !== "veda") {
-      throw new Error(`The persona option is only supported by the Veda runner, not ${runner}`);
+    if (request.persona && requestedRunner !== "veda") {
+      throw new Error(
+        `The persona option is only supported by the Veda runner, not ${requestedRunner}`,
+      );
     }
-    if (runner === "claude" && request.recursive) {
+    if (requestedRunner === "claude" && request.recursive) {
       throw new Error(
         "Claude runner does not support recursive Fabric. Use an OMP runner for recursive: true, or omit recursive for Claude Code tools.",
       );
     }
-    if (runner === "veda" && request.recursive) {
+    if (requestedRunner === "veda" && request.recursive) {
       throw new Error(
         "Veda runner does not support recursive Fabric. Use an OMP runner for recursive: true — Veda executes one headless prompt per invocation.",
       );
     }
-    if (request.sessionSeed && runner !== "omp") {
+    if (request.sessionSeed && requestedRunner !== "omp") {
       throw new Error("Trajectory handoff sessions are only supported by the OMP runner");
     }
     if (request.sessionSeed && request.sessionFile) {
       throw new Error("A agent request cannot combine sessionSeed with sessionFile");
     }
-    const tools = this.#childTools(request, runner);
-    if (runner === "claude") mapClaudeTools(tools);
-    if (runner === "veda") mapVedaTools(tools);
-    let model =
-      request.model ??
-      (runner === "claude"
-        ? this.config.claude.model
-        : runner === "veda"
-          ? this.config.veda.model
-          : this.config.model);
-    if (runner === "claude" && model) normalizeClaudeModel(model);
-    if (runner === "veda" && model) normalizeVedaModel(model);
+    let tools = this.#childTools(request, requestedRunner);
+    if (requestedRunner === "claude") mapClaudeTools(tools);
+    if (requestedRunner === "veda") mapVedaTools(tools);
+    let model = this.#runnerModel(request, requestedRunner);
+    if (requestedRunner === "claude" && model) normalizeClaudeModel(model);
+    if (requestedRunner === "veda" && model) normalizeVedaModel(model);
     if (this.#budget) {
       const spent = readBudgetLedger(this.#budget.file).cost;
       if (spent >= this.#budget.budget) {
@@ -572,6 +586,16 @@ export class AgentManager {
           `Fabric recursion budget exceeded: spent $${spent.toFixed(6)} of $${this.#budget.budget.toFixed(6)}. Increase agents.budgetUsd or simplify the task.`,
         );
       }
+    }
+    const judged = await this.#judgeDelegation(request, selectedCwd, requestedRunner, signal);
+    const runner = request.runner ?? judged?.runner ?? requestedRunner;
+    if (runner !== requestedRunner) {
+      tools = this.#childTools(request, runner);
+      if (runner === "claude") mapClaudeTools(tools);
+      if (runner === "veda") mapVedaTools(tools);
+      model = this.#runnerModel(request, runner);
+      if (runner === "claude" && model) normalizeClaudeModel(model);
+      if (runner === "veda" && model) normalizeVedaModel(model);
     }
     const release = await this.#semaphore.acquire(signal);
     try {
@@ -637,7 +661,7 @@ export class AgentManager {
         this.config.timeoutMs,
         request.timeoutMs,
       );
-      const thinking = request.thinking ?? this.config.thinking;
+      const thinking = request.thinking ?? judged?.thinking ?? this.config.thinking;
       const recursive = runner === "omp" && request.recursive === true;
       const extensions = recursive ? true : (request.extensions ?? this.config.extensions);
       // In a full-code parent every extension-enabled OMP child runs Fabric
@@ -1431,6 +1455,59 @@ export class AgentManager {
       });
     } catch {
       // Lifecycle observers must not interrupt child execution or settlement.
+    }
+  }
+
+  #runnerModel(request: AgentRunRequest, runner: FabricAgentRunner): string | undefined {
+    if (request.model) return request.model;
+    if (runner === "claude") return this.config.claude.model;
+    if (runner === "veda") return this.config.veda.model;
+    return this.config.model;
+  }
+
+  #delegationCandidates(
+    request: AgentRunRequest,
+    kinds: readonly FabricAgentRunner[],
+  ): DelegationGateCandidate[] {
+    const candidates: DelegationGateCandidate[] = [];
+    for (const kind of kinds) {
+      const tools = this.#childTools(request, kind);
+      try {
+        if (kind === "claude") mapClaudeTools(tools);
+        if (kind === "veda") mapVedaTools(tools);
+        const model = this.#runnerModel(request, kind);
+        if (kind === "claude" && model) normalizeClaudeModel(model);
+        if (kind === "veda" && model) normalizeVedaModel(model);
+      } catch {
+        continue;
+      }
+      candidates.push({ kind, tools });
+    }
+    return candidates;
+  }
+
+  async #judgeDelegation(
+    request: AgentRunRequest,
+    cwd: string,
+    requestedRunner: FabricAgentRunner,
+    signal?: AbortSignal,
+  ): Promise<DelegationGateDecision | undefined> {
+    const lane = this.#judgment;
+    if (!lane || this.#judgmentGates?.().delegation !== true) return undefined;
+    const needRunner = request.runner === undefined && request.model === undefined;
+    const needThinking = request.thinking === undefined;
+    if (!needRunner && !needThinking) return undefined;
+    const candidates = needRunner
+      ? this.#delegationCandidates(request, eligibleRunners(request))
+      : [{ kind: requestedRunner, tools: this.#childTools(request, requestedRunner) }];
+    try {
+      return await judgeDelegation(
+        lane,
+        { task: request.task, cwd, candidates, needRunner, needThinking },
+        signal,
+      );
+    } catch {
+      return undefined;
     }
   }
 

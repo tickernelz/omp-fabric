@@ -480,8 +480,11 @@ const summaryFor = (id: string, config: FabricConfig): string => {
       return config.speculation.enabled
         ? `${config.speculation.maxConcurrent} concurrent`
         : "disabled";
-    case "judgment":
-      return config.judgment.enabled ? formatMs(config.judgment.timeoutMs) : "disabled";
+    case "judgment": {
+      if (!config.judgment.enabled) return "disabled";
+      const gates = Object.values(config.judgment.gates).filter(Boolean).length;
+      return gates === 0 ? formatMs(config.judgment.timeoutMs) : `${gates} gate${gates === 1 ? "" : "s"} on`;
+    }
     case "codePreview":
       return config.codePreview.shikiTheme;
     default:
@@ -2728,6 +2731,37 @@ export const buildFabricSettingsItems = (
               ),
             },
           ),
+          setting(
+            "judgment.gates.toolExec",
+            "Gate: tool calls",
+            config.judgment.gates.toolExec ? "true" : "false",
+            {
+              description: "Judge a core or captured tool call before it runs.",
+              values: BOOLEANS,
+            },
+          ),
+          setting(
+            "judgment.gates.toolOutput",
+            "Gate: tool output",
+            config.judgment.gates.toolOutput ? "true" : "false",
+            {
+              description: "Judge fetched tool output before it enters the model's context.",
+              values: BOOLEANS,
+            },
+          ),
+          setting(
+            "judgment.gates.delegation",
+            "Gate: delegation",
+            config.judgment.gates.delegation ? "true" : "false",
+            {
+              description: "Judge which agent kind and effort a delegated run should take.",
+              values: BOOLEANS,
+            },
+          ),
+          setting("judgment.gates.skills", "Gate: skills", config.judgment.gates.skills ? "true" : "false", {
+            description: "Rank the skill roster for the turn before the model reads it.",
+            values: BOOLEANS,
+          }),
           setting("judgment.maxStateBytes", "Max state", formatBytes(config.judgment.maxStateBytes), {
             description: "Byte ceiling on the judged state; a larger state is refused, never truncated.",
             submenu: numericSubmenu(

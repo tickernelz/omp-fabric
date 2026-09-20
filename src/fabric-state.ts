@@ -124,6 +124,7 @@ export class FabricState {
 
   /** Speculative-PTC stream tap; undefined pre-init or when speculation is disabled. */
   get speculationTap(): FabricRuntimeState["speculationTap"] { return this.#runtime?.speculationTap; }
+  get judgment(): FabricRuntimeState["judgment"] { return this.#runtime?.judgment; }
 
   /** Turn-boundary backstop for the speculation store; safe before initialization. */
   resetSpeculation(): void { this.#runtime?.resetSpeculation(); }

@@ -528,6 +528,10 @@ Mesh topics, shared state, and the participant directory remain project-scoped. 
 - `judgment.coalesceMs` (0-1000, default 8) is the window in which judgments over an identical state merge into one backend request.
 - `judgment.timeoutMs` (250-120000, default 8000) bounds one backend request; a later answer is discarded and the call returns `reason: "timeout"`.
 - `judgment.maxQuestionsPerRequest` (1-256, default 32) bounds a single ask and a merged batch. A batch that would cross it flushes early; a single ask that crosses it is refused.
+- `judgment.gates.toolExec` (default `false`) judges a core or captured tool call before it runs.
+- `judgment.gates.toolOutput` (default `false`) judges fetched text before it enters the model's context.
+- `judgment.gates.delegation` (default `false`) judges which agent kind and effort a delegated run takes.
+- `judgment.gates.skills` (default `false`) ranks the skill roster for the turn and names at most one skill on the message channel. Measured on a 765-skill roster it adds 1.1 seconds at the median and 1.9 at the worst; see [Judgment](judgment.md).
 - `judgment.maxStateBytes` (1 KiB-512 KiB, default 64 KiB) bounds the judged state. A larger state is refused, never truncated, because silently cutting the evidence changes the answer while reporting nothing.
 
 ## File-only settings

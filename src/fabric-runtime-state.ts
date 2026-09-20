@@ -233,6 +233,7 @@ export class FabricRuntimeState {
   #lifecycle: LifecycleBroker | undefined;
   #residency: ResidencyClient | undefined;
   #agentsProvider: AgentsProvider | undefined;
+  #judgment: FabricJudgmentLane | undefined;
   #compact: CompactController | undefined;
   #schema: SchemaController | undefined;
   #componentSupervisor: FabricComponentSupervisor | undefined;
@@ -391,6 +392,11 @@ export class FabricRuntimeState {
       replay,
       speculation.bindingToken,
     );
+  }
+
+  /** Session-wide judgment lane, shared by the provider and the internal gates. */
+  get judgment(): FabricJudgmentLane | undefined {
+    return this.#judgment;
   }
 
   get registry(): ActionRegistry {
@@ -717,17 +723,18 @@ export class FabricRuntimeState {
         'disabled by configuration (codemap.enabled=false); set "codemap": { "enabled": true } in .omp/fabric.json or the agent fabric.json to enable codemap.* actions',
       );
     }
+    this.#judgment = new FabricJudgmentLane(this.#config.judgment, () =>
+      resolveHostJudge({
+        modelRegistry: context.modelRegistry,
+        ...(context.model !== undefined ? { model: context.model } : {}),
+        sessionId: context.sessionManager.getSessionId(),
+      }));
     if (this.#config.judgment.enabled) {
-      const judgmentConfig = this.#config.judgment;
+      const lane = this.#judgment;
       await installBuiltin(createProviderComponent({
         provider: "judgment",
         description: "Typed judgments with calibrated probabilities",
-        create: () => new JudgmentProvider(new FabricJudgmentLane(judgmentConfig, () =>
-          resolveHostJudge({
-            modelRegistry: context.modelRegistry,
-            ...(context.model !== undefined ? { model: context.model } : {}),
-            sessionId: context.sessionManager.getSessionId(),
-          }))),
+        create: () => new JudgmentProvider(lane),
       }));
     } else {
       this.#registry.markUnavailable(
@@ -784,6 +791,8 @@ export class FabricRuntimeState {
       return { key: `${resolved.provider}/${resolved.id}`, model };
     };
     this.#agents = new AgentManager(context.cwd, agentConfig, {
+      ...(this.#judgment ? { judgment: this.#judgment } : {}),
+      judgmentGates: () => (this.#config ?? DEFAULT_FABRIC_CONFIG).judgment.gates,
       fullCodeMode: this.#config.fullCodeMode,
       mainAgentId,
       fabricSessionId,
@@ -1078,6 +1087,7 @@ export class FabricRuntimeState {
       this.sessionApprovals,
       this.capturedTools,
     );
+    this.#execution.setJudgment(this.#judgment);
     const discovery: FabricProviderDiscovery = {
       version: 1,
       register: (provider, options) => this.registerExternal(provider, options),

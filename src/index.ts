@@ -88,6 +88,7 @@ import {
   mergeFabricApprovalUsage,
 } from "./core/direct-tool-approval.js";
 import { buildSkillReferenceGuidance } from "./core/skill-references.js";
+import { SKILL_GATE_BUDGET_MS, skillSuggestionBlock, suggestSkill } from "./judgment/gates/skills.js";
 import { createFabricExecTool } from "./fabric-exec-tool.js";
 import { FabricState } from "./fabric-state.js";
 import { classifyToolResult } from "./repairs/classify.js";
@@ -828,6 +829,19 @@ export default async function ompFabric(omp: ExtensionAPI): Promise<void> {
     const skillReferenceGuidance = effectiveFullCodeMode
       ? buildSkillReferenceGuidance(event.prompt, skills)
       : undefined;
+    const lane = state.config.judgment.gates.skills ? state.judgment : undefined;
+    const suggestion = lane
+      ? await suggestSkill(
+        lane,
+        event.prompt,
+        listableSkills(skills).map((skill) => ({
+          name: skill.name,
+          description: skill.description,
+          filePath: skill.filePath,
+        })),
+        { signal: AbortSignal.timeout(SKILL_GATE_BUDGET_MS) },
+      )
+      : undefined;
     const currentModel = context.model
       ? `${context.model.provider}/${context.model.id}`
       : undefined;
@@ -863,14 +877,18 @@ export default async function ompFabric(omp: ExtensionAPI): Promise<void> {
     // persistent message, not appended to the system prompt. Keeping the
     // system prompt byte-identical across turns is what lets provider prefix
     // caches (e.g. DeepSeek) stay warm.
-    if (!skillReferenceGuidance) return {
+    const turnContent = [
+      skillReferenceGuidance,
+      suggestion ? skillSuggestionBlock(suggestion) : undefined,
+    ].filter((section): section is string => Boolean(section)).join("\n\n");
+    if (!turnContent) return {
       systemPrompt: [`${systemPrompt}\n\n${guidance}`],
     };
     return {
       systemPrompt: [`${systemPrompt}\n\n${guidance}`],
       message: {
         customType: SKILL_REFERENCE_CUSTOM_TYPE,
-        content: skillReferenceGuidance,
+        content: turnContent,
         display: false,
         details: {},
       },

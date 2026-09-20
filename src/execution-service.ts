@@ -48,6 +48,9 @@ import type {
 import type { NodeProcessRuntime } from "./runtime/node-process-runtime.js";
 import { repairFabricGuestCode } from "./runtime/guest-code-repair.js";
 import type { FabricTypeError } from "./runtime/type-checker.js";
+import type { FabricJudgmentLane } from "./judgment/lane.js";
+import { judgeToolExec, judgesToolExec, toolExecEscalations } from "./judgment/gates/tool-exec.js";
+import { screenToolOutput, toolOutputSubject } from "./judgment/gates/tool-output.js";
 
 let runtimeDependencies:
   | Promise<{
@@ -159,6 +162,7 @@ export class FabricExecutionService {
   #runtime: QuickJsRuntime | NodeProcessRuntime | undefined;
   #runtimeKind: FabricConfig["executor"]["runtime"] | undefined;
   #capabilityView: FabricCommittedCapabilityView | undefined;
+  #judgment: FabricJudgmentLane | undefined;
   constructor(
     readonly registry: ActionRegistry,
     readonly config: FabricConfig,
@@ -171,6 +175,10 @@ export class FabricExecutionService {
 
   setCapabilityView(view: FabricCommittedCapabilityView | undefined): void {
     this.#capabilityView = view;
+  }
+
+  setJudgment(lane: FabricJudgmentLane | undefined): void {
+    this.#judgment = lane;
   }
 
   async execute(options: FabricExecutionOptions): Promise<FabricExecutionResult> {
@@ -278,6 +286,8 @@ export class FabricExecutionService {
       this.autoApprovalClassifier,
       recordAutoDecision,
     );
+    const judgment = this.#judgment;
+    const gates = this.config.judgment.gates;
     const audits: FabricCallAudit[] = [];
     const phases: string[] = [];
     const workflowSpans = new Map<
@@ -487,7 +497,7 @@ export class FabricExecutionService {
         );
         throw error;
       }
-      return this.registry.invoke(ref, args, {
+      const invocation = this.registry.invoke(ref, args, {
         ...callContext,
         ...(ref === "agents.handoff"
           ? {
@@ -519,12 +529,78 @@ export class FabricExecutionService {
             return;
           }
           await approval.approve(action, preparedArgs);
+          if (!gates.toolExec || !judgment?.enabled) return;
+          if (!judgesToolExec(action)) return;
+          const operation = traceRecorder.issueCall("fabric.judgment.toolExec", {
+            action: action.ref,
+            risk: action.risk,
+          });
+          let verdict: Awaited<ReturnType<typeof judgeToolExec>>;
+          try {
+            verdict = await judgeToolExec({
+              lane: judgment,
+              action,
+              args: preparedArgs,
+              cwd: options.context.cwd,
+              signal: callContext.signal,
+            });
+          } catch (error) {
+            operation.fail(
+              "invoke",
+              error,
+              executionOutcomeFromError(error, callContext.signal),
+            );
+            return;
+          }
+          operation.succeed(verdict);
+          if (!verdict || !options.context.hasUI) return;
+          for (const escalated of toolExecEscalations(action, verdict)) {
+            await approval.approve(escalated, preparedArgs);
+          }
         },
         audits,
         maxResultChars: this.config.executor.maxNestedResultChars,
         traceOperation,
         observeInvocation,
       });
+      if (!gates.toolOutput || !judgment?.enabled) return invocation;
+      const value = await invocation;
+      let screenOperation: FabricExecutionTraceOperationHandle | undefined;
+      try {
+        const subject = toolOutputSubject(ref, args);
+        if (subject === undefined) return value;
+        screenOperation = traceRecorder.issueCall("fabric.judgment.toolOutput", {
+          action: ref,
+          subject,
+        });
+        const screening = await screenToolOutput({
+          lane: judgment,
+          ref,
+          subject,
+          value,
+          maxStateBytes: this.config.judgment.maxStateBytes,
+          signal: callContext.signal,
+        });
+        screenOperation.succeed(
+          screening
+            ? {
+                screened: screening.screened,
+                injection: screening.injection,
+                relevance: screening.relevance,
+                chars: screening.chars,
+                stateBytes: screening.stateBytes,
+              }
+            : { screened: false },
+        );
+        return screening ? screening.value : value;
+      } catch (error) {
+        screenOperation?.fail(
+          "invoke",
+          error,
+          executionOutcomeFromError(error, callContext.signal),
+        );
+        return value;
+      }
     };
     let sandboxResult: FabricSandboxResult;
     try {

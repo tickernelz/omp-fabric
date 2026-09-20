@@ -1,0 +1,58 @@
+[
+  {
+    "prompt": "cut the 1.21.0 release of omp-fabric and verify the published package",
+    "expected": "omp-fabric-release"
+  },
+  {
+    "prompt": "tolong bantu rilis omp-fabric versi baru ke npm",
+    "expected": "omp-fabric-release"
+  },
+  {
+    "prompt": "what is the difference between TCP and UDP",
+    "expected": null
+  },
+  {
+    "prompt": "terima kasih, kerjamu bagus hari ini",
+    "expected": null
+  },
+  {
+    "prompt": "the disk on this box is full, find what is safe to delete without touching my project",
+    "expected": "reclaim-dev-box-disk-safely"
+  },
+  {
+    "prompt": "my tests pass alone but fail when the whole suite runs",
+    "expected": "harden-flaky-timing-tests"
+  },
+  {
+    "prompt": "prove this fix actually works before I ship it",
+    "expected": "prove-a-fix-with-a-negative-control"
+  },
+  {
+    "prompt": "add a new model provider to my OMP config",
+    "expected": "add-omp-custom-provider"
+  },
+  {
+    "prompt": "resolve this merge conflict for me",
+    "expected": "resolving-merge-conflicts"
+  },
+  {
+    "prompt": "review this branch for over-engineering",
+    "expected": "ponytail-review"
+  },
+  {
+    "prompt": "just say hi",
+    "expected": null
+  },
+  {
+    "prompt": "walk me through the standard procedure for rotating the office coffee machine filters",
+    "expected": null
+  },
+  {
+    "prompt": "follow our internal runbook for onboarding a new warehouse supplier",
+    "expected": null
+  },
+  {
+    "prompt": "write a skill that captures this workflow",
+    "expected": "writing-great-skills"
+  }
+]
