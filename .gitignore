@@ -1,8 +1,7 @@
 node_modules/
 dist/
 coverage/
-.omp/fabric-runs/
-.omp/fabric/
+.omp/
 .veda/
 *.log
 .DS_Store

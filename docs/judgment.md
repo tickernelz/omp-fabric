@@ -89,3 +89,14 @@ TypeSafe rejects a Choice carrying more than 255 options, so 765 skills travel a
 
 The harness measures the ranker, not the agent: it reports which skill the router names, not whether the model then loads it. Only an end-to-end agent run shows the second thing.
 
+
+## Helper runtime API
+
+Guest programs and batch scripts access the lane through `globalThis.judge`.
+
+- `judge.bool(state, instructions, options?)`: returns the probability of yes as a number, or the configured fallback when the backend fails.
+- `judge.choice(state, options, instructions, config?)`: returns the chosen label string from an array or criteria map.
+- `judge.score(state, criteria, instructions, config?)`: returns the score index from ordered levels.
+- `judge.filter(items, instructions, options?)`: evaluates an array in bounded chunks of up to 25 items per request. When a request fails, it preserves all chunk items under `onFail: "keep-all"`.
+- `judge.classify(items, categories, instructions, options?)`: assigns a category to each item across bounded chunks.
+- `judge.ask(state, questions)`: direct access for custom question maps.

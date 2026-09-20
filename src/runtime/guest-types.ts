@@ -1411,6 +1411,71 @@ interface FabricJudgmentApi {
     lastError?: string;
   }>;
 }
+interface FabricJudgeFilterOptions {
+  threshold?: number;
+  onFail?: "keep-all" | "empty" | "throw";
+  maxItems?: number;
+  maxBytes?: number;
+}
+interface FabricJudgeClassifyOptions {
+  onFail?: "keep-all" | "empty" | "throw";
+  fallbackCategory?: string;
+  maxItems?: number;
+  maxBytes?: number;
+}
+interface FabricJudgeBoolOptions {
+  fallback?: number;
+}
+interface FabricJudgeChoiceOptions {
+  fallback?: string;
+}
+interface FabricJudgeScoreOptions {
+  fallback?: number;
+}
+interface FabricJudgeApi {
+  ask(args: {
+    state: unknown;
+    questions: Record<string, FabricJudgmentQuestion>;
+  }): Promise<
+    | { ok: true; backend: string; answers: Record<string, FabricJudgmentAnswer> }
+    | {
+      ok: false;
+      reason: "disabled" | "unsupported" | "refused" | "failed" | "timeout" | "aborted";
+      detail?: string;
+    }
+  >;
+  ask(
+    state: unknown,
+    questions: Record<string, FabricJudgmentQuestion>,
+  ): Promise<
+    | { ok: true; backend: string; answers: Record<string, FabricJudgmentAnswer> }
+    | {
+      ok: false;
+      reason: "disabled" | "unsupported" | "refused" | "failed" | "timeout" | "aborted";
+      detail?: string;
+    }
+  >;
+  bool(state: unknown, instructions: string, options?: FabricJudgeBoolOptions): Promise<number | undefined>;
+  choice(
+    state: unknown,
+    options: readonly string[] | Record<string, string | null>,
+    instructions: string,
+    config?: FabricJudgeChoiceOptions,
+  ): Promise<string | undefined>;
+  score(
+    state: unknown,
+    criteria: readonly string[],
+    instructions: string,
+    config?: FabricJudgeScoreOptions,
+  ): Promise<number | undefined>;
+  filter<T>(items: T[], instructions: string, options?: FabricJudgeFilterOptions): Promise<T[]>;
+  classify<T, C extends string>(
+    items: T[],
+    categories: readonly C[],
+    instructions: string,
+    options?: FabricJudgeClassifyOptions,
+  ): Promise<Array<{ item: T; category?: C; confidence?: number }>>;
+}
 declare const tools: FabricToolsApi;
 declare const omp: OmpToolsApi;
 declare const extensions: FabricExtensionsApi;
@@ -1424,6 +1489,7 @@ declare const components: FabricComponentsApi;
 declare const compact: FabricCompactApi;
 declare const codemap: FabricCodemapApi;
 declare const judgment: FabricJudgmentApi;
+declare const judge: FabricJudgeApi;
 declare const council: FabricCouncilApi;
 declare const workflow: FabricWorkflowApi;
 declare function agent<T = string>(prompt: string, options?: FabricWorkflowAgentOptions): Promise<T>;

@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.22.0
+
+### Added
+
+- Runtime guest helper `judge` exposed under `globalThis.judge` across QuickJS, Node, and Bun executors. Provides ergonomic primitives `judge.bool`, `judge.choice`, `judge.score`, `judge.ask`, and batch utilities `judge.filter` and `judge.classify`.
+- Dual-bounded batch chunking in `judge.filter` and `judge.classify` groups array items into requests of at most 25 items and 48 KiB JSON payload. Oversized items beyond 40 KiB are bounded in state payload while preserving original item instances in returned results.
+- Fail-open fallback policy on `judge.filter` and `judge.classify` preserves items under `onFail: "keep-all"` when the backend fails or times out. Primitives support configurable fallback values.
+- Transparent TUI card rendering for judgment calls in `src/ui/fabric-render.ts`. Replaces the ambiguous `ask` title with `judgment.ask`, displays question counts and instructions summaries, displays backend model names, and renders structured probability answers upon expanding the transcript card.
+- System guidance examples in `src/core/system-guidance.ts` for fast semantic triage using `judge.filter` and `judge.bool`.
+
 ## 1.21.0
 
 ### Added

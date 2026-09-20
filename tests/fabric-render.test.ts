@@ -1874,3 +1874,93 @@ describe("nestedCallTitle truncation marker", () => {
     expect(title).not.toContain("truncated");
   });
 });
+
+describe("nestedCallTitle and body for judgment provider", () => {
+  it("renders a single question judgment title with instructions and backend", () => {
+    const audit = {
+      ref: "judgment.ask",
+      provider: "judgment",
+      tool: "ask",
+      args: {
+        questions: {
+          q1: { type: "bool", instructions: "Is this a syntax error?" },
+        },
+      },
+      result: {
+        ok: true,
+        backend: "typesafe/jev-1.13.0",
+        answers: { q1: { type: "bool", bool: 0.95 } },
+      },
+    };
+
+    const title = nestedCallTitle(audit, plainTheme);
+    expect(title).toContain("judgment.ask");
+    expect(title).toContain("Is this a syntax error?");
+    expect(title).toContain("jev-1.13.0");
+
+    const body = nestedCallBody(audit);
+    expect(body).toBeDefined();
+    expect(body).toContain("backend: typesafe/jev-1.13.0");
+    expect(body).toContain("• q1: 0.95 (yes)");
+  });
+
+  it("renders a multi-question judgment title and body with choice and score", () => {
+    const audit = {
+      ref: "judgment.ask",
+      provider: "judgment",
+      tool: "ask",
+      args: {
+        questions: {
+          item_0: { type: "bool", instructions: "Error 0" },
+          item_1: { type: "choice", instructions: "Pick category" },
+          item_2: { type: "score", instructions: "Rate severity" },
+        },
+      },
+      result: {
+        ok: true,
+        backend: "typesafe/jev-1.13.0",
+        answers: {
+          item_0: { type: "bool", bool: 0.04 },
+          item_1: { type: "choice", choice: "network", confidence: 0.88 },
+          item_2: { type: "score", score: 2 },
+        },
+      },
+    };
+
+    const title = nestedCallTitle(audit, plainTheme);
+    expect(title).toContain("judgment.ask");
+    expect(title).toContain("3 questions");
+    expect(title).toContain("jev-1.13.0");
+
+    const body = nestedCallBody(audit);
+    expect(body).toBeDefined();
+    expect(body).toContain("• item_0: 0.04 (no)");
+    expect(body).toContain("• item_1: network (88%)");
+    expect(body).toContain("• item_2: score 2");
+  });
+
+  it("renders a failed judgment title and rejection body", () => {
+    const audit = {
+      ref: "judgment.ask",
+      provider: "judgment",
+      tool: "ask",
+      args: {
+        questions: {
+          q: { type: "bool", instructions: "Test" },
+        },
+      },
+      result: {
+        ok: false,
+        reason: "refused",
+        detail: "state exceeds maxStateBytes=65536",
+      },
+    };
+
+    const title = nestedCallTitle(audit, plainTheme);
+    expect(title).toContain("judgment.ask");
+    expect(title).toContain("refused");
+
+    const body = nestedCallBody(audit);
+    expect(body).toBe("rejected: refused (state exceeds maxStateBytes=65536)");
+  });
+});

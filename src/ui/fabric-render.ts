@@ -515,6 +515,34 @@ const providerCallDetail = (
   preview: unknown,
   previewHeadline?: string,
 ): string => {
+  if (provider === "judgment") {
+    if (previewHeadline) return previewHeadline;
+    const questions = args.questions;
+    let qSummary = "";
+    if (questions && typeof questions === "object" && !Array.isArray(questions)) {
+      const keys = Object.keys(questions);
+      if (keys.length === 1) {
+        const first = (questions as Record<string, unknown>)[keys[0]!];
+        const instruction =
+          first && typeof first === "object" && !Array.isArray(first) && typeof (first as Record<string, unknown>).instructions === "string"
+            ? (first as Record<string, unknown>).instructions as string
+            : "";
+        qSummary = instruction ? truncateOneLine(instruction, 44) : "1 question";
+      } else if (keys.length > 1) {
+        qSummary = `${keys.length} questions`;
+      }
+    }
+    let backend = "";
+    if (result && typeof result === "object" && !Array.isArray(result)) {
+      const resObj = result as Record<string, unknown>;
+      if (typeof resObj.backend === "string") {
+        backend = resObj.backend.split("/").pop() ?? resObj.backend;
+      } else if (resObj.ok === false && typeof resObj.reason === "string") {
+        backend = resObj.reason;
+      }
+    }
+    return [qSummary, backend].filter(Boolean).join(" · ");
+  }
   if (provider === "agents") {
     if (previewHeadline) return previewHeadline;
     const name = argString(args, "name");
@@ -670,7 +698,8 @@ const nestedCallTitleText = (
   const ref = audit.ref;
   const provider = audit.provider ?? ref.split(".")[0] ?? ref;
   const tool = audit.tool ?? ref.split(".")[1] ?? ref;
-  const title = theme.fg("toolTitle", theme.bold(tool));
+  const toolLabel = provider === "judgment" && tool === "ask" ? "judgment.ask" : tool;
+  const title = theme.fg("toolTitle", theme.bold(toolLabel));
   const args = audit.args ?? {};
   const providerDetail = providerCallDetail(
     provider,
@@ -1254,6 +1283,30 @@ export function nestedCallBody(audit: FabricRenderAudit): string | undefined {
     const obj = result as Record<string, unknown>;
     if (typeof obj.output === "string") return obj.output;
     if (typeof obj.text === "string") return obj.text;
+    if (audit.provider === "judgment" || audit.ref === "judgment.ask") {
+      if (obj.ok === true && obj.answers && typeof obj.answers === "object" && !Array.isArray(obj.answers)) {
+        const lines: string[] = [];
+        if (typeof obj.backend === "string") lines.push(`backend: ${obj.backend}`);
+        for (const [key, answer] of Object.entries(obj.answers as Record<string, unknown>)) {
+          if (answer && typeof answer === "object" && !Array.isArray(answer)) {
+            const ans = answer as Record<string, unknown>;
+            if (ans.type === "bool" && typeof ans.bool === "number") {
+              lines.push(`• ${key}: ${ans.bool} (${ans.bool >= 0.5 ? "yes" : "no"})`);
+            } else if (ans.type === "choice" && typeof ans.choice === "string") {
+              const conf = typeof ans.confidence === "number" ? ` (${Math.round(ans.confidence * 100)}%)` : "";
+              lines.push(`• ${key}: ${ans.choice}${conf}`);
+            } else if (ans.type === "score" && typeof ans.score === "number") {
+              lines.push(`• ${key}: score ${ans.score}`);
+            } else {
+              lines.push(`• ${key}: ${JSON.stringify(ans)}`);
+            }
+          }
+        }
+        if (lines.length > 0) return lines.join("\n");
+      } else if (obj.ok === false) {
+        return `rejected: ${obj.reason ?? "failed"}${obj.detail ? ` (${obj.detail})` : ""}`;
+      }
+    }
   }
   return undefined;
 }

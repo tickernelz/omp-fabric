@@ -649,6 +649,176 @@ globalThis.components = __providerProxy("components");
 globalThis.compact = __providerProxy("compact");
 globalThis.codemap = __providerProxy("codemap");
 globalThis.judgment = __providerProxy("judgment");
+const __chunkBatchItems = (items, maxItems = 25, maxBytes = 49152) => {
+  const chunks = [];
+  let current = [];
+  let currentBytes = 2;
+  for (const item of items) {
+    let serialized = "";
+    try {
+      serialized = JSON.stringify(item) ?? "null";
+    } catch {
+      serialized = JSON.stringify(String(item));
+    }
+    let stateItem = item;
+    if (serialized.length > 40960) {
+      stateItem = typeof item === "string"
+        ? item.slice(0, 40000) + " [truncated]"
+        : String(item).slice(0, 40000) + " [truncated]";
+      serialized = JSON.stringify(stateItem);
+    }
+    const itemBytes = serialized.length + 1;
+    if (current.length > 0 && (current.length >= maxItems || currentBytes + itemBytes > maxBytes)) {
+      chunks.push(current);
+      current = [];
+      currentBytes = 2;
+    }
+    current.push({ item, stateItem });
+    currentBytes += itemBytes;
+  }
+  if (current.length > 0) chunks.push(current);
+  return chunks;
+};
+const __judgeAsk = (first, second) => {
+  if (second !== undefined) {
+    return globalThis.judgment.ask({ state: first, questions: second });
+  }
+  return globalThis.judgment.ask(first);
+};
+const __judgeBool = async (state, instructions, options) => {
+  try {
+    const outcome = await globalThis.judgment.ask({
+      state,
+      questions: { q: { type: "bool", instructions: String(instructions) } },
+    });
+    if (outcome && outcome.ok && outcome.answers && outcome.answers.q && outcome.answers.q.type === "bool" && typeof outcome.answers.q.bool === "number") {
+      return outcome.answers.q.bool;
+    }
+  } catch {}
+  return options && typeof options.fallback === "number" ? options.fallback : undefined;
+};
+const __judgeChoice = async (state, optionsListOrCriteria, instructions, config) => {
+  let criteria = {};
+  if (Array.isArray(optionsListOrCriteria)) {
+    for (const opt of optionsListOrCriteria) criteria[String(opt)] = null;
+  } else if (optionsListOrCriteria && typeof optionsListOrCriteria === "object") {
+    criteria = optionsListOrCriteria;
+  } else {
+    throw new TypeError("judge.choice options must be an array or criteria object");
+  }
+  if (Object.keys(criteria).length < 2) {
+    throw new TypeError("judge.choice requires at least 2 unique options");
+  }
+  try {
+    const outcome = await globalThis.judgment.ask({
+      state,
+      questions: { q: { type: "choice", instructions: String(instructions), criteria } },
+    });
+    if (outcome && outcome.ok && outcome.answers && outcome.answers.q && outcome.answers.q.type === "choice" && typeof outcome.answers.q.choice === "string") {
+      return outcome.answers.q.choice;
+    }
+  } catch {}
+  return config && typeof config.fallback === "string" ? config.fallback : undefined;
+};
+const __judgeScore = async (state, criteria, instructions, config) => {
+  if (!Array.isArray(criteria) || criteria.length < 2) {
+    throw new TypeError("judge.score requires at least 2 ordered criteria levels");
+  }
+  try {
+    const outcome = await globalThis.judgment.ask({
+      state,
+      questions: { q: { type: "score", instructions: String(instructions), criteria } },
+    });
+    if (outcome && outcome.ok && outcome.answers && outcome.answers.q && outcome.answers.q.type === "score" && typeof outcome.answers.q.score === "number") {
+      return outcome.answers.q.score;
+    }
+  } catch {}
+  return config && typeof config.fallback === "number" ? config.fallback : undefined;
+};
+const __judgeFilter = async (items, instructions, options = {}) => {
+  if (!Array.isArray(items) || items.length === 0) return [];
+  const threshold = Number.isFinite(options.threshold) ? options.threshold : 0.7;
+  const onFail = options.onFail || "keep-all";
+  const chunks = __chunkBatchItems(items, options.maxItems || 25, options.maxBytes || 49152);
+  const chunkPromises = chunks.map(async (chunk) => {
+    const questions = {};
+    chunk.forEach((_, idx) => {
+      questions["item_" + idx] = {
+        type: "bool",
+        instructions: "Regarding items[" + idx + "]: " + String(instructions),
+      };
+    });
+    let outcome;
+    try {
+      outcome = await globalThis.judgment.ask({ state: { items: chunk.map((c) => c.stateItem) }, questions });
+    } catch (err) {
+      outcome = { ok: false, reason: "failed", detail: String(err && err.message ? err.message : err) };
+    }
+    if (!outcome || !outcome.ok) {
+      if (onFail === "throw") {
+        throw new Error("judge.filter failed: " + (outcome && outcome.reason ? outcome.reason : "unknown error") + (outcome && outcome.detail ? " (" + outcome.detail + ")" : ""));
+      }
+      return onFail === "empty" ? [] : chunk.map((c) => c.item);
+    }
+    return chunk
+      .filter((_, idx) => {
+        const ans = outcome.answers && outcome.answers["item_" + idx];
+        return ans && ans.type === "bool" && typeof ans.bool === "number" && ans.bool >= threshold;
+      })
+      .map((c) => c.item);
+  });
+  const results = await Promise.all(chunkPromises);
+  return results.flat();
+};
+const __judgeClassify = async (items, categories, instructions, options = {}) => {
+  if (!Array.isArray(items) || items.length === 0) return [];
+  if (!Array.isArray(categories) || categories.length < 2) {
+    throw new TypeError("judge.classify requires at least 2 categories");
+  }
+  const criteria = {};
+  for (const cat of categories) criteria[String(cat)] = null;
+  const onFail = options.onFail || "keep-all";
+  const chunks = __chunkBatchItems(items, options.maxItems || 25, options.maxBytes || 49152);
+  const chunkPromises = chunks.map(async (chunk) => {
+    const questions = {};
+    chunk.forEach((_, idx) => {
+      questions["item_" + idx] = {
+        type: "choice",
+        instructions: "Regarding items[" + idx + "]: " + String(instructions),
+        criteria,
+      };
+    });
+    let outcome;
+    try {
+      outcome = await globalThis.judgment.ask({ state: { items: chunk.map((c) => c.stateItem) }, questions });
+    } catch (err) {
+      outcome = { ok: false, reason: "failed", detail: String(err && err.message ? err.message : err) };
+    }
+    if (!outcome || !outcome.ok) {
+      if (onFail === "throw") {
+        throw new Error("judge.classify failed: " + (outcome && outcome.reason ? outcome.reason : "unknown error") + (outcome && outcome.detail ? " (" + outcome.detail + ")" : ""));
+      }
+      if (onFail === "empty") return [];
+      return chunk.map((c) => ({ item: c.item, category: options.fallbackCategory, confidence: undefined }));
+    }
+    return chunk.map((c, idx) => {
+      const ans = outcome.answers && outcome.answers["item_" + idx];
+      const category = ans && ans.type === "choice" && typeof ans.choice === "string" ? ans.choice : options.fallbackCategory;
+      const confidence = ans && typeof ans.confidence === "number" ? ans.confidence : undefined;
+      return { item: c.item, category, confidence };
+    });
+  });
+  const results = await Promise.all(chunkPromises);
+  return results.flat();
+};
+globalThis.judge = Object.freeze({
+  ask: __judgeAsk,
+  bool: __judgeBool,
+  choice: __judgeChoice,
+  score: __judgeScore,
+  filter: __judgeFilter,
+  classify: __judgeClassify,
+});
 const __createActor = async (args = {}) => {
   if (!args || typeof args !== "object" || Array.isArray(args)) {
     throw new TypeError("agents.create expects an options object");
