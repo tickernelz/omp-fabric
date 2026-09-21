@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.22.1
+
+### Documentation
+
+- Document `judgment.ask`, `judgment.stats`, and `judge.*` ergonomic helpers (`bool`, `choice`, `score`, `filter`, `classify`) in the `fabric-exec` model-facing skill.
+- Document dual-bounded batch chunking (at most 25 items and 48 KiB) and `onFail: "keep-all"` fail-open data retention in `docs/judgment.md`.
+- Update `README.md` capability overview and examples with batch semantic triage guidance.
+
 ## 1.22.0
 
 ### Added
