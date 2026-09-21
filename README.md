@@ -34,7 +34,7 @@ Fabric gives OMP one programmable tool called `fabric_exec`, which composes core
 | 🧰 | **Capability routing** | Call OMP core tools, MCP servers, captured extension tools, or Fabric providers through one runtime. |
 | 🧑‍🤝‍🧑 | **Agent runtime** | One-shot workers, durable resident agents, persistent event-driven actors, councils, and bounded recursive queries. |
 | 🕸️ | **Workflows + mesh** | Phased progress plus durable topics, shared tasks, and compare-and-swap state. |
-| ⚖️ | **Typed judgment** | Calibrated choice, bool, and score answers about one state, batched into one backend request, with four optional gates that read them. |
+| ⚖️ | **Typed judgment** | Calibrated choice, bool, and score answers about one state, ergonomic guest helpers for batch semantic triage, and four optional gates. |
 | 🛡️ | **Guardrails** | Approvals, isolation, timeouts, concurrency, recursion depth, and shared cost budgets. |
 | 🎛️ | **Native TUI** | Live activity, an interactive dashboard, and settings without leaving OMP. |
 
@@ -58,7 +58,7 @@ return {
 };
 ```
 
-Independent calls run in parallel, and the returned object enters the model context. Known providers support concise direct calls such as `mcp.fal_ai.get_model_schema(...)`, `memory.recall(...)`, `state.get()`, `schema.status()`, `compact.status()`, and `judgment.ask(...)`. Refs found or computed at runtime use `tools.call({ ref, args })`.
+Independent calls run in parallel, and the returned object enters the model context. Known providers support concise direct calls such as `mcp.fal_ai.get_model_schema(...)`, `memory.recall(...)`, `state.get()`, `schema.status()`, `compact.status()`, and `judgment.ask(...)`, alongside `judge.filter(...)` for batch evaluation. Refs found or computed at runtime use `tools.call({ ref, args })`.
 
 ## Install
 

@@ -84,6 +84,8 @@ All calls return promises. Fields ending in `?` are optional; `unknown` marks pr
 | `compact.request(args?)` | `{requested:true,intent:{reason?,instructions?,preserve?,requestedBy,requestedAt}}` |
 | `compact.status()` | `{pending?:CompactIntent,last?:{at,requestedBy,status,summary?,tokensBefore?,estimatedTokensAfter?,error?}}` |
 | `compact.cancel()` | `{cancelled:true}` |
+| `judgment.ask(args)` | `{ok:true,backend,answers:Record<string,Answer>}|{ok:false,reason,detail?}` |
+| `judgment.stats()` | `{enabled,requests,batched,questions,merged,failures,refusals,timeouts,lastBackend?,lastError?}` |
 
 `memory.recall` multi-term literal queries default to ranked `queryMatch: "any"` so wording differences do not hide evidence; use `"all"` to require every canonical term in one indexed entry, and `queryMode: "phrase"` when adjacency matters. Results are hard-bounded either way. Structural filters (`ref`, `provider`, `action`, `outcome`) use exact persisted trace fields. Use `tools.catalog()`/`tools.search()` only to choose a current action head—catalog descriptions are navigation metadata and never become session evidence.
 
@@ -92,6 +94,8 @@ Recall returns one bounded flat hit stream. Every hit has the same copy-ready `{
 `memory.expand(args)` requires `session` plus a selector: `indices`, `entryIds`, `operationAddresses`, or `entryRange:{first,last}`. Optional `before`/`after` add adjacent entries. It returns normalized records in `entries`, with one uniform `tool` field and OMP `parentId` links. Long entries use lossless `textRange` chunks. For arbitrary filter/map/reduce/join/traversal work, use guest-local `memory.walk(args, async (entry, index) => { ... })`: it follows every expansion page, reassembles complete entries, awaits nested tool calls, and stops early when the visitor returns `false`. `memory.sessions` accepts an optional `limit`.
 
 Stable-provider arguments normalize near-miss spellings the way `omp.*` does: known aliases and casing/singular variants repair to the canonical key, numeric strings coerce for numeric fields, and scope spellings such as `cwd` repair to `project`. Unknown keys are never silently ignored—they fail validation with the offending property path named (e.g. `/befroe: must NOT have additional properties`).
+
+`judge.*` exposes ergonomic guest helpers over the judgment lane. `judge.bool(state, instructions, {fallback?})` returns probability of yes (`0..1`) or a fallback number. `judge.choice(state, options, instructions, {fallback?})` evaluates a choice label. `judge.score(state, criteria, instructions, {fallback?})` evaluates an ordered level index. `judge.filter(items, instructions, {threshold?,onFail?,maxItems?,maxBytes?})` and `judge.classify(items, categories, instructions, {onFail?,fallbackCategory?,maxItems?,maxBytes?})` evaluate collections with dual-bounded chunking (<=25 items, <=48 KiB) and fail-open preservation (`onFail: "keep-all"`). `judge.ask(state, questions)` provides direct access for custom question maps.
 
 `SessionInfo` is `{id,file,cwd,mtime,entryCount,tier:"hot"|"cold",branches,lineageFingerprint}`. Memory failures are returned in `error: {code,message,...}`; ambiguous-session failures may return only `{error}`. Check `error` before relying on optional success fields.
 

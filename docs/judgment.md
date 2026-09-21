@@ -97,6 +97,12 @@ Guest programs and batch scripts access the lane through `globalThis.judge`.
 - `judge.bool(state, instructions, options?)`: returns the probability of yes as a number, or the configured fallback when the backend fails.
 - `judge.choice(state, options, instructions, config?)`: returns the chosen label string from an array or criteria map.
 - `judge.score(state, criteria, instructions, config?)`: returns the score index from ordered levels.
-- `judge.filter(items, instructions, options?)`: evaluates an array in bounded chunks of up to 25 items per request. When a request fails, it preserves all chunk items under `onFail: "keep-all"`.
+- `judge.filter(items, instructions, options?)`: evaluates an array in bounded chunks. When a request fails, it preserves all chunk items under `onFail: "keep-all"`.
 - `judge.classify(items, categories, instructions, options?)`: assigns a category to each item across bounded chunks.
 - `judge.ask(state, questions)`: direct access for custom question maps.
+
+### Batch chunking and fail-open policy
+
+Batch helpers group items with two limits: at most 25 items and at most 48 KiB JSON payload per request. Items larger than 40 KiB are bounded in the evaluation state payload with a truncation notice, while the original item instances remain intact in returned collections.
+
+When a backend request fails or times out, `judge.filter` and `judge.classify` default to `onFail: "keep-all"`, returning all candidate items so failures do not discard data. Callers can also choose `onFail: "empty"` or `onFail: "throw"`.
