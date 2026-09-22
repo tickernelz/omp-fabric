@@ -45,6 +45,7 @@ import { writeContentForPreview } from "./write-diff-limits.js";
 import { createPreviewWriteToolDefinition } from "./write-preview.js";
 
 import { readChildToolAllowlist } from "../core/child-tool-allowlist.js";
+import { type OmpJobScope, ompJobScope, shellBackgroundSettings } from "./omp-session-scope.js";
 
 const MAX_RENDERER_ARGUMENT_CHARS = 200_000;
 const GUEST_READ_LINE_LIMIT = 100_000;
@@ -61,32 +62,41 @@ export const setOmpSessionIdentity = (identity: OmpSessionIdentity | undefined):
   sessionIdentity = identity;
 };
 
-const createNativeSession = (cwd: string, artifactPaths?: Map<string, string>): ToolSession => {
-  const artifactRoot = artifactPaths
-    ? mkdtempSync(path.join(os.tmpdir(), "omp-fabric-bash-"))
-    : undefined;
+/** Output artifacts for every shell definition of one provider: one root, one id map. */
+class ShellArtifacts {
+  readonly paths = new Map<string, string>();
+  readonly root = mkdtempSync(path.join(os.tmpdir(), "omp-fabric-bash-"));
+}
+
+const createNativeSession = (cwd: string, artifacts?: ShellArtifacts, withJobs = false): ToolSession => {
+  const identity = sessionIdentity;
+  const sessionId = (): string | null => identity?.getSessionId?.() ?? null;
+  const jobs = withJobs ? ompJobScope(sessionId) : undefined;
   return {
     cwd,
     hasUI: false,
     hasEditTool: false,
-    getSessionFile: () => sessionIdentity?.getSessionFile?.() ?? null,
-    getSessionId: () => sessionIdentity?.getSessionId?.() ?? null,
-    getArtifactsDir: () => sessionIdentity?.getArtifactsDir?.() ?? null,
+    getSessionFile: () => identity?.getSessionFile?.() ?? null,
+    getSessionId: sessionId,
+    getAgentId: () => jobs?.agentId() ?? null,
+    getArtifactsDir: () => identity?.getArtifactsDir?.() ?? null,
     getSessionSpawns: () => null,
+    ...(jobs ? { asyncJobManager: jobs.manager } : {}),
     settings: Settings.isolated({
       readLineNumbers: false,
       "read.defaultLimit": GUEST_READ_LINE_LIMIT,
       "tools.outputMaxColumns": 0,
+      ...shellBackgroundSettings(jobs),
     }),
-    ...(artifactRoot && artifactPaths
+    ...(artifacts
       ? {
           allocateOutputArtifact: async (toolType: string) => {
             try {
-              mkdirSync(artifactRoot, { recursive: true, mode: 0o700 });
+              mkdirSync(artifacts.root, { recursive: true, mode: 0o700 });
               const id = randomUUID();
-              const artifactPath = path.join(artifactRoot, `${toolType}-${id}.log`);
+              const artifactPath = path.join(artifacts.root, `${toolType}-${id}.log`);
               writeFileSync(artifactPath, "", { mode: 0o600 });
-              artifactPaths.set(id, artifactPath);
+              artifacts.paths.set(id, artifactPath);
               artifactAllocations.getStore()?.push(artifactPath);
               return { id, path: artifactPath };
             } catch {
@@ -120,8 +130,8 @@ const nativeDefinition = (tool: NativeTool): ToolDefinition<any, any> => {
   };
 };
 
-const createNativeBashToolDefinition = (cwd: string, artifactPaths: Map<string, string>): ToolDefinition<any, any> =>
-  nativeDefinition(new BashTool(createNativeSession(cwd, artifactPaths)) as unknown as NativeTool);
+const createNativeBashToolDefinition = (cwd: string, artifacts: ShellArtifacts): ToolDefinition<any, any> =>
+  nativeDefinition(new BashTool(createNativeSession(cwd, artifacts, true)) as unknown as NativeTool);
 
 const createNativeReadToolDefinition = (cwd: string): ToolDefinition<any, any> =>
   nativeDefinition(new ReadTool(createNativeSession(cwd)) as unknown as NativeTool);
@@ -798,8 +808,10 @@ export class OmpToolsProvider implements FabricProvider {
   readonly #catalog: CapturedToolCatalog | undefined;
   readonly #capturedTools: CapturedToolsProvider | undefined;
   readonly #cwd: string;
-  readonly #artifactPaths = new Map<string, string>();
-  readonly #bashDefinitions = new BashCwdDefinitions();
+  readonly #artifacts = new ShellArtifacts();
+  readonly #bashDefinitions = new BashCwdDefinitions((cwd) =>
+    createNativeBashToolDefinition(cwd, this.#artifacts),
+  );
 
   constructor(
     cwd: string,
@@ -811,7 +823,7 @@ export class OmpToolsProvider implements FabricProvider {
     this.#cwd = cwd;
     this.#tools = {
       read: createNativeReadToolDefinition(cwd),
-      bash: createNativeBashToolDefinition(cwd, this.#artifactPaths),
+      bash: createNativeBashToolDefinition(cwd, this.#artifacts),
       edit: createNativeReplaceEditToolDefinition(cwd),
       write: createPreviewWriteToolDefinition(cwd, createNativeSession(cwd)),
       grep: createGrepDefinitionWithSkip(cwd),
@@ -1121,7 +1133,7 @@ export class OmpToolsProvider implements FabricProvider {
       effective = paged.result;
       extras.read = paged.read;
     }
-    const normalized = normalizeResult(name, effective, this.#artifactPaths, appendReadNewline, extras);
+    const normalized = normalizeResult(name, effective, this.#artifacts.paths, appendReadNewline, extras);
     if (name !== "read" || typeof normalized !== "string") return normalized;
     if (UNREADABLE_READ_NOTE.test(normalized)) throw new Error(unreadableReadMessage(normalized, extras.read?.path));
     return expandSkillDirMarkersForRead(normalized, args, this.#cwd);

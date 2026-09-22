@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.23.0
+
+### Added
+
+- `omp.bash({ async: true })` runs the command as a host background job owned by the calling agent, resolving at once with `details.async.jobId`. The host delivers the finished job to that owner as an `async-result` follow-up, so the work outlives the program that started it and the agent receives its output. Before this the adapter built its own `ToolSession` with no job manager, and the parameter threw `Async job manager unavailable for this session` on every call. The agent's own `hub` tool inspects and cancels those jobs; `hub` is not a Fabric provider, so a guest program cannot reach it.
+- `async` on the guest `omp.bash` contract, so the parameter type-checks without a cast.
+- The owner is the live agent whose session id matches the identity the provider captured, and its own `asyncJobManager` is the one the job is registered on, so a secondary in-process session that the host deliberately left without a manager stays unarmed instead of registering jobs nobody delivers. The owner is re-resolved per call, so `/new` and a session switch keep delivering.
+
+### Fixed
+
+- The shell adapter advertised backgrounding it could not perform. Its isolated settings fell back to the schema defaults (`async.enabled` and `bash.autoBackground.enabled` both true), so the descriptor carried an `async` parameter and the description promised auto-background delivery on every session. `async.enabled` now follows the host and needs a resolved job scope; auto-background is pinned off, because a mid-flight handover would resolve a guest call with a job notice in place of the command's output.
+- `omp.bash({ cwd })` now runs the same native shell definition as a plain call. It went through the legacy compatibility shim, whose schema carried only `command` and `timeout`, so a per-directory call silently dropped `env` and `pty`; those options now work, and such calls also gain artifact-backed output recovery and timeout-clamp notices.
+- The advertised `omp.bash` schema keeps its parameter descriptions when `async` is available. The host's async-mode schema describes only `timeout` and `async`, which left `command`, `cwd`, and `pty` undocumented for the model exactly when the feature armed.
+
 ## 1.22.1
 
 ### Documentation

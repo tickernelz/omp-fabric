@@ -464,7 +464,7 @@ type OmpReadOptions = { offset?: number; limit?: number; start?: number; max?: n
 // runtime repairs them, so the checker has to accept the same spellings or a
 // repairable call is rejected before it ever reaches the sandbox.
 type OmpShellOptions = {
-  timeout?: number; timeoutMs?: number; settle?: boolean;
+  timeout?: number; timeoutMs?: number; settle?: boolean; async?: boolean;
   cwd?: string; workdir?: string; directory?: string; workingDirectory?: string;
   env?: Record<string, string>; pty?: boolean;
 };

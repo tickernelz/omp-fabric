@@ -17,7 +17,7 @@ One type-checked TS program in a fresh executor (isolated QuickJS by default). O
 | Tool | Form | Returns |
 |------|------|---------|
 | `read` | `path` \| `{path,offset?,limit?}` \| `(path, options?)` | `string` |
-| `bash` | `command` \| `{command,timeout?,cwd?}` \| `(command, options?)` | `{ok:true,output,details}`; rejects on a nonzero exit (`settle:true` returns `{ok:false,output,details:null,exitCode,error}` instead) |
+| `bash` | `command` \| `{command,timeout?,cwd?,async?}` \| `(command, options?)` | `{ok:true,output,details}`; rejects on a nonzero exit (`settle:true` returns `{ok:false,output,details:null,exitCode,error}` instead) |
 | `grep` | `pattern` \| `{pattern,path?,glob?,ignoreCase?,literal?,context?,limit?}` \| `(pattern, path?, limit?)` | `string` |
 | `find` | `pattern` \| `{pattern,path?,limit?}` \| `(pattern, path?, limit?)` | `string` |
 | `ls` | `path?` \| `{path?,limit?}` \| `(path, options?)` | `string` |
@@ -31,6 +31,8 @@ For `omp.edit`, entry-level `all:true` applies that replacement to every non-ove
 Shell tools reject on an ordinary nonzero exit; pass `settle:true` to get `{ok:false,output,details:null,exitCode,error}` instead of a rejection. Timeout, cancellation, approval, security, and spawn failures still reject. Other OMP core tool errors reject normally.
 
 Aliases are normalized to canonical fields before host validation. Command aliases include `cmd`/`shell`/`cmdline`/`script`/`commandLine`; pattern aliases include `query`/`regex`/`search` plus `q`/`expression`/`text` for grep and `name`/`filename`/`glob`/`include` for find. Path aliases include `file`, `file_path`, camel-case path variants, `dir`/`folder`/`directory`, and target-file variants. Edit text accepts `old`/`from`/`old_string`-style and `new`/`to`/`replacement`/`new_string`-style spellings, including inside `edits`; write content accepts `contents`/`body`/`text`/`data`/`fileContent`. `ic`/`caseInsensitive`→`ignoreCase`, `globPattern`→`glob`, `ctx`→`context`, `max`→`limit`, and `start`→`offset`.
+
+`async:true` starts the command as a host background job: the call resolves at once with `details.async.jobId`, the command keeps running past this program, and its output reaches the agent as a follow-up message. The program never sees that output, and `settle` has nothing to settle on a call that resolved, so read a file the command writes when a later step needs its result. Foreground calls are never backgrounded, whatever their duration. The parameter needs a live agent owning this session with a host job manager; the schema drops it when the owner is missing, parked, or was given no manager, and passing it anyway fails with `Async bash execution is disabled`.
 
 Shell `timeout` is in seconds; `timeoutMs` is converted from milliseconds. Numeric strings in `limit`, `timeout`, `offset`, and `context` coerce to numbers. `null`/`undefined` is omitted only for known optional fields; required fields remain invalid so authoritative host validation still reports them. Canonical fields win when both canonical and alias spellings are present. Unknown keys still fail the excess-property type check.
 

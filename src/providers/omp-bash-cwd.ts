@@ -93,15 +93,20 @@ export const resolveBashCwdArgument = (
   args: Record<string, unknown>,
 ): Record<string, unknown> => resolveShellCwdArgument("bash", sessionCwd, args);
 
-const CWD_PROPERTY = Type.Optional(
-  Type.String({
-    description:
-      "Execution directory for this command; relative paths resolve from the session cwd.",
-  }),
-);
+const CWD_DESCRIPTION =
+  "Execution directory for this command; relative paths resolve from the session cwd.";
+
+const CWD_PROPERTY = Type.Optional(Type.String({ description: CWD_DESCRIPTION }));
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
+
+/** The host drops these descriptions from its async-mode schema; a model reads them either way. */
+const SHELL_FIELD_DESCRIPTIONS: Record<string, string> = {
+  command: "command to execute",
+  [OMP_BASH_CWD_KEY]: CWD_DESCRIPTION,
+  pty: "run in pty mode",
+};
 
 const schemaDocument = (schema: unknown): Record<string, unknown> | undefined => {
   if (isRecord(schema)) return schema;
@@ -115,13 +120,22 @@ const schemaDocument = (schema: unknown): Record<string, unknown> | undefined =>
 export const withShellCwdSchema = (schema: unknown): unknown => {
   const document = schemaDocument(schema);
   if (!document || !isRecord(document.properties)) return schema;
-  if (Object.hasOwn(document.properties, OMP_BASH_CWD_KEY)) return schema;
-  const cwdSchema = schemaDocument(CWD_PROPERTY);
-  if (!cwdSchema) return schema;
-  return Type.Unsafe({
-    ...document,
-    properties: { ...document.properties, [OMP_BASH_CWD_KEY]: cwdSchema },
-  });
+  const properties: Record<string, unknown> = { ...document.properties };
+  let changed = false;
+  const cwdSchema = Object.hasOwn(properties, OMP_BASH_CWD_KEY)
+    ? undefined
+    : schemaDocument(CWD_PROPERTY);
+  if (cwdSchema) {
+    properties[OMP_BASH_CWD_KEY] = cwdSchema;
+    changed = true;
+  }
+  for (const [field, description] of Object.entries(SHELL_FIELD_DESCRIPTIONS)) {
+    const property = properties[field];
+    if (!isRecord(property) || typeof property.description === "string") continue;
+    properties[field] = { ...property, description };
+    changed = true;
+  }
+  return changed ? Type.Unsafe({ ...document, properties }) : schema;
 };
 
 /** Compatibility wrapper retained for existing callers and tests. */
@@ -154,8 +168,10 @@ class ShellCwdDefinitions {
   }
 }
 
+export type BashDefinitionFactory = ShellDefinitionFactory;
+
 export class BashCwdDefinitions extends ShellCwdDefinitions {
-  constructor() {
-    super(createBashToolDefinition);
+  constructor(createDefinition: BashDefinitionFactory = createBashToolDefinition) {
+    super(createDefinition);
   }
 }
