@@ -489,7 +489,12 @@ export class LcmRuntime {
           await this.runMaintenance();
         }
       })
-      .finally(() => { this.maintenanceRunning = false; this.maintenanceQueued = false; });
+      .finally(() => {
+        this.maintenanceRunning = false;
+        if (!this.maintenanceQueued || this.closed) { this.maintenanceQueued = false; return; }
+        this.maintenanceQueued = false;
+        this.scheduleMaintenance();
+      });
     this.maintenancePending = run.catch((error) => { this.degradedError = error; });
   }
 

@@ -63,7 +63,7 @@ describe("child optional tool allowlist", () => {
       undefined,
       () => new Set(["grep", "glob"]),
     );
-    expect((await provider.list({}, context)).map((entry) => entry.name)).toEqual(["grep"]);
+    expect((await provider.list({}, context)).map((entry) => entry.name)).toEqual(["grep", "find"]);
     expect(await provider.describe("read", context)).toBeUndefined();
     expect(await provider.describe("grep", context)).toBeDefined();
     expect(() => provider.prepareArguments("read", { path: "test.txt" })).toThrow(/OMP's active tool selection/);

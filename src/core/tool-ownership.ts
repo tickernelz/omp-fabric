@@ -7,7 +7,7 @@ import type {
 } from "@oh-my-pi/pi-coding-agent";
 import { readFabricExecutionTraceV1 } from "../audit/index.js";
 import { NESTED_TOOL_CALL_ID_PREFIX } from "./action-registry.js";
-import { OMP_CORE_TOOL_NAME_SET, routedAliasTarget } from "./omp-tools.js";
+import { FABRIC_OWNED_HOST_TOOLS } from "./omp-tools.js";
 
 export interface FabricToolOwnershipHost {
   getActiveTools(): string[];
@@ -167,16 +167,15 @@ export class FabricToolOwnership {
     if (!hideCore && hidden.size === 0 && exclude.size === 0) return this.#restore(active);
     if (hideCore) {
       this.#savedNativeCoreTools ??= active.flatMap((name, index) =>
-        OMP_CORE_TOOL_NAME_SET.has(name) || routedAliasTarget(name, new Set(active)) !== undefined ? [{ name, index }] : [],
+        FABRIC_OWNED_HOST_TOOLS.has(name) ? [{ name, index }] : [],
       );
       for (const name of active) {
-        if (OMP_CORE_TOOL_NAME_SET.has(name) || routedAliasTarget(name, new Set(active))) this.#hiddenCoreTools.add(name);
+        if (FABRIC_OWNED_HOST_TOOLS.has(name)) this.#hiddenCoreTools.add(name);
       }
     }
     const next: string[] = [];
     for (const [index, name] of active.entries()) {
-      const routed = OMP_CORE_TOOL_NAME_SET.has(name) || routedAliasTarget(name, new Set(active)) !== undefined;
-      const coreHidden = hideCore && routed && (enforce || !include.has(name));
+      const coreHidden = hideCore && FABRIC_OWNED_HOST_TOOLS.has(name) && (enforce || !include.has(name));
       const extensionHidden = hidden.has(name) && !include.has(name);
       const explicitlyExcluded = exclude.has(name);
       if (coreHidden || extensionHidden || explicitlyExcluded) {

@@ -4,7 +4,7 @@ import path from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import ompFabric from "../src/index.js";
-import { OMP_CORE_TOOL_NAMES } from "../src/core/omp-tools.js";
+import { hostToolForCore, OMP_CORE_TOOL_NAMES } from "../src/core/omp-tools.js";
 import type { FabricInvocationContext } from "../src/protocol.js";
 import type { OmpToolsProvider } from "../src/providers/omp-tools-provider.js";
 
@@ -105,7 +105,7 @@ afterEach(() => {
 describe("omp provider host tool authority", () => {
   it("keeps core tools callable after full code mode hides them from the model", async () => {
     const cwd = fullCodeRoot();
-    const session = await startSession(cwd, [...OMP_CORE_TOOL_NAMES, "task"]);
+    const session = await startSession(cwd, [...OMP_CORE_TOOL_NAMES.map(hostToolForCore), "task"]);
 
     expect(session.activeTools).not.toContain("read");
     const provider: OmpToolsProvider | undefined = created.provider;

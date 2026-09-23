@@ -22,12 +22,15 @@ describe("fabricExecutionKernelGuidance", () => {
   it("names every routed core tool in both call shapes and omits the denied ones", () => {
     const guidance = fabricExecutionKernelGuidance(true, ["ls"]);
     const routed = guidance.slice(guidance.indexOf("A direct tool call named"), guidance.indexOf("Such a rejection"));
-    for (const name of ["read", "bash", "edit", "write", "grep", "find"]) {
+    for (const name of ["read", "bash", "edit", "write", "grep"]) {
       expect(routed).toContain("`" + name + "`");
       expect(routed).toContain("`omp." + name + "`");
     }
+    expect(routed).toContain("`glob`");
+    expect(routed).toContain("`omp.find`");
     expect(routed).not.toContain("`ls`");
     expect(routed).not.toContain("`omp.ls`");
+    expect(guidance).toContain("semantic search fabric does not serve");
     expect(guidance).toContain("`task`");
   });
 

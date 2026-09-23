@@ -4,6 +4,7 @@ import path from "node:path";
 import { renameAtomic } from "./core/atomic-write.js";
 import { normalizeModelAliases } from "./core/model-resolution.js";
 import { OMP_CORE_TOOL_NAME_SET } from "./core/omp-tools.js";
+import { MAX_LEAF_ENTRIES } from "./compaction/lcm-maintenance.js";
 import {
   CURRENT_FABRIC_CONFIG_VERSION,
   migrateFabricConfigDocument,
@@ -1206,7 +1207,7 @@ export const normalizeFabricConfig = (input: Record<string, unknown>): FabricCon
       lcmMaxInputChars: boundedInteger(compaction.lcmMaxInputChars, DEFAULT_FABRIC_CONFIG.compaction.lcmMaxInputChars, 1_024, 1_000_000),
       lcmMaxOutputTokens: boundedInteger(compaction.lcmMaxOutputTokens, DEFAULT_FABRIC_CONFIG.compaction.lcmMaxOutputTokens, 128, 32_768),
       lcmMaxOutputChars: boundedInteger(compaction.lcmMaxOutputChars, DEFAULT_FABRIC_CONFIG.compaction.lcmMaxOutputChars, 1_024, 131_072),
-      lcmMaxLeafEntries: boundedInteger(compaction.lcmMaxLeafEntries, DEFAULT_FABRIC_CONFIG.compaction.lcmMaxLeafEntries, 1, 128),
+      lcmMaxLeafEntries: boundedInteger(compaction.lcmMaxLeafEntries, DEFAULT_FABRIC_CONFIG.compaction.lcmMaxLeafEntries, 1, MAX_LEAF_ENTRIES),
       lcmMaxCondenseChildren: boundedInteger(compaction.lcmMaxCondenseChildren, DEFAULT_FABRIC_CONFIG.compaction.lcmMaxCondenseChildren, 2, 32),
       lcmMaintenancePasses: boundedInteger(compaction.lcmMaintenancePasses, DEFAULT_FABRIC_CONFIG.compaction.lcmMaintenancePasses, 1, 64),
       lcmMaintenanceConcurrency: boundedInteger(compaction.lcmMaintenanceConcurrency, DEFAULT_FABRIC_CONFIG.compaction.lcmMaintenanceConcurrency, 1, 8),

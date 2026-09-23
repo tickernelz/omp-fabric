@@ -1,19 +1,19 @@
 import { existsSync, readFileSync } from "node:fs";
 import * as path from "node:path";
-import { OMP_CORE_TOOL_ALIASES, OMP_CORE_TOOL_NAMES } from "./omp-tools.js";
+import { hostToolForCore, OMP_CORE_TOOL_NAMES, type OmpCoreToolName } from "./omp-tools.js";
 
-const routedCoreTools = (denied: readonly string[]): readonly string[] =>
+const routedCoreTools = (denied: readonly string[]): readonly OmpCoreToolName[] =>
   OMP_CORE_TOOL_NAMES.filter((name) => !denied.includes(name));
 
 const fullCodeKernelRule = (denied: readonly string[]): string => {
   const routed = routedCoreTools(denied);
-  const aliases = [...OMP_CORE_TOOL_ALIASES].filter(([, target]) => routed.includes(target));
-  const direct = nameList(routed);
+  const renamed = routed.filter((name) => hostToolForCore(name) !== name);
+  const direct = nameList(routed.map(hostToolForCore));
   const routedRefs = nameList(routed.map((name) => "omp." + name));
-  const aliasClause = aliases.length === 0
+  const aliasClause = renamed.length === 0
     ? ""
-    : " The host aliases " + nameList(aliases.map(([alias]) => alias)) + " are hidden with them, so reach them as "
-      + nameList(aliases.map(([, target]) => "omp." + target)) + ".";
+    : " " + nameList(renamed.map(hostToolForCore)) + " is the host's name for the search "
+      + nameList(renamed.map((name) => "omp." + name)) + " runs; the host's own `find` is a semantic search fabric does not serve, so it stays a direct call.";
   return "OMP Fabric full code mode: `fabric_exec` is the only way to call OMP core tools — use them as `omp.*` inside `code`."
     + " A direct tool call named " + direct + " is not in this session's tool list and fails before it runs; the same work goes through " + routedRefs + " inside `fabric_exec`." + aliasClause
     + " Such a rejection means the call shape was wrong, never that the capability is missing, so reissue it inside `fabric_exec` instead of retrying the direct form or reporting the tool as unavailable."

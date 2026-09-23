@@ -6,7 +6,7 @@ import { canonicalLcmPayload } from "../../src/storage/lcm-ledger.js";
 import { LcmRuntime, renderAddressedFrontier } from "../../src/compaction/lcm-runtime.js";
 import { LCM_RECOVERY_POINTER } from "../../src/compaction/render.js";
 import { MAX_SUMMARY_BYTES } from "../../src/compaction/bounds.js";
-import type { LcmJob } from "../../src/compaction/lcm-maintenance.js";
+import { DEFAULT_LEAF_ENTRIES, type LcmJob } from "../../src/compaction/lcm-maintenance.js";
 import { LcmMemoryAdapter } from "../../src/memory/lcm-adapter.js";
 import { closeAfterTest, releaseTemp, tempRoot } from "../fixtures/lcm-temp.js";
 
@@ -442,6 +442,39 @@ describe("LCM runtime", () => {
     expect(tail[0]?.sources.map((source) => source.entryId)).toEqual(["new"]);
     await runtime.shutdown();
   });
+  it("puts the interrupted request ahead of the summaries that already cover the history", async () => {
+    const root = makeRoot();
+    const request = "upgrade lewat frontend bukan CLI, ini tracebacknya";
+    const older = Array.from({ length: 4 }, (_, index) => makeEntry(`h${index}`, `older history ${index}`, index === 0 ? null : `h${index - 1}`));
+    const tail = [
+      makeEntry("u9", request, "h3"),
+      { ...makeEntry("a9", "working on it", "u9"), message: { role: "assistant", content: [{ type: "text", text: "working on it" }] } } as SessionEntry,
+      { ...makeEntry("a10", "still working", "a9"), message: { role: "assistant", content: [{ type: "text", text: "still working" }] } } as SessionEntry,
+    ];
+    const entries = [...older, ...tail];
+    const runtime = openRuntime(makeContext(root, entries), { rootDir: root, maxLeafEntries: 4 });
+    await runtime.readback();
+
+    const rows = runtime.raw("session-1");
+    const covered = runtime.maintenance.createLeaf(rows.slice(0, 4));
+    if (!covered) throw new Error("expected a covering leaf");
+    runtime.maintenance.complete(
+      runtime.maintenance.claim(runtime.maintenance.jobForNode(covered.nodeId)!.jobId),
+      { text: "the older history summarized by the model", inputTokens: 1, outputTokens: 1, cost: 0, wallMs: 1, modelHash: "model-1" },
+      inputFor("the older history summarized by the model"),
+    );
+
+    const result = runtime.compact({ branchEntries: entries, sessionId: "session-1", firstKeptEntryId: "a10", tokensBefore: 9_000 });
+
+    expect(result.summary).toContain("[Active Request] lcm.raw:session-1:u9:1");
+    expect(result.summary).toContain(request);
+    expect(result.summary).toContain("the older history summarized by the model");
+    expect(result.summary.indexOf(request)).toBeLessThan(result.summary.indexOf("the older history summarized by the model"));
+    expect(result.summary).toContain(`lcm.summary:${covered.nodeId}`);
+    expect(result.summary).toContain("[Recent Detail]");
+    await runtime.shutdown();
+  });
+
   it("keeps the newest tail lines when the output bound is tight", async () => {
     const root = makeRoot();
     const entries = [
@@ -488,7 +521,7 @@ describe("LCM runtime", () => {
 
   it("keeps an oversized deterministic leaf from hiding the model summaries under it", async () => {
     const root = makeRoot();
-    const entries = Array.from({ length: 8 }, (_, index) => makeEntry(`e${index}`, `shadow source ${index}`, index === 0 ? null : `e${index - 1}`));
+    const entries = Array.from({ length: 40 }, (_, index) => makeEntry(`e${index}`, `shadow source ${index}`, index === 0 ? null : `e${index - 1}`));
     const runtime = openRuntime(makeContext(root, entries), { rootDir: root, maxLeafEntries: 4 });
     await runtime.readback();
     const rows = runtime.raw("session-1");
@@ -504,6 +537,47 @@ describe("LCM runtime", () => {
     const frontier = runtime.maintenance.getFrontier("session-1", active);
     expect(frontier.map((node) => node.nodeId)).toEqual([small.nodeId]);
     expect(runtime.maintenance.selectLeaf(rows, active).map((row) => row.entryId)).toEqual(["e4", "e5", "e6", "e7"]);
+    expect(wide.sources.length).toBeGreaterThan(DEFAULT_LEAF_ENTRIES);
+    await runtime.shutdown();
+  });
+
+  it("keeps an oversized deterministic leaf out of the upgrade queue", async () => {
+    const root = makeRoot();
+    const entries = Array.from({ length: 40 }, (_, index) => makeEntry(`e${index}`, `upgrade source ${index}`, index === 0 ? null : `e${index - 1}`));
+    const runtime = openRuntime(makeContext(root, entries), { rootDir: root, maxLeafEntries: 4 });
+    await runtime.readback();
+    const rows = runtime.raw("session-1");
+
+    const wide = runtime.maintenance.createLeaf(rows);
+    if (!wide) throw new Error("expected an oversized leaf");
+    runtime.maintenance.completeEmergency(runtime.maintenance.claimEmergency(runtime.maintenance.jobForNode(wide.nodeId)!.jobId), "deterministic excerpt");
+    const small = runtime.maintenance.createLeaf(rows.slice(0, 4));
+    if (!small) throw new Error("expected a bounded leaf");
+    runtime.maintenance.completeEmergency(runtime.maintenance.claimEmergency(runtime.maintenance.jobForNode(small.nodeId)!.jobId), "bounded excerpt");
+
+    const upgrades = runtime.maintenance.selectUpgrades("session-1", undefined, 16).map((node) => node.nodeId);
+    expect(upgrades).toContain(small.nodeId);
+    expect(upgrades).not.toContain(wide.nodeId);
+    await runtime.shutdown();
+  });
+
+  it("runs a schedule that lands while the previous run is settling", async () => {
+    const root = makeRoot();
+    const entries = [makeEntry("e0", "settling source")];
+    const runtime = openRuntime(makeContext(root, entries), { rootDir: root });
+    await runtime.readback();
+    const internals = runtime as unknown as { runMaintenance: () => Promise<void>; scheduleMaintenance: () => void; maintenancePending: Promise<void> };
+    let runs = 0;
+    internals.runMaintenance = async () => { runs += 1; };
+
+    internals.scheduleMaintenance();
+    await Promise.resolve();
+    await Promise.resolve();
+    internals.scheduleMaintenance();
+    await internals.maintenancePending;
+    await internals.maintenancePending;
+
+    expect(runs).toBe(2);
     await runtime.shutdown();
   });
 

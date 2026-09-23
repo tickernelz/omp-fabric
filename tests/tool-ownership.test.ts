@@ -20,24 +20,16 @@ const hostWith = (initial: string[]) => {
 };
 
 describe("FabricToolOwnership", () => {
-  it("takes the host's file and shell builtins including the renamed glob, and leaves the rest direct", () => {
+  it("takes the host tools it replaces, including glob, and leaves the rest direct", () => {
     const state = hostWith(["read", "bash", "edit", "write", "grep", "glob", "find", "eval", "ast_grep", "task", "todo", "fabric_exec"]);
     const ownership = new FabricToolOwnership(state.host);
 
     expect(ownership.apply(true)).toBe(true);
-    expect(state.active()).toEqual(["eval", "ast_grep", "task", "todo", "fabric_exec"]);
+    expect(state.active()).toEqual(["find", "eval", "ast_grep", "task", "todo", "fabric_exec"]);
     expect(ownership.hostActiveTools().has("glob")).toBe(true);
 
     expect(ownership.apply(false)).toBe(true);
-    expect(state.active()).toContain("glob");
-  });
-
-  it("leaves a host alias alone when the core tool it routes to is gone", () => {
-    const state = hostWith(["read", "glob", "fabric_exec"]);
-    const ownership = new FabricToolOwnership(state.host);
-
-    expect(ownership.apply(true)).toBe(true);
-    expect(state.active()).toEqual(["glob", "fabric_exec"]);
+    expect(state.active()).toEqual(["read", "bash", "edit", "write", "grep", "glob", "find", "eval", "ast_grep", "task", "todo", "fabric_exec"]);
   });
 
   it("gives Fabric exclusive ownership of active OMP core tools", () => {
@@ -47,7 +39,7 @@ describe("FabricToolOwnership", () => {
       "edit",
       "write",
       "grep",
-      "find",
+      "glob",
       "ls",
       "custom_tool",
       "fabric_exec",
@@ -63,13 +55,13 @@ describe("FabricToolOwnership", () => {
   });
 
   it("restores only the native core tools that were active before full mode", () => {
-    const state = hostWith(["read", "find", "custom_tool", "fabric_exec"]);
+    const state = hostWith(["read", "glob", "custom_tool", "fabric_exec"]);
     const ownership = new FabricToolOwnership(state.host);
 
     ownership.apply(true);
     expect(state.active()).toEqual(["custom_tool", "fabric_exec"]);
     expect(ownership.apply(false)).toBe(true);
-    expect(state.active()).toEqual(["read", "find", "custom_tool", "fabric_exec"]);
+    expect(state.active()).toEqual(["read", "glob", "custom_tool", "fabric_exec"]);
     expect(state.active()).not.toContain("bash");
   });
 

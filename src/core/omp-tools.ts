@@ -19,26 +19,20 @@ export const isOmpShellRef = (ref: string): boolean => ref === "omp.bash";
 
 export const OMP_CORE_TOOL_NAME_SET: ReadonlySet<string> = new Set(OMP_CORE_TOOL_NAMES);
 
-/** Host names for a capability fabric routes under a different core name. */
-export const OMP_CORE_TOOL_ALIASES: ReadonlyMap<string, OmpCoreToolName> = new Map([
-  ["glob", "find"],
-  ["search", "grep"],
-]);
+/** The host tool a core tool replaces, when the two carry different names. `omp.find` runs the host's glob search; the host's own `find` is a semantic search fabric does not serve. */
+const HOST_TOOL_FOR_CORE: ReadonlyMap<OmpCoreToolName, string> = new Map([["find", "glob"]]);
 
-/** An alias is fabric's to hide only while the core tool it routes to is itself routed. */
-export const routedAliasTarget = (
-  name: string,
-  routedNames: ReadonlySet<string>,
-): OmpCoreToolName | undefined => {
-  const target = OMP_CORE_TOOL_ALIASES.get(name);
-  return target !== undefined && routedNames.has(target) ? target : undefined;
-};
+export const hostToolForCore = (name: OmpCoreToolName): string => HOST_TOOL_FOR_CORE.get(name) ?? name;
+
+/** The host tools fabric replaces, and so the ones it owns while full code mode is on. */
+export const FABRIC_OWNED_HOST_TOOLS: ReadonlySet<string> = new Set(OMP_CORE_TOOL_NAMES.map(hostToolForCore));
 
 /** An empty host selection reads as unknown, so it denies nothing. */
 export const ompCoreToolDenied = (
   name: string,
   hostActiveTools: ReadonlySet<string> | undefined,
-): boolean => Boolean(hostActiveTools?.size) && !hostActiveTools!.has(name);
+): boolean => Boolean(hostActiveTools?.size)
+  && !hostActiveTools!.has(OMP_CORE_TOOL_NAME_SET.has(name) ? hostToolForCore(name as OmpCoreToolName) : name);
 
 export const deniedOmpCoreTools = (
   hostActiveTools: ReadonlySet<string> | undefined,
