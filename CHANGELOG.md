@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.24.1
+
+### Fixed
+
+- `omp.find` runs the host's `glob` search, so fabric now owns `glob` in full code mode and leaves the host's own `find` alone. The host's `find` is a semantic search fabric does not serve; hiding it removed a capability without replacing it, and the kernel guidance claimed the two were the same work. Denial of a core tool is decided against the host tool that backs it.
+- An oversized deterministic leaf is judged against `max(lcmMaxLeafEntries, 32)`, so a legacy leaf between 33 and 128 sources is excluded from the frontier again. Judging it against the configuration ceiling alone let such a leaf shadow the model summaries covering the same range, which is the defect 1.24.0 shipped to fix.
+- `selectUpgrades` skips tainted nodes, so an oversized deterministic leaf cannot be upgraded into a single node that hides the bounded summaries beside it.
+- A maintenance schedule arriving while the previous run settles now runs. The drain cleared the queued flag in `finally` without acting on it, so that pass waited for the next trigger.
+
 ## 1.24.0
 
 ### Fixed
@@ -13,7 +22,7 @@
 - The tail digest is sized after the request head, so a tight `lcmMaxOutputChars` no longer clips away the newest lines it just promised to keep.
 - One stored entry keeps one identity across the rewrites the host performs after the fact: inline image data hashes to `blob:sha256:<digest>`, opaque reasoning signatures, `retryRecovery` and a zero `errorId` are dropped, and a pruned tool result stays on the revision it replaced. Session migration counts a reused revision as a duplicate instead of an import.
 - Maintenance opens up to `lcmMaintenanceConcurrency` leaves per pass, runs after every turn inside a long agent run, and coalesces schedules that arrive while a run is in flight. An emergency node whose evidence cannot fit one prompt is left alone instead of being replaced by a summary of a truncated slice.
-- Full code mode hides the host's `glob` and `search` aliases along with the core tools they route to, and restores them on release. `glob` stayed directly callable after the host renamed `find`, so file search sat on the direct path while every other file tool was routed.
+- Full code mode hides the host's `glob` along with the core tools fabric replaces, and restores it on release. `glob` stayed directly callable because fabric's core list still said `find`, so file search sat on the direct path while every other file tool was routed.
 - Captured tools keep every field the host forwards (`loadMode`, `deferrable`, `readsSkillUris`, `approval`, `strict`, MCP names); the wrapper copied a fixed eight-field subset. `fabric_exec` declares `readsSkillUris`, which the host reads to decide whether a tool can reach `skill://` content.
 
 ### Added
