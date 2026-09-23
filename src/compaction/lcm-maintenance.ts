@@ -16,8 +16,6 @@ export interface LcmBudgetPolicy extends LcmBudget { sessionCalls: number; }
 const DEFAULT_LCM_BUDGET: LcmBudgetPolicy = { calls: Number.POSITIVE_INFINITY, inputTokens: Number.POSITIVE_INFINITY, outputTokens: Number.POSITIVE_INFINITY, cost: Number.POSITIVE_INFINITY, wallMs: Number.POSITIVE_INFINITY, sessionCalls: Number.POSITIVE_INFINITY };
 export interface LcmMaintenanceOptions { now?: () => number; ownerId?: string; policyHash?: string; maxLeafEntries?: number; maxCondenseChildren?: number; maxInputChars?: number; maxOutputChars?: number; modelTimeoutMs?: number; budget?: Partial<LcmBudgetPolicy>; maxConcurrentJobs?: number | (() => number); }
 export const DEFAULT_LEAF_ENTRIES = 32;
-/** The configuration ceiling for a leaf, so a bounded pass can never produce more sources than this. */
-export const MAX_LEAF_ENTRIES = 128;
 const EMPTY_TAINT: ReadonlySet<string> = new Set();
 export const DEFAULT_MAINTENANCE_CONCURRENCY = 3;
 export const LEASE_MS = 30_000;

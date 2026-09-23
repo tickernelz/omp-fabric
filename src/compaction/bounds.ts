@@ -1,4 +1,6 @@
 export const MAX_SUMMARY_BYTES = 32 * 1024;
+/** The configuration ceiling for entries in one leaf. */
+export const MAX_LEAF_ENTRIES = 128;
 const MAX_REQUEST_SOURCE_BYTES = 8 * 1024;
 
 const encoder = new TextEncoder();

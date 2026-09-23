@@ -4,7 +4,7 @@ import path from "node:path";
 import { renameAtomic } from "./core/atomic-write.js";
 import { normalizeModelAliases } from "./core/model-resolution.js";
 import { OMP_CORE_TOOL_NAME_SET } from "./core/omp-tools.js";
-import { MAX_LEAF_ENTRIES } from "./compaction/lcm-maintenance.js";
+import { MAX_LEAF_ENTRIES } from "./compaction/bounds.js";
 import {
   CURRENT_FABRIC_CONFIG_VERSION,
   migrateFabricConfigDocument,
