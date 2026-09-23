@@ -213,6 +213,7 @@ export const createFabricExecTool = (
   defineTool({
     name: "fabric_exec",
     label: "Fabric",
+    readsSkillUris: true,
     description:
       "Execute type-checked TypeScript through Fabric's configured executor for OMP tools, MCP, Fabric providers, discovery, and extensions. QuickJS is isolated by default; the optional Node/Bun process is an unsafe trusted-code escape hatch. In full code mode, and always in Schema enforce mode, this is the exclusive model tool path.",
     promptGuidelines: [

@@ -1,11 +1,5 @@
 import type { ExtensionRunner, RegisteredTool, ToolDefinition } from "@oh-my-pi/pi-coding-agent";
 
-// Local mirror of wrapRegisteredTool/wrapToolDefinition (OMP host,
-// core/extensions/wrapper.js and core/tools/tool-definition-wrapper.js).
-// Captured tools must execute with exactly the host wrapper semantics —
-// extension runner context injection and post-execution addedToolNames merge —
-// without importing the host package during extension load.
-
 type WrappedExecute = (
   toolCallId: unknown,
   params: unknown,
@@ -37,6 +31,7 @@ const wrapToolDefinition = (
 ): WrappedRegisteredTool => {
   const execute = definition.execute as unknown as WrappedExecute;
   return {
+    ...(definition as unknown as Record<string, unknown>),
     name: definition.name,
     label: definition.label,
     description: definition.description,

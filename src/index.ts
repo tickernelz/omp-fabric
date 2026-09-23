@@ -541,6 +541,7 @@ export default async function ompFabric(omp: ExtensionAPI): Promise<void> {
         maxCondenseChildren: state.config.compaction.lcmMaxCondenseChildren,
         maxMaintenancePasses: state.config.compaction.lcmMaintenancePasses,
         maintenanceConcurrency: state.config.compaction.lcmMaintenanceConcurrency,
+        maintenanceRunSeconds: state.config.compaction.lcmMaintenanceRunSeconds,
         modelSummaries: state.config.compaction.lcmModelSummaries,
         modelTimeoutSeconds: state.config.compaction.lcmModelTimeoutSeconds,
         maxDailyModelCalls: state.config.compaction.lcmMaxDailyModelCalls,
@@ -602,6 +603,7 @@ export default async function ompFabric(omp: ExtensionAPI): Promise<void> {
     // the program never executed (type errors, aborts).
     if (state.initialized) state.resetSpeculation();
     if (state.initialized) await state.publishHostLifecycle("omp.turn_end", event);
+    void lcmRuntime?.syncAndSchedule().catch(() => {});
     // A turn with new action evidence only enqueues the background compiler;
     // the hook returns without scanning session files or waiting on a lock.
     if (entropyEvidenceThisTurn) {

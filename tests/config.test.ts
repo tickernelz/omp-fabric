@@ -662,6 +662,13 @@ describe("Fabric configuration", () => {
     expect(untouched.softThresholdRatio).toBe(0.4);
   });
 
+  it("bounds the maintenance run time to 10-600 seconds", () => {
+    expect(normalizeFabricConfig({}).compaction.lcmMaintenanceRunSeconds).toBe(60);
+    expect(normalizeFabricConfig({ compaction: { lcmMaintenanceRunSeconds: 0 } }).compaction.lcmMaintenanceRunSeconds).toBe(10);
+    expect(normalizeFabricConfig({ compaction: { lcmMaintenanceRunSeconds: 9999 } }).compaction.lcmMaintenanceRunSeconds).toBe(600);
+    expect(normalizeFabricConfig({ compaction: { lcmMaintenanceRunSeconds: 300 } }).compaction.lcmMaintenanceRunSeconds).toBe(300);
+  });
+
   it("carries maintenance concurrency through a normalize round trip and clamps it", () => {
     expect(DEFAULT_FABRIC_CONFIG.compaction.lcmMaintenanceConcurrency).toBe(DEFAULT_MAINTENANCE_CONCURRENCY);
     expect(normalizeFabricConfig({}).compaction.lcmMaintenanceConcurrency).toBe(DEFAULT_MAINTENANCE_CONCURRENCY);

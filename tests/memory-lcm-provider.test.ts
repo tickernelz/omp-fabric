@@ -8,6 +8,8 @@ import { MemoryProvider } from "../src/providers/memory-provider.js";
 import { QuickJsRuntime } from "../src/runtime/quickjs-runtime.js";
 import { openLedger, releaseTemp, tempRoot } from "./fixtures/lcm-temp.js";
 import type { FabricInvocationContext } from "../src/protocol.js";
+import { sessionDirNamesForCwd } from "../src/memory/discovery.js";
+import { assistantText, messageEntry, sessionHeader, userMessage, writeSessionFile } from "./fixtures/memory.js";
 
 const context = {} as FabricInvocationContext;
 const capability = (ledger: LcmLedger): LcmMemoryLedger => ({
@@ -49,7 +51,7 @@ describe("MemoryProvider LCM seam", () => {
       sessionId: "session-1",
       lcm: {
         ledger: capability(ledger),
-        currentSessionId: "session-1",
+        getCurrentSessionId: () => "session-1",
         summaries: { listNodes: () => [], getNode: () => undefined },
         branchForSession: () => ({ activeSourceKeys: [`${raw.entryId}:${raw.contentHash}`], ready: true }),
       },
@@ -85,7 +87,7 @@ describe("MemoryProvider LCM seam", () => {
       sessionId: "session-1",
       lcm: {
         ledger: capability(ledger),
-        currentSessionId: "session-1",
+        getCurrentSessionId: () => "session-1",
         summaries: { listNodes: () => [], getNode: () => undefined },
       },
     });
@@ -109,7 +111,7 @@ describe("MemoryProvider LCM seam", () => {
       ...base,
       lcm: {
         ledger: capability(ledger),
-        currentSessionId: "session-1",
+        getCurrentSessionId: () => "session-1",
         summaries: { listNodes: () => [], getNode: () => undefined },
       },
     });
@@ -165,7 +167,7 @@ describe("MemoryProvider LCM seam", () => {
       sessionId: "session-1",
       lcm: {
         ledger: capability(ledger),
-        currentSessionId: "session-1",
+        getCurrentSessionId: () => "session-1",
         summaries: { listNodes: () => [node], getNode: (id) => (id === "leaf" ? node : undefined) },
       },
     });
@@ -237,7 +239,7 @@ return { seen, walk };
       sessionId: "session-1",
       lcm: {
         ledger: capability(ledger),
-        currentSessionId: "session-1",
+        getCurrentSessionId: () => "session-1",
         summaries: { listNodes: () => [node], getNode: (id) => (id === "leaf" ? node : undefined) },
       },
     });
@@ -315,7 +317,7 @@ return { seen, walk };
             return ledger.readRawEntry(ledger.project.key, sessionId, entryId, revision);
           },
         },
-        currentSessionId: "session-1",
+        getCurrentSessionId: () => "session-1",
         summaries: { listNodes: () => [node], getNode: (id) => (id === "wide" ? node : undefined) },
       },
     });
@@ -336,5 +338,131 @@ return { seen, walk };
     expect(pages).toBe(4);
     expect(chars).toBe(24 * 3000);
     expect(reads).toBe(24);
+  });
+
+  describe("expand routing", () => {
+    const at = (offset: number): string => new Date(1_700_000_000_000 + offset * 1_000).toISOString();
+    const setup = (prefix: string) => {
+      const root = tempRoot(prefix);
+      const ledger = openLedger({ dbPath: path.join(root, "ledger.sqlite"), project: { liveCwd: root } });
+      writeSessionFile(path.join(root, "sessions", sessionDirNamesForCwd(root).canonical), "session-1.jsonl", [
+        sessionHeader("session-1", root),
+        messageEntry("m1", null, at(1), userMessage("first request")),
+        messageEntry("m2", "m1", at(2), assistantText("middle answer")),
+        messageEntry("m3", "m2", at(3), userMessage("second request")),
+        messageEntry("m4", "m3", at(4), assistantText("closing answer")),
+      ]);
+      const raw = ledger.appendRaw({
+        projectKey: ledger.project.key,
+        sessionId: "session-1",
+        entryId: "m2",
+        role: "assistant",
+        content: "middle answer",
+        payloadJson: canonicalLcmPayload(payloadOf("m2", "middle answer")),
+      });
+      const provider = new MemoryProvider({
+        agentDir: root,
+        cwd: root,
+        config: DEFAULT_FABRIC_CONFIG.memory,
+        sessionId: "session-1",
+        lcm: {
+          ledger: capability(ledger),
+          getCurrentSessionId: () => "session-1",
+          summaries: { listNodes: () => [], getNode: () => undefined },
+          branchForSession: () => ({ activeSourceKeys: [`${raw.entryId}:${raw.contentHash}`], ready: true }),
+        },
+      });
+      return { provider, raw };
+    };
+    type Expanded = {
+      entries: Array<{ index: number; entryId: string; anchor?: boolean }>;
+      error?: { code: string };
+    };
+
+    it("reads absolute indices for a bare session id while LCM is on", async () => {
+      const { provider } = setup("lcm-provider-bare-");
+      const expanded = await provider.invoke("expand", { session: "session-1", entryIds: ["m2"], after: 1 }, context) as Expanded;
+      expect(expanded.error).toBeUndefined();
+      expect(expanded.entries.map((entry) => [entry.entryId, entry.index])).toEqual([["m2", 1], ["m3", 2]]);
+    });
+
+    it("widens an lcm.raw address with before and after from its session file", async () => {
+      const { provider, raw } = setup("lcm-provider-context-");
+      const expanded = await provider.invoke(
+        "expand",
+        { session: `lcm.raw:session-1:m2:${raw.revision}`, before: 1, after: 2 },
+        context,
+      ) as Expanded;
+      expect(expanded.error).toBeUndefined();
+      expect(expanded.entries.map((entry) => entry.entryId)).toEqual(["m1", "m2", "m3", "m4"]);
+      expect(expanded.entries.filter((entry) => entry.anchor).map((entry) => entry.entryId)).toEqual(["m2"]);
+    });
+
+    it("falls back to the ledger entry and says why when the session file is missing", async () => {
+      const root = tempRoot("lcm-provider-nofile-");
+      const ledger = openLedger({ dbPath: path.join(root, "ledger.sqlite"), project: { liveCwd: root } });
+      const raw = ledger.appendRaw({
+        projectKey: ledger.project.key,
+        sessionId: "gone",
+        entryId: "e1",
+        role: "user",
+        content: "orphaned request",
+        payloadJson: canonicalLcmPayload(payloadOf("e1", "orphaned request")),
+      });
+      const provider = new MemoryProvider({
+        agentDir: root,
+        cwd: root,
+        config: DEFAULT_FABRIC_CONFIG.memory,
+        lcm: { ledger: capability(ledger), summaries: { listNodes: () => [], getNode: () => undefined } },
+      });
+      const expanded = await provider.invoke(
+        "expand",
+        { session: `lcm.raw:gone:e1:${raw.revision}`, branches: "all", after: 3 },
+        context,
+      ) as { entries: Array<{ text: string }>; error?: { code: string } };
+      expect(expanded.entries.map((entry) => entry.text)).toEqual(["orphaned request"]);
+      expect(expanded.error?.code).toBe("context_unavailable");
+    });
+
+    it("still rejects a malformed lcm.raw address", async () => {
+      const { provider } = setup("lcm-provider-malformed-");
+      const expanded = await provider.invoke("expand", { session: "lcm.raw:session-1", after: 2 }, context) as Expanded;
+      expect(expanded.entries).toEqual([]);
+      expect(expanded.error?.code).toBe("invalid_address");
+    });
+  });
+
+  it("finds user requests through recall role on the LCM route", async () => {
+    const root = tempRoot("lcm-provider-role-");
+    const ledger = openLedger({ dbPath: path.join(root, "ledger.sqlite"), project: { liveCwd: root } });
+    const rows = [
+      ["u1", "user", "please migrate the billing ledger"],
+      ["a1", "assistant", "migrating the billing ledger now"],
+      ["c1", "custom", "tool_execution_start billing ledger"],
+    ] as const;
+    rows.forEach(([entryId, role, text], position) => ledger.appendRaw({
+      projectKey: ledger.project.key,
+      sessionId: "session-1",
+      entryId,
+      role,
+      content: text,
+      payloadJson: canonicalLcmPayload(payloadOf(entryId, text)),
+      createdAt: 10 + position,
+    }));
+    const provider = new MemoryProvider({
+      agentDir: root,
+      cwd: root,
+      config: DEFAULT_FABRIC_CONFIG.memory,
+      sessionId: "session-1",
+      lcm: {
+        ledger: capability(ledger),
+        getCurrentSessionId: () => "session-1",
+        summaries: { listNodes: () => [], getNode: () => undefined },
+      },
+    });
+    const recalled = await provider.invoke("recall", { query: "billing ledger", role: "user", branches: "all" }, context) as {
+      hits: Array<{ source: { entryId?: string } }>;
+    };
+    expect(recalled.hits.map((hit) => hit.source.entryId)).toEqual(["u1"]);
   });
 });

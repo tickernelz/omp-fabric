@@ -11,19 +11,20 @@ const CHILDREN_LABEL = "children: ";
 
 const renderAddressList = (label: string, addresses: readonly string[], budget: number): string => {
   if (budget <= 0 || addresses.length === 0) return "";
-  const markerReserve = utf8Bytes(`, +${addresses.length} more`);
+  const markerReserve = utf8Bytes(`+${addresses.length} older, `);
   const kept: string[] = [];
   let used = utf8Bytes(label);
-  for (const address of addresses) {
+  for (let index = addresses.length - 1; index >= 0; index -= 1) {
+    const address = addresses[index]!;
     const cost = utf8Bytes(kept.length === 0 ? address : `, ${address}`);
-    const reserve = kept.length + 1 < addresses.length ? markerReserve : 0;
+    const reserve = index > 0 ? markerReserve : 0;
     if (used + cost + reserve > budget) break;
     used += cost;
-    kept.push(address);
+    kept.unshift(address);
   }
   if (kept.length === 0) return "";
   const omitted = addresses.length - kept.length;
-  return `${label}${kept.join(", ")}${omitted > 0 ? `, +${omitted} more` : ""}`;
+  return `${label}${omitted > 0 ? `+${omitted} older, ` : ""}${kept.join(", ")}`;
 };
 
 export const lcmRawAddress = (source: LcmAddressSource): string =>

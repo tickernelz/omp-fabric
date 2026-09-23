@@ -3,9 +3,9 @@ import path from "node:path";
 import crypto from "node:crypto";
 import { sqliteDriver, type SqliteDatabase } from "./sqlite.js";
 import { stableProjectKey } from "./lcm-directory.js";
-import { canonicalLcmPayload, canonicalProjectIdentity, createDeleteConfirmationToken, defaultLedgerPath, defaultLedgerRoot, hash, hashLcmPayload, type DeleteConfirmationToken, type ProjectIdentity, type ProjectIdentityInput, type RawEntry, type SessionEntry } from "./lcm-identity.js";
+import { canonicalLcmEntry, canonicalLcmPayload, canonicalProjectIdentity, createDeleteConfirmationToken, defaultLedgerPath, defaultLedgerRoot, hash, hashLcmPayload, isPrunedLcmEntry, type DeleteConfirmationToken, type ProjectIdentity, type ProjectIdentityInput, type RawEntry, type SessionEntry } from "./lcm-identity.js";
 
-export { canonicalLcmPayload, canonicalProjectIdentity, createDeleteConfirmationToken, defaultLedgerPath, hashLcmPayload };
+export { canonicalLcmEntry, canonicalLcmPayload, canonicalProjectIdentity, createDeleteConfirmationToken, defaultLedgerPath, hashLcmPayload };
 export type { DeleteConfirmationToken, ProjectIdentity, RawEntry, SessionEntry };
 const LCM_LEDGER_WARNING_BYTES = 8 * 1024 ** 3;
 const LCM_LEDGER_MAINTENANCE_BYTES = 10 * 1024 ** 3;
@@ -14,7 +14,26 @@ export type OperationalState = "healthy" | "warning" | "maintenance" | "degraded
 export interface CheckpointMetrics { mode: "passive" | "truncate"; busy: number; logPages: number; checkpointedPages: number; truncated: boolean }
 export interface BackupManifest { format: "lcm-ledger-backup"; version: number; source: string; destination: string; sourceSha256: string; backupSha256: string; sourceStateSha256: string; rowCounts: Record<string, number>; integrity: "ok" | string; createdAt: number }
 type LcmSearchMode = "literal" | "phrase" | "regex";
-export interface LcmSearchOptions { sessionId?: string; query?: string; mode: LcmSearchMode; offset: number; limit: number; scanLimit?: number; match?: "any" | "all" }
+export interface LcmSearchOptions { sessionId?: string; query?: string; mode: LcmSearchMode; offset: number; limit: number; scanLimit?: number; match?: "any" | "all"; roles?: readonly string[]; excludeRoles?: readonly string[]; since?: number; until?: number; order?: "recent" | "relevance" }
+interface RowFilter { sql: string; params: unknown[] }
+const rowFilter = (options: LcmSearchOptions, alias = ""): RowFilter => {
+  const column = (name: string): string => alias ? `${alias}.${name}` : name;
+  const clauses: string[] = [];
+  const params: unknown[] = [];
+  const list = (values: readonly string[] | undefined, operator: "IN" | "NOT IN"): void => {
+    if (!values || values.length === 0) return;
+    clauses.push(`${column("role")} ${operator} (${values.map(() => "?").join(",")})`);
+    params.push(...values);
+  };
+  list(options.roles, "IN");
+  list(options.excludeRoles, "NOT IN");
+  if (options.since !== undefined) { clauses.push(`${column("created_at")}>=?`); params.push(options.since); }
+  if (options.until !== undefined) { clauses.push(`${column("created_at")}<=?`); params.push(options.until); }
+  return { sql: clauses.map(clause => ` AND ${clause}`).join(""), params };
+};
+const validSearchFilter = (options: LcmSearchOptions): boolean =>
+  [options.roles, options.excludeRoles].every(values => values === undefined || (Array.isArray(values) && values.every(value => typeof value === "string" && value.length > 0)))
+  && [options.since, options.until].every(value => value === undefined || Number.isFinite(value));
 export interface LcmSearchPage { rows: RawEntry[]; total: number; scanned: number; complete: boolean }
 export interface DeleteManifest { format: "lcm-ledger-delete"; version: number; projectKey: string; deletedAt: number; integrity: string; remaining: number; remainingByTable: Record<string, number>; unattributed: number; unattributedByTable: Record<string, number> }
 export interface LedgerMigrationReport { version: number; name: string; applied: boolean; reason?: string; counts: Record<string, number> }
@@ -228,13 +247,15 @@ ALTER TABLE summary_node_revisions_next RENAME TO summary_node_revisions;`);
     let payload: Record<string, unknown>;
     try { payload = JSON.parse(entry.payloadJson) as Record<string, unknown>; } catch { throw new Error("invalid payload JSON"); }
     if (!payload || typeof payload !== "object" || typeof payload.type !== "string" || typeof payload.id !== "string" || payload.id !== entry.entryId) throw new Error("payload must be a full SessionEntry");
-    const payloadJson = canonicalLcmPayload(payload);
-    const contentHash = hashLcmPayload(payload);
+    const payloadJson = canonicalLcmEntry(payload);
+    const contentHash = hash(payloadJson);
     const ownsTransaction = this.transactionDepth === 0;
     if (ownsTransaction) this.db.exec("BEGIN IMMEDIATE");
     try {
       const existing = this.db.prepare("SELECT revision,created_at FROM raw_entries WHERE project_key=? AND session_id=? AND entry_id=? AND content_hash=?").get(entry.projectKey, entry.sessionId, entry.entryId, contentHash) as { revision: number; created_at: number } | undefined;
       if (existing) { if (ownsTransaction) this.db.exec("COMMIT"); return { ...entry, payloadJson, payloadHash: contentHash, revision: existing.revision, contentHash, createdAt: existing.created_at }; }
+      const prior = this.priorRevision(entry.projectKey, entry.sessionId, entry.entryId, contentHash, isPrunedLcmEntry(payload));
+      if (prior) { if (ownsTransaction) this.db.exec("COMMIT"); return prior; }
       const latest = this.db.prepare("SELECT COALESCE(MAX(revision),0) revision FROM raw_entries WHERE project_key=? AND session_id=? AND entry_id=?").get(entry.projectKey, entry.sessionId, entry.entryId) as { revision: number };
       const revision = latest.revision + 1; const createdAt = entry.createdAt ?? this.now();
       this.db.prepare("INSERT OR IGNORE INTO sessions(project_key,session_id,created_at) VALUES(?,?,?)").run(entry.projectKey, entry.sessionId, createdAt);
@@ -245,6 +266,25 @@ ALTER TABLE summary_node_revisions_next RENAME TO summary_node_revisions;`);
       if (ownsTransaction) this.db.exec("ROLLBACK");
       const code = (error as NodeJS.ErrnoException).code; if (code === "ENOSPC" || code === "SQLITE_FULL" || String(error).includes("database or disk is full")) this.degraded = true; throw new LedgerDegradedError("ledger write failed", error);
     }
+  }
+  private readonly identities = new Map<string, string>();
+  /** A stored revision the host only rewrote (pruned, re-signed, blob-externalized) stays the entry's source. */
+  private priorRevision(projectKey: string, sessionId: string, entryId: string, identity: string, pruned: boolean): RawEntry | undefined {
+    const rows = this.db.prepare("SELECT * FROM raw_entries WHERE project_key=? AND session_id=? AND entry_id=? ORDER BY revision DESC").all(projectKey, sessionId, entryId) as Array<Record<string, unknown>>;
+    if (rows.length === 0) return undefined;
+    if (pruned) return toRawEntry(rows[0]!);
+    const match = rows.find(row => this.identityOf(row) === identity);
+    return match ? toRawEntry(match) : undefined;
+  }
+  private identityOf(row: Record<string, unknown>): string {
+    const stored = row.content_hash as string;
+    const cached = this.identities.get(stored);
+    if (cached !== undefined) return cached;
+    let identity = stored;
+    try { identity = hash(canonicalLcmEntry(JSON.parse(row.payload_json as string))); } catch {}
+    if (this.identities.size >= 50_000) this.identities.clear();
+    this.identities.set(stored, identity);
+    return identity;
   }
   readRaw(projectKey = this.project.key, sessionId?: string): RawEntry[] { this.guard(); this.assertProjectKey(projectKey); const rows = sessionId ? this.db.prepare("SELECT * FROM raw_entries WHERE project_key=? AND session_id=? ORDER BY created_at,revision,rowid").all(projectKey,sessionId) : this.db.prepare("SELECT * FROM raw_entries WHERE project_key=? ORDER BY created_at,session_id,entry_id,revision").all(projectKey); return toRawEntries(rows); }
   readRawPage(projectKey = this.project.key, sessionId?: string, offset = 0, limit = 100): RawEntry[] { if (!Number.isSafeInteger(offset) || offset < 0 || !Number.isSafeInteger(limit) || limit < 1) throw new Error("invalid raw page"); this.guard(); this.assertProjectKey(projectKey); const rows = sessionId ? this.db.prepare("SELECT * FROM raw_entries WHERE project_key=? AND session_id=? ORDER BY created_at,revision,rowid LIMIT ? OFFSET ?").all(projectKey,sessionId,limit,offset) : this.db.prepare("SELECT * FROM raw_entries WHERE project_key=? ORDER BY created_at,session_id,entry_id,revision LIMIT ? OFFSET ?").all(projectKey,limit,offset); return toRawEntries(rows); }
@@ -257,46 +297,44 @@ ALTER TABLE summary_node_revisions_next RENAME TO summary_node_revisions;`);
     if (!Number.isSafeInteger(offset) || offset < 0 || !Number.isSafeInteger(limit) || limit < 1) throw new Error("invalid raw page");
     const scanLimit = options.scanLimit ?? LCM_SEARCH_SCAN_LIMIT;
     if (!Number.isSafeInteger(scanLimit) || scanLimit < 1) throw new Error("invalid scan limit");
+    if (!validSearchFilter(options)) throw new Error("invalid raw search filter");
     const query = options.query?.trim() ?? "";
-    if (query.length === 0) return this.recentPage(key, sessionId, offset, limit);
+    if (query.length === 0) return this.recentPage(key, sessionId, offset, limit, rowFilter(options));
     if (options.mode === "regex") {
       let pattern: RegExp;
       try { pattern = new RegExp(query, "iu"); } catch { return { rows: [], total: 0, scanned: 0, complete: false }; }
-      return this.scanPage(key, sessionId, content => pattern.test(content), offset, limit, scanLimit, false);
+      return this.scanPage(key, sessionId, content => pattern.test(content), offset, limit, scanLimit, false, rowFilter(options));
     }
     const match = options.match ?? "any";
     const phrases = searchPhrases(query, options.mode);
     if (phrases.length === 0) return { rows: [], total: 0, scanned: 0, complete: true };
-    if (this.fts) { try { return this.indexPage(key, sessionId, ftsExpression(phrases, match), offset, limit); } catch {} }
-    return this.scanPage(key, sessionId, phrasePredicate(phrases, match), offset, limit, scanLimit, true);
+    if (this.fts) { try { return this.indexPage(key, sessionId, ftsExpression(phrases, match), offset, limit, rowFilter(options, "r"), options.order === "relevance"); } catch {} }
+    return this.scanPage(key, sessionId, phrasePredicate(phrases, match), offset, limit, scanLimit, true, rowFilter(options));
   }
-  private recentPage(key: string, sessionId: string | undefined, offset: number, limit: number): LcmSearchPage {
-    const counted = (sessionId
-      ? this.db.prepare("SELECT count(*) n FROM raw_entries WHERE project_key=? AND session_id=?").get(key, sessionId)
-      : this.db.prepare("SELECT count(*) n FROM raw_entries WHERE project_key=?").get(key)) as { n: number };
-    const total = Number(counted.n);
-    const rows = sessionId
-      ? this.db.prepare("SELECT * FROM raw_entries WHERE project_key=? AND session_id=? ORDER BY created_at DESC, revision DESC, rowid DESC LIMIT ? OFFSET ?").all(key, sessionId, limit, offset)
-      : this.db.prepare("SELECT * FROM raw_entries WHERE project_key=? ORDER BY created_at DESC, revision DESC, rowid DESC LIMIT ? OFFSET ?").all(key, limit, offset);
+  private recentPage(key: string, sessionId: string | undefined, offset: number, limit: number, filter: RowFilter): LcmSearchPage {
+    const scope = `FROM raw_entries WHERE project_key=?${sessionId ? " AND session_id=?" : ""}${filter.sql}`;
+    const params = [key, ...(sessionId ? [sessionId] : []), ...filter.params];
+    const total = Number((this.db.prepare(`SELECT count(*) n ${scope}`).get(...params) as { n: number }).n);
+    const rows = this.db.prepare(`SELECT * ${scope} ORDER BY created_at DESC, revision DESC, rowid DESC LIMIT ? OFFSET ?`).all(...params, limit, offset);
     return { rows: toRawEntries(rows), total, scanned: total, complete: true };
   }
-  private indexPage(key: string, sessionId: string | undefined, expression: string, offset: number, limit: number): LcmSearchPage {
-    const source = "FROM raw_entries_fts JOIN raw_entries r ON r.project_key=raw_entries_fts.project_key AND r.session_id=raw_entries_fts.session_id AND r.entry_id=raw_entries_fts.entry_id AND r.revision=CAST(raw_entries_fts.revision AS INTEGER) WHERE raw_entries_fts MATCH ? AND raw_entries_fts.project_key=?" + (sessionId ? " AND raw_entries_fts.session_id=?" : "");
-    const filters = sessionId ? [expression, key, sessionId] : [expression, key];
+  private indexPage(key: string, sessionId: string | undefined, expression: string, offset: number, limit: number, filter: RowFilter, relevance: boolean): LcmSearchPage {
+    const source = "FROM raw_entries_fts JOIN raw_entries r ON r.project_key=raw_entries_fts.project_key AND r.session_id=raw_entries_fts.session_id AND r.entry_id=raw_entries_fts.entry_id AND r.revision=CAST(raw_entries_fts.revision AS INTEGER) WHERE raw_entries_fts MATCH ? AND raw_entries_fts.project_key=?" + (sessionId ? " AND raw_entries_fts.session_id=?" : "") + filter.sql;
+    const filters = [expression, key, ...(sessionId ? [sessionId] : []), ...filter.params];
     const total = Number((this.db.prepare(`SELECT count(*) n ${source}`).get(...filters) as { n: number }).n);
-    const rows = this.db.prepare(`SELECT r.* ${source} ORDER BY r.created_at DESC, r.revision DESC, r.rowid DESC LIMIT ? OFFSET ?`).all(...filters, limit, offset);
+    const order = relevance ? "bm25(raw_entries_fts), r.created_at DESC, r.revision DESC, r.rowid DESC" : "r.created_at DESC, r.revision DESC, r.rowid DESC";
+    const rows = this.db.prepare(`SELECT r.* ${source} ORDER BY ${order} LIMIT ? OFFSET ?`).all(...filters, limit, offset);
     return { rows: toRawEntries(rows), total, scanned: total, complete: true };
   }
-  private scanPage(key: string, sessionId: string | undefined, matches: (content: string) => boolean, offset: number, limit: number, scanLimit: number, degraded: boolean): LcmSearchPage {
-    const statement = sessionId
-      ? this.db.prepare("SELECT session_id,entry_id,revision,content FROM raw_entries WHERE project_key=? AND session_id=? ORDER BY created_at DESC, revision DESC, rowid DESC LIMIT ? OFFSET ?")
-      : this.db.prepare("SELECT session_id,entry_id,revision,content FROM raw_entries WHERE project_key=? ORDER BY created_at DESC, revision DESC, rowid DESC LIMIT ? OFFSET ?");
+  private scanPage(key: string, sessionId: string | undefined, matches: (content: string) => boolean, offset: number, limit: number, scanLimit: number, degraded: boolean, filter: RowFilter): LcmSearchPage {
+    const statement = this.db.prepare(`SELECT session_id,entry_id,revision,content FROM raw_entries WHERE project_key=?${sessionId ? " AND session_id=?" : ""}${filter.sql} ORDER BY created_at DESC, revision DESC, rowid DESC LIMIT ? OFFSET ?`);
+    const scope = [key, ...(sessionId ? [sessionId] : []), ...filter.params];
     const found: Array<{ sessionId: string; entryId: string; revision: number }> = [];
     let scanned = 0;
     let exhausted = false;
     while (scanned < scanLimit) {
       const size = Math.min(LCM_SCAN_BATCH, scanLimit - scanned);
-      const batch = (sessionId ? statement.all(key, sessionId, size, scanned) : statement.all(key, size, scanned)) as Array<Record<string, unknown>>;
+      const batch = statement.all(...scope, size, scanned) as Array<Record<string, unknown>>;
       scanned += batch.length;
       for (const row of batch) if (matches(row.content as string)) found.push({ sessionId: row.session_id as string, entryId: row.entry_id as string, revision: Number(row.revision) });
       if (batch.length < size) { exhausted = true; break; }

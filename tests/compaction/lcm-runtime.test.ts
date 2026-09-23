@@ -259,7 +259,7 @@ describe("LCM runtime", () => {
     expect(await claimAfterSpending(55_110, 900)).toBeUndefined();
   });
 
-  it("bounds maintenance work by its own pass budget, not the condensation fan-in", async () => {
+  it("bounds maintenance work by passes times concurrency, not the condensation fan-in", async () => {
     const settle = async (runtime: LcmRuntime): Promise<number> => {
       let previous = -1;
       for (let attempt = 0; attempt < 200; attempt += 1) {
@@ -279,9 +279,10 @@ describe("LCM runtime", () => {
       maxLeafEntries: 8,
       maxCondenseChildren: 8,
       maxMaintenancePasses: 1,
+      maintenanceConcurrency: 2,
     });
     await single.syncAndSchedule();
-    expect(await settle(single)).toBe(1);
+    expect(await settle(single)).toBe(2);
     await single.shutdown();
 
     const manyPasses = makeRoot();
@@ -290,9 +291,10 @@ describe("LCM runtime", () => {
       maxLeafEntries: 8,
       maxCondenseChildren: 8,
       maxMaintenancePasses: 3,
+      maintenanceConcurrency: 2,
     });
     await many.syncAndSchedule();
-    expect(await settle(many)).toBe(3);
+    expect(await settle(many)).toBe(5);
     await many.shutdown();
   });
 
@@ -432,12 +434,155 @@ describe("LCM runtime", () => {
     const rows = runtime.raw("session-1"); const leaf = runtime.maintenance.createLeaf([rows[0]!]); if (!leaf) throw new Error("expected leaf"); const job = runtime.maintenance.listJobs().find((item) => item.nodeId === leaf.nodeId); if (!job) throw new Error("expected job"); const claimed = runtime.maintenance.claim(job.jobId); runtime.maintenance.complete(claimed, { text: "partial summary", inputTokens: 1, outputTokens: 1, cost: 0, wallMs: 1, modelHash: "test" }, inputFor("partial summary"));
     const result = runtime.compact({ branchEntries: entries, sessionId: "session-1", firstKeptEntryId: "missing", tokensBefore: 100 });
     expect(result.source).toBe("emergency");
-    const addressed = /sources: (.+)/.exec(result.summary)?.[1] ?? "";
-    const listed = addressed.split(", ").filter((part) => part.startsWith("lcm.raw:session-1:")).length;
-    const omitted = Number(/\+(\d+) more/.exec(addressed)?.[1] ?? 0);
-    expect(listed + omitted).toBe(2);
+    expect(result.summary).toContain("partial summary");
+    expect(result.summary).toContain(`lcm.summary:${leaf.nodeId}`);
+    expect(result.summary).toContain("lcm.raw:session-1:new:1");
+    const tail = runtime.maintenance.listNodes(100).filter((node) => node.nodeId !== leaf.nodeId && node.kind === "leaf");
+    expect(tail).toHaveLength(1);
+    expect(tail[0]?.sources.map((source) => source.entryId)).toEqual(["new"]);
     await runtime.shutdown();
   });
+  it("keeps the newest tail lines when the output bound is tight", async () => {
+    const root = makeRoot();
+    const entries = [
+      makeEntry("u1", `long request ${"x".repeat(9_000)}`),
+      ...Array.from({ length: 40 }, (_, index) => {
+        const text = `step ${index} ${"detail ".repeat(60)}`;
+        return { ...makeEntry(`e${index}`, text, index === 0 ? "u1" : `e${index - 1}`), message: { role: "assistant", content: [{ type: "text", text }] } } as SessionEntry;
+      }),
+    ];
+    const runtime = openRuntime(makeContext(root, entries), { rootDir: root, lcmMaxOutputChars: 8_192 });
+    await runtime.readback();
+    const result = runtime.compact({ branchEntries: entries, sessionId: "session-1", firstKeptEntryId: "missing", tokensBefore: 9_000 });
+
+    expect(Buffer.byteLength(result.summary, "utf8")).toBeLessThanOrEqual(8_192);
+    expect(result.summary).toContain("[Active Request]");
+    expect(result.summary).toContain("step 39");
+    expect(result.summary.endsWith(LCM_RECOVERY_POINTER)).toBe(true);
+    await runtime.shutdown();
+  });
+
+  it("keeps a large trail inside the summary bound", () => {
+    const rendered = renderAddressedFrontier(
+      [bigNode(0, 2_000)] as unknown as Parameters<typeof renderAddressedFrontier>[0],
+      [],
+      { lead: "x".repeat(4_000), trail: "t".repeat(40_000) },
+    );
+    expect(Buffer.byteLength(rendered, "utf8")).toBeLessThanOrEqual(MAX_SUMMARY_BYTES);
+    expect(rendered.endsWith(LCM_RECOVERY_POINTER)).toBe(true);
+  });
+
+  it("chunks the uncovered tail into leaves no larger than the leaf cap", async () => {
+    const root = makeRoot();
+    const entries = Array.from({ length: 20 }, (_, index) => makeEntry(`e${index}`, `tail source ${index}`, index === 0 ? null : `e${index - 1}`));
+    const runtime = openRuntime(makeContext(root, entries), { rootDir: root, maxLeafEntries: 4 });
+    await runtime.readback();
+    runtime.compact({ branchEntries: entries, sessionId: "session-1", firstKeptEntryId: "missing", tokensBefore: 100 });
+
+    const leaves = runtime.maintenance.listNodes(100).filter((node) => node.kind === "leaf");
+    expect(leaves.length).toBe(5);
+    expect(Math.max(...leaves.map((node) => node.sources.length))).toBeLessThanOrEqual(4);
+    expect(leaves.flatMap((node) => node.sources.map((source) => source.entryId))).toHaveLength(20);
+    await runtime.shutdown();
+  });
+
+  it("keeps an oversized deterministic leaf from hiding the model summaries under it", async () => {
+    const root = makeRoot();
+    const entries = Array.from({ length: 8 }, (_, index) => makeEntry(`e${index}`, `shadow source ${index}`, index === 0 ? null : `e${index - 1}`));
+    const runtime = openRuntime(makeContext(root, entries), { rootDir: root, maxLeafEntries: 4 });
+    await runtime.readback();
+    const rows = runtime.raw("session-1");
+
+    const small = runtime.maintenance.createLeaf(rows.slice(0, 4));
+    if (!small) throw new Error("expected a model leaf");
+    runtime.maintenance.complete(runtime.maintenance.claim(runtime.maintenance.jobForNode(small.nodeId)!.jobId), { text: "model summary", inputTokens: 1, outputTokens: 1, cost: 0, wallMs: 1, modelHash: "model-1" }, inputFor("model summary"));
+    const wide = runtime.maintenance.createLeaf(rows);
+    if (!wide) throw new Error("expected an oversized leaf");
+    runtime.maintenance.completeEmergency(runtime.maintenance.claimEmergency(runtime.maintenance.jobForNode(wide.nodeId)!.jobId), "deterministic excerpt");
+
+    const active = new Set(rows.map((row) => `${row.entryId}:${row.payloadHash}`));
+    const frontier = runtime.maintenance.getFrontier("session-1", active);
+    expect(frontier.map((node) => node.nodeId)).toEqual([small.nodeId]);
+    expect(runtime.maintenance.selectLeaf(rows, active).map((row) => row.entryId)).toEqual(["e4", "e5", "e6", "e7"]);
+    await runtime.shutdown();
+  });
+
+  it("coalesces schedules that arrive while a run is in flight", async () => {
+    const root = makeRoot();
+    const entries = Array.from({ length: 12 }, (_, index) => makeEntry(`e${index}`, `coalesce source ${index}`, index === 0 ? null : `e${index - 1}`));
+    const runtime = openRuntime(makeContext(root, entries), { rootDir: root, maxLeafEntries: 4, maxMaintenancePasses: 1 });
+    await runtime.readback();
+    const internals = runtime as unknown as { runMaintenance: () => Promise<void>; scheduleMaintenance: () => void; maintenancePending: Promise<void> };
+    let running = 0;
+    let peak = 0;
+    let runs = 0;
+    const real = internals.runMaintenance.bind(runtime);
+    internals.runMaintenance = async () => {
+      runs += 1;
+      running += 1;
+      peak = Math.max(peak, running);
+      try { await real(); } finally { running -= 1; }
+    };
+
+    internals.scheduleMaintenance();
+    for (let index = 0; index < 4; index += 1) internals.scheduleMaintenance();
+    await internals.maintenancePending;
+
+    expect(peak).toBe(1);
+    expect(runs).toBe(2);
+    await runtime.shutdown();
+  });
+
+  it("leaves an emergency node alone when its evidence cannot fit one prompt", async () => {
+    const rewritesFor = async (payloadChars: number): Promise<number> => {
+      const root = makeRoot();
+      const entries = [makeEntry("big", "x".repeat(payloadChars))];
+      const runtime = openRuntime(makeContext(root, entries), { rootDir: root, lcmMaxInputChars: 4_096, maxMaintenancePasses: 1 });
+      await runtime.readback();
+      runtime.compact({ branchEntries: entries, sessionId: "session-1", firstKeptEntryId: "missing", tokensBefore: 100 });
+      const node = runtime.maintenance.listNodes(10).find((item) => item.modelHash === "emergency");
+      if (!node) throw new Error("expected an emergency node");
+      await runtime.syncAndSchedule();
+      await settle(runtime);
+      const revisions = runtime.maintenance.revisionsOf(node.nodeId).length;
+      expect(runtime.maintenance.getNode(node.nodeId)?.modelHash).toBe("emergency");
+      await runtime.shutdown();
+      return revisions;
+    };
+
+    expect(await rewritesFor(8_000)).toBe(0);
+    expect(await rewritesFor(200)).toBeGreaterThan(0);
+  });
+
+  it("keeps the interrupted request when the cut lands inside its turn", async () => {
+    const root = makeRoot();
+    const request = "upgrade lewat frontend bukan CLI, ini tracebacknya";
+    const entries = [
+      makeEntry("u1", "older finished request"),
+      { ...makeEntry("a1", "older answer", "u1"), message: { role: "assistant", content: [{ type: "text", text: "older answer" }] } } as SessionEntry,
+      makeEntry("u2", request, "a1"),
+      { ...makeEntry("a2", "working on it", "u2"), message: { role: "assistant", content: [{ type: "text", text: "working on it" }] } } as SessionEntry,
+      { ...makeEntry("t1", "tool output", "a2"), message: { role: "toolResult", toolName: "bash", content: [{ type: "text", text: "tool output" }] } } as SessionEntry,
+      { ...makeEntry("a3", "still working", "t1"), message: { role: "assistant", content: [{ type: "text", text: "still working" }] } } as SessionEntry,
+    ];
+    const runtime = openRuntime(makeContext(root, entries), { rootDir: root });
+    await runtime.readback();
+    const result = runtime.compact({ branchEntries: entries, sessionId: "session-1", firstKeptEntryId: "a3", tokensBefore: 9_000 });
+
+    expect(result.summary).toContain("[Active Request] lcm.raw:session-1:u2:1");
+    expect(result.summary).toContain(request);
+    expect(result.summary.indexOf(request)).toBeLessThan(result.summary.indexOf("[Recent Detail]"));
+    expect(result.summary).toContain("result bash ok");
+
+    const boundary = runtime.compact({ branchEntries: entries, sessionId: "session-1", firstKeptEntryId: "u2", tokensBefore: 9_000 });
+    expect(boundary.summary).not.toContain("[Active Request]");
+    expect(boundary.summary).not.toContain(request);
+
+    const declared = runtime.compact({ branchEntries: entries, sessionId: "session-1", firstKeptEntryId: "u2", tokensBefore: 9_000, isSplitTurn: true });
+    expect(declared.summary).toContain("[Active Request] lcm.raw:session-1:u1:1");
+    await runtime.shutdown();
+  });
+
   it("persists new compaction entries before emitting provenance", async () => {
     const root = makeRoot();
     const entries = [makeEntry("new-entry", "new source ".repeat(1000))];
@@ -451,7 +596,9 @@ describe("LCM runtime", () => {
     expect(runtime.frontier("session-1")).toHaveLength(1);
     await runtime.shutdown();
     const restarted = openRuntime(makeContext(root, []), { rootDir: root });
-    expect(restarted.frontier("session-1")[0]?.text).toBe(result.summary);
+    const persisted = restarted.frontier("session-1")[0];
+    expect(persisted?.text).toContain("lcm.raw:session-1:new-entry:1");
+    expect(persisted?.sources.map((source) => source.entryId)).toEqual(["new-entry"]);
     await restarted.shutdown();
   });
   it("readbacks authoritative branch entries and returns a bounded emergency result", async () => {
@@ -472,6 +619,7 @@ describe("LCM runtime", () => {
     expect(result.tokensBefore).toBe(9000);
     expect(Buffer.byteLength(result.summary, "utf8")).toBeLessThanOrEqual(4096);
     expect(result.summary).toContain("Nonsemantic deterministic excerpt");
+    expect(result.summary).toContain("[Recent Detail]");
     await runtime.shutdown();
   });
 
@@ -604,7 +752,7 @@ describe("LCM runtime", () => {
     await runtime.shutdown();
   });
 
-  it("withholds whole frontier nodes past the byte bound and keeps every address resolvable", () => {
+  it("shares the byte bound across frontier nodes and keeps every address resolvable", () => {
     const frontier = Array.from({ length: 6 }, (_, index) => bigNode(index, 11_600));
     const rendered = renderAddressedFrontier(frontier as unknown as Parameters<typeof renderAddressedFrontier>[0]);
     const sourceBytes = frontier.reduce((total, node) => total + Buffer.byteLength(node.text, "utf8"), 0);
@@ -622,16 +770,11 @@ describe("LCM runtime", () => {
       expect(address).toMatch(/^lcm\.raw:[0-9a-f-]+:[0-9a-f-]+:\d+$/);
     }
 
-    const kept = frontier.filter((node) => rendered.includes(`address: lcm.summary:${node.nodeId}`));
-    const withheld = frontier.filter((node) => !kept.includes(node));
-    expect(kept.length).toBeGreaterThan(0);
-    expect(withheld.length).toBeGreaterThan(0);
-    for (const node of kept) expect(rendered).toContain(node.text);
-    for (const node of withheld) expect(rendered).not.toContain(node.text);
-
-    const notice = rendered.split("\n").find((line) => line.startsWith("… withheld")) ?? "";
-    expect(notice).toContain(`withheld ${withheld.length} frontier nodes`);
-    for (const node of withheld) expect(notice).toContain(`lcm.summary:${node.nodeId}`);
+    const addressed = frontier.filter((node) => rendered.includes(`address: lcm.summary:${node.nodeId}`));
+    expect(addressed).toHaveLength(frontier.length);
+    for (const node of frontier) expect(rendered).toContain(node.text.slice(0, 200));
+    for (const node of frontier) expect(rendered).not.toContain(node.text);
+    expect(rendered).not.toContain("… withheld");
   });
 
   it("clips a single oversized node instead of serving a pointer with no summary", () => {
@@ -663,7 +806,7 @@ describe("LCM runtime", () => {
     expect(rendered.endsWith(LCM_RECOVERY_POINTER)).toBe(true);
   });
 
-  it("skips one oversized node and still renders the smaller nodes behind it", () => {
+  it("clips only the oversized node and renders the smaller nodes whole", () => {
     const frontier = [bigNode(0, 40_000), bigNode(1, 120), bigNode(2, 100)];
     const rendered = renderAddressedFrontier(frontier as unknown as Parameters<typeof renderAddressedFrontier>[0]);
 
@@ -671,9 +814,9 @@ describe("LCM runtime", () => {
     expect(rendered.endsWith(LCM_RECOVERY_POINTER)).toBe(true);
     expect(rendered).toContain(frontier[1]!.text);
     expect(rendered).toContain(frontier[2]!.text);
-    expect(rendered).not.toContain("z".repeat(200));
-    expect(rendered).toContain("withheld 1 frontier node that did not fit");
-    expect(rendered).toContain(`expand: lcm.summary:${frontier[0]!.nodeId}`);
+    expect(rendered).not.toContain(frontier[0]!.text);
+    expect(rendered).toContain("summary 0 ");
+    for (const node of frontier) expect(rendered).toContain(`address: lcm.summary:${node.nodeId}`);
   });
 
   it("never emits a partial summary address at the overflow boundary", () => {

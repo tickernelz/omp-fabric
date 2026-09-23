@@ -12,17 +12,64 @@ export const hash = (value: string): string => crypto.createHash("sha256").updat
 const normalize = (target: string): string => path.normalize(path.resolve(target));
 const statIdentity = (target: string) => { try { const stats = fs.statSync(target); return { device: Number(stats.dev), inode: Number(stats.ino) }; } catch { return {}; } };
 
+const encodeCanonical = (item: unknown): string => {
+  if (Array.isArray(item)) return `[${item.map(encodeCanonical).join(",")}]`;
+  if (item !== null && typeof item === "object") return `{${Object.keys(item).sort().map(key => `${JSON.stringify(key)}:${encodeCanonical((item as Record<string, unknown>)[key])}`).join(",")}}`;
+  return JSON.stringify(item);
+};
+
 export function canonicalLcmPayload(value: unknown): string {
-  const normalized: unknown = JSON.parse(JSON.stringify(value));
-  const encode = (item: unknown): string => {
-    if (Array.isArray(item)) return `[${item.map(encode).join(",")}]`;
-    if (item !== null && typeof item === "object") return `{${Object.keys(item).sort().map(key => `${JSON.stringify(key)}:${encode((item as Record<string, unknown>)[key])}`).join(",")}}`;
-    return JSON.stringify(item);
-  };
-  return encode(normalized);
+  return encodeCanonical(JSON.parse(JSON.stringify(value)));
 }
 
 export function hashLcmPayload(value: unknown): string { return crypto.createHash("sha256").update(canonicalLcmPayload(value), "utf8").digest("hex"); }
+
+const BLOB_PREFIX = "blob:sha256:";
+const SIGNATURE_KEYS: ReadonlySet<string> = new Set(["thinkingSignature", "textSignature", "thoughtSignature"]);
+const VOLATILE_MESSAGE_KEYS = ["retryRecovery"] as const;
+const blobRef = (bytes: Buffer): string => `${BLOB_PREFIX}${crypto.createHash("sha256").update(bytes).digest("hex")}`;
+const imageDataRef = (data: string): string => data.startsWith(BLOB_PREFIX) ? data : blobRef(Buffer.from(data, "base64"));
+const isImageMime = (value: unknown): boolean => typeof value === "string" && value.toLowerCase().startsWith("image/");
+
+const normalizeNode = (value: unknown, key: string | undefined): unknown => {
+  if (typeof value === "string") {
+    return key === "image_url" && value.startsWith("data:image/") && value.includes(";base64,") ? blobRef(Buffer.from(value, "utf8")) : value;
+  }
+  if (Array.isArray(value)) return value.map(item => normalizeNode(item, key));
+  if (value === null || typeof value !== "object") return value;
+  const record = value as Record<string, unknown>;
+  const image = typeof record.data === "string" && (record.type === "image" || isImageMime(record.mimeType));
+  const generated = record.type === "image_generation_call" && typeof record.result === "string";
+  const out: Record<string, unknown> = {};
+  for (const [childKey, child] of Object.entries(record)) {
+    if (SIGNATURE_KEYS.has(childKey)) continue;
+    if ((image && childKey === "data") || (generated && childKey === "result")) out[childKey] = imageDataRef(child as string);
+    else out[childKey] = normalizeNode(child, childKey);
+  }
+  return out;
+};
+
+/** True for a tool result the host has already replaced with a pruning notice. */
+export function isPrunedLcmEntry(value: unknown): boolean {
+  if (value === null || typeof value !== "object") return false;
+  const message = (value as Record<string, unknown>).message;
+  return message !== null && typeof message === "object" && typeof (message as Record<string, unknown>).prunedAt === "number";
+}
+
+/** Drops the signatures, externalized blob bytes, retry bookkeeping and zero errorId the host rewrites after the fact. */
+function normalizeLcmEntry(value: unknown): unknown {
+  const normalized = normalizeNode(JSON.parse(JSON.stringify(value)), undefined);
+  const message = normalized !== null && typeof normalized === "object" ? (normalized as Record<string, unknown>).message : undefined;
+  if (message !== null && typeof message === "object" && !Array.isArray(message)) {
+    const fields = message as Record<string, unknown>;
+    for (const field of VOLATILE_MESSAGE_KEYS) delete fields[field];
+    if (fields.errorId === 0) delete fields.errorId;
+  }
+  return normalized;
+}
+
+/** Canonical JSON of the normalized entry: the stored payload and the source of its identity hash. */
+export function canonicalLcmEntry(value: unknown): string { return encodeCanonical(normalizeLcmEntry(value)); }
 
 export function createDeleteConfirmationToken(projectKey: string): DeleteConfirmationToken { return { projectKey, value: hash(`delete:${projectKey}`), __brand: "DeleteConfirmationToken" }; }
 

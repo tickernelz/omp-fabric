@@ -1,5 +1,31 @@
 import { existsSync, readFileSync } from "node:fs";
 import * as path from "node:path";
+import { OMP_CORE_TOOL_ALIASES, OMP_CORE_TOOL_NAMES } from "./omp-tools.js";
+
+const routedCoreTools = (denied: readonly string[]): readonly string[] =>
+  OMP_CORE_TOOL_NAMES.filter((name) => !denied.includes(name));
+
+const fullCodeKernelRule = (denied: readonly string[]): string => {
+  const routed = routedCoreTools(denied);
+  const aliases = [...OMP_CORE_TOOL_ALIASES].filter(([, target]) => routed.includes(target));
+  const direct = nameList(routed);
+  const routedRefs = nameList(routed.map((name) => "omp." + name));
+  const aliasClause = aliases.length === 0
+    ? ""
+    : " The host aliases " + nameList(aliases.map(([alias]) => alias)) + " are hidden with them, so reach them as "
+      + nameList(aliases.map(([, target]) => "omp." + target)) + ".";
+  return "OMP Fabric full code mode: `fabric_exec` is the only way to call OMP core tools — use them as `omp.*` inside `code`."
+    + " A direct tool call named " + direct + " is not in this session's tool list and fails before it runs; the same work goes through " + routedRefs + " inside `fabric_exec`." + aliasClause
+    + " Such a rejection means the call shape was wrong, never that the capability is missing, so reissue it inside `fabric_exec` instead of retrying the direct form or reporting the tool as unavailable."
+    + " Every other tool you can see, including `task`, `todo` and `ask`, stays a direct call."
+    + " Agents you delegate to run under this same contract, so write their instructions in the `omp.*` form.";
+};
+
+const nameList = (names: readonly string[]): string => {
+  const quoted = names.map((name) => "`" + name + "`");
+  if (quoted.length <= 1) return quoted.join("");
+  return `${quoted.slice(0, -1).join(", ")} or ${quoted[quoted.length - 1]}`;
+};
 
 export const fabricExecutionKernelGuidance = (
   fullCodeMode: boolean,
@@ -7,7 +33,7 @@ export const fabricExecutionKernelGuidance = (
 ): string =>
   [
     fullCodeMode
-      ? "OMP Fabric full code mode: `fabric_exec` is the only way to call OMP core tools — use them as `omp.*` inside `code`."
+      ? fullCodeKernelRule(deniedCoreTools)
       : "OMP Fabric is in orchestration-only mode. OMP core and registered extension tools stay on their native direct execution path; inside fabric_exec, `omp.*` and `extensions.*` are unavailable.",
     // Files the model has not opened (images in particular) must be read before
     // use; this line rides the turn-stable kernel guidance so provider prefix

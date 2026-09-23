@@ -19,6 +19,18 @@ describe("fabricExecutionKernelGuidance", () => {
     expect(guidance).not.toContain("Prefer `omp.edit`");
   });
 
+  it("names every routed core tool in both call shapes and omits the denied ones", () => {
+    const guidance = fabricExecutionKernelGuidance(true, ["ls"]);
+    const routed = guidance.slice(guidance.indexOf("A direct tool call named"), guidance.indexOf("Such a rejection"));
+    for (const name of ["read", "bash", "edit", "write", "grep", "find"]) {
+      expect(routed).toContain("`" + name + "`");
+      expect(routed).toContain("`omp." + name + "`");
+    }
+    expect(routed).not.toContain("`ls`");
+    expect(routed).not.toContain("`omp.ls`");
+    expect(guidance).toContain("`task`");
+  });
+
   it("keeps the edit preference when nothing is denied", () => {
     const guidance = fabricExecutionKernelGuidance(true);
     expect(guidance).toContain("Prefer `omp.edit`/`omp.write`");

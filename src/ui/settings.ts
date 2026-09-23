@@ -61,6 +61,10 @@ const EXECUTOR_RUNTIMES = ["quickjs", "node-process", "bun-process"] as const;
 const SCHEMA_MODES = ["off", "audit", "enforce"] as const;
 const COMPACTION_ENGINES = ["lcm", "omp"] as const;
 const COMPACTION_THRESHOLD_SETTING_ID = "compaction.threshold";
+const SECONDS_SETTING_IDS: ReadonlySet<string> = new Set([
+  "compaction.lcmModelTimeoutSeconds",
+  "compaction.lcmMaintenanceRunSeconds",
+]);
 const COMPACTION_DEFAULT_THRESHOLD_LABEL = "OMP default";
 const COMPACTION_PERCENT_OPTION_LABEL = "Custom percent…";
 const COMPACTION_TOKENS_OPTION_LABEL = "Custom tokens…";
@@ -401,6 +405,7 @@ export const coerceValue = (id: string, value: string, config: FabricConfig): un
   // prewalk.enabled is enabled by default and omitted from normalized
   // configs unless false, so its control still needs an explicit boolean type.
   if (typeof current === "boolean" || id === "prewalk.enabled") return value === "true";
+  if (SECONDS_SETTING_IDS.has(id)) return parseFormattedNumericValue(value) / 1_000;
   if (typeof current === "number") return parseFormattedNumericValue(value);
   // The model picker stores the canonical "provider/id" string, or "Inherit"
   // for no override; persist an empty string so normalizeFabricConfig drops it.
@@ -2088,6 +2093,22 @@ export const buildFabricSettingsItems = (
               description:
                 "Summary calls a maintenance run may keep in flight. Spend per run scales with this number, and the daily and session call caps still bound what a run may issue.",
               submenu: numericSubmenu(theme, [1, 2, 3, 4, 5, 6, 7, 8], String, "Maintenance concurrency", "Summary calls in flight at once."),
+            },
+          ),
+          setting(
+            "compaction.lcmMaintenanceRunSeconds",
+            "Maintenance run time",
+            formatSeconds(config.compaction.lcmMaintenanceRunSeconds),
+            {
+              description:
+                "Wall-time budget for one maintenance run. The deadline stops new summary dispatch and lets calls already in flight finish.",
+              submenu: numericSubmenu(
+                theme,
+                [30, 60, 120, 300, 600],
+                formatSeconds,
+                "Maintenance run time",
+                "Wall-time budget for one maintenance run.",
+              ),
             },
           ),
           setting(

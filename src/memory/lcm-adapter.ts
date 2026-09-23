@@ -49,7 +49,7 @@ export interface LcmMemoryAdapterOptions {
   ledger: LcmMemoryLedger;
   summaries: LcmSummaryReader;
   projectKey?: string;
-  currentSessionId?: string;
+  getCurrentSessionId?: () => string | undefined;
   branchForSession?: (sessionId: string) => LcmBranchBinding | undefined;
   maxRawEntries?: number;
   maxSummaryNodes?: number;
@@ -154,6 +154,46 @@ const activeBinding = (
 
 const activeSourceSet = (binding: LcmBranchBinding | undefined): Set<string> | undefined =>
   binding?.activeSourceKeys === undefined ? undefined : new Set(binding.activeSourceKeys);
+
+export const parseLcmRawAddress = (
+  address: string,
+): { sessionId: string; entryId: string; revision: number } | undefined => {
+  const parts = address.split(":");
+  if (parts.length < 4 || parts[0] !== "lcm.raw") return undefined;
+  const revision = Number(parts.at(-1));
+  const entryId = parts.slice(2, -1).join(":");
+  const sessionId = parts[1];
+  if (!sessionId || !entryId || !Number.isSafeInteger(revision) || revision < 1) return undefined;
+  return { sessionId, entryId, revision };
+};
+
+interface RawFilter {
+  search: Pick<LcmSearchOptions, "roles" | "excludeRoles" | "since" | "until" | "order">;
+  includeSummaries: boolean;
+  since?: number;
+  until?: number;
+}
+
+const readTime = (value: unknown): number | undefined =>
+  typeof value === "number" && Number.isFinite(value) ? value : undefined;
+
+const rawFilter = (args: Record<string, unknown>, query: string | undefined, mode: MemoryQueryMode): RawFilter => {
+  const role = typeof args.role === "string" && args.role.length > 0 ? args.role : undefined;
+  const since = readTime(args.since);
+  const until = readTime(args.until);
+  const ranked = (query?.trim().length ?? 0) > 0 && mode !== "regex";
+  return {
+    search: {
+      ...(role === undefined ? { excludeRoles: ["custom"] } : { roles: [role] }),
+      ...(since === undefined ? {} : { since }),
+      ...(until === undefined ? {} : { until }),
+      order: ranked ? "relevance" : "recent",
+    },
+    includeSummaries: role === undefined || role === "compactionSummary",
+    ...(since === undefined ? {} : { since }),
+    ...(until === undefined ? {} : { until }),
+  };
+};
 
 const sessionScope = (args: Record<string, unknown>, currentSessionId: string | undefined): string | undefined => {
   const scope = typeof args.scope === "string" && args.scope.startsWith("session:")
@@ -313,31 +353,36 @@ export class LcmMemoryAdapter {
     const pageSize = typeof args.pageSize === "number" && args.pageSize >= 1
       ? Math.min(50, Math.floor(args.pageSize))
       : 10;
-    const selectedSession = sessionScope(args, this.options.currentSessionId);
+    const selectedSession = sessionScope(args, this.options.getCurrentSessionId?.());
+    const filter = rawFilter(args, query, mode);
     const reasons = new Set<string>();
     if (predicate.failure) reasons.add(predicate.failure);
 
-    const summaryHits = this.summaryHits(selectedSession, branches, predicate, reasons);
-    const raw = this.rawPage(selectedSession, branches, query, mode, match, predicate, offset, pageSize, reasons);
-    const hits = raw.hits;
-    const consumedPositions = offset + raw.consumed;
-    let summaryTaken = 0;
-    if (consumedPositions >= raw.total) {
-      const start = Math.max(0, consumedPositions - raw.total);
-      for (const hit of summaryHits.slice(start)) {
-        if (hits.length >= pageSize) break;
-        hits.push(hit);
-        summaryTaken += 1;
-      }
-    }
-    const total = raw.total + summaryHits.length;
-    const consumed = raw.consumed + summaryTaken;
-    const sessions = new Set(hits.map((hit) => hit.sessionId)).size;
+    const summaryHits = filter.includeSummaries
+      ? this.summaryHits(selectedSession, branches, predicate, filter, reasons)
+      : [];
+    const page = this.mergedPage({
+      search: {
+        ...(selectedSession === undefined ? {} : { sessionId: selectedSession }),
+        ...(query === undefined ? {} : { query }),
+        mode,
+        match,
+        ...filter.search,
+      },
+      branches,
+      predicate,
+      summaryHits,
+      offset,
+      pageSize,
+      reasons,
+    });
+    const total = page.rawTotal + summaryHits.length;
+    const sessions = new Set(page.hits.map((hit) => hit.sessionId)).size;
     return {
       total,
-      hits,
-      next: offset + consumed < total
-        ? { ref: "memory.recall", args: { ...args, offset: offset + consumed } }
+      hits: page.hits,
+      next: !page.exhausted && page.position < total
+        ? { ref: "memory.recall", args: { ...args, offset: page.position } }
         : null,
       coverage: {
         complete: reasons.size === 0,
@@ -350,59 +395,82 @@ export class LcmMemoryAdapter {
     };
   }
 
-  private rawPage(
-    selectedSession: string | undefined,
-    branches: "active" | "all",
-    query: string | undefined,
-    mode: MemoryQueryMode,
-    match: MemoryQueryMatch,
-    predicate: QueryPredicate,
-    offset: number,
-    pageSize: number,
-    reasons: Set<string>,
-  ): { hits: LcmMemoryHit[]; consumed: number; total: number } {
-    const hits: LcmMemoryHit[] = [];
-    let consumed = 0;
-    let total = 0;
-    while (hits.length < pageSize && consumed < this.maxRaw) {
-      const limit = Math.min(Math.max(pageSize, 32), this.maxRaw - consumed);
-      const page = this.options.ledger.searchRaw({
-        ...(selectedSession === undefined ? {} : { sessionId: selectedSession }),
-        ...(query === undefined ? {} : { query }),
-        mode,
-        match,
-        offset: offset + consumed,
-        limit,
-        scanLimit: this.maxRaw,
-      });
-      total = page.total;
+  private mergedPage(input: {
+    search: Omit<LcmSearchOptions, "offset" | "limit" | "scanLimit">;
+    branches: "active" | "all";
+    predicate: QueryPredicate;
+    summaryHits: readonly LcmMemoryHit[];
+    offset: number;
+    pageSize: number;
+    reasons: Set<string>;
+  }): { hits: LcmMemoryHit[]; position: number; rawTotal: number; exhausted: boolean } {
+    const { search, branches, predicate, summaryHits, offset, pageSize, reasons } = input;
+    let batch: RawEntry[] = [];
+    let batchStart = 0;
+    let rawEnd = Number.POSITIVE_INFINITY;
+    let rawTotal = 0;
+    const rawAt = (position: number): RawEntry | undefined => {
+      if (position >= batchStart && position < batchStart + batch.length) return batch[position - batchStart];
+      if (position >= rawEnd) return undefined;
+      const limit = Math.max(pageSize, 32);
+      const page = this.options.ledger.searchRaw({ ...search, offset: position, limit, scanLimit: this.maxRaw });
+      rawTotal = page.total;
       if (!page.complete) reasons.add("raw_search_incomplete");
-      if (page.rows.length === 0) break;
-      for (const entry of page.rows) {
-        consumed += 1;
-        const allowed = activeAllowed(branches, activeBinding(this.options, entry.sessionId), sourceKey(entry.entryId, entry.contentHash));
-        if (!allowed.allowed) {
-          if (allowed.reason) reasons.add(allowed.reason);
-          continue;
-        }
-        hits.push(this.rawHit(entry, predicate, branches));
-        if (hits.length >= pageSize) break;
+      batch = page.rows;
+      batchStart = position;
+      if (page.rows.length < limit) rawEnd = position + page.rows.length;
+      return batch[0];
+    };
+    const hits: LcmMemoryHit[] = [];
+    let rawPosition = summaryHits.length === 0 ? offset : 0;
+    let summaryPosition = 0;
+    let position = rawPosition;
+    let emittedRaw = 0;
+    let headPosition = -1;
+    let headScore = 0;
+    let exhausted = false;
+    while (hits.length < pageSize) {
+      if (position >= offset && emittedRaw >= this.maxRaw) {
+        if (rawAt(rawPosition) !== undefined) reasons.add("raw_scan_limit");
+        break;
       }
-      if (page.rows.length < limit) break;
+      const entry = rawAt(rawPosition);
+      const summary = summaryHits[summaryPosition];
+      if (entry === undefined && summary === undefined) {
+        exhausted = true;
+        break;
+      }
+      if (entry !== undefined && headPosition !== rawPosition) {
+        headScore = predicate.scoreOf(entry.content);
+        headPosition = rawPosition;
+      }
+      const emit = position >= offset;
+      position += 1;
+      if (summary !== undefined && (entry === undefined || summary.score > headScore)) {
+        summaryPosition += 1;
+        if (emit) hits.push(summary);
+        continue;
+      }
+      rawPosition += 1;
+      if (!emit) continue;
+      emittedRaw += 1;
+      const allowed = activeAllowed(branches, activeBinding(this.options, entry!.sessionId), sourceKey(entry!.entryId, entry!.contentHash));
+      if (!allowed.allowed) {
+        if (allowed.reason) reasons.add(allowed.reason);
+        continue;
+      }
+      hits.push(this.rawHit(entry!, headScore, branches));
     }
-    if (hits.length < pageSize && consumed >= this.maxRaw && offset + consumed < total) {
-      reasons.add("raw_scan_limit");
-    }
-    return { hits, consumed, total };
+    return { hits, position, rawTotal, exhausted };
   }
 
-  private rawHit(entry: RawEntry, predicate: QueryPredicate, branches: "active" | "all"): LcmMemoryHit {
+  private rawHit(entry: RawEntry, score: number, branches: "active" | "all"): LcmMemoryHit {
     const preview = excerpt(entry.content);
     const address = lcmRawAddress(entry);
     return {
       kind: "lcm.raw",
       sessionId: entry.sessionId,
-      score: predicate.scoreOf(entry.content),
+      score,
       snippet: preview.snippet,
       truncated: preview.truncated,
       source: {
@@ -425,6 +493,7 @@ export class LcmMemoryAdapter {
     selectedSession: string | undefined,
     branches: "active" | "all",
     predicate: QueryPredicate,
+    filter: RawFilter,
     reasons: Set<string>,
   ): LcmMemoryHit[] {
     const nodes = selectedSession === undefined
@@ -453,6 +522,8 @@ export class LcmMemoryAdapter {
           continue;
         }
       }
+      if (filter.since !== undefined && node.createdAt < filter.since) continue;
+      if (filter.until !== undefined && node.createdAt > filter.until) continue;
       if (!predicate.matches(node.text)) continue;
       const preview = excerpt(node.text);
       hits.push({
@@ -714,12 +785,9 @@ export class LcmMemoryAdapter {
     args: Record<string, unknown>,
     branches: "active" | "all",
   ): Record<string, unknown> {
-    const parts = address.split(":");
-    if (parts.length < 4 || parts[0] !== "lcm.raw") return { entries: [], next: null, error: { code: "invalid_address", message: "invalid LCM raw address" } };
-    const revision = Number(parts.at(-1));
-    const entryId = parts.slice(2, -1).join(":");
-    const sessionId = parts[1];
-    if (!sessionId || !entryId || !Number.isSafeInteger(revision) || revision < 1) return { entries: [], next: null, error: { code: "invalid_address", message: "invalid LCM raw address" } };
+    const parsed = parseLcmRawAddress(address);
+    if (!parsed) return { entries: [], next: null, error: { code: "invalid_address", message: "invalid LCM raw address" } };
+    const { sessionId, entryId, revision } = parsed;
     const entry = this.options.ledger.readRawEntry(sessionId, entryId, revision);
     if (!entry) return { entries: [], next: null, error: { code: "stale_pointer", message: "raw source is unavailable" } };
     const binding = activeBinding(this.options, sessionId);

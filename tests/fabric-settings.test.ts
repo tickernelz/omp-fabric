@@ -258,12 +258,12 @@ describe("FabricSettingsComponent", () => {
     expect(lines).toContain("anthropic/claude-sonnet-4-5");
     expect(lines).toContain("Engine");
     expect(lines).toContain("lcm");
-    expect(lines).toContain("Max occupancy");
-    expect(rows.find((row) => row.includes("Max occupancy"))).toContain("0.5");
     const section = compaction!.submenu!("", () => {}) as any;
-    const target = (section.items as Array<{ id: string; values?: readonly string[] }>).find(
+    const target = (section.items as Array<{ id: string; label: string; currentValue: string; values?: readonly string[] }>).find(
       (item: { id: string }) => item.id === "compaction.targetContextRatio",
     );
+    expect(target?.label).toBe("Max occupancy");
+    expect(target?.currentValue).toBe("0.5");
     expect(target?.values).toEqual(
       Array.from({ length: 13 }, (_, index) => String((25 + index * 5) / 100)),
     );
@@ -790,6 +790,28 @@ describe("FabricSettingsComponent", () => {
     expect(DEFAULT_FABRIC_CONFIG.compaction.lcmModelTimeoutSeconds).toBe(120);
     expect(timeout.currentValue).toBe("120s");
     expect(section.items.find((item) => item.id === "compaction.lcmMaxDailyModelCalls")?.currentValue).toBe("no limit");
+  });
+
+  it("persists seconds rows as seconds", () => {
+    for (const id of ["compaction.lcmModelTimeoutSeconds", "compaction.lcmMaintenanceRunSeconds"]) {
+      const applied: Array<[string, unknown]> = [];
+      const section = buildFabricSettingsItems(theme, DEFAULT_FABRIC_CONFIG, (key, value) => applied.push([key, value]), {
+        keepVisibleCandidates: ["fabric_exec"],
+        modelSource: fakeModelSource,
+        activeModelKey: "anthropic/claude-sonnet-4-5",
+      }).find((item) => item.id === "compaction")!.submenu!("", () => {}) as unknown as SectionProbe;
+      const list = section.settingsList;
+      expect(list.selectItem(id)).toBe(true);
+      list.handleInput("\r");
+      list.handleInput("\x1b[B");
+      list.handleInput("\r");
+      const [key, value] = applied.at(-1)!;
+      expect(key).toBe(id);
+      const persisted = normalizeFabricConfig({ compaction: { [id.split(".")[1]!]: value } }).compaction;
+      expect(persisted[id.split(".")[1] as "lcmModelTimeoutSeconds" | "lcmMaintenanceRunSeconds"]).toBe(
+        Number.parseInt(list.getSelectedItem()!.currentValue, 10),
+      );
+    }
   });
 
   it("picks the LCM summary model from the available OMP models", () => {

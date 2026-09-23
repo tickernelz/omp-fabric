@@ -802,6 +802,7 @@ export interface LcmCompactionInput {
   sessionId: string;
   firstKeptEntryId: string;
   tokensBefore: number;
+  isSplitTurn?: boolean;
   customInstructions?: string;
 }
 
@@ -851,6 +852,7 @@ export const registerCompactionHook = (omp: ExtensionAPI, options: CompactionHoo
         sessionId,
         firstKeptEntryId: event.preparation.firstKeptEntryId,
         tokensBefore: event.preparation.tokensBefore,
+        ...(typeof (event.preparation as { isSplitTurn?: unknown }).isSplitTurn === "boolean" ? { isSplitTurn: (event.preparation as { isSplitTurn: boolean }).isSplitTurn } : {}),
         ...(event.customInstructions === undefined ? {} : { customInstructions: event.customInstructions }),
       });
     } catch (error) {

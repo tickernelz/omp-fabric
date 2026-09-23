@@ -3,7 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { sqliteDriver, type SqliteDatabase } from "./sqlite.js";
 import { sessionsDirRoot, sessionDirNamesForCwd } from "../memory/discovery.js";
-import { canonicalLcmPayload, canonicalProjectIdentity, defaultLedgerPath, hashLcmPayload, LcmLedger } from "./lcm-ledger.js";
+import { canonicalLcmEntry, canonicalLcmPayload, canonicalProjectIdentity, defaultLedgerPath, LcmLedger } from "./lcm-ledger.js";
 
 export interface MigrationOptions {
   agentDir: string;
@@ -282,19 +282,19 @@ export function migrateSessions(options: MigrationOptions): MigrationResult {
         if (!options.onDemand && (at < window.since || at > window.until)) { counts.skippedOutOfWindow++; continue; }
         counts.eligible++;
         const payloadJson = canonicalLcmPayload(row);
-        const contentHash = hashLcmPayload(row);
+        const contentHash = hash(canonicalLcmEntry(row));
         const identity = JSON.stringify([projectKey, sessionId, row.id, contentHash]);
         const progress: MigrationProgress = { projectKey, sessionPath: file, sourceHash, lineOrdinal: ordinal, entryId: row.id, contentHash };
         const duplicate = drySeen.has(identity) || database?.prepare("SELECT 1 FROM raw_entries WHERE project_key=? AND session_id=? AND entry_id=? AND content_hash=?").get(projectKey, sessionId, row.id, contentHash) !== undefined;
         if (duplicate) counts.skippedDuplicate++;
         else if (ledger) {
-          ledger.appendRaw({
+          const persisted = ledger.appendRaw({
             projectKey, sessionId, entryId: row.id, role: message && typeof message.role === "string" ? message.role : row.type,
             content, payloadJson, parentEntryId: typeof row.parentId === "string" ? row.parentId : null,
             branch: typeof row.branch === "string" ? row.branch : typeof row.branchId === "string" ? row.branchId : null,
             ...(cwd ? { recordedCwd: cwd } : {}), createdAt: at
           });
-          counts.imported++;
+          if (persisted.contentHash === contentHash) counts.imported++; else counts.skippedDuplicate++;
         }
         else if (!duplicate) counts.imported++;
         drySeen.add(identity);

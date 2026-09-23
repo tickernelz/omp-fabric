@@ -1,6 +1,7 @@
 import { completeSimple, type Model } from "@oh-my-pi/pi-ai";
 import type { ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 import { hashLcmPayload } from "../storage/lcm-identity.js";
+import { DETERMINISTIC_HEADER } from "./lcm-recovery.js";
 import { clipUtf8, utf8Bytes } from "./bounds.js";
 import { renderLcmSourceAddresses } from "./lcm-addresses.js";
 import { LCM_RECOVERY_POINTER } from "./render.js";
@@ -10,7 +11,7 @@ export interface LcmSourceHandle { sessionId: string; entryId: string; revision:
 const LCM_MAX_INPUT_CHARS = 1_000_000;
 const LCM_MAX_OUTPUT_TOKENS = 32_768;
 const LCM_MAX_OUTPUT_CHARS = 131_072;
-const DEFAULT_LCM_MAX_INPUT_CHARS = 48_000;
+export const DEFAULT_LCM_MAX_INPUT_CHARS = 48_000;
 const DEFAULT_LCM_MAX_OUTPUT_TOKENS = 4_096;
 const DEFAULT_LCM_MAX_OUTPUT_CHARS = 16_384;
 export interface LcmModelResult { text: string; inputTokens: number; outputTokens: number; cost: number; wallMs: number; modelHash: string; }
@@ -58,8 +59,9 @@ export function buildLcmPrompt(kind: "leaf" | "condensed", input: string, maxInp
   const fitted = fitEscaped(input, Math.max(0, room - utf8Bytes(truncationNote(total, total))));
   return prefix + fitted.text + truncationNote(total - fitted.consumed, total) + suffix;
 }
-const EMERGENCY_HEADER = "[Nonsemantic deterministic excerpt; not a model summary]\n";
+const EMERGENCY_HEADER = `${DETERMINISTIC_HEADER}\n`;
 const EMERGENCY_CONTENT_SHARE = 0.6;
+const EMERGENCY_ADDRESS_SHARE = 0.1;
 const EMERGENCY_MIN_CONTENT_BYTES = 64;
 const EMERGENCY_MARKER = "\n...\n";
 
@@ -117,7 +119,7 @@ export function emergencyReduce(input: string, limit = 4_096, sources: readonly 
     const room = bound - utf8Bytes(level.head);
     const reserved = level.addressed ? oneAddress : 0;
     if (room - reserved < 1) continue;
-    const budget = level.addressed ? Math.max(reserved, room - contentFloor(room) - 1) : 0;
+    const budget = level.addressed ? Math.max(reserved, Math.min(Math.floor(bound * EMERGENCY_ADDRESS_SHARE), room - contentFloor(room) - 1)) : 0;
     const addresses = budget > 0 ? renderLcmSourceAddresses(sources, budget) : "";
     const prefix = level.head + (addresses ? `${addresses}\n` : "");
     if (utf8Bytes(prefix) >= bound) continue;

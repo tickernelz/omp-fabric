@@ -27,15 +27,16 @@ describe("LCM addresses", () => {
     expect(rendered).toBe("sources: lcm.raw:s1:e1:1, lcm.raw:s1:e2:2");
   });
 
-  it("marks the omitted remainder and stays inside the budget", () => {
+  it("keeps the newest sources and marks the omitted older ones", () => {
     const sources = Array.from({ length: 40 }, (_, index) => source(`entry-${index}`));
     const full = renderLcmSourceAddresses(sources, 4_096);
     const budget = utf8Bytes(full) - 40;
     const clipped = renderLcmSourceAddresses(sources, budget);
     expect(utf8Bytes(clipped)).toBeLessThanOrEqual(budget);
-    expect(clipped).toMatch(/, \+\d+ more$/);
+    expect(clipped).toContain("lcm.raw:s1:entry-39:1");
+    expect(clipped).not.toContain("lcm.raw:s1:entry-0:1");
     const kept = clipped.slice("sources: ".length).split(", ").filter((part) => part.startsWith("lcm.raw:"));
-    const omitted = Number(/\+(\d+) more$/.exec(clipped)?.[1]);
+    const omitted = Number(/^sources: \+(\d+) older, /.exec(clipped)?.[1]);
     expect(kept.length + omitted).toBe(sources.length);
   });
 

@@ -209,12 +209,12 @@ describe("LCM maintenance branch isolation", () => {
     expect(body).toContain("bound provenance");
 
     const rendered = sourceLine.slice("sources: ".length).split(", ");
-    const omission = rendered.pop() ?? "";
-    expect(omission).toMatch(/^\+\d+ more$/);
+    const omission = rendered.shift() ?? "";
+    expect(omission).toMatch(/^\+\d+ older$/);
     for (const handle of rendered) {
       expect(handle).toMatch(/^lcm\.raw:[0-9a-f-]+:\d{8}:1$/);
     }
-    expect(rendered.length + Number(omission.slice(1, -5))).toBe(150);
+    expect(rendered.length + Number(omission.slice(1, -6))).toBe(150);
 
     expect(emergency).toContain("memory.recall");
   });

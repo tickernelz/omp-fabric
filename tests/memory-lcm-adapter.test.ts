@@ -32,6 +32,19 @@ const append = (ledger: LcmLedger, sessionId: string, entryId: string, text: str
     createdAt,
   });
 
+const appendAs = (ledger: LcmLedger, entryId: string, role: string, text: string, createdAt: number, sessionId = "s") =>
+  ledger.appendRaw({
+    projectKey: ledger.project.key,
+    sessionId,
+    entryId,
+    role,
+    content: text,
+    payloadJson: message(entryId, text),
+    createdAt,
+  });
+
+const noSummaries = { listNodes: () => [], getNode: () => undefined };
+
 const longBody = (label: string, length: number): string => {
   let text = "";
   while (text.length < length) text += label + "-" + text.length + "|";
@@ -70,7 +83,7 @@ describe("LCM memory retrieval", () => {
     };
     const adapter = new LcmMemoryAdapter({
       ledger: capability(ledger),
-      currentSessionId: "s",
+      getCurrentSessionId: () => "s",
       branchForSession: () => ({ activeSourceKeys: [`${raw.entryId}:${raw.contentHash}`], ready: true }),
       summaries: { listNodes: () => [node], getNode: (id) => (id === "n" ? node : undefined) },
     });
@@ -86,7 +99,7 @@ describe("LCM memory retrieval", () => {
     const ledger = ledgerAt("lcm-memory-");
     const adapter = new LcmMemoryAdapter({
       ledger: capability(ledger),
-      currentSessionId: "s",
+      getCurrentSessionId: () => "s",
       branchForSession: () => ({ activeSourceKeys: [], ready: true }),
       summaries: {
         listNodes: () => [{ nodeId: "n", projectKey: ledger.project.key, sessionId: "s", sourceHash: "h", state: "failed", text: "alpha", children: [], sources: [], createdAt: 1 }],
@@ -109,7 +122,7 @@ describe("LCM memory retrieval", () => {
         append(ledger, "s", "e" + index, newest ? "zephyrmarker closing note" : "filler line " + index, 1000 + index);
       }
     });
-    const adapter = new LcmMemoryAdapter({ ledger: capability(ledger), currentSessionId: "s", summaries: { listNodes: () => [], getNode: () => undefined } });
+    const adapter = new LcmMemoryAdapter({ ledger: capability(ledger), getCurrentSessionId: () => "s", summaries: { listNodes: () => [], getNode: () => undefined } });
     const found = adapter.recall({ query: "zephyrmarker", branches: "all" });
     expect(found.total).toBe(1);
     expect(found.hits).toHaveLength(1);
@@ -126,7 +139,7 @@ describe("LCM memory retrieval", () => {
     ledger.transaction(() => {
       for (let index = 0; index < 40; index += 1) append(ledger, "s", "e" + index, "bounded body " + index, 1000 + index);
     });
-    const adapter = new LcmMemoryAdapter({ ledger: capability(ledger), currentSessionId: "s", maxRawEntries: 10, summaries: { listNodes: () => [], getNode: () => undefined } });
+    const adapter = new LcmMemoryAdapter({ ledger: capability(ledger), getCurrentSessionId: () => "s", maxRawEntries: 10, summaries: { listNodes: () => [], getNode: () => undefined } });
     const first = adapter.recall({ branches: "all", pageSize: 4 });
     expect(first.hits.map((hit) => hit.source.entryId)).toEqual(["e39", "e38", "e37", "e36"]);
     const second = adapter.recall({ ...first.next!.args, branches: "all", pageSize: 4 });
@@ -141,7 +154,7 @@ describe("LCM memory retrieval", () => {
     ];
     const adapter = new LcmMemoryAdapter({
       ledger: capability(ledger),
-      currentSessionId: "s",
+      getCurrentSessionId: () => "s",
       summaries: { listNodes: () => nodes, getNode: (id) => nodes.find((node) => node.nodeId === id) },
     });
     const byRegex = adapter.recall({ query: "ticket [0-9]{4} ", queryMode: "regex", branches: "all" });
@@ -189,7 +202,7 @@ describe("LCM memory retrieval", () => {
     const nodes = [leaf, condensed];
     const adapter = new LcmMemoryAdapter({
       ledger: capability(ledger),
-      currentSessionId: "s",
+      getCurrentSessionId: () => "s",
       branchForSession: () => ({ activeSourceKeys: [key(first), key(second)], ready: true }),
       summaries: { listNodes: () => nodes, getNode: (id) => nodes.find((node) => node.nodeId === id) },
     });
@@ -236,7 +249,7 @@ describe("LCM memory retrieval", () => {
     };
     const adapter = new LcmMemoryAdapter({
       ledger: capability(ledger),
-      currentSessionId: "s",
+      getCurrentSessionId: () => "s",
       summaries: { listNodes: () => [node], getNode: (id) => (id === "leaf" ? node : undefined) },
     });
     const first = adapter.expand({ session: "lcm.summary:leaf", branches: "all", maxEntries: 2 });
@@ -274,7 +287,7 @@ describe("LCM memory retrieval", () => {
     };
     const adapter = new LcmMemoryAdapter({
       ledger: capability(ledger),
-      currentSessionId: "s",
+      getCurrentSessionId: () => "s",
       branchForSession: () => ({ activeSourceKeys: [key(kept)], ready: true }),
       summaries: { listNodes: () => [node], getNode: (id) => (id === "leaf" ? node : undefined) },
     });
@@ -307,7 +320,7 @@ describe("LCM memory retrieval", () => {
     };
     const adapter = new LcmMemoryAdapter({
       ledger: capability(ledger),
-      currentSessionId: "s",
+      getCurrentSessionId: () => "s",
       summaries: { listNodes: () => [node], getNode: (id) => (id === "leaf" ? node : undefined) },
     });
 
@@ -371,7 +384,7 @@ describe("LCM memory retrieval", () => {
     const nodes = [bound, unbound];
     const adapter = new LcmMemoryAdapter({
       ledger: capability(ledger),
-      currentSessionId: "s",
+      getCurrentSessionId: () => "s",
       summaries: { listNodes: () => nodes, getNode: (id) => nodes.find((node) => node.nodeId === id) },
     });
 
@@ -424,7 +437,7 @@ describe("LCM memory retrieval", () => {
     };
     const walk = (extra: Record<string, unknown>, adapter = new LcmMemoryAdapter({
       ledger: counted,
-      currentSessionId: "s",
+      getCurrentSessionId: () => "s",
       summaries: { listNodes: () => [node], getNode: (id) => (id === "wide" ? node : undefined) },
     })) => {
       reads = 0;
@@ -480,7 +493,7 @@ describe("LCM memory retrieval", () => {
           return ledger.readRawEntry(ledger.project.key, sessionId, entryId, revision);
         },
       },
-      currentSessionId: "s",
+      getCurrentSessionId: () => "s",
       branchForSession: () => ({ activeSourceKeys, ready: true }),
       summaries: { listNodes: () => [node], getNode: (id) => (id === "leaf" ? node : undefined) },
     });
@@ -535,7 +548,7 @@ describe("LCM memory retrieval", () => {
     };
     const adapter = new LcmMemoryAdapter({
       ledger: capability(ledger),
-      currentSessionId: "s",
+      getCurrentSessionId: () => "s",
       summaries: { listNodes: () => [node], getNode: (id) => (id === "leaf" ? node : undefined) },
     });
     const base = { session: "lcm.summary:leaf", branches: "all" };
@@ -582,7 +595,7 @@ describe("LCM memory retrieval", () => {
     };
     const adapter = new LcmMemoryAdapter({
       ledger: capability(ledger),
-      currentSessionId: "s",
+      getCurrentSessionId: () => "s",
       summaries: { listNodes: () => [node], getNode: (id) => (id === "leaf" ? node : undefined) },
     });
     const base = { session: "lcm.summary:leaf", branches: "all" };
@@ -618,7 +631,7 @@ describe("LCM memory retrieval", () => {
     };
     const adapter = new LcmMemoryAdapter({
       ledger: capability(ledger),
-      currentSessionId: "s",
+      getCurrentSessionId: () => "s",
       summaries: { listNodes: () => [node], getNode: (id) => (id === "leaf" ? node : undefined) },
     });
     expect(body.length).toBe(401);
@@ -638,5 +651,83 @@ describe("LCM memory retrieval", () => {
     }
     expect(widths[0]).toBe(255);
     expect(assembled).toBe(body);
+  });
+
+  it("skips custom bookkeeping rows unless the caller asks for them", () => {
+    const ledger = ledgerAt("lcm-custom-");
+    appendAs(ledger, "u", "user", "deploy the payments service", 1);
+    appendAs(ledger, "c", "custom", "tool_execution_start deploy payments", 2);
+    const adapter = new LcmMemoryAdapter({ ledger: capability(ledger), getCurrentSessionId: () => "s", summaries: noSummaries });
+    expect(adapter.recall({ query: "deploy payments", branches: "all" }).hits.map((hit) => hit.source.entryId)).toEqual(["u"]);
+    expect(adapter.recall({ query: "deploy payments", role: "custom", branches: "all" }).hits.map((hit) => hit.source.entryId)).toEqual(["c"]);
+  });
+
+  it("filters raw hits by role and entry time", () => {
+    const ledger = ledgerAt("lcm-role-");
+    appendAs(ledger, "u1", "user", "first request", 100);
+    appendAs(ledger, "a1", "assistant", "an answer", 200);
+    appendAs(ledger, "u2", "user", "second request", 300);
+    const adapter = new LcmMemoryAdapter({ ledger: capability(ledger), getCurrentSessionId: () => "s", summaries: noSummaries });
+    const ids = (args: Record<string, unknown>): Array<string | undefined> =>
+      adapter.recall({ ...args, branches: "all" }).hits.map((hit) => hit.source.entryId);
+    expect(ids({ role: "user" })).toEqual(["u2", "u1"]);
+    expect(ids({ role: "user", since: 150 })).toEqual(["u2"]);
+    expect(ids({ role: "user", until: 150 })).toEqual(["u1"]);
+  });
+
+  it("ranks a multi-term query by relevance ahead of recency", () => {
+    const ledger = ledgerAt("lcm-relevance-");
+    appendAs(ledger, "old", "user", "rotate the alpha beta gamma credentials", 1);
+    appendAs(ledger, "mid", "assistant", "alpha is noted", 2);
+    appendAs(ledger, "new", "assistant", "alpha again", 3);
+    const adapter = new LcmMemoryAdapter({ ledger: capability(ledger), getCurrentSessionId: () => "s", summaries: noSummaries });
+    const hits = adapter.recall({ query: "alpha beta gamma", branches: "all" }).hits.map((hit) => hit.source.entryId);
+    expect(hits[0]).toBe("old");
+    expect([...hits].sort()).toEqual(["mid", "new", "old"]);
+  });
+
+  it("reads the current session at call time", () => {
+    const ledger = ledgerAt("lcm-live-session-");
+    appendAs(ledger, "one", "user", "shared note one", 1, "s1");
+    appendAs(ledger, "two", "user", "shared note two", 2, "s2");
+    let current = "s1";
+    const adapter = new LcmMemoryAdapter({ ledger: capability(ledger), getCurrentSessionId: () => current, summaries: noSummaries });
+    expect(adapter.recall({ query: "shared", branches: "all" }).hits.map((hit) => hit.source.entryId)).toEqual(["one"]);
+    current = "s2";
+    expect(adapter.recall({ query: "shared", branches: "all" }).hits.map((hit) => hit.source.entryId)).toEqual(["two"]);
+  });
+
+  it("places a stronger summary hit among raw hits and pages every hit once", () => {
+    const ledger = ledgerAt("lcm-merge-");
+    appendAs(ledger, "older", "user", "alpha first", 4);
+    appendAs(ledger, "newer", "user", "alpha second", 5);
+    const node: LcmSummaryNode = {
+      nodeId: "n",
+      projectKey: ledger.project.key,
+      sessionId: "s",
+      sourceHash: "h",
+      state: "ready",
+      text: "alpha beta decision",
+      children: [],
+      sources: [],
+      createdAt: 1,
+    };
+    const adapter = new LcmMemoryAdapter({
+      ledger: capability(ledger),
+      getCurrentSessionId: () => "s",
+      summaries: { listNodes: () => [node], getNode: (id) => (id === "n" ? node : undefined) },
+    });
+    const first = adapter.recall({ query: "alpha beta", branches: "all" });
+    expect(first.total).toBe(3);
+    expect(first.hits.map((hit) => hit.source.nodeId ?? hit.source.entryId)).toEqual(["n", "newer", "older"]);
+    const walked: Array<string | undefined> = [];
+    let args: Record<string, unknown> = { query: "alpha beta", branches: "all", pageSize: 1 };
+    for (let guard = 0; guard < 6; guard += 1) {
+      const page = adapter.recall(args);
+      walked.push(...page.hits.map((hit) => hit.source.nodeId ?? hit.source.entryId));
+      if (!page.next) break;
+      args = page.next.args;
+    }
+    expect(walked).toEqual(["n", "newer", "older"]);
   });
 });

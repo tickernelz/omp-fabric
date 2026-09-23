@@ -1,5 +1,27 @@
 # Changelog
 
+## 1.24.0
+
+### Fixed
+
+- A compaction that cut inside a turn could drop the request the agent was working on. The summary now opens with that request verbatim, addressed as `[Active Request] lcm.raw:<session>:<entry>:<revision>`, taken from the session branch and never from model output. The block appears only for a split turn: the host's `isSplitTurn` decides when it is passed, and otherwise a cut whose first kept entry is not a user message counts as split. Traced on the session that lost its task after 851,722 tokens.
+- Partial coverage no longer throws away finished summaries. Ready nodes render for the range they cover and the entries no summary covers yet render as a deterministic `[Recent Detail]` digest, one line per entry with tool calls and result status. Replaying the traced compaction against a copy of its ledger now keeps 10 model summary blocks where it kept none.
+- The emergency leaf covers only the uncovered tail, split into chunks bounded by `lcmMaxLeafEntries` and `lcmMaxInputChars`. A whole-range leaf used to outrank every model summary on the next frontier walk and hide all of them.
+- An oversized deterministic leaf, and any ancestor that inherited one, is excluded from the frontier, from condensation, and from the covered set, so the range it claims is summarized again in bounded pieces.
+- When frontier blocks do not all fit, the render shares the budget instead of dropping whole nodes: each node keeps its text up to an equal share and the leftover is redistributed, so a 65 KB frontier reaches the model as ten addressed blocks.
+- Address lists keep the newest addresses and mark the dropped ones as `+N older`, and a deterministic excerpt caps them at a tenth of its output bound. The traced summary spent 40% of its bytes on the oldest addresses; the replay now spends 2.9%.
+- The tail digest is sized after the request head, so a tight `lcmMaxOutputChars` no longer clips away the newest lines it just promised to keep.
+- One stored entry keeps one identity across the rewrites the host performs after the fact: inline image data hashes to `blob:sha256:<digest>`, opaque reasoning signatures, `retryRecovery` and a zero `errorId` are dropped, and a pruned tool result stays on the revision it replaced. Session migration counts a reused revision as a duplicate instead of an import.
+- Maintenance opens up to `lcmMaintenanceConcurrency` leaves per pass, runs after every turn inside a long agent run, and coalesces schedules that arrive while a run is in flight. An emergency node whose evidence cannot fit one prompt is left alone instead of being replaced by a summary of a truncated slice.
+- Full code mode hides the host's `glob` and `search` aliases along with the core tools they route to, and restores them on release. `glob` stayed directly callable after the host renamed `find`, so file search sat on the direct path while every other file tool was routed.
+- Captured tools keep every field the host forwards (`loadMode`, `deferrable`, `readsSkillUris`, `approval`, `strict`, MCP names); the wrapper copied a fixed eight-field subset. `fabric_exec` declares `readsSkillUris`, which the host reads to decide whether a tool can reach `skill://` content.
+
+### Added
+
+- `compaction.lcmMaintenanceRunSeconds` (60 by default, 10 to 600) bounds a maintenance run, with a settings row beside the other maintenance keys.
+- LCM recall filters by `role`, `since` and `until`, orders a query by relevance, and skips the bookkeeping rows a call writes about itself. `memory.expand` on a bare session id or a file path reaches the session engine, so `before`/`after` context and absolute indices work again, and an `lcm.raw:` address widens through the session file.
+- The full code mode system prompt names each routed core tool in both call shapes, states that a rejected direct call is the wrong call shape rather than a missing capability, and tells delegated agents to use the `omp.*` form.
+
 ## 1.23.0
 
 ### Added

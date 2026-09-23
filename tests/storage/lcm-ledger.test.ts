@@ -60,7 +60,32 @@ const probeSearch = (dbPath: string, root: string) => {
   };
 };
 
+const rewritten = (projectKey: string, message: Record<string, unknown>, entryId = "r1") => ({ projectKey, sessionId: "s1", entryId, role: "assistant", content: JSON.stringify(message.content ?? ""), payloadJson: JSON.stringify({ type: "message", id: entryId, parentId: null, timestamp: 3, message }) });
+const original = { role: "assistant", content: [{ type: "text", text: "shipping" }, { type: "image", data: "aGk=" }] };
+
 describe("LCM ledger", () => {
+  it("keeps one revision when the host rewrites an entry it already stored", () => {
+    const d = make(); const l = openLedger({ dbPath: path.join(d, "a.sqlite"), project: { liveCwd: d } });
+    const first = l.appendRaw(rewritten(l.project.key, original));
+    const externalized = { ...original, content: [{ type: "text", text: "shipping" }, { type: "image", data: "blob:sha256:8f434346648f6b96df89dda901c5176b10a6d83961dd3c1ac88b59b2dc327aa4" }] };
+    for (const variant of [externalized, { ...externalized, errorId: 0 }, { ...externalized, retryRecovery: { attempt: 1, kind: "stream" } }, { ...original, content: [{ type: "text", text: "shipping", textSignature: "sig" }, { type: "image", data: "aGk=" }] }]) {
+      expect(l.appendRaw(rewritten(l.project.key, variant)).revision).toBe(first.revision);
+    }
+    expect(JSON.parse(l.readRaw()[0]!.payloadJson).message.content[1].data).toBe("blob:sha256:8f434346648f6b96df89dda901c5176b10a6d83961dd3c1ac88b59b2dc327aa4");
+    expect(l.readRaw()).toHaveLength(1);
+    expect(l.appendRaw(rewritten(l.project.key, { ...original, content: [{ type: "text", text: "delayed" }] })).revision).toBe(2);
+    l.close();
+  });
+
+  it("keeps a pruned tool result on the revision it replaced", () => {
+    const d = make(); const l = openLedger({ dbPath: path.join(d, "a.sqlite"), project: { liveCwd: d } });
+    const full = l.appendRaw(rewritten(l.project.key, { role: "toolResult", content: [{ type: "text", text: "large output" }] }, "t1"));
+    const pruned = l.appendRaw(rewritten(l.project.key, { role: "toolResult", content: [{ type: "text", text: "[pruned]" }], prunedAt: 42 }, "t1"));
+    expect(pruned.revision).toBe(full.revision);
+    expect(l.readRaw()).toHaveLength(1);
+    l.close();
+  });
+
   it("is idempotent and creates immutable revisions", () => { const d = make(); const l = openLedger({ dbPath: path.join(d,"a.sqlite"), project: { liveCwd: d } }); const a = l.appendRaw(entry(l.project.key,"one")); expect(l.appendRaw(entry(l.project.key,"one"))).toEqual(a); const b = l.appendRaw(entry(l.project.key,"two")); expect(b.revision).toBe(2); expect(l.readRaw()).toHaveLength(2); l.close(); });
   it("hashes the full canonical payload, not derived content", () => { const d = make(); const l = openLedger({ dbPath: path.join(d,"a.sqlite"), project: { liveCwd: d } }); const first = l.appendRaw(entry(l.project.key,"same","e1")); const second = l.appendRaw({ ...entry(l.project.key,"same","e1"), payloadJson: JSON.stringify({ timestamp: 2, content: "same", role: "user", id: "e1", type: "message" }) }); expect(second.revision).toBe(2); expect(first.payloadHash).toBe(hashLcmPayload(JSON.parse(first.payloadJson))); expect(second.payloadHash).not.toBe(first.payloadHash); l.close(); });
   it("rolls back an append batch atomically and preserves restart integrity", () => { const d=make(); const p=path.join(d,"a.sqlite"); let l=openLedger({dbPath:p,project:{liveCwd:d}}); expect(() => l.transaction(() => { l.appendRaw(entry(l.project.key,"first","e1")); l.appendRaw(entry(l.project.key,"second","e2")); throw new Error("batch abort"); })).toThrow("batch abort"); expect(l.readRaw()).toHaveLength(0); l.close(); l=openLedger({dbPath:p,project:{liveCwd:d}}); const saved=l.appendRaw(entry(l.project.key,"persisted","e1")); l.close(); l=openLedger({dbPath:p,project:{liveCwd:d}}); expect(l.readRaw()).toHaveLength(1); expect(l.readRaw()[0]).toMatchObject(saved); l.close(); });

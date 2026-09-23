@@ -323,6 +323,20 @@ describe("captured tool host delegation seam", () => {
     expect(typeof (seen[0] as { invokeTool?: unknown }).invokeTool).toBe("function");
   });
 
+  it("carries the declared fields the host forwards", () => {
+    const { definition } = recordingTool("deploy_release");
+    const { runner } = delegatingRunner([]);
+    const declared = { ...definition, readsSkillUris: true, deferrable: true, approval: "write", strict: false, loadMode: "lazy" } as unknown as ReturnType<typeof tool>;
+    const wrapped = wrapRegisteredToolForCapture(registered(declared, "/ext"), runner) as unknown as Record<string, unknown>;
+
+    expect(wrapped.readsSkillUris).toBe(true);
+    expect(wrapped.deferrable).toBe(true);
+    expect(wrapped.approval).toBe("write");
+    expect(wrapped.strict).toBe(false);
+    expect(wrapped.loadMode).toBe("lazy");
+    expect(wrapped.name).toBe("deploy_release");
+  });
+
   it("leaves a tool that shadows nothing without a delegation seam", async () => {
     const { seen, definition } = recordingTool("deploy_release");
     const { runner } = delegatingRunner(["read"]);
