@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.24.2
+
+### Fixed
+
+- `MAX_LEAF_ENTRIES` moved to `compaction/bounds.ts`. Importing it from `compaction/lcm-maintenance.js` pulled the ledger, SQLite and crypto into the module graph of `config.ts`, which every session loads at startup.
+
 ## 1.24.1
 
 ### Fixed
