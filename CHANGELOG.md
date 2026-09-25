@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.25.1
+
+### Fixed
+
+- `MINIMUM_OMP_HOST_VERSION` raised to `18.3.0`. The startup host check still read `18.1.10`, so it stayed quiet on a host that cannot load fabric at all. The README and the certification host pin carried the same stale number.
+
 ## 1.25.0
 
 ### Fixed
@@ -9,7 +15,7 @@
 
 ### Changed
 
-- Requires OMP 18.3.0 or newer (`@oh-my-pi/*` peer ranges raised from `>=18.1.10`). The registry settings modules do not exist on older hosts, so there is no version fabric can satisfy at once.
+- Requires OMP 18.3.0 or newer (`@oh-my-pi/*` peer ranges and `MINIMUM_OMP_HOST_VERSION` raised from `18.1.10`). The registry settings modules do not exist on older hosts, so there is no version fabric can satisfy at once.
 
 ## 1.24.2
 
