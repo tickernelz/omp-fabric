@@ -31,21 +31,21 @@ afterEach(() => {
 
 describe("OMP host compatibility", () => {
   it("compares release and prerelease versions", () => {
-    expect(compareVersions("18.1.9", MINIMUM_OMP_HOST_VERSION)).toBeLessThan(0);
-    expect(compareVersions("18.1.10", MINIMUM_OMP_HOST_VERSION)).toBe(0);
-    expect(compareVersions("18.1.11", MINIMUM_OMP_HOST_VERSION)).toBeGreaterThan(0);
-    expect(compareVersions("18.1.10-beta.1", MINIMUM_OMP_HOST_VERSION)).toBeLessThan(0);
+    expect(compareVersions("18.2.9", MINIMUM_OMP_HOST_VERSION)).toBeLessThan(0);
+    expect(compareVersions("18.3.0", MINIMUM_OMP_HOST_VERSION)).toBe(0);
+    expect(compareVersions("18.3.1", MINIMUM_OMP_HOST_VERSION)).toBeGreaterThan(0);
+    expect(compareVersions("18.3.0-beta.1", MINIMUM_OMP_HOST_VERSION)).toBeLessThan(0);
     expect(compareVersions("invalid", MINIMUM_OMP_HOST_VERSION)).toBeUndefined();
   });
 
   it("detects the host package from the CLI path", () => {
-    expect(detectOmpHostVersion(fakeHost("18.1.10"))).toBe("18.1.10");
+    expect(detectOmpHostVersion(fakeHost("18.3.1"))).toBe("18.3.1");
     expect(detectOmpHostVersion("/does/not/exist")).toBeUndefined();
   });
 
   it("warns only for a detected unsupported host", () => {
-    expect(ompHostCompatibilityWarning("18.1.9")).toContain("requires OMP >= 18.1.10");
-    expect(ompHostCompatibilityWarning("18.1.10")).toBeUndefined();
+    expect(ompHostCompatibilityWarning("18.2.6")).toContain("requires OMP >= 18.3.0");
+    expect(ompHostCompatibilityWarning("18.3.0")).toBeUndefined();
     expect(ompHostCompatibilityWarning(undefined)).toBeUndefined();
   });
 });

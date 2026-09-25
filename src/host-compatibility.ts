@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, realpathSync } from "node:fs";
 import path from "node:path";
 
-export const MINIMUM_OMP_HOST_VERSION = "18.1.10";
+export const MINIMUM_OMP_HOST_VERSION = "18.3.0";
 
 const OMP_HOST_PACKAGE_NAMES: Record<string, true> = {
   "@oh-my-pi/pi-coding-agent": true,
