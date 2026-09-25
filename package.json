@@ -81,10 +81,10 @@
     "image": "https://raw.githubusercontent.com/tickernelz/omp-fabric/main/media/banner.svg"
   },
   "dependencies": {
-    "@oh-my-pi/omptype": "18.2.6",
-    "@oh-my-pi/pi-agent-core": "18.2.6",
-    "@oh-my-pi/pi-ai": "18.2.6",
-    "@oh-my-pi/pi-utils": "18.2.6",
+    "@oh-my-pi/omptype": "18.3.1",
+    "@oh-my-pi/pi-agent-core": "18.3.1",
+    "@oh-my-pi/pi-ai": "18.3.1",
+    "@oh-my-pi/pi-utils": "18.3.1",
     "@jitl/quickjs-singlefile-mjs-release-sync": "^0.32.0",
     "@shikijs/langs": "4.4.3",
     "@shikijs/themes": "4.4.3",
@@ -97,14 +97,14 @@
     "yaml": "^2.9.0"
   },
   "peerDependencies": {
-    "@oh-my-pi/pi-coding-agent": ">=18.1.10",
-    "@oh-my-pi/pi-natives": ">=18.1.10",
-    "@oh-my-pi/pi-tui": ">=18.1.10"
+    "@oh-my-pi/pi-coding-agent": ">=18.3.0",
+    "@oh-my-pi/pi-natives": ">=18.3.0",
+    "@oh-my-pi/pi-tui": ">=18.3.0"
   },
   "devDependencies": {
-    "@oh-my-pi/pi-coding-agent": "18.2.6",
-    "@oh-my-pi/pi-natives": "18.2.6",
-    "@oh-my-pi/pi-tui": "18.2.6",
+    "@oh-my-pi/pi-coding-agent": "18.3.1",
+    "@oh-my-pi/pi-natives": "18.3.1",
+    "@oh-my-pi/pi-tui": "18.3.1",
     "@types/cross-spawn": "^6.0.6",
     "@types/node": "^26.1.2",
     "esbuild": "^0.25.12",

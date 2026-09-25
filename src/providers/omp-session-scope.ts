@@ -1,6 +1,7 @@
 import { AgentRegistry } from "@oh-my-pi/pi-coding-agent";
 import type { AsyncJobManager } from "@oh-my-pi/pi-coding-agent/async";
 import { isSettingsInitialized, Settings } from "@oh-my-pi/pi-coding-agent/config/settings";
+import { cfgAsyncEnabled } from "@oh-my-pi/pi-coding-agent/tools/settings";
 
 interface JobOwner {
   manager: AsyncJobManager;
@@ -34,7 +35,7 @@ export const ompJobScope = (getSessionId: () => string | null): OmpJobScope | un
 };
 
 const hostAsyncEnabled = (): boolean =>
-  isSettingsInitialized() ? Settings.instance.get("async.enabled") : true;
+  isSettingsInitialized() ? cfgAsyncEnabled.get(Settings.instance) : true;
 
 /** Auto-background stays off: a handover would resolve a guest call with a job notice in place of output. */
 export const shellBackgroundSettings = (

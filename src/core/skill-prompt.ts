@@ -1,5 +1,6 @@
 
 import { getActiveSkills, Settings, type Skill } from "@oh-my-pi/pi-coding-agent";
+import { cfgSkillful } from "@oh-my-pi/pi-coding-agent/session/settings";
 import { formatSkillsSection } from "./skill-block.js";
 
 const OMP_SKILL_SECTION_MARKER = "<skills>";
@@ -16,7 +17,7 @@ export const activeSkills = (): readonly Skill[] => getActiveSkills();
 
 export const listableSkills = (skills: readonly Skill[]): readonly Skill[] => {
   try {
-    if (Settings.instance.get("skillful") === false) return [];
+    if (cfgSkillful.get(Settings.instance) === false) return [];
   } catch {
     return skills;
   }

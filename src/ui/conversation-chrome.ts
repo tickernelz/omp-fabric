@@ -16,7 +16,11 @@ export interface FabricConversationAppearance {
 
 /** Read OMP appearance settings; cwd and agentDir apply only to trusted project loading. */
 export async function readConversationAppearance(cwd: string, agentDir: string, projectTrusted: boolean): Promise<FabricConversationAppearance> {
-  const { Settings } = await import("@oh-my-pi/pi-coding-agent/config/settings");
+  const [{ Settings }, { cfgHideThinkingBlock }, { cfgTerminalShowImages }] = await Promise.all([
+    import("@oh-my-pi/pi-coding-agent/config/settings"),
+    import("@oh-my-pi/pi-coding-agent/session/settings"),
+    import("@oh-my-pi/pi-coding-agent/modes/settings"),
+  ]);
   const settings = projectTrusted
     ? await Settings.loadReadOnly({ cwd, agentDir })
     : Settings.isolated();
@@ -24,8 +28,8 @@ export async function readConversationAppearance(cwd: string, agentDir: string, 
     editorPaddingX: 0,
     outputPad: 0,
     codeBlockIndent: "  ",
-    hideThinkingBlock: settings.get("hideThinkingBlock") === true,
-    showImages: settings.get("terminal.showImages") === true,
+    hideThinkingBlock: cfgHideThinkingBlock.get(settings) === true,
+    showImages: cfgTerminalShowImages.get(settings) === true,
   };
 }
 

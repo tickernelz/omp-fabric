@@ -1,8 +1,5 @@
 import type { Judge } from "@oh-my-pi/pi-ai";
 
-/** Host key selecting the chat-model judge chain; an unknown key makes `resolveJudge` throw, which the lane reports as unsupported. */
-const ONLINE_JUDGMENT_BACKEND = "online";
-
 export interface HostJudgeContext {
   modelRegistry?: unknown;
   model?: unknown;
@@ -33,7 +30,6 @@ export const resolveHostJudge = async (context: HostJudgeContext): Promise<Judge
   return resolveJudge({
     settings,
     registry: context.modelRegistry,
-    backend: ONLINE_JUDGMENT_BACKEND,
     ...(context.model !== undefined ? { sessionModel: context.model } : {}),
     ...(context.sessionId !== undefined ? { sessionId: context.sessionId } : {}),
   });

@@ -2,6 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { Settings, type ToolSession } from "@oh-my-pi/pi-coding-agent";
+import { resolveLocalUrlToPath } from "@oh-my-pi/pi-coding-agent/internal-urls/local-protocol";
 import { afterAll, describe, expect, it } from "vitest";
 import { createPreviewWriteToolDefinition } from "../src/providers/write-preview.js";
 import { OmpToolsProvider, setOmpSessionIdentity } from "../src/providers/omp-tools-provider.js";
@@ -22,6 +23,8 @@ const sessionAt = (cwd: string): ToolSession =>
     hasUI: false,
     hasEditTool: false,
     getSessionFile: () => null,
+    getSessionId: () => null,
+    getArtifactsDir: () => null,
     getSessionSpawns: () => null,
     settings: Settings.isolated({}),
   }) as unknown as ToolSession;
@@ -42,24 +45,25 @@ const entriesUnder = (dir: string): string[] => {
 describe("omp.write internal URLs", () => {
   it("routes a local:// write to the host resolver, never a literal directory", async () => {
     const cwd = scratch();
-    const definition = createPreviewWriteToolDefinition(cwd, sessionAt(cwd));
+    const session = sessionAt(cwd);
+    const definition = createPreviewWriteToolDefinition(cwd, session);
     const name = `fabric-local-${Date.now()}.md`;
 
-    const result = await definition.execute(
+    await definition.execute(
       "call-local",
       { path: `local://${name}`, content: "payload" } as never,
       undefined as never,
       (() => {}) as never,
       {} as never,
-    ) as { content: Array<{ text: string }> };
+    );
 
-    const reported = result.content[0]?.text ?? "";
-    expect(reported).toContain("omp-local");
-    expect(reported).not.toContain("local:/");
     expect(entriesUnder(cwd)).toEqual([]);
 
-    const resolved = reported.slice(reported.lastIndexOf("/omp-local"));
-    const onDisk = path.join(os.tmpdir(), resolved.replace(/^\//, ""));
+    const onDisk = resolveLocalUrlToPath(`local://${name}`, {
+      getArtifactsDir: () => session.getArtifactsDir?.() ?? null,
+      getSessionId: () => session.getSessionId?.() ?? null,
+    });
+    expect(onDisk.startsWith(path.join(os.tmpdir(), "omp-local"))).toBe(true);
     expect(fs.readFileSync(onDisk, "utf8")).toBe("payload");
     fs.rmSync(onDisk, { force: true });
   });
