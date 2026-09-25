@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.25.0
+
+### Fixed
+
+- Fabric runs again on OMP 18.3.x. The host replaced `Settings.instance.get("<path>")` with typed registry handles, so every fabric read through the old accessor threw `Settings.instance.get is not a function` — `fabric_exec` reported it on the first shell call, where `async.enabled` decides whether a guest command may background. Reads now go through `cfgAsyncEnabled`, `cfgSkillful`, `cfgHideThinkingBlock` and `cfgTerminalShowImages`.
+- `resolveJudge` no longer takes a `backend` key; fabric stopped sending one. The host removed the local-model judge selector, so the value was ignored while the call site still claimed it chose the chain.
+
+### Changed
+
+- Requires OMP 18.3.0 or newer (`@oh-my-pi/*` peer ranges raised from `>=18.1.10`). The registry settings modules do not exist on older hosts, so there is no version fabric can satisfy at once.
+
 ## 1.24.2
 
 ### Fixed
