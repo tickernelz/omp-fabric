@@ -570,11 +570,15 @@ export class FabricRuntimeState {
         ? new CapturedToolsProvider(this.capturedTools)
         : undefined;
     if (effectiveFullCodeMode) {
-      setOmpSessionIdentity({
+      const sessionIdentity = {
         getSessionId: () => context.sessionManager.getSessionId(),
         getArtifactsDir: () => context.sessionManager.getArtifactsDir(),
         getSessionFile: () => context.sessionManager.getSessionFile() ?? null,
-      });
+        modelRegistry: context.modelRegistry,
+        getActiveModelString: () =>
+          context.model ? `${context.model.provider}/${context.model.id}` : undefined,
+      };
+      setOmpSessionIdentity(sessionIdentity);
       await installBuiltin(createProviderComponent({
         provider: "omp",
         description: "OMP core tools adapter",
@@ -583,6 +587,7 @@ export class FabricRuntimeState {
           this.capturedTools,
           capturedToolsProvider,
           this.#hostActiveTools,
+          sessionIdentity,
         ),
       }));
     }

@@ -1,5 +1,28 @@
 # Changelog
 
+## 1.25.2
+
+### Fixed
+
+- The startup host check could never fire on a compiled Bun install. `detectOmpHostVersion` walked up from `process.argv[1]`, which the compiled binary reports as `/$bunfs/root/<name>`, a path that does not exist on disk, so the walk threw and the guard stayed silent on the exact install most operators run. `resolveHostVersion` now tries the executable at `process.execPath` and the host module's own `VERSION` after that.
+- A subagent session claiming the global OMP session identity moved its parent's `local://` writes into the child's artifacts directory. The host rebinds an extension factory to every subagent session, and the last session to activate won the module-level slot, so a child that started after its parent answered the parent's session lookups. The identity is now passed per provider, and the module-level slot survives only as the fallback for callers that pass nothing.
+- Every headless `omp -p` run ended with `Extension error: OMP Fabric has not bootstrapped` on stderr. `session_shutdown` clears the configuration while the host may still emit one final `agent_end`, and that handler read the cleared configuration unguarded. It now reads the configuration through a bootstrap check and skips the threshold compaction that had nothing left to act on.
+- `read <image>?q=<question>` could not run through `omp.read`. The synthetic `ToolSession` the read tool runs on carried no model registry, so the host rejected the question with `Model registry is unavailable for image questions.` The registry and the active model string are now attached to that session, which is what the lookup needs to pick a model at all. Two limits stay: the read tool runs on an isolated settings instance, so a `modelRoles.vision` alias resolves to the default rather than the operator's configured role, and the registry is scoped to the read tool on purpose, since attaching it to every tool's session would make the host resolve `find.enabled=auto` against it and change which tools it constructs.
+
+### Changed
+
+- The execution guidance no longer offers `omp.ls('src')` as a worked example on a host that has no `ls` tool, where the call always rejects. OMP 18.3.2 dropped `ls` from `BUILTIN_TOOL_NAMES`, so the example advertised a shape that cannot run. The kernel guidance and the replaceable default slot now read one denied-tool list.
+- `fabric_exec` builds its schema through the host's `legacy-typebox` module like every other fabric provider, instead of resolving `@oh-my-pi/omptype/typebox` to the plugin-local copy at a different version than the host's bundled one. The shim re-exports that module and adds validation, so `Type` and `TSchema` are unchanged.
+- `docs/providers.md` named the `hub` tool as the job surface. In OMP 18.3.x `hub` is a slash command, and the job surface is the `/jobs` command plus the `wait` tool.
+
+### Deferred
+
+- The subagent session lifecycle is still unguarded, which is a deliberate choice rather than an oversight. A subagent session runs fabric's whole `session_start` path and its whole `session_shutdown` teardown against the shared process runtime, so finishing a subagent restores the host's core tools in the shared active set for the rest of the turn, until the next `before_agent_start` re-asserts them. Measured on host 18.3.2, that turn shows the active set going from 23 tools to 172 with `read`, `bash`, `edit`, `write`, `grep` and `glob` visible, and returning on the next turn. What shipped here is narrower on purpose: subagents keep working under fabric, and only the session identity became per-provider. Guarding the lifecycle instead would take `fabric_exec` away from subagents, which is a behavior change that deserves its own decision.
+
+### Documentation
+
+- The 1.20.0 entry claims full code mode hides `eval`. It does not: fabric hides only the tools it replaces, and `eval` is not one of them. `eval` stays on the direct tool surface, and the `judgment.*` provider is the route to a calibrated question from inside a fabric program.
+
 ## 1.25.1
 
 ### Fixed

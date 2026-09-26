@@ -54,6 +54,8 @@ export interface OmpSessionIdentity {
   getSessionId?: () => string | null;
   getArtifactsDir?: () => string | null;
   getSessionFile?: () => string | null;
+  modelRegistry?: NonNullable<ToolSession["modelRegistry"]>;
+  getActiveModelString?: () => string | undefined;
 }
 
 let sessionIdentity: OmpSessionIdentity | undefined;
@@ -68,8 +70,18 @@ class ShellArtifacts {
   readonly root = mkdtempSync(path.join(os.tmpdir(), "omp-fabric-bash-"));
 }
 
-const createNativeSession = (cwd: string, artifacts?: ShellArtifacts, withJobs = false): ToolSession => {
-  const identity = sessionIdentity;
+interface NativeSessionOptions {
+  artifacts?: ShellArtifacts | undefined;
+  jobs?: boolean | undefined;
+  identity?: OmpSessionIdentity | undefined;
+  imageQuestions?: boolean | undefined;
+}
+
+const createNativeSession = (
+  cwd: string,
+  { artifacts, jobs: withJobs = false, identity: ownerIdentity, imageQuestions = false }: NativeSessionOptions = {},
+): ToolSession => {
+  const identity = ownerIdentity ?? sessionIdentity;
   const sessionId = (): string | null => identity?.getSessionId?.() ?? null;
   const jobs = withJobs ? ompJobScope(sessionId) : undefined;
   return {
@@ -82,6 +94,10 @@ const createNativeSession = (cwd: string, artifacts?: ShellArtifacts, withJobs =
     getArtifactsDir: () => identity?.getArtifactsDir?.() ?? null,
     getSessionSpawns: () => null,
     ...(jobs ? { asyncJobManager: jobs.manager } : {}),
+    ...(imageQuestions && identity?.modelRegistry ? { modelRegistry: identity.modelRegistry } : {}),
+    ...(imageQuestions && identity?.getActiveModelString
+      ? { getActiveModelString: identity.getActiveModelString }
+      : {}),
     settings: Settings.isolated({
       readLineNumbers: false,
       "read.defaultLimit": GUEST_READ_LINE_LIMIT,
@@ -130,14 +146,30 @@ const nativeDefinition = (tool: NativeTool): ToolDefinition<any, any> => {
   };
 };
 
-const createNativeBashToolDefinition = (cwd: string, artifacts: ShellArtifacts): ToolDefinition<any, any> =>
-  nativeDefinition(new BashTool(createNativeSession(cwd, artifacts, true)) as unknown as NativeTool);
+const createNativeBashToolDefinition = (
+  cwd: string,
+  artifacts: ShellArtifacts,
+  identity?: OmpSessionIdentity,
+): ToolDefinition<any, any> =>
+  nativeDefinition(
+    new BashTool(createNativeSession(cwd, { artifacts, jobs: true, identity })) as unknown as NativeTool,
+  );
 
-const createNativeReadToolDefinition = (cwd: string): ToolDefinition<any, any> =>
-  nativeDefinition(new ReadTool(createNativeSession(cwd)) as unknown as NativeTool);
+const createNativeReadToolDefinition = (
+  cwd: string,
+  identity?: OmpSessionIdentity,
+): ToolDefinition<any, any> =>
+  nativeDefinition(
+    new ReadTool(createNativeSession(cwd, { identity, imageQuestions: true })) as unknown as NativeTool,
+  );
 
-const createNativeReplaceEditToolDefinition = (cwd: string): ToolDefinition<any, any> =>
-  nativeDefinition(new EditTool(createNativeSession(cwd), "replace") as unknown as NativeTool);
+const createNativeReplaceEditToolDefinition = (
+  cwd: string,
+  identity?: OmpSessionIdentity,
+): ToolDefinition<any, any> =>
+  nativeDefinition(
+    new EditTool(createNativeSession(cwd, { identity }), "replace") as unknown as NativeTool,
+  );
 
 const normalizeReadArguments = (args: Record<string, unknown>): Record<string, unknown> => {
   const offset = finiteNumber(args.offset);
@@ -797,8 +829,9 @@ export class OmpToolsProvider implements FabricProvider {
     catalog?: CapturedToolCatalog,
     capturedTools?: CapturedToolsProvider,
     hostActiveTools?: FabricHostToolAuthority,
+    identity?: OmpSessionIdentity,
   ): Promise<OmpToolsProvider> {
-    return new OmpToolsProvider(cwd, catalog, capturedTools, hostActiveTools);
+    return new OmpToolsProvider(cwd, catalog, capturedTools, hostActiveTools, identity);
   }
   readonly name = "omp";
   readonly description = "OMP's built-in coding tools";
@@ -808,24 +841,28 @@ export class OmpToolsProvider implements FabricProvider {
   readonly #catalog: CapturedToolCatalog | undefined;
   readonly #capturedTools: CapturedToolsProvider | undefined;
   readonly #cwd: string;
+  readonly #identity: OmpSessionIdentity | undefined;
   readonly #artifacts = new ShellArtifacts();
-  readonly #bashDefinitions = new BashCwdDefinitions((cwd) =>
-    createNativeBashToolDefinition(cwd, this.#artifacts),
-  );
+  readonly #bashDefinitions: BashCwdDefinitions;
 
   constructor(
     cwd: string,
     catalog?: CapturedToolCatalog,
     capturedTools?: CapturedToolsProvider,
     hostActiveTools?: FabricHostToolAuthority,
+    identity?: OmpSessionIdentity,
   ) {
     this.#hostActiveTools = hostActiveTools;
     this.#cwd = cwd;
+    this.#identity = identity;
+    this.#bashDefinitions = new BashCwdDefinitions((nextCwd) =>
+      createNativeBashToolDefinition(nextCwd, this.#artifacts, this.#identity),
+    );
     this.#tools = {
-      read: createNativeReadToolDefinition(cwd),
-      bash: createNativeBashToolDefinition(cwd, this.#artifacts),
-      edit: createNativeReplaceEditToolDefinition(cwd),
-      write: createPreviewWriteToolDefinition(cwd, createNativeSession(cwd)),
+      read: createNativeReadToolDefinition(cwd, this.#identity),
+      bash: createNativeBashToolDefinition(cwd, this.#artifacts, this.#identity),
+      edit: createNativeReplaceEditToolDefinition(cwd, this.#identity),
+      write: createPreviewWriteToolDefinition(cwd, createNativeSession(cwd, { identity: this.#identity })),
       grep: createGrepDefinitionWithSkip(cwd),
       find: createFindDefinitionWithFilters(cwd),
       ls: createLsToolDefinition(cwd),

@@ -35,38 +35,66 @@ export const compareVersions = (left: string, right: string): number | undefined
   return (a.prerelease ?? "").localeCompare(b.prerelease ?? "");
 };
 
-export const detectOmpHostVersion = (
-  cliPath: string | undefined = process.argv[1],
-): string | undefined => {
-  if (!cliPath) return undefined;
+const manifestHostVersion = (directory: string): string | undefined => {
+  const manifestPath = path.join(directory, "package.json");
+  if (!existsSync(manifestPath)) return undefined;
+  try {
+    const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as {
+      name?: unknown;
+      version?: unknown;
+    };
+    if (
+      typeof manifest.name === "string" &&
+      OMP_HOST_PACKAGE_NAMES[manifest.name] === true &&
+      typeof manifest.version === "string"
+    ) {
+      return manifest.version;
+    }
+  } catch {
+  }
+  return undefined;
+};
+
+const walkForHostVersion = (startPath: string): string | undefined => {
   let directory: string;
   try {
-    directory = path.dirname(realpathSync(cliPath));
+    directory = path.dirname(realpathSync(startPath));
   } catch {
     return undefined;
   }
   while (true) {
-    const manifestPath = path.join(directory, "package.json");
-    if (existsSync(manifestPath)) {
-      try {
-        const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as {
-          name?: unknown;
-          version?: unknown;
-        };
-        if (
-          typeof manifest.name === "string" &&
-          OMP_HOST_PACKAGE_NAMES[manifest.name] === true &&
-          typeof manifest.version === "string"
-        ) {
-          return manifest.version;
-        }
-      } catch {
-      }
-    }
+    const version = manifestHostVersion(directory);
+    if (version) return version;
     const parent = path.dirname(directory);
     if (parent === directory) return undefined;
     directory = parent;
   }
+};
+
+export const detectOmpHostVersion = (
+  cliPath: string | undefined = process.argv[1],
+): string | undefined => (cliPath ? walkForHostVersion(cliPath) : undefined);
+
+export interface HostVersionWitnesses {
+  argvPath?: string | undefined;
+  execPath?: string | undefined;
+  hostVersion?: () => Promise<string | undefined>;
+}
+
+const hostModuleVersion = async (): Promise<string | undefined> =>
+  await import("@oh-my-pi/pi-coding-agent").then(
+    (host) => (typeof host.VERSION === "string" ? host.VERSION : undefined),
+    () => undefined,
+  );
+
+export const resolveHostVersion = async (
+  witnesses: HostVersionWitnesses = {},
+): Promise<string | undefined> => {
+  const argvPath = "argvPath" in witnesses ? witnesses.argvPath : process.argv[1];
+  const execPath = "execPath" in witnesses ? witnesses.execPath : process.execPath;
+  return (argvPath ? walkForHostVersion(argvPath) : undefined)
+    ?? (execPath ? walkForHostVersion(execPath) : undefined)
+    ?? await (witnesses.hostVersion ?? hostModuleVersion)();
 };
 
 export const ompHostCompatibilityWarning = (

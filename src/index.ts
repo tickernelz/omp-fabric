@@ -93,7 +93,7 @@ import { createFabricExecTool } from "./fabric-exec-tool.js";
 import { FabricState } from "./fabric-state.js";
 import { classifyToolResult } from "./repairs/classify.js";
 import { getActiveRepairCompiler } from "./repairs/active.js";
-import { ompHostCompatibilityWarning } from "./host-compatibility.js";
+import { ompHostCompatibilityWarning, resolveHostVersion } from "./host-compatibility.js";
 import { scheduleFabricUpdateCheck } from "./update/check.js";
 import {
   FABRIC_COMPONENT_REGISTER_EVENT,
@@ -518,7 +518,7 @@ export default async function ompFabric(omp: ExtensionAPI): Promise<void> {
     refreshProxyLedger(context);
     if (!compatibilityWarningShown) {
       compatibilityWarningShown = true;
-      const warning = ompHostCompatibilityWarning();
+      const warning = ompHostCompatibilityWarning(await resolveHostVersion());
       if (warning) {
         console.warn(`[omp-fabric] ${warning}`);
         if (context.hasUI) context.ui.notify(warning, "warning");
@@ -615,8 +615,9 @@ export default async function ompFabric(omp: ExtensionAPI): Promise<void> {
   omp.on("agent_end", async (event, context) => {
     if (event.willContinue === true) return;
     await lcmRuntime?.syncAndSchedule();
-    if (!state.initialized) {
-      await compactAtConfiguredThreshold(context, state.config);
+    const config = state.bootstrapped ? state.config : undefined;
+    if (!state.initialized || !config) {
+      if (config) await compactAtConfiguredThreshold(context, config);
       return;
     }
     const sessionId = context.sessionManager.getSessionId();
@@ -847,12 +848,15 @@ export default async function ompFabric(omp: ExtensionAPI): Promise<void> {
     const currentModel = context.model
       ? `${context.model.provider}/${context.model.id}`
       : undefined;
+    const deniedCoreTools = effectiveFullCodeMode
+      ? deniedOmpCoreTools(toolOwnership.hostActiveTools())
+      : [];
     const resolvedGuidance = resolveFabricModelGuidance(state.modelGuidance(), {
       ...(currentModel ? { model: currentModel } : {}),
       target: process.env.OMP_FABRIC_PARENT_RUN ? "participant" : "main",
       defaults: [{
         slot: FABRIC_EXECUTION_GUIDANCE_SLOT,
-        content: defaultFabricExecutionGuidance(effectiveFullCodeMode),
+        content: defaultFabricExecutionGuidance(effectiveFullCodeMode, deniedCoreTools),
       }],
     });
     const overrideGuidance = effectiveFullCodeMode
@@ -865,10 +869,7 @@ export default async function ompFabric(omp: ExtensionAPI): Promise<void> {
     // from the current prompt (skill references) rides
     // the message channel so provider prefix caches never cold-prefill.
     const guidance = [
-      fabricExecutionKernelGuidance(
-        effectiveFullCodeMode,
-        effectiveFullCodeMode ? deniedOmpCoreTools(toolOwnership.hostActiveTools()) : [],
-      ),
+      fabricExecutionKernelGuidance(effectiveFullCodeMode, deniedCoreTools),
       resolvedGuidance.slotText,
       fabricSchemaGuidance(schemaMode),
       overrideGuidance,

@@ -1,5 +1,5 @@
 import type { Theme, ToolDefinition, ToolRenderResultOptions } from "@oh-my-pi/pi-coding-agent";
-import type { TSchema } from "@oh-my-pi/omptype/typebox";
+import type { TSchema } from "@oh-my-pi/pi-coding-agent/extensibility/legacy-typebox";
 import { Container, Text, type Component } from "@oh-my-pi/pi-tui";
 
 type FabricToolDefinition = ToolDefinition<any, any> & {
@@ -16,7 +16,7 @@ import {
   withCodePreviewShell,
 } from "./ui/code-preview-shell.js";
 import { fabricExecTitleHintCached } from "./ui/fabric-title-hint.js";
-import { Type } from "@oh-my-pi/omptype/typebox";
+import { Type } from "@oh-my-pi/pi-coding-agent/extensibility/legacy-typebox";
 import {
   createFabricPersistedExecutionDetails,
   readFabricExecutionRenderDetails,

@@ -108,7 +108,7 @@ If you change only `content`, the nested sandbox value becomes the patched text.
 
 OMP core tools and captured extension tools skip this generic proxy, because they already replay their native `tool_call`, `tool_result`, and `tool_execution_*` lifecycle. Nested shell calls still emit their native identity: `omp.bash()` uses `toolName: "bash"`/`isBashToolResult()`. Proxied events act as middleware only. They create no separate persisted tool-result messages.
 
-The shell adapter reaches the host's background-job manager. `omp.bash({ async: true })` registers a job owned by the calling agent and resolves at once with `details.async.jobId`; the host delivers the finished job to that owner as an `async-result` follow-up, so the work outlives the program that started it and the agent, not the program, receives its output. The agent's own `hub` tool inspects and cancels those jobs; `hub` is not a Fabric provider and a guest program cannot reach it.
+The shell adapter reaches the host's background-job manager. `omp.bash({ async: true })` registers a job owned by the calling agent and resolves at once with `details.async.jobId`; the host delivers the finished job to that owner as an `async-result` follow-up, so the work outlives the program that started it and the agent, not the program, receives its output. The host's `/jobs` command and the `wait` tool inspect those jobs; neither is a Fabric provider and a guest program cannot reach them.
 
 Auto-background stays off at every host setting. A guest program is straight-line code that reads a command's output on its next line, and a mid-flight handover would resolve the call with a job notice in place of that output.
 
