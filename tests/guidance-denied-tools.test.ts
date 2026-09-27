@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { deniedOmpCoreTools } from "../src/core/omp-tools.js";
 import {
   defaultFabricExecutionGuidance,
   fabricExecutionKernelGuidance,
@@ -28,5 +29,31 @@ describe("execution guidance against a host without ls", () => {
     const guidance = fabricExecutionKernelGuidance(true, ["ls"]);
     expect(guidance).toContain("`omp.ls` is unavailable");
     expect(guidance).not.toContain("`omp.ls` and");
+  });
+
+  it("drops the async sentence when the host denies wait", () => {
+    expect(fabricExecutionKernelGuidance(true, [])).toContain("omp.wait()");
+    expect(fabricExecutionKernelGuidance(true, [])).toContain("Pass `async: true` to start the command");
+
+    const guidance = fabricExecutionKernelGuidance(true, ["wait"]);
+    expect(guidance).not.toContain("omp.wait()");
+    expect(guidance).toContain("`omp.wait` is unavailable");
+    expect(guidance).toContain("guest tools turned off");
+    expect(guidance).toContain("Pass `async: true` to start the command");
+  });
+});
+
+describe("denied guest tools", () => {
+  it("reports a denied wait, which is a guest tool rather than a core one", () => {
+    expect(deniedOmpCoreTools(undefined)).toEqual([]);
+    expect(deniedOmpCoreTools(new Set(["read", "bash", "edit", "write", "grep", "glob", "ls"]))).toEqual([
+      "wait",
+    ]);
+    expect(deniedOmpCoreTools(new Set(["read", "bash", "glob", "wait"]))).toEqual([
+      "edit",
+      "write",
+      "grep",
+      "ls",
+    ]);
   });
 });

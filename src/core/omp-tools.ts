@@ -42,5 +42,5 @@ export const ompCoreToolDenied = (
 
 export const deniedOmpCoreTools = (
   hostActiveTools: ReadonlySet<string> | undefined,
-): readonly OmpCoreToolName[] =>
-  OMP_CORE_TOOL_NAMES.filter((name) => ompCoreToolDenied(name, hostActiveTools));
+): readonly OmpGuestToolName[] =>
+  OMP_GUEST_TOOL_NAMES.filter((name) => ompCoreToolDenied(name, hostActiveTools));

@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.25.4
+
+### Fixed
+
+- The kernel guidance no longer tells a program to await `omp.wait()` on a host that has `wait` off. `deniedOmpCoreTools` filtered `OMP_CORE_TOOL_NAMES`, so it was typed `readonly OmpCoreToolName[]` and could never report `wait`; the guidance line is now gated on the tool actually being served, and the "turned off" sentence names guest tools. This only became reachable in 1.25.3, which made `wait` deniable by keying `#denialSource` on the guest tool set.
+- The 1.25.3 docs described a single binding point for the job scope, and there is not one. The registry lookup is re-resolved per call, but the scope object it returns is captured when the tool definition is built: for `wait` when the provider is constructed, and for a `bash` call that names a `cwd` when that directory is first used. `skills/fabric-exec/SKILL.md`, `src/core/system-guidance.ts` and `docs/providers.md` now state the precondition instead, which holds on every path.
+- `docs/providers.md` described the `omp.wait()` result bound as tighter than it is. It is `executor.maxNestedResultChars`, the same budget every nested result gets; the doc now says that, and notes that unlike the shell path there is no on-disk artifact for the remainder.
 ## 1.25.3
 
 ### Added
