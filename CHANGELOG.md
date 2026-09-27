@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.25.5
+
+### Fixed
+
+- `docs/providers.md` now names the symptom of the one surviving `omp.wait()` failure mode. A session that gains an owner after its provider was built can start an async job it can never collect: a `bash` call naming a `cwd` runs `async: true`, the job is running, and the result still reaches the agent as a follow-up, while `omp.wait()` reports that nothing is running. Nothing errors, and the guidance a program author had was only the general instruction to start a new session. The behaviour is unchanged; the documentation now says how to recognise it.
+- `skills/fabric-exec/SKILL.md` states its job-scope precondition once instead of twice in consecutive sentences.
+
 ## 1.25.4
 
 ### Fixed
