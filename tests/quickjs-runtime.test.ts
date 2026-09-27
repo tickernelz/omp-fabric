@@ -1166,6 +1166,21 @@ return r.trim();
     expect(result.error).toContain("omp.bash");
   });
 
+  it("names .output when a program treats the wait envelope as a string", async () => {
+    const hostCall = vi.fn(async () => ({ ok: true, output: "  done  ", details: null }));
+    const result = await new QuickJsRuntime().execute(
+      `
+const r = await omp.wait();
+return r.trim();
+`,
+      hostCall,
+      options,
+    );
+    expect(result.error).toContain("envelope");
+    expect(result.error).toContain(".output");
+    expect(result.error).toContain("omp.wait");
+  });
+
   it("keeps ordinary envelope reads, destructuring, membership, and keys intact", async () => {
     const hostCall = vi.fn(async () => ({ ok: true, output: "  hello  ", details: null }));
     const result = await new QuickJsRuntime().execute(

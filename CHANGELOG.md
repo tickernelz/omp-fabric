@@ -1,5 +1,24 @@
 # Changelog
 
+## 1.25.3
+
+### Added
+
+- `omp.wait()` reaches a program. The host's own `wait` tool now backs a guest call, so a program that starts a background job with `omp.bash({ async: true })` can collect its result instead of polling a file for it. The tool is served to programs, not owned by Fabric: `wait` stays out of `FABRIC_OWNED_HOST_TOOLS`, so full code mode still leaves the host's native `wait` on the agent's own tool surface.
+- `executor.autoBackground` (default `false`) arms the host's mid-flight handover for guest shell calls. Fabric pinned `bash.autoBackground.enabled` to `false` unconditionally; the reason still holds, so the default does too, and a mid-call steering message resolves the program with a job notice where the command output would have been. `async: true` with `omp.wait()` reaches the same place without that trade.
+
+### Changed
+
+- The execution guidance states the async contract in the kernel block rather than only in a reactively loaded skill: with the default `executor.autoBackground` of `false` a long `omp.bash` blocks the turn until it finishes or hits the executor deadline, `async: true` returns at once with `details.async.jobId`, and the program awaits `omp.wait()`. Both need this session to have a live owning agent with a host job manager, bound when the provider is created; a session that acquires an owner later does not gain them without a new session. The skill sentence that told a program to read a file the backgrounded command writes is gone; it was the only instruction teaching the polling loop.
+- The host pins move from `18.3.1` to `18.3.4`. The declared floor stays `>=18.3.0`: the only breaking change in that range is the host `task` tool replacing its `complexity` field with `solutionSpace`, and Fabric never calls that tool.
+- `@oh-my-pi/omptype` moves from `dependencies` to `devDependencies`. Since 1.25.2 `fabric_exec` builds its schema through the host's `legacy-typebox` shim, so no `src/` file imports it and no built chunk references it; only the test suite does.
+- A guest `omp.wait()` result is bounded by the same nested-result character cap the shell path uses. A job that finished with a large stream comes back truncated with the standard truncation marker; before this the only bound was the whole-envelope cap, so one job could inject its full output into the program's return value. The wait that returns a job consumes its result, so a truncated one is not retrievable again.
+- Guest sessions now pin `launch.enabled` off. The host's `wait` tool probes owned background services on every call, and a guest session owns none, so the probe only cost a socket round-trip and could spawn a worker broker process behind a read-rated tool.
+
+### Documentation
+
+- `docs/certification.md` recorded host-API facts measured at the pinned 18.3.1 host. Re-certified against 18.3.4: the package root still exports `SessionManager` and `buildSessionContext`, still exports neither `prepareCompaction` nor `shouldCompact`, and still has no `buildContextEntries`.
+
 ## 1.25.2
 
 ### Fixed

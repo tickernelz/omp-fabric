@@ -42,6 +42,9 @@ export const fabricExecutionKernelGuidance = (
     ...(fullCodeMode && !deniedCoreTools.includes("edit") && !deniedCoreTools.includes("write")
       ? ["Prefer `omp.edit`/`omp.write` for source edits over hand-assembled shell or Node string literals, where nested escaping breaks; running a formatter or codemod through `omp.bash` is a different case."]
       : []),
+    ...(fullCodeMode
+      ? ["A long `omp.bash` call blocks the turn until it finishes or hits the executor deadline, and by default fabric never hands a foreground call over on its own; `executor.autoBackground` is the setting that arms that handover. Pass `async: true` to start the command as a host background job instead: the call returns at once with `details.async.jobId`, and the result reaches the agent as a follow-up. A program that needs that result awaits `omp.wait()`, which takes no arguments and returns the next finished job; never sleep or poll for it. Both `async: true` and `omp.wait()` need this session to have a live owning agent with a host job manager, resolved when the provider is created; a session that acquires an owner later does not gain them without a new session."]
+      : []),
     ...(fullCodeMode && deniedCoreTools.length > 0
       ? [`OMP has these core tools turned off, so ${deniedCoreTools.map((name) => `\`omp.${name}\``).join(", ")} ${deniedCoreTools.length === 1 ? "is" : "are"} unavailable and calling ${deniedCoreTools.length === 1 ? "it" : "them"} fails.`]
       : []),

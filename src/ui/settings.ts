@@ -449,7 +449,7 @@ const summaryFor = (id: string, config: FabricConfig): string => {
       return config.fullCodeMode ? "true" : "false";
     case "executor": {
       const refFloors = Object.keys(config.executor.hostCallTimeouts).length;
-      return `${config.executor.runtime} · ${formatMs(config.executor.timeoutMs)} · max ${formatMs(config.executor.maxTimeoutMs)}${refFloors > 0 ? ` · ${refFloors} ref floor${refFloors === 1 ? "" : "s"}` : ""}`;
+      return `${config.executor.runtime} · ${formatMs(config.executor.timeoutMs)} · max ${formatMs(config.executor.maxTimeoutMs)}${refFloors > 0 ? ` · ${refFloors} ref floor${refFloors === 1 ? "" : "s"}` : ""}${config.executor.autoBackground ? " · auto-background" : ""}`;
     }
     case "schema":
       return config.schema.mode;
@@ -1314,6 +1314,11 @@ export const buildFabricSettingsItems = (
             description:
               "Default formatting for fabric_exec return values. Auto renders structured values as syntax-highlighted YAML; each call can override this.",
             values: RESULT_FORMATS,
+          }),
+          setting("executor.autoBackground", "Auto-background", config.executor.autoBackground ? "true" : "false", {
+            description:
+              "Let OMP hand a long omp.bash call to a background job when input arrives mid-flight. The program then receives a job notice where the command output would have been, so prefer async: true and omp.wait() over enabling this. Takes effect in the next session.",
+            values: BOOLEANS,
           }),
           setting(
             "executor.maxNestedResultChars",

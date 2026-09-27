@@ -116,7 +116,7 @@ const __call = async (ref, args) => {
   __recordSuccessfulCall(ref, normalizedArgs);
   return value;
 };
-const __ompToolNames = ["read","bash","edit","write","grep","find","ls"];
+const __ompToolNames = ["read","bash","edit","write","grep","find","ls","wait"];
 const __toolsBase = {
   providers: () => __call("fabric.$providers", {}),
   catalog: (args = {}) => __call("fabric.$catalog", args),
@@ -359,7 +359,7 @@ const __normalizeOmpArgs = (name, args) => {
 // that throws an actionable TypeError for string-method access and iteration,
 // naming the tool and the .output fix. Ordinary reads (ok/output/details/
 // exitCode/error), destructuring, 'in' checks, and JSON marshaling pass through.
-const __ompEnvelopeTools = { bash: true, edit: true, write: true };
+const __ompEnvelopeTools = { bash: true, edit: true, write: true, wait: true };
 const __ompEnvelopeStringTraps = new Set([
   "anchor", "at", "big", "blink", "bold", "charAt", "charCodeAt", "codePointAt",
   "concat", "endsWith", "fixed", "fontcolor", "fontsize", "includes", "indexOf",

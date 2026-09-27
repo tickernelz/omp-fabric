@@ -10,6 +10,12 @@ export const OMP_CORE_TOOL_NAMES = [
 
 export type OmpCoreToolName = (typeof OMP_CORE_TOOL_NAMES)[number];
 
+export const OMP_GUEST_TOOL_NAMES = [...OMP_CORE_TOOL_NAMES, "wait"] as const;
+
+export type OmpGuestToolName = (typeof OMP_GUEST_TOOL_NAMES)[number];
+
+export const OMP_GUEST_TOOL_NAME_SET: ReadonlySet<string> = new Set(OMP_GUEST_TOOL_NAMES);
+
 const OMP_SHELL_TOOL_NAMES = ["bash"] as const;
 export type OmpShellToolName = (typeof OMP_SHELL_TOOL_NAMES)[number];
 

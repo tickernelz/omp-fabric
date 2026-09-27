@@ -8,6 +8,7 @@ import { EditTool } from "@oh-my-pi/pi-coding-agent/edit";
 import { GlobTool } from "@oh-my-pi/pi-coding-agent/tools/glob";
 import { GrepTool, MULTI_FILE_PER_FILE_MATCHES, SINGLE_FILE_MATCHES } from "@oh-my-pi/pi-coding-agent/tools/grep";
 import { ReadTool } from "@oh-my-pi/pi-coding-agent/tools/read";
+import { WaitTool } from "@oh-my-pi/pi-coding-agent/tools/wait";
 import { piEscapeRegexLiteral, piJoinPath } from "@oh-my-pi/pi-ai/providers/cursor-pi-args";
 import { Settings, type ToolSession } from "@oh-my-pi/pi-coding-agent";
 import {
@@ -27,6 +28,9 @@ import {
   OMP_CORE_TOOL_NAMES,
   OMP_CORE_TOOL_NAME_SET,
   type OmpCoreToolName,
+  type OmpGuestToolName,
+  OMP_GUEST_TOOL_NAMES,
+  OMP_GUEST_TOOL_NAME_SET,
 } from "../core/omp-tools.js";
 import { classifyOmpBashError, ompBashExitError, ompBashResultError, stripOmpBashTiming } from "../core/omp-bash-error.js";
 import { expandSkillDirMarkersForRead } from "../core/skill-dir.js";
@@ -75,11 +79,12 @@ interface NativeSessionOptions {
   jobs?: boolean | undefined;
   identity?: OmpSessionIdentity | undefined;
   imageQuestions?: boolean | undefined;
+  autoBackground?: (() => boolean) | undefined;
 }
 
 const createNativeSession = (
   cwd: string,
-  { artifacts, jobs: withJobs = false, identity: ownerIdentity, imageQuestions = false }: NativeSessionOptions = {},
+  { artifacts, jobs: withJobs = false, identity: ownerIdentity, imageQuestions = false, autoBackground }: NativeSessionOptions = {},
 ): ToolSession => {
   const identity = ownerIdentity ?? sessionIdentity;
   const sessionId = (): string | null => identity?.getSessionId?.() ?? null;
@@ -102,7 +107,8 @@ const createNativeSession = (
       readLineNumbers: false,
       "read.defaultLimit": GUEST_READ_LINE_LIMIT,
       "tools.outputMaxColumns": 0,
-      ...shellBackgroundSettings(jobs),
+      "launch.enabled": false,
+      ...shellBackgroundSettings(jobs, undefined, autoBackground),
     }),
     ...(artifacts
       ? {
@@ -150,9 +156,19 @@ const createNativeBashToolDefinition = (
   cwd: string,
   artifacts: ShellArtifacts,
   identity?: OmpSessionIdentity,
+  autoBackground?: () => boolean,
 ): ToolDefinition<any, any> =>
   nativeDefinition(
-    new BashTool(createNativeSession(cwd, { artifacts, jobs: true, identity })) as unknown as NativeTool,
+    new BashTool(createNativeSession(cwd, { artifacts, jobs: true, identity, autoBackground })) as unknown as NativeTool,
+  );
+
+const createNativeWaitToolDefinition = (
+  cwd: string,
+  identity?: OmpSessionIdentity,
+  autoBackground?: () => boolean,
+): ToolDefinition<any, any> =>
+  nativeDefinition(
+    new WaitTool(createNativeSession(cwd, { jobs: true, identity, autoBackground })) as unknown as NativeTool,
   );
 
 const createNativeReadToolDefinition = (
@@ -372,7 +388,8 @@ const writeTools = new Set<OmpCoreToolName>(["edit", "write"]);
 // The content array every OMP core tool returns: text and/or image blocks.
 type ToolContent = AgentToolResult<unknown>["content"];
 
-const riskForTool = (name: OmpCoreToolName): FabricRisk => {
+const riskForTool = (name: OmpGuestToolName): FabricRisk => {
+  if (name === "wait") return "read";
   if (readTools.has(name)) return "read";
   if (writeTools.has(name)) return "write";
   return "execute";
@@ -626,10 +643,35 @@ const grepTruncationSignal = (details: unknown): Record<string, unknown> | undef
 
 const GUEST_RESULT_CHAR_FALLBACK = 1_000_000;
 const READ_MARKER_RESERVE_CHARS = 512;
+const TRUNCATION_MARKER_RESERVE_CHARS = 512;
 
 const resultCharBound = (context: FabricInvocationContext): number => {
   const value = Reflect.get(context, "maxResultChars");
   return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : GUEST_RESULT_CHAR_FALLBACK;
+};
+
+const boundWaitResult = (
+  result: { content: ToolContent; details?: unknown; isError?: boolean },
+  limit: number,
+): { content: ToolContent; details?: unknown; isError?: boolean } => {
+  const text = textContent(result.content);
+  if (text.length <= limit) return result;
+  return {
+    ...result,
+    content: [
+      {
+        type: "text",
+        text: appendTruncationMarker(text.slice(0, limit - TRUNCATION_MARKER_RESERVE_CHARS), {
+          tool: "wait",
+          partial: true,
+          reasons: ["outputLimit"],
+          fullOutputPath: null,
+          continue: null,
+          note: "The wait that returned this consumed the job result; raise executor.maxNestedResultChars to carry more of it in a single call.",
+        }),
+      },
+    ],
+  };
 };
 
 const byteBudgetSignal = (meta: ReadTruncationMeta): Record<string, unknown> => ({
@@ -707,7 +749,7 @@ const resultExitCode = (details: unknown): number | undefined => {
   return Number.isSafeInteger(exitCode) && exitCode > 0 ? exitCode : undefined;
 };
 const normalizeResult = (
-  name: OmpCoreToolName,
+  name: OmpGuestToolName,
   result: { content: ToolContent; details?: unknown; isError?: boolean },
   artifactPaths?: ReadonlyMap<string, string>,
   appendReadNewline = true,
@@ -830,20 +872,22 @@ export class OmpToolsProvider implements FabricProvider {
     capturedTools?: CapturedToolsProvider,
     hostActiveTools?: FabricHostToolAuthority,
     identity?: OmpSessionIdentity,
+    autoBackground: () => boolean = () => false,
   ): Promise<OmpToolsProvider> {
-    return new OmpToolsProvider(cwd, catalog, capturedTools, hostActiveTools, identity);
+    return new OmpToolsProvider(cwd, catalog, capturedTools, hostActiveTools, identity, autoBackground);
   }
   readonly name = "omp";
   readonly description = "OMP's built-in coding tools";
   readonly #allowedTools = readChildToolAllowlist();
   readonly #hostActiveTools: FabricHostToolAuthority | undefined;
-  readonly #tools: Partial<Record<OmpCoreToolName, ToolDefinition<any, any>>>;
+  readonly #tools: Partial<Record<OmpGuestToolName, ToolDefinition<any, any>>>;
   readonly #catalog: CapturedToolCatalog | undefined;
   readonly #capturedTools: CapturedToolsProvider | undefined;
   readonly #cwd: string;
   readonly #identity: OmpSessionIdentity | undefined;
+  readonly #autoBackground: () => boolean;
   readonly #artifacts = new ShellArtifacts();
-  readonly #bashDefinitions: BashCwdDefinitions;
+  #bashDefinitions: BashCwdDefinitions;
 
   constructor(
     cwd: string,
@@ -851,21 +895,24 @@ export class OmpToolsProvider implements FabricProvider {
     capturedTools?: CapturedToolsProvider,
     hostActiveTools?: FabricHostToolAuthority,
     identity?: OmpSessionIdentity,
+    autoBackground: () => boolean = () => false,
   ) {
     this.#hostActiveTools = hostActiveTools;
     this.#cwd = cwd;
     this.#identity = identity;
+    this.#autoBackground = () => autoBackground();
     this.#bashDefinitions = new BashCwdDefinitions((nextCwd) =>
-      createNativeBashToolDefinition(nextCwd, this.#artifacts, this.#identity),
+      createNativeBashToolDefinition(nextCwd, this.#artifacts, this.#identity, this.#autoBackground),
     );
     this.#tools = {
       read: createNativeReadToolDefinition(cwd, this.#identity),
-      bash: createNativeBashToolDefinition(cwd, this.#artifacts, this.#identity),
+      bash: createNativeBashToolDefinition(cwd, this.#artifacts, this.#identity, this.#autoBackground),
       edit: createNativeReplaceEditToolDefinition(cwd, this.#identity),
       write: createPreviewWriteToolDefinition(cwd, createNativeSession(cwd, { identity: this.#identity })),
       grep: createGrepDefinitionWithSkip(cwd),
       find: createFindDefinitionWithFilters(cwd),
       ls: createLsToolDefinition(cwd),
+      wait: createNativeWaitToolDefinition(cwd, this.#identity, this.#autoBackground),
     };
     this.#catalog = catalog;
     this.#capturedTools = capturedTools;
@@ -877,7 +924,7 @@ export class OmpToolsProvider implements FabricProvider {
   ): Promise<FabricActionDescriptor[]> {
     const query = request.query?.toLowerCase();
     const descriptors = await Promise.all(
-      OMP_CORE_TOOL_NAMES.map((name) => this.describe(name, _context)),
+      OMP_GUEST_TOOL_NAMES.map((name) => this.describe(name, _context)),
     );
     return descriptors
       .filter((descriptor): descriptor is FabricActionDescriptor => descriptor !== undefined)
@@ -890,7 +937,7 @@ export class OmpToolsProvider implements FabricProvider {
     actionName: string,
     _context: FabricInvocationContext,
   ): Promise<FabricActionDescriptor | undefined> {
-    const name = actionName as OmpCoreToolName;
+    const name = actionName as OmpGuestToolName;
     if (this.denialMessage(name)) return undefined;
     const tool = this.#tools[name];
     if (!tool) return undefined;
@@ -904,7 +951,7 @@ export class OmpToolsProvider implements FabricProvider {
     if (this.#catalog?.get(actionName)) {
       return this.#capturedTools!.prepareArguments(actionName, args);
     }
-    const tool = this.#tools[actionName as OmpCoreToolName];
+    const tool = this.#tools[actionName as OmpGuestToolName];
     if (!tool) return args;
     const prepared = args;
     if (typeof prepared !== "object" || prepared === null || Array.isArray(prepared)) {
@@ -932,7 +979,7 @@ export class OmpToolsProvider implements FabricProvider {
   }
 
   #denialSource(name: string): string | undefined {
-    if (!OMP_CORE_TOOL_NAME_SET.has(name)) return undefined;
+    if (!OMP_GUEST_TOOL_NAME_SET.has(name)) return undefined;
     if (this.#allowedTools && !this.#allowedTools.has(name)) return "this child's tool allowlist";
     return ompCoreToolDenied(name, this.#hostActiveTools?.())
       ? "OMP's active tool selection"
@@ -943,7 +990,7 @@ export class OmpToolsProvider implements FabricProvider {
   // same directory through ExtensionContext.cwd. `cwd` also stays in the
   // arguments so lifecycle events, approval, and previews see it.
   #definitionFor(
-    name: OmpCoreToolName,
+    name: OmpGuestToolName,
     args: Record<string, unknown>,
   ): ToolDefinition<any, any> {
     const tool = this.#tools[name];
@@ -955,7 +1002,7 @@ export class OmpToolsProvider implements FabricProvider {
   }
 
   #executionContextFor(
-    name: OmpCoreToolName,
+    name: OmpGuestToolName,
     args: Record<string, unknown>,
     context: ExtensionContext,
   ): ExtensionContext {
@@ -970,7 +1017,7 @@ export class OmpToolsProvider implements FabricProvider {
     args: Record<string, unknown>,
     context: FabricInvocationContext,
   ): Promise<unknown> {
-    const name = actionName as OmpCoreToolName;
+    const name = actionName as OmpGuestToolName;
     this.#assertAllowed(name);
     if (!this.#tools[name]) throw new Error(`Unknown OMP tool: ${actionName}`);
     if (name === "bash") {
@@ -1029,7 +1076,7 @@ export class OmpToolsProvider implements FabricProvider {
   // extensions like pi-vision-handoff can replace image blocks with text
   // descriptions before the result returns to the sandbox.
   async #invokeWithEvents(
-    name: OmpCoreToolName,
+    name: OmpGuestToolName,
     tool: ToolDefinition<any, any>,
     args: Record<string, unknown>,
     context: FabricInvocationContext,
@@ -1151,7 +1198,7 @@ export class OmpToolsProvider implements FabricProvider {
   // top-level tool_result marker middleware cannot run. Expand again at the
   // provider boundary; replacement is idempotent when middleware already ran.
   async #normalizeResult(
-    name: OmpCoreToolName,
+    name: OmpGuestToolName,
     result: { content: ToolContent; details?: unknown; isError?: boolean },
     args: Record<string, unknown>,
     context: FabricInvocationContext,
@@ -1164,7 +1211,7 @@ export class OmpToolsProvider implements FabricProvider {
       if (artifactPath !== undefined) extras.bashArtifactPath = artifactPath;
       extras.maxResultChars = resultCharBound(context);
     }
-    let effective = result;
+    let effective = name === "wait" ? boundWaitResult(result, resultCharBound(context)) : result;
     if (name === "read" && !this.#catalog?.get(name)) {
       const paged = await this.#completeRead(result, args, context);
       effective = paged.result;
@@ -1263,7 +1310,7 @@ export class OmpToolsProvider implements FabricProvider {
   }
 
   #attachPartialPreview(
-    name: OmpCoreToolName,
+    name: OmpGuestToolName,
     partialResult: { content: ToolContent; details?: unknown; isError?: boolean },
     args: Record<string, unknown>,
     context: FabricInvocationContext,
@@ -1284,7 +1331,7 @@ export class OmpToolsProvider implements FabricProvider {
   }
 
   #attachPreview(
-    name: OmpCoreToolName,
+    name: OmpGuestToolName,
     result: { content: ToolContent; details?: unknown; isError?: boolean },
     args: Record<string, unknown>,
     context: FabricInvocationContext,
@@ -1344,7 +1391,7 @@ export class OmpToolsProvider implements FabricProvider {
   // hook supplies the description to the model — exactly how a native `read`
   // keeps its image for kitty and swaps it only on the LLM-bound clone.
   #attachReadMedia(
-    name: OmpCoreToolName,
+    name: OmpGuestToolName,
     result: { content?: unknown },
     context: FabricInvocationContext,
   ): void {
@@ -1361,7 +1408,7 @@ export class OmpToolsProvider implements FabricProvider {
   // instead of the handoff's verbose description; the model still receives the
   // description via the handoff's `context` hook swapping the image block.
   #attachReadNote(
-    name: OmpCoreToolName,
+    name: OmpGuestToolName,
     result: { content?: unknown },
     context: FabricInvocationContext,
   ): void {
@@ -1382,7 +1429,7 @@ export class OmpToolsProvider implements FabricProvider {
   }
 
   #descriptor(
-    name: OmpCoreToolName,
+    name: OmpGuestToolName,
     tool: ToolDefinition<any, any>,
   ): FabricActionDescriptor {
     const sourceSchema = tool.parameters;

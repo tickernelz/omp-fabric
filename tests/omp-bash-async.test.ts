@@ -161,12 +161,23 @@ describe("omp.bash background jobs", () => {
 describe("shellBackgroundSettings", () => {
   const scope = { manager: {} as AsyncJobManager, agentId: () => OWNER_ID };
 
-  it("mirrors the host async switch and never arms auto-background", () => {
+  it("mirrors the host async switch and leaves auto-background off by default", () => {
     expect(shellBackgroundSettings(scope, () => true)).toEqual({
       "async.enabled": true,
       "bash.autoBackground.enabled": false,
     });
     expect(shellBackgroundSettings(scope, () => false)).toEqual({
+      "async.enabled": false,
+      "bash.autoBackground.enabled": false,
+    });
+  });
+
+  it("arms auto-background only when a job scope and the setting agree", () => {
+    expect(shellBackgroundSettings(scope, () => true, () => true)).toEqual({
+      "async.enabled": true,
+      "bash.autoBackground.enabled": true,
+    });
+    expect(shellBackgroundSettings(undefined, () => true, () => true)).toEqual({
       "async.enabled": false,
       "bash.autoBackground.enabled": false,
     });

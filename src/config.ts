@@ -53,6 +53,7 @@ interface FabricExecutorConfig {
   maxOutputChars: number;
   maxNestedResultChars: number;
   resultFormat: FabricResultFormat;
+  autoBackground: boolean;
 }
 
 export interface FabricApprovalConfig {
@@ -438,6 +439,7 @@ export const DEFAULT_FABRIC_CONFIG: FabricConfig = {
     maxOutputChars: 50_000,
     maxNestedResultChars: 2_000_000,
     resultFormat: "auto",
+    autoBackground: false,
   },
   approvals: {
     read: "allow",
@@ -975,6 +977,7 @@ export const normalizeFabricConfig = (input: Record<string, unknown>): FabricCon
         executor.resultFormat,
         DEFAULT_FABRIC_CONFIG.executor.resultFormat,
       ),
+      autoBackground: booleanValue(executor.autoBackground, DEFAULT_FABRIC_CONFIG.executor.autoBackground),
     },
     approvals: {
       read: approvalMode(approvals.read, DEFAULT_FABRIC_CONFIG.approvals.read),

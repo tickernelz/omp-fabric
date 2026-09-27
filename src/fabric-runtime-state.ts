@@ -588,6 +588,7 @@ export class FabricRuntimeState {
           capturedToolsProvider,
           this.#hostActiveTools,
           sessionIdentity,
+          () => this.#config?.executor.autoBackground ?? false,
         ),
       }));
     }

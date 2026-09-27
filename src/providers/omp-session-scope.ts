@@ -37,11 +37,11 @@ export const ompJobScope = (getSessionId: () => string | null): OmpJobScope | un
 const hostAsyncEnabled = (): boolean =>
   isSettingsInitialized() ? cfgAsyncEnabled.get(Settings.instance) : true;
 
-/** Auto-background stays off: a handover would resolve a guest call with a job notice in place of output. */
 export const shellBackgroundSettings = (
   jobs: OmpJobScope | undefined,
   asyncEnabled: () => boolean = hostAsyncEnabled,
+  autoBackground: () => boolean = () => false,
 ): Record<string, unknown> => ({
   "async.enabled": jobs ? asyncEnabled() : false,
-  "bash.autoBackground.enabled": false,
+  "bash.autoBackground.enabled": jobs ? autoBackground() : false,
 });
