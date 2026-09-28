@@ -77,15 +77,15 @@ The gates are inert inside the residency host. That process runs without an OMP 
 
 ### What the skill gate costs
 
-Measured on this machine's roster of 765 skills, over a 14-case fixture with `bun run benchmark:skill-router`:
+Measured 2026-09-28 on fabric 1.25.6 (`a1e77f4`), on this machine's roster of 529 skills, over a 14-case fixture with `bun run benchmark:skill-router`:
 
 - top-1 on the nine labelled cases: **6/9**
 - suggested a skill on a turn that needed none: **0/5**, including two prompts written to sound procedural with no skill behind them
-- added latency, cases run one at a time: **p50 1.1 s, p90 1.4 s, max 1.9 s per turn**
+- added latency, cases run one at a time: **p50 944 ms, p90 1,089 ms, max 1,163 ms per turn**
 
 Latency is the number that decides whether the gate earns its place. An earlier run of this harness fired all cases at once and reported 3.5 to 4.4 seconds; that figure was queue time behind other cases, not the cost of one turn, and the harness now runs serially for exactly that reason. It also excludes any case the backend failed to answer from every figure, because the gate fails open and a dead backend would otherwise read as a perfect false-suggestion score.
 
-TypeSafe rejects a Choice carrying more than 255 options, so 765 skills travel as sharded questions in one request, and a second request then reads the shortlist. Two of the three misses name a skill that overlaps the labelled answer on its own terms, so the fixture is as much under test as the ranker.
+TypeSafe rejects a Choice carrying more than 255 options, so 529 skills travel as sharded questions in one request, and a second request then reads the shortlist. Two of the three misses name a skill that overlaps the labelled answer on its own terms, so the fixture is as much under test as the ranker.
 
 The harness measures the ranker, not the agent: it reports which skill the router names, not whether the model then loads it. Only an end-to-end agent run shows the second thing.
 

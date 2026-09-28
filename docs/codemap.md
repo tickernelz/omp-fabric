@@ -22,19 +22,18 @@ OMP already covers two of the three layers, and Fabric deliberately does not dup
 
 The index is built with the host's native ast-grep binding (`astGrep` from `@oh-my-pi/pi-natives`) using per-language declaration patterns with `$NAME` metavariable capture. It emits `<line> <letter> <name>` grouped by a bare file-path header, preceded once by a legend line, so it carries symbol identity in place of signature text.
 
-Measured on this repository at the 1.2.0 tag, all rows on the same corpus of 293 TypeScript files and 3,412,131 raw bytes:
+Measured 2026-09-28 on fabric 1.25.6 (`a1e77f4`), all rows on the same corpus of 317 TypeScript files and 3,827,894 raw bytes:
 
 | Approach | Bytes | Compression |
 | --- | ---: | ---: |
-| Raw source | 3,412,131 | 1.00x |
-| `summarizeCode`, unfiltered | 543,028 | 6.28x |
-| `summarizeCode`, imports and comments dropped | 417,367 | 8.18x |
-| `ast-grep outline` CLI 0.45.3 | 313,626 | 10.88x |
-| **Native `astGrep` symbol index** | **210,675** | **16.20x** |
+| Raw source | 3,827,894 | 1.00x |
+| `summarizeCode`, unfiltered | 600,824 | 6.37x |
+| `summarizeCode`, imports and comments dropped | 465,839 | 8.22x |
+| **Native `astGrep` symbol index** | **234,437** | **16.33x** |
 
-The shipped map is 1.49x denser than the `ast-grep outline` CLI while needing no extra dependency. Spelling the kind as a full word costs that lead: the same index renders to 249,161 bytes, a 13.69x compression, which is why the legend exists.
+The 1.2.0 table (293 files, 3,412,131 bytes, CLI row 313,626 at 10.88x, native index 210,675 at 16.20x) stays in git history. Spelling the kind as a full word renders the current index to 269,316 bytes, a 14.21x compression, which is why the legend exists.
 
-Reproduce every row except the CLI one with `bun run benchmark:codemap`, which fails below a 15x floor. The CLI row needs `ast-grep` on PATH and is not part of the gate.
+Reproduce every row with `bun run benchmark:codemap`, which fails below a 15x floor.
 
 The native path was chosen over the `ast-grep` CLI because it is denser, needs no new dependency, and reuses a binding the host already loads. Languages without a pattern entry fall back to filtered `summarizeCode`, so coverage extends past the pattern table.
 
