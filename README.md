@@ -28,15 +28,15 @@ Fabric gives OMP one programmable tool called `fabric_exec`, which composes core
 
 ## Why Fabric?
 
-|     | Capability | What it unlocks |
-| :-: | ---------- | --------------- |
-| ⚡ | **Code mode** | One flat tool schema; branching, loops, fan-out, and data flow live in checked TypeScript. |
-| 🧰 | **Capability routing** | Call OMP core tools, MCP servers, captured extension tools, or Fabric providers through one runtime. |
-| 🧑‍🤝‍🧑 | **Agent runtime** | One-shot workers, durable resident agents, persistent event-driven actors, councils, and bounded recursive queries. |
-| 🕸️ | **Workflows + mesh** | Phased progress plus durable topics, shared tasks, and compare-and-swap state. |
-| ⚖️ | **Typed judgment** | Calibrated choice, bool, and score answers about one state, ergonomic guest helpers for batch semantic triage, and four optional gates. |
+| | Capability | What it unlocks |
+| :-: | --- | --- |
+| ⚡ | **Code mode** | One tool schema. Branching, loops, fan-out, and data flow live in checked TypeScript. |
+| 🧰 | **Capability routing** | OMP core tools, MCP servers, captured extension tools, and Fabric providers share one runtime. |
+| 🧑‍🤝‍🧑 | **Agent runtime** | One-shot workers, durable resident agents, persistent actors, councils, and bounded recursive queries. |
+| 🕸️ | **Workflows + mesh** | Phased progress, durable topics, shared tasks, and compare-and-swap state. |
+| ⚖️ | **Typed judgment** | Calibrated choice, bool, and score answers, plus batch triage helpers and four optional gates. |
 | 🛡️ | **Guardrails** | Approvals, isolation, timeouts, concurrency, recursion depth, and shared cost budgets. |
-| 🎛️ | **Native TUI** | Live activity, an interactive dashboard, and settings without leaving OMP. |
+| 🎛️ | **Native TUI** | Live activity, an interactive dashboard, and settings inside OMP. |
 
 ## How it works
 
@@ -131,19 +131,17 @@ See the [interface & commands reference](docs/interface.md) for every view, keyb
 
 ## Measured against OMP without Fabric
 
-Measured 2026-09-28 on fabric 1.25.6 (`a1e77f4`) with `claude-opus-5-5`. A resume task, seeded as a paused session, run three times per arm through the same provider. The baseline arm is OMP with no extension loaded; the Fabric arm loads `dist/index.js` and compacts the session with LCM before resuming. Both arms receive the same fixture, the same prompt, and the same host configuration, and a run counts as a success only when the fixture's own `verify.mjs` exits zero with the forbidden files untouched.
+A paused session with 40 prior tool turns, about 190 KB on disk, resumed three times per arm on fabric 1.25.6 with `claude-opus-5-5`. Both arms get the same fixture, prompt, and host config. A run passes only when `verify.mjs` exits zero and the forbidden files stay untouched. Measured 2026-09-28:
 
 | | Baseline | Fabric | Delta |
-|---|---|---|---|
+| --- | ---: | ---: | ---: |
 | Task success | 3/3 | 3/3 | equal |
-| Tokens | 248,380 | 216,013 | **-13%** |
-| Tool calls | 9 | 3 | **-67%** |
-| Wall time | 48.0 s | 42.9 s | -11% |
-| Cost | $0.3921 | $0.3038 | -23% |
+| Tokens | 1,182,067 | 630,932 | **-47%** |
+| Tool calls | 6 | 9 | +3 |
+| Wall time | 44.3 s | 72.7 s | +64% |
+| Cost | $3.6159 | $1.0158 | **-72%** |
 
-Per-run tokens were 83,030 / 82,675 / 82,675 for the baseline and 71,989 / 71,953 / 72,071 with Fabric, so the reduction is stable across runs. Per-run cost was $0.1588 / $0.2039 / $0.0294 for the baseline and $0.1923 / $0.0883 / $0.0232 with Fabric; the first fabric run cost more than its baseline pair before caches warmed, and cost follows tokens once caches are warm on both sides. Older `claude-opus-5` figures stay in git history for comparison.
-
-Reproduce it with your own model and provider:
+Per-run tokens were 394,130 / 394,110 / 393,827 for the baseline and 226,541 / 224,805 / 179,586 with Fabric. Each fabric run compacted the history to a 6,538-byte LCM summary before resuming, and five of its nine tool calls were memory recalls of that summary. Wall time rose because compaction runs before the resume. The smaller fixture this table replaces stays in git history.
 
 ```sh
 OMP_FABRIC_REAL_RESUME=1 \
@@ -151,7 +149,7 @@ OMP_FABRIC_BENCH_MODEL=<model> \
 OMP_FABRIC_BENCH_PROVIDER=<provider> \
 OMP_FABRIC_BENCH_KEY_ENV=YOUR_KEY_VARIABLE \
 OMP_FABRIC_BENCH_REPEATS=3 \
-OMP_FABRIC_BENCH_MAX_USD=8 \
+OMP_FABRIC_BENCH_MAX_USD=50 \
 bun run benchmark:real-resume
 ```
 

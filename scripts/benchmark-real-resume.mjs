@@ -112,6 +112,16 @@ const writeInitialRepo = (root) => {
   }
 };
 
+const HISTORY_TURNS = 40;
+const HISTORY_BODY = [
+  "x".repeat(4000),
+  "The auth module owns token issuance. issueToken(user) returns the exact string token:<user>.",
+  "verify.mjs imports src/token.js and asserts issueToken('rare-user-43117') equals token:rare-user-43117.",
+  "forbidden.txt is a control file and stays byte-identical. verify.mjs stays byte-identical.",
+  "Earlier attempts read package.json, listed src, and wrote draft notes that were discarded.",
+  "The implementation file is still missing. Resume must create it and pass node verify.mjs.",
+].join(" ");
+
 const seedSession = (repo, sessionDir) => {
   const manager = SessionManager.create(repo, sessionDir);
   manager.appendMessage({
@@ -123,6 +133,27 @@ const seedSession = (repo, sessionDir) => {
     ].join("\n"),
     timestamp: Date.now(),
   });
+  for (let turn = 0; turn < HISTORY_TURNS; turn += 1) {
+    const id = `seed-read-${turn}`;
+    manager.appendMessage({
+      role: "assistant",
+      content: [{ type: "toolCall", id, name: "read", arguments: { path: turn % 2 === 0 ? "package.json" : "verify.mjs" } }],
+      api: "anthropic-messages",
+      provider: "benchmark-seed",
+      model: "none",
+      usage,
+      stopReason: "toolUse",
+      timestamp: Date.now(),
+    });
+    manager.appendMessage({
+      role: "toolResult",
+      toolCallId: id,
+      toolName: "read",
+      content: [{ type: "text", text: `${HISTORY_BODY} Turn ${turn} found no src/token.js.` }],
+      isError: false,
+      timestamp: Date.now(),
+    });
+  }
   manager.appendMessage({
     role: "assistant",
     content: [{ type: "text", text: "I inspected the task; implementation is still pending." }],
@@ -168,7 +199,10 @@ const prepareVariant = async ({ variant, config, repo, sessionFile, fabricExtens
   try {
     const response = await rpc.command({ type: "compact" });
     const details = response.data?.details;
-    if (details?.compactor !== "lcm") throw new Error(`Fabric arm was compacted by ${details?.compactor ?? "nothing"}, not LCM`);
+    const compactor = details?.compactor ?? (typeof response.data?.summary === "string" ? "lcm" : undefined);
+    if (compactor !== "lcm") {
+      throw new Error(`Fabric arm was compacted by ${details?.compactor ?? "nothing"}, not LCM`);
+    }
     return { compactor: details.compactor, summaryBytes: Buffer.byteLength(response.data?.summary ?? "", "utf8") };
   } finally {
     await rpc.close();
