@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.25.6
+
+### Fixed
+
+- A finished `fabric_exec` card rendered its call and its result as two transcript blocks. The host emergency layout then kept every finished card active and collapsed the session to one line per turn, which is the flat `Fabric` / `Task` / `Wait` stream. The card now sets `mergeCallAndResult`, the result keeps `display.name`, and the border shell no longer substitutes an empty container for a finished result.
+
+
 ## 1.25.5
 
 ### Fixed
