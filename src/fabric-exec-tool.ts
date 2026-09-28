@@ -5,6 +5,7 @@ import { Container, Text, type Component } from "@oh-my-pi/pi-tui";
 type FabricToolDefinition = ToolDefinition<any, any> & {
   promptGuidelines?: readonly string[];
   promptSnippet?: string;
+  mergeCallAndResult?: boolean;
 };
 
 const defineTool = (tool: FabricToolDefinition): ToolDefinition<any, any> => tool;
@@ -214,6 +215,7 @@ export const createFabricExecTool = (
     name: "fabric_exec",
     label: "Fabric",
     readsSkillUris: true,
+    mergeCallAndResult: true,
     description:
       "Execute type-checked TypeScript through Fabric's configured executor for OMP tools, MCP, Fabric providers, discovery, and extensions. QuickJS is isolated by default; the optional Node/Bun process is an unsafe trusted-code escape hatch. In full code mode, and always in Schema enforce mode, this is the exclusive model tool path.",
     promptGuidelines: [
@@ -653,10 +655,14 @@ export const createFabricExecTool = (
         const lines = safeTerminalText(output).split(nl);
         const limit = expanded ? Math.min(lines.length, 200) : 12;
         const shown = lines.slice(0, limit);
+        const displayName = normalizeRunDisplay(params?.display)?.name;
+        const title = displayName
+          ? theme.fg("toolTitle", theme.bold(safeTerminalText(displayName)))
+          : compact
+            ? theme.fg(failed ? "error" : "success", failed ? "✗ Failed" : "✓ Evaluated")
+            : "";
         let text = styleOutputLines(shown).join(nl);
-        if (compact) {
-          text = theme.fg(failed ? "error" : "success", failed ? "✗ Failed" : "✓ Evaluated") + nl + text;
-        }
+        if (title) text = title + nl + text;
         if (lines.length > shown.length) {
           text += nl + theme.fg("dim", `… ${countLabel(lines.length - shown.length, "line")}`);
           if (!expanded) text += theme.fg("dim", " · ") + expandHint(theme);

@@ -342,10 +342,11 @@ export const withCodePreviewShell: FabricToolShellDecorator = <TTool extends Any
     resultOptions: unknown,
     theme: Theme,
     context: PreviewRenderContext,
+    args?: unknown,
   ): Component => {
     const renderOptions = { ...(resultOptions as ToolRenderResultOptions), renderContext: context };
     return originalRenderResult
-      ? originalRenderResult.call(tool, result as never, renderOptions, theme)
+      ? originalRenderResult.call(tool, result as never, renderOptions, theme, args)
       : new Container();
   };
 
@@ -414,7 +415,7 @@ export const withCodePreviewShell: FabricToolShellDecorator = <TTool extends Any
       state.codePreviewBorderTheme = theme;
       return shell;
     },
-    renderResult(result, resultOptions, theme) {
+    renderResult(result, resultOptions, theme, args?: unknown) {
       const renderOptions = (resultOptions ?? {}) as ToolRenderResultOptions & { renderContext?: Record<string, unknown> };
       const supplied = renderOptions.renderContext && typeof renderOptions.renderContext === "object"
         ? renderOptions.renderContext
@@ -431,7 +432,7 @@ export const withCodePreviewShell: FabricToolShellDecorator = <TTool extends Any
         return renderTimedResult(
           context,
           theme,
-          (next) => renderResult(result, resultOptions, theme, next),
+          (next) => renderResult(result, resultOptions, theme, next, args),
           label,
         );
       }
@@ -443,7 +444,7 @@ export const withCodePreviewShell: FabricToolShellDecorator = <TTool extends Any
         : renderResult(result, resultOptions, theme, {
             ...context,
             lastComponent: state.codePreviewBorderResultComponent,
-          });
+          }, args);
       state.codePreviewBorderResultComponent = component;
       const shell = state.codePreviewBorderShell instanceof BorderedToolCall &&
           state.codePreviewBorderTheme === theme
@@ -457,7 +458,7 @@ export const withCodePreviewShell: FabricToolShellDecorator = <TTool extends Any
       state.codePreviewBorderTheme = theme;
       return shouldRenderResultSeparately(state, optionsRecord.isPartial)
         ? component
-        : new Container();
+        : state.codePreviewBorderShell ?? component;
     },
   } as TTool;
 };
