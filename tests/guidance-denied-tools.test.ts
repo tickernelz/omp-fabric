@@ -8,6 +8,15 @@ import {
 const examplesSection = (guidance: string): string =>
   guidance.slice(0, guidance.indexOf("\n`tools`"));
 
+describe("MCP call paths in the execution guidance", () => {
+  it("separates Fabric's own MCP servers from the ones OMP loaded", () => {
+    const guidance = defaultFabricExecutionGuidance(true);
+    expect(guidance).toContain("servers Fabric itself pools (`mcp.$servers()`) as `mcp.<sanitized_server>.<sanitized_tool>(args)`");
+    expect(guidance).toContain("MCP servers OMP loaded");
+    expect(guidance).toContain("`extensions.mcp__<server>_<tool>(args)`");
+  });
+});
+
 describe("execution guidance against a host without ls", () => {
   it("drops the omp.ls example when the host denies ls", () => {
     const withLs = defaultFabricExecutionGuidance(true);

@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.25.12
+
+### Fixed
+
+- An agent told to use its Paperclip tools called `mcp.paperclip.paperclipApiRequest`, got `Unknown Fabric action`, and fell back to raw `curl`. The kernel guidance said "call known MCP tools as `mcp.<sanitized_server>.<sanitized_tool>(args)`", but that surface covers only the servers Fabric pools through mcporter (the ones `mcp.$servers()` lists). MCP servers OMP loads itself, including the per-run server an adapter such as Paperclip injects, are captured tools and run as `extensions.mcp__<server>_<tool>(args)`. The guidance now names both paths, the extension roster's header shows the `extensions.mcp__…` form whenever it lists `mcp:<server>` groups, and the `fabric-exec` skill and architecture docs say the same.
+- `tools.list()` stopped at its default limit of 100 without saying so. With 300 tools registered, the 61 Paperclip tools sat past that cut, so the agent's `tools.list()` search for them came back empty. A listing cut at its limit now adds a log line naming how many it returned, the total, and the `limit` that returns the rest.
+
 ## 1.25.11
 
 ### Fixed

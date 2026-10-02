@@ -60,7 +60,7 @@ export const defaultFabricExecutionGuidance = (
   fullCodeMode
     ? "Examples and returns: `omp.read('/x')`, `omp.grep('TODO','src')` / `omp.grep({pattern:'TODO', path:'src', ignoreCase:true, context:2})`, `omp.find({pattern:'*.ts', path:'src', limit:20})`"
       + (deniedCoreTools.includes("ls") ? "" : ", and `omp.ls('src')`")
-      + " return strings; `omp.bash({cmd:'ls'})`, `omp.edit({path:'/x', old:'a', new:'b'})`, and `omp.write({path:'/y', text:'z'})` return `{ok, output, details}` (read `.output`); failed core calls reject, including shell tools on an ordinary nonzero exit; pass `settle: true` to `omp.bash` to get `{ ok: false, exitCode, output, error }` instead. Timeout, cancellation, approval, and security failures still reject.\n`tools` is discovery + generic calls only (`providers`/`catalog`/`list`/`search`/`describe`/`call`/`models`). Call known MCP tools as `mcp.<sanitized_server>.<sanitized_tool>(args)`, captured tools as `extensions.<tool>(args)`, and stable providers as `memory.*`, `state.*`, `schema.*`, `compact.*`, or `judgment.*` (calibrated choice/bool/score answers about one state). Use `tools.call({ref,args})` for computed refs. Use `judge.filter(items, instructions)` or `judge.bool(state, instructions)` for fast semantic triage in one request without subagents (e.g. `await judge.filter(logs, 'fatal error')`). `omp` is the core tools; `omp.<key>` reads a named `payloads` value (not a tool)."
+      + " return strings; `omp.bash({cmd:'ls'})`, `omp.edit({path:'/x', old:'a', new:'b'})`, and `omp.write({path:'/y', text:'z'})` return `{ok, output, details}` (read `.output`); failed core calls reject, including shell tools on an ordinary nonzero exit; pass `settle: true` to `omp.bash` to get `{ ok: false, exitCode, output, error }` instead. Timeout, cancellation, approval, and security failures still reject.\n`tools` is discovery + generic calls only (`providers`/`catalog`/`list`/`search`/`describe`/`call`/`models`). Call tools from MCP servers Fabric itself pools (`mcp.$servers()`) as `mcp.<sanitized_server>.<sanitized_tool>(args)`; MCP servers OMP loaded are captured tools like any other, so call those and every other captured tool as `extensions.<tool>(args)`, e.g. `extensions.mcp__<server>_<tool>(args)`; and stable providers as `memory.*`, `state.*`, `schema.*`, `compact.*`, or `judgment.*` (calibrated choice/bool/score answers about one state). Use `tools.call({ref,args})` for computed refs. Use `judge.filter(items, instructions)` or `judge.bool(state, instructions)` for fast semantic triage in one request without subagents (e.g. `await judge.filter(logs, 'fatal error')`). `omp` is the core tools; `omp.<key>` reads a named `payloads` value (not a tool)."
     : "Call known actions through `mcp.<sanitized_server>.<sanitized_tool>(args)`, `memory.*`, `state.*`, `schema.*`, `components.*`, `compact.*`, `codemap.*`, `judgment.*`, `agents.*`, or `mesh.*`; use `tools.catalog`/`search`/`describe`/`list` for discovery and `tools.call({ref,args})` for computed refs. Other surfaces are opt-in via user-loaded skills.";
 
 // Shape of CapturedToolCatalog entries this renderer needs (kept structural to avoid a runtime dependency on the capture layer from a guidance module).
@@ -139,8 +139,14 @@ export const extensionToolRosterGuidance = (
     if (names) names.push(tool.name);
     else groups.set(label, [tool.name]);
   }
+  const mcpExample = [...groups.entries()].find(([label]) => label.startsWith("mcp:"))?.[1][0];
+  const header = "Registered extension tools are callable inside fabric_exec as `extensions.<name>(args)`"
+    + (mcpExample
+      ? ", including the OMP-loaded MCP tools listed as mcp:<server> (e.g. `extensions." + mcpExample + "(args)`, not mcp.<server>.<tool>)"
+      : "")
+    + "; run `tools.list` for full descriptions and schemas before re-implementing an effect with omp.bash.";
   return [
-    "Registered extension tools are callable inside fabric_exec as `extensions.<name>(args)`; run `tools.list` for full descriptions and schemas before re-implementing an effect with omp.bash.",
+    header,
     ...[...groups.entries()]
       .sort(([left], [right]) => left.localeCompare(right))
       .map(([label, names]) => "- " + label + ": " + names.join(", ")),

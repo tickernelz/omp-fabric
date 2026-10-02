@@ -104,7 +104,7 @@ Stable-provider arguments normalize near-miss spellings the way `omp.*` does: kn
 
 ### Dynamic provider return shapes
 
-- `mcp.<sanitized_server>.<sanitized_tool>(args)` resolves to the server-defined result, commonly `{text:string,content:unknown[],structuredContent:unknown}`; for example `mcp.fal_ai.get_model_schema({ endpoint_id: "openai/gpt-image-2" })`. `<skill-dir>/references/mcp.md` is a branch pointer for MCP naming and management only when the task needs MCP.
+- `mcp.<sanitized_server>.<sanitized_tool>(args)` resolves to the server-defined result for servers in `mcp.$servers()` (OMP-loaded MCP servers are `extensions.mcp__<server>_<tool>(args)`), commonly `{text:string,content:unknown[],structuredContent:unknown}`; for example `mcp.fal_ai.get_model_schema({ endpoint_id: "openai/gpt-image-2" })`. `<skill-dir>/references/mcp.md` is a branch pointer for MCP naming and management only when the task needs MCP.
 - `extensions.<tool>(args)` in full code mode resolves to `{content:Array<{type,text?,...}>,text:string,details?,isError:boolean,terminate?,source:{path,source,scope,origin,baseDir?}}`.
 - Captured Fovea tools therefore use refs such as `extensions.fovea_focus`. Discover dynamically with `await tools.search({ query: "fovea_focus" })` (the string shorthand `tools.search("fovea_focus")` is also accepted), then pass the returned `action.ref` to `tools.call({ ref, args })`; never invent a bare or `fovea.*` ref.
 

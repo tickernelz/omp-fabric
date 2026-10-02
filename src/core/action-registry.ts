@@ -608,7 +608,11 @@ export class ActionRegistry {
   // declared everywhere (see describe): committed views pin declared
   // digests, and a surface activation must never invalidate them.
   async list(
-    request: FabricProviderListRequest & { provider?: string; declared?: boolean },
+    request: FabricProviderListRequest & {
+      provider?: string;
+      declared?: boolean;
+      onTruncated?: (total: number, limit: number) => void;
+    },
     context: FabricInvocationContext,
   ): Promise<ResolvedFabricAction[]> {
     if (context.capabilityView) {
@@ -618,12 +622,14 @@ export class ActionRegistry {
         .sort();
       const actions = await Promise.all(refs.map((ref) => this.describe(ref, context)));
       const query = request.query?.normalize("NFKC").trim().toLowerCase();
-      return actions
+      const matched = actions
         .filter((action) => !request.namespace || action.namespace === request.namespace)
         .filter((action) =>
           !query || `${action.ref} ${action.description}`.toLowerCase().includes(query),
-        )
-        .slice(0, Math.max(1, Math.min(request.limit ?? 100, 1_000)));
+        );
+      const limit = Math.max(1, Math.min(request.limit ?? 100, 1_000));
+      request.onTruncated?.(matched.length, limit);
+      return matched.slice(0, limit);
     }
     const providers = request.provider
       ? [this.#requireProvider(request.provider)]
@@ -654,7 +660,9 @@ export class ActionRegistry {
       }),
     );
     const limit = Math.max(1, Math.min(request.limit ?? 100, 1_000));
-    return lists.flat().slice(0, limit);
+    const all = lists.flat();
+    request.onTruncated?.(all.length, limit);
+    return all.slice(0, limit);
   }
 
   async catalog(

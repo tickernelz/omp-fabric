@@ -93,6 +93,41 @@ return { scheduled, after };
     });
   });
 
+  it("tells the program when tools.list stopped at its limit", async () => {
+    const registry = new ActionRegistry();
+    const descriptors = Array.from({ length: 7 }, (_, index) => ({
+      name: "tool_" + index,
+      description: "demo",
+      inputSchema: { type: "object" },
+      risk: "read" as const,
+    }));
+    registry.register({
+      name: "demo",
+      description: "demo",
+      async list() { return descriptors; },
+      async describe(name) { return descriptors.find((descriptor) => descriptor.name === name); },
+      async invoke() { return null; },
+    });
+    const config = structuredClone(DEFAULT_FABRIC_CONFIG);
+    config.fullCodeMode = false;
+    const service = new FabricExecutionService(registry, config);
+    const run = (code: string) => service.execute({
+      code,
+      signal: undefined,
+      parentToolCallId: "list-limit-" + code.length,
+      context: { cwd: process.cwd(), hasUI: false } as ExtensionContext,
+      onPartial() {},
+    });
+
+    const capped = await run("return (await tools.list({ limit: 3 })).length;");
+    expect(capped.value).toBe(3);
+    expect(capped.logs.join("\n")).toContain("tools.list returned 3 of 7 actions; pass limit: 7");
+
+    const complete = await run("return (await tools.list({ limit: 10 })).length;");
+    expect(complete.value).toBe(7);
+    expect(complete.logs.join("\n")).not.toContain("tools.list returned");
+  });
+
   it("applies the same deferred boundary through generic tools.call", async () => {
     const registry = new ActionRegistry();
     const descriptor = {

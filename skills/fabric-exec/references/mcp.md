@@ -1,6 +1,6 @@
 # MCP surface reference
 
-MCP tools are available inside `fabric_exec` through the `mcp` surface, backed by the public `mcporter` runtime (config discovery, imports, OAuth cache, connection pooling). For the sandbox model and `tools` discovery, see the parent `fabric-exec` skill.
+MCP tools reach `fabric_exec` by two paths. Servers Fabric itself pools through the public `mcporter` runtime (config discovery, imports, OAuth cache, connection pooling) form the `mcp` surface; `mcp.$servers()` lists exactly those. Servers OMP loaded, including any an adapter injects for a run, are captured tools named `mcp__<server>_<tool>` and are called as `extensions.mcp__<server>_<tool>(args)`; the kernel roster lists them under `mcp:<server>`. A server absent from `mcp.$servers()` is not missing: look it up with `tools.search({ query: "mcp__<server>" })`. For the sandbox model and `tools` discovery, see the parent `fabric-exec` skill.
 
 ## Call a tool
 

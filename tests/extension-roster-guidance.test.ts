@@ -149,6 +149,9 @@ describe("extensionToolRosterGuidance", () => {
       "- mcp:context7: mcp__context7_query_docs",
       "- mcp:vidwatch: mcp__vidwatch_ask_video, mcp__vidwatch_get_moment",
     ]);
+    expect(guidance?.split("\n")[0]).toContain("including the OMP-loaded MCP tools listed as mcp:<server>");
+    expect(guidance?.split("\n")[0]).toContain("extensions.mcp__context7_query_docs(args)");
+    expect(guidance?.split("\n")[0]).toContain("not mcp.<server>.<tool>");
   });
 
   it("excludes captured core overrides and empty catalogs", () => {

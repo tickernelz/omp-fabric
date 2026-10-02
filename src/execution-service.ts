@@ -289,6 +289,7 @@ export class FabricExecutionService {
     const judgment = this.#judgment;
     const gates = this.config.judgment.gates;
     const audits: FabricCallAudit[] = [];
+    const discoveryNotices: string[] = [];
     const phases: string[] = [];
     const workflowSpans = new Map<
       string,
@@ -696,6 +697,12 @@ export class FabricExecutionService {
                       ...(typeof args.namespace === "string" ? { namespace: args.namespace } : {}),
                       ...(typeof args.query === "string" ? { query: args.query } : {}),
                       ...(typeof args.limit === "number" ? { limit: args.limit } : {}),
+                      onTruncated: (total: number, limit: number) => {
+                        if (total <= limit) return;
+                        discoveryNotices.push(
+                          `tools.list returned ${limit} of ${total} actions; pass limit: ${Math.min(total, 1_000)} or a provider/query filter to see the rest.`,
+                        );
+                      },
                     },
                     callContext,
                   );
@@ -867,7 +874,7 @@ export class FabricExecutionService {
     return {
       success: succeeded,
       value: sandboxResult.value,
-      logs: sandboxResult.logs,
+      logs: [...sandboxResult.logs, ...discoveryNotices],
       audits,
       phases,
       // Guest and provider error text may embed tool output or source
