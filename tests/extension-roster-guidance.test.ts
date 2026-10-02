@@ -99,6 +99,36 @@ describe("extensionToolRosterGuidance", () => {
     expect(roster).toContain("- @scope/pi-npm-ext: tool_two");
   });
 
+  it("labels host inline extension tools the same from any working directory", () => {
+    const root = mkdtempSync(path.join(tmpdir(), "fabric-roster-cwd-"));
+    const insideProject = path.join(root, "roster-cwd-project", "nested");
+    const outsideProject = path.join(root, "plain");
+    mkdirSync(insideProject, { recursive: true });
+    mkdirSync(outsideProject, { recursive: true });
+    writeFileSync(
+      path.join(root, "roster-cwd-project", "package.json"),
+      JSON.stringify({ name: "roster-cwd-project" }),
+    );
+    const original = process.cwd();
+    const rosterFrom = (cwd: string) => {
+      process.chdir(cwd);
+      return extensionToolRosterGuidance(
+        [entry("update_notes", { source: "extension", path: "<extension:update_notes>" })],
+        new Set(),
+      );
+    };
+    try {
+      const fromProject = rosterFrom(insideProject);
+      const fromPlain = rosterFrom(outsideProject);
+      expect(fromProject).toContain("- extension: update_notes");
+      expect(fromProject).not.toContain("roster-cwd-project");
+      expect(fromPlain).toBe(fromProject);
+    } finally {
+      process.chdir(original);
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it("excludes captured core overrides and empty catalogs", () => {
     expect(extensionToolRosterGuidance([entry("read")], new Set(["read"]))).toBeUndefined();
     expect(extensionToolRosterGuidance([], new Set())).toBeUndefined();

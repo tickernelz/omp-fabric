@@ -227,7 +227,7 @@ const __ompPositionalFields = {
 const __ompNumericFields = {
   read: ["offset", "limit"],
   bash: ["timeout"],
-  grep: ["skip", "context"],
+  grep: ["skip", "context", "limit"],
   find: ["limit"],
   ls: ["limit"],
 };

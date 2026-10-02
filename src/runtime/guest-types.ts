@@ -21,7 +21,7 @@ export const OMP_CORE_NUMERIC_FIELDS = {
   bash: ["timeout"],
   edit: [],
   write: [],
-  grep: ["context", "skip"],
+  grep: ["context", "skip", "limit"],
   find: ["limit"],
   ls: ["limit"],
 } as const;
@@ -470,7 +470,7 @@ type OmpShellOptions = {
   pty?: boolean;
 };
 type OmpBashOptions = OmpShellOptions;
-type OmpGrepOptions = { path?: string; glob?: string; globPattern?: string; ignoreCase?: boolean; ic?: boolean; caseInsensitive?: boolean; literal?: boolean; context?: number; ctx?: number; skip?: number; gitignore?: boolean };
+type OmpGrepOptions = { path?: string; glob?: string; globPattern?: string; ignoreCase?: boolean; ic?: boolean; caseInsensitive?: boolean; literal?: boolean; context?: number; ctx?: number; skip?: number; limit?: number; gitignore?: boolean };
 type OmpFindOptions = { path?: string; limit?: number; max?: number; gitignore?: boolean; hidden?: boolean };
 type OmpLsOptions = { limit?: number; max?: number };
 type OmpReadArgument = string | (OmpPathArgument & OmpReadOptions);

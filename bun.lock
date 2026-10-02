@@ -31,9 +31,9 @@
         "vitest": "^4.1.10",
       },
       "peerDependencies": {
-        "@oh-my-pi/pi-coding-agent": ">=18.3.0",
-        "@oh-my-pi/pi-natives": ">=18.3.0",
-        "@oh-my-pi/pi-tui": ">=18.3.0",
+        "@oh-my-pi/pi-coding-agent": ">=18.4.4",
+        "@oh-my-pi/pi-natives": ">=18.4.4",
+        "@oh-my-pi/pi-tui": ">=18.4.4",
       },
     },
   },

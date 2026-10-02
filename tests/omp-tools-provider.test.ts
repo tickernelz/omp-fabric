@@ -580,6 +580,15 @@ describe("OmpToolsProvider result fidelity", () => {
     }
   };
 
+  const registryWithResultPatch = (details: unknown) => {
+    const runner = makeRunner({ emitToolResult: vi.fn(async () => ({ details })) });
+    const catalog = new CapturedToolCatalog();
+    catalog.replace([], runner, DEFAULT_FABRIC_CONFIG.capture, "/extensions/omp-fabric/index.ts");
+    const registry = new ActionRegistry();
+    registry.register(new OmpToolsProvider(process.cwd(), catalog, undefined));
+    return registry;
+  };
+
   const parseMarker = (text: string): Record<string, unknown> | undefined => {
     const start = text.indexOf(TRUNCATION_MARKER);
     if (start === -1) return undefined;
@@ -857,6 +866,39 @@ describe("OmpToolsProvider result fidelity", () => {
     );
   });
 
+  it("caps grep at an explicit limit and keeps skip working", async () => {
+    await withFixtures(
+      (dir) => {
+        for (const name of ["a.txt", "b.txt", "c.txt"]) {
+          fs.writeFileSync(path.join(dir, name), `${Array.from({ length: 10 }, () => "MATCHME").join("\n")}\n`);
+        }
+      },
+      async (registry, dir) => {
+        const full = String(await registry.invoke("omp.grep", { pattern: "MATCHME", path: dir }, baseContext));
+        expect(full.split("\n").filter((line) => line.includes("MATCHME"))).toHaveLength(30);
+        expect(full).not.toContain(TRUNCATION_MARKER);
+
+        const capped = String(
+          await registry.invoke("omp.grep", { pattern: "MATCHME", path: dir, limit: 4 }, baseContext),
+        );
+        expect(capped.split("\n").filter((line) => line.includes("MATCHME"))).toHaveLength(4);
+        expect(parseMarker(capped)).toMatchObject({
+          tool: "grep",
+          partial: true,
+          reasons: ["matchLimit"],
+          matchLimit: 4,
+          continue: null,
+          note: "Only the first 4 matches are returned because limit=4; raise limit or narrow the pattern.",
+        });
+
+        const skipped = String(
+          await registry.invoke("omp.grep", { pattern: "MATCHME", path: dir, skip: 5, limit: 4 }, baseContext),
+        );
+        expect(skipped).toContain("skip=5 is past the end");
+      },
+    );
+  });
+
   it("forwards grep skip to the underlying tool", async () => {
     await withFixtures(
       (dir) => {
@@ -953,6 +995,66 @@ describe("OmpToolsProvider result fidelity", () => {
     } finally {
       cfgToolsArtifactMaxBytes.clearOverride(settings);
     }
+  });
+
+  it("refuses to restore and names the failure when the host artifact capture failed", async () => {
+    const registry = registryWithResultPatch({
+      meta: { artifactError: "flush", limits: { columnTruncated: { maxColumn: 768, unit: "bytes" } } },
+    });
+
+    const result = (await registry.invoke(
+      "omp.bash",
+      { command: "seq 1 100000 | tr -d '\\n' | head -c 200000; echo" },
+      baseContext,
+    )) as { output: string; details: Record<string, unknown> };
+    const marker = parseMarker(result.output);
+
+    expect(result.details).toMatchObject({ columnTruncated: { maxColumn: 768, restored: false } });
+    expect(result.details.fullOutputPath).toBeUndefined();
+    expect(marker).toMatchObject({ tool: "bash", reasons: ["columnLimit"], fullOutputPath: null });
+    expect(String(marker?.note)).toContain("artifact flush failed");
+    expect(String(marker?.note)).toContain("unrecoverable");
+    expect(String(marker?.note)).not.toContain("on disk at");
+  });
+
+  it("names the failed artifact capture instead of a complete stream on disk", async () => {
+    const registry = registryWithResultPatch({
+      truncation: { truncated: true, truncatedBy: "bytes", totalLines: 4, totalBytes: 2_400_004, outputBytes: 100 },
+      meta: { artifactError: "write" },
+    });
+
+    const result = (await registry.invoke("omp.bash", { command: "echo hi" }, baseContext)) as {
+      output: string;
+      details: Record<string, unknown>;
+    };
+    const marker = parseMarker(result.output);
+
+    expect(result.details.fullOutputPath).toBeUndefined();
+    expect(marker).toMatchObject({ tool: "bash", reasons: ["outputLimit"], fullOutputPath: null });
+    expect(String(marker?.note)).toContain("artifact write failed");
+    expect(String(marker?.note)).toContain("unrecoverable");
+    expect(String(marker?.note)).not.toContain("complete stream is on disk");
+  });
+
+  it("points at the intact artifact when the nested result budget blocks inlining", async () => {
+    await withFixtures(
+      () => {},
+      async (registry) => {
+        const result = (await registry.invoke(
+          "omp.bash",
+          { command: "seq 1 100000 | tr -d '\\n' | head -c 200000; echo" },
+          baseContext,
+        )) as { output: string; details: Record<string, unknown> };
+        const marker = parseMarker(result.output);
+        const artifact = String(result.details.fullOutputPath);
+
+        expect(result.details).toMatchObject({ columnTruncated: { maxColumn: 768, restored: false } });
+        expect(fs.readFileSync(artifact, "utf8").trimEnd()).toHaveLength(200_000);
+        expect(String(marker?.note)).toContain(`the complete output is on disk at ${artifact}`);
+        expect(String(marker?.note)).toContain("executor.maxNestedResultChars");
+      },
+      100_000,
+    );
   });
 
   it("marks bash output the host budget elided and leaves complete output unmarked", async () => {

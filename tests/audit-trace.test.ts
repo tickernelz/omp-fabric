@@ -893,6 +893,16 @@ return true;
     expect(readFabricExecutionRenderDetails(legacy)).toMatchObject(legacy);
   });
 
+  it("keeps grep pagination arguments and drops the pattern", () => {
+    const recorder = new FabricExecutionTraceRecorder();
+    recorder
+      .issueCall("omp.grep", { pattern: "grep-pattern-secret", path: "src", context: 2, skip: 20, limit: 5 })
+      .succeed("omitted matches");
+    const trace = recorder.seal("succeeded", []);
+
+    expect(trace.operations[0]?.args).toEqual({ path: "src", context: 2, skip: 20, limit: 5 });
+  });
+
   it("retains bash commands in the trace while omitting arbitrary argument and result content", () => {
     const recorder = new FabricExecutionTraceRecorder();
     const bash = recorder.issueCall("omp.bash", {

@@ -62,7 +62,7 @@ Independent calls run in parallel, and the returned object enters the model cont
 
 ## Install
 
-Requires Node.js 24+ and OMP 18.3.0+. Fabric also checks a detectable OMP host version at startup and warns when an older host may ignore continuation APIs such as actor `triggerTurn`.
+Requires Node.js 24+ and OMP 18.4.4+. Fabric also checks a detectable OMP host version at startup and warns when an older host does not match the tool shapes Fabric types against.
 
 ```bash
 omp install npm:omp-fabric

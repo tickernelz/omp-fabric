@@ -38,7 +38,8 @@ const NUMERIC_FIELDS: Readonly<Record<string, readonly string[]>> = {
   ],
   grep: [
     "skip",
-    "context"
+    "context",
+    "limit"
   ],
   find: [
     "limit"

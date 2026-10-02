@@ -1,6 +1,6 @@
 {
   "name": "omp-fabric",
-  "version": "1.25.7",
+  "version": "1.25.8",
   "description": "A programmable tool and agent runtime for Oh My Pi (OMP)",
   "type": "module",
   "main": "./dist/index.js",
@@ -96,9 +96,9 @@
     "yaml": "^2.9.0"
   },
   "peerDependencies": {
-    "@oh-my-pi/pi-coding-agent": ">=18.3.0",
-    "@oh-my-pi/pi-natives": ">=18.3.0",
-    "@oh-my-pi/pi-tui": ">=18.3.0"
+    "@oh-my-pi/pi-coding-agent": ">=18.4.4",
+    "@oh-my-pi/pi-natives": ">=18.4.4",
+    "@oh-my-pi/pi-tui": ">=18.4.4"
   },
   "devDependencies": {
     "@oh-my-pi/omptype": "18.4.10",

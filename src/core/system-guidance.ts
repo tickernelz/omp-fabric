@@ -75,6 +75,9 @@ export interface ExtensionRosterToolSource {
 // are often full relative paths, so they are only used when no manifest exists.
 const manifestNameCache = new Map<string, string | undefined>();
 
+const isFilesystemSourcePath = (value: string): boolean =>
+  path.posix.isAbsolute(value) || path.win32.isAbsolute(value);
+
 const packageNameFromManifest = (startPath: string | undefined): string | undefined => {
   if (!startPath) return undefined;
   let directory = path.dirname(path.resolve(startPath));
@@ -113,12 +116,14 @@ export const extensionToolRosterGuidance = (
   const namespaceLabel = (tool: ExtensionRosterToolSource): string => {
     const source = tool.sourceInfo?.source?.trim();
     if (source?.startsWith("npm:")) return source.slice("npm:".length) || source;
+    const rawPath = tool.sourceInfo?.path?.trim();
+    const filePath = rawPath && isFilesystemSourcePath(rawPath) ? rawPath : undefined;
     const manifestName =
-      packageNameFromManifest(tool.sourceInfo?.path) ??
+      packageNameFromManifest(filePath) ??
       packageNameFromManifest(source && /[\\/]/.test(source) ? source : undefined);
     if (manifestName) return manifestName;
     if (source && !/[\\/]/.test(source)) return source;
-    const parts = (tool.sourceInfo?.path ?? source ?? "").split(/[\\/]/).filter(Boolean);
+    const parts = (filePath ?? source ?? "").split(/[\\/]/).filter(Boolean);
     const base = parts.at(-1)?.trim() ?? "";
     // Entry files like index.js name the package directory, not the source.
     if (/^index\./i.test(base)) return parts.at(-2)?.trim() || base;

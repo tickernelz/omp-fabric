@@ -12,14 +12,14 @@ description: >-
 One type-checked TS program in a fresh executor (isolated QuickJS by default). Only the `return` value reaches the model; `print()`/`console.log` go to the activity panel. `payloads` is not a tool.
 
 ## `omp` core tools (full code mode only)
-`omp.<tool>(arg)` — single arg: bare string (primary field) or options object, or a two-arg `(primary, options)` merge for the string-primary tools (`read`/`bash`/`ls`/`grep`/`find`): `omp.read('index.ts', { limit: 120 })` becomes `{ path: 'index.ts', limit: 120 }`, the positional string winning the primary field on conflict; a non-object second arg on those is still a type error. Positional tuple calls are accepted for `grep`/`find` (`pattern, path, limit`), `write` (`path, content`), and `edit` (`path, oldText, newText`).
+`omp.<tool>(arg)` — single arg: bare string (primary field) or options object, or a two-arg `(primary, options)` merge for the string-primary tools (`read`/`bash`/`ls`/`grep`/`find`): `omp.read('index.ts', { limit: 120 })` becomes `{ path: 'index.ts', limit: 120 }`, the positional string winning the primary field on conflict; a non-object second arg on those is still a type error. Positional tuple calls are accepted for `grep` (`pattern, path, skip`), `find` (`pattern, path, limit`), `write` (`path, content`), and `edit` (`path, oldText, newText`).
 
 | Tool | Form | Returns |
 |------|------|---------|
 | `read` | `path` \| `{path,offset?,limit?}` \| `(path, options?)` | `string` |
 | `bash` | `command` \| `{command,timeout?,cwd?,async?}` \| `(command, options?)` | `{ok:true,output,details}`; rejects on a nonzero exit (`settle:true` returns `{ok:false,output,details:null,exitCode,error}` instead) |
-| `grep` | `pattern` \| `{pattern,path?,glob?,ignoreCase?,literal?,context?,limit?}` \| `(pattern, path?, limit?)` | `string` |
-| `find` | `pattern` \| `{pattern,path?,limit?}` \| `(pattern, path?, limit?)` | `string` |
+| `grep` | `pattern` \| `{pattern,path?,glob?,ignoreCase?,literal?,context?,skip?,limit?,gitignore?}` \| `(pattern, path?, skip?)` | `string` |
+| `find` | `pattern` \| `{pattern,path?,limit?,gitignore?,hidden?}` \| `(pattern, path?, limit?)` | `string` |
 | `ls` | `path?` \| `{path?,limit?}` \| `(path, options?)` | `string` |
 | `wait` | (no arguments) | `{ok,output,details}`; the next finished background job result owned by this session |
 | `edit` | `{path,edits:[{oldText,newText,all?}],all?}` \| `{path,oldText,newText,all?}` \| `(path, oldText, newText)` | `{ok,output,details}` |
@@ -35,7 +35,7 @@ Aliases are normalized to canonical fields before host validation. Command alias
 
 `async:true` starts the command as a host background job: the call resolves at once with `details.async.jobId`, the command keeps running past this program, and its output reaches the agent as a follow-up message. The program never sees that output, and `settle` has nothing to settle on a call that resolved, so await `omp.wait()` when a later step needs its result. `omp.wait()` takes no arguments and returns the next finished background job result owned by this session; never poll it with `sleep`, because every poll is a wasted turn. Foreground calls are never backgrounded on their own, whatever their duration; `executor.autoBackground` is the setting that arms the host handover. Both `async:true` and `omp.wait()` need this session to have a live owning agent with a host job manager, so start a new session; do not rely on one appearing mid-session. Where that owner is missing, parked, or has no manager, `async` leaves the schema and passing it anyway fails with `Async bash execution is disabled`, and `omp.wait()` returns "No running background jobs to wait for."
 
-Shell `timeout` is in seconds; `timeoutMs` is converted from milliseconds. Numeric strings in `limit`, `timeout`, `offset`, and `context` coerce to numbers. `null`/`undefined` is omitted only for known optional fields; required fields remain invalid so authoritative host validation still reports them. Canonical fields win when both canonical and alias spellings are present. Unknown keys still fail the excess-property type check.
+Shell `timeout` is in seconds; `timeoutMs` is converted from milliseconds. Numeric strings in `limit`, `timeout`, `offset`, `skip`, and `context` coerce to numbers. `null`/`undefined` is omitted only for known optional fields; required fields remain invalid so authoritative host validation still reports them. Canonical fields win when both canonical and alias spellings are present. Unknown keys still fail the excess-property type check.
 
 `bash`/`edit`/`write` always resolve an envelope `{ ok, output, details }`, never a bare string, and the executor guards those envelopes: a string method or iteration applied to the envelope itself (`r.trim()`, `for (const line of r)`) throws a TypeError naming the fix (`.output`) instead of a context-free "not a function".
 

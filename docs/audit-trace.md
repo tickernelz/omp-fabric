@@ -57,7 +57,7 @@ The host bridge assigns `sequence` when it receives any durable operation. A par
 V1 keeps `type: "call"` for wire compatibility. Exact internal refs separate discovery, lifecycle, and combinator operations from provider action calls. V1 also leaves `result` optional, and discovery, workflow lifecycle, and combinator operations never persist one. The generic recorder drops provider results, with a single exception: the exact `{ created: true }` creation outcome from `omp.write`. No output or provider details accompany that outcome. Argument projection follows the exact reference:
 
 - `omp.read`: local `path`, numeric `offset`, numeric `limit`
-- `omp.grep`: local `path`, numeric `context`, numeric `limit`. Drops pattern and query
+- `omp.grep`: local `path`, numeric `context`, numeric `skip`, numeric `limit`. Drops pattern and query
 - `omp.find`, `omp.ls`: local `path`, numeric `limit`. Drops pattern and query
 - `omp.edit`, `omp.write`: local `path` only. Drops edit replacements and write content. `omp.write` can keep `{ created: true }`
 - `omp.bash`: bounded command text

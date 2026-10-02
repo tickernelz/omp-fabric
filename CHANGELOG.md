@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.25.8
+
+### Fixed
+
+- The extension roster in the kernel guidance named host-builtin tools after whatever project was open. OMP registers its autoresearch tools (`init_experiment`, `run_experiment`, `log_experiment`, `update_notes`) inline with a synthetic `<extension:name>` source path, and the roster resolved that path against the working directory and took the nearest `package.json`, so in this repository it read `omp-fabric: update_notes` and in another project that project's name. Only real filesystem paths are looked up now; synthetic sources are labelled by their `source`, matching the captured-tool namespaces.
+- When the host fails to write a bash artifact it reports `meta.artifactError` and drops the artifact id, but Fabric fell back to its own copy of the path, restored from a file that had stopped receiving writes, and called the stream complete. A failed capture is now treated like an elided one: no restore, no path, and the note names the failed operation and says the full output is unrecoverable.
+- A column-capped result that was too large to inline gave no way back to the full text. When the artifact is intact the note now names its path and size and the `executor.maxNestedResultChars` budget that kept it out of the result.
+- `skills/fabric-exec/SKILL.md` taught `omp.grep` a `limit` it did not have and a positional third argument named `limit` that is really `skip`; the `find` row omitted `gitignore` and `hidden`. The audit trace projected the dead grep `limit` and dropped `skip`, so two grep pages recorded identically.
+- The declared OMP peer floor and the startup compatibility check move from `18.3.0` to `18.4.4`. 1.25.7 dropped the per-call bash `env` that hosts before 18.4.4 still accept, so on those hosts Fabric rejected a working call and its recovery hint wrongly said the host had removed it.
+
+### Added
+
+- `omp.grep` accepts `limit`, passed to the host's `totalMatchLimit` on a per-call grep tool, and combines with `skip`. A capped result carries the partial marker with `matchLimit` and a note naming the limit rather than the host's per-file cap.
+
 ## 1.25.7
 
 ### Fixed

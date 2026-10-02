@@ -22,6 +22,20 @@ describe("Fabric guest type checker", () => {
     expect(result.javascript).not.toContain("path: string");
   });
 
+  it("accepts a grep match limit and rejects an unknown grep option", () => {
+    const accepted = typeCheckFabricCode(
+      'const hits = await omp.grep({ pattern: "TODO", path: "src", skip: 2, limit: 5 });\nreturn hits.length;',
+      GUEST_TYPE_DECLARATIONS,
+    );
+    expect(accepted.errors).toEqual([]);
+
+    const rejected = typeCheckFabricCode(
+      'const hits = await omp.grep({ pattern: "TODO", path: "src", cap: 5 });\nreturn hits.length;',
+      GUEST_TYPE_DECLARATIONS,
+    );
+    expect(rejected.errors.length).toBeGreaterThan(0);
+  });
+
   it("accepts a Veda persona and backend model on agents.run", () => {
     const result = typeCheckFabricCode(
       `

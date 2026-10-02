@@ -232,6 +232,7 @@ export const projectFabricAuditArgs = (
       return projected(args, (output) => {
         copyPath(output, args);
         copyNumber(output, args, "context");
+        copyNumber(output, args, "skip");
         copyNumber(output, args, "limit");
       });
     case "omp.find":

@@ -204,6 +204,11 @@ const GREP_SKIP_PROPERTY = {
   description: "Files to skip before collecting results — paginate when a search hit the file limit",
 } as const;
 
+const GREP_LIMIT_PROPERTY = {
+  type: "number",
+  description: "Cap on total surfaced matches — applied on top of the per-file and file-window caps, never above them",
+} as const;
+
 const GITIGNORE_PROPERTY = {
   type: "boolean",
   description: "Respect gitignore rules; pass false to search ignored files such as build output or .env",
@@ -232,8 +237,8 @@ const withExtraProperties = (
   return { ...schema, properties: { ...properties, ...additions } };
 };
 
-const withGrepSkipSchema = (document: unknown): unknown =>
-  withExtraProperties(document, { skip: GREP_SKIP_PROPERTY, gitignore: GITIGNORE_PROPERTY });
+const withGrepOptionSchema = (document: unknown): unknown =>
+  withExtraProperties(document, { skip: GREP_SKIP_PROPERTY, limit: GREP_LIMIT_PROPERTY, gitignore: GITIGNORE_PROPERTY });
 
 const withFindFilterSchema = (document: unknown): unknown =>
   withExtraProperties(document, { gitignore: GITIGNORE_PROPERTY, hidden: HIDDEN_PROPERTY });
@@ -251,12 +256,12 @@ const grepSession = (cwd: string, context?: number): ToolSession =>
     ),
   }) as unknown as ToolSession;
 
-const createGrepDefinitionWithSkip = (cwd: string): ToolDefinition<any, any> => {
+const createGrepDefinitionWithOptions = (cwd: string): ToolDefinition<any, any> => {
   const legacy = createGrepToolDefinition(cwd);
   const defaultTool = new GrepTool(grepSession(cwd));
   return {
     ...legacy,
-    parameters: withGrepSkipSchema(legacy.parameters) as ToolDefinition<any, any>["parameters"],
+    parameters: withGrepOptionSchema(legacy.parameters) as ToolDefinition<any, any>["parameters"],
     execute: (toolCallId, params, signal, onUpdate, context) => {
       const record = asRecord(params) ?? {};
       const rawPattern = typeof record.pattern === "string" ? record.pattern : "";
@@ -264,7 +269,10 @@ const createGrepDefinitionWithSkip = (cwd: string): ToolDefinition<any, any> => 
       const glob = typeof record.glob === "string" ? record.glob : undefined;
       const contextLines = typeof record.context === "number" ? record.context : undefined;
       const skip = typeof record.skip === "number" ? record.skip : undefined;
-      const tool = contextLines === undefined ? defaultTool : new GrepTool(grepSession(cwd, contextLines));
+      const limit = typeof record.limit === "number" ? record.limit : undefined;
+      const tool = contextLines === undefined && limit === undefined
+        ? defaultTool
+        : new GrepTool(grepSession(cwd, contextLines), limit === undefined ? undefined : { totalMatchLimit: limit });
       return tool.execute(
         toolCallId,
         {
@@ -545,6 +553,7 @@ const parseReadTarget = (rawPath: unknown): ReadTarget | undefined => {
 
 type NormalizeExtras = {
   read?: { signal?: Record<string, unknown>; path?: string };
+  grepLimit?: number;
   bashArtifactPath?: string;
   maxResultChars?: number;
 };
@@ -555,13 +564,30 @@ const unreadableReadMessage = (note: string, readPath?: string): string => {
   return `omp.read returned no text content: ${note.trim()}${remedy}`;
 };
 
+const artifactFailureClause = (artifactError: unknown): string =>
+  typeof artifactError === "string"
+    ? `the host failed to save it (artifact ${artifactError} failed)`
+    : "the host failed to save it";
+
+const oversizedArtifactBytes = (artifactPath: string | undefined, maxChars: number): number | undefined => {
+  if (!artifactPath || maxChars <= 0) return undefined;
+  try {
+    const { size } = statSync(artifactPath);
+    return size > maxChars ? size : undefined;
+  } catch {
+    return undefined;
+  }
+};
+
 const restoreBashOutput = (
   artifactPath: string | undefined,
   maxChars: number,
   delivered: string,
   artifactElidedBytes?: number,
+  artifactError?: unknown,
 ): string | undefined => {
   if (!artifactPath || maxChars <= 0) return undefined;
+  if (artifactError !== undefined) return undefined;
   if (artifactElidedBytes !== undefined && artifactElidedBytes > 0) return undefined;
   let size: number;
   try {
@@ -598,15 +624,24 @@ const withoutColumnLimit = (
   return remainingDetails;
 };
 
-const grepTruncationSignal = (details: unknown): Record<string, unknown> | undefined => {
+const grepTruncationSignal = (details: unknown, requestedLimit?: number): Record<string, unknown> | undefined => {
   const record = asRecord(details);
   if (!record || record.truncated !== true) return undefined;
-  const perFile = finiteNumber(record.perFileLimitReached);
+  const reached = finiteNumber(record.perFileLimitReached);
+  const askedFor = requestedLimit === undefined ? undefined : Math.max(1, Math.floor(requestedLimit));
+  const totalLimit = reached !== undefined && reached === askedFor ? reached : undefined;
+  const perFile = totalLimit === undefined ? reached : undefined;
   const maxColumn = finiteNumber(asRecord(asRecord(asRecord(record.meta)?.limits)?.columnTruncated)?.maxColumn);
   const fileCount = finiteNumber(record.fileCount);
   const reasons: string[] = [];
   const notes: string[] = [];
   let continuation: unknown = null;
+  if (totalLimit !== undefined) {
+    reasons.push("matchLimit");
+    notes.push(
+      `Only the first ${totalLimit} matches are returned because limit=${totalLimit}; raise limit or narrow the pattern.`,
+    );
+  }
   if (perFile !== undefined) {
     reasons.push("matchLimit");
     notes.push(
@@ -636,6 +671,7 @@ const grepTruncationSignal = (details: unknown): Record<string, unknown> | undef
     reasons,
     ...(finiteNumber(record.matchCount) === undefined ? {} : { matchCount: record.matchCount }),
     ...(fileCount === undefined ? {} : { fileCount }),
+    ...(totalLimit === undefined ? {} : { matchLimit: totalLimit }),
     ...(perFile === undefined ? {} : { perFileMatchLimit: perFile }),
     ...(maxColumn === undefined ? {} : { maxColumn }),
     continue: continuation,
@@ -769,7 +805,7 @@ const normalizeResult = (
     return readSignal?.signal ? appendTruncationMarker(body, readSignal.signal) : body;
   }
   if (name === "grep") {
-    const signal = grepTruncationSignal(result.details);
+    const signal = grepTruncationSignal(result.details, extras?.grepLimit);
     return signal ? appendTruncationMarker(text, signal) : text;
   }
   if (name === "find") {
@@ -792,9 +828,12 @@ const normalizeResult = (
     if (truncation && typeof truncation === "object" && !Array.isArray(truncation)) {
       const truncationRecord = truncation as Record<string, unknown>;
       const artifactId = truncationRecord.artifactId;
-      const fullOutputPath = typeof artifactId === "string"
-        ? artifactPaths?.get(artifactId) ?? extras?.bashArtifactPath
-        : extras?.bashArtifactPath;
+      const artifactError = metaRecord?.artifactError;
+      const fullOutputPath = artifactError !== undefined
+        ? undefined
+        : typeof artifactId === "string"
+          ? artifactPaths?.get(artifactId) ?? extras?.bashArtifactPath
+          : extras?.bashArtifactPath;
       const artifactElidedBytes = finiteNumber(truncationRecord.artifactElidedBytes);
       details = {
         ...detailRecord,
@@ -814,11 +853,13 @@ const normalizeResult = (
           ...(columnCap === undefined ? {} : { maxColumn: columnCap }),
           fullOutputPath: fullOutputPath ?? null,
           continue: null,
-          note: fullOutputPath
-            ? artifactElidedBytes === undefined
-              ? `Output exceeded the host bash result budget; the complete stream is on disk at ${fullOutputPath}.`
-              : `Output exceeded the host bash result budget, and the on-disk artifact at ${fullOutputPath} is itself capped: ${artifactElidedBytes} bytes were dropped from its middle. Only the artifact's head and tail survive; set the host's \`tools.artifactMaxBytes\` to \`0\` for an uncapped file.`
-            : "Output exceeded the host bash result budget and no full-output artifact was retained.",
+          note: artifactError !== undefined
+            ? `Output exceeded the host bash result budget and ${artifactFailureClause(artifactError)}, so the full output is unrecoverable.`
+            : fullOutputPath
+              ? artifactElidedBytes === undefined
+                ? `Output exceeded the host bash result budget; the complete stream is on disk at ${fullOutputPath}.`
+                : `Output exceeded the host bash result budget, and the on-disk artifact at ${fullOutputPath} is itself capped: ${artifactElidedBytes} bytes were dropped from its middle. Only the artifact's head and tail survive; set the host's \`tools.artifactMaxBytes\` to \`0\` for an uncapped file.`
+              : "Output exceeded the host bash result budget and no full-output artifact was retained.",
         });
       }
     } else {
@@ -827,28 +868,39 @@ const normalizeResult = (
         const columnElidedBytes = finiteNumber(
           asRecord(asRecord(metaRecord?.limits)?.columnTruncated)?.artifactElidedBytes,
         );
+        const artifactError = metaRecord?.artifactError;
+        const maxChars = extras?.maxResultChars ?? 0;
         const restored = restoreBashOutput(
           extras?.bashArtifactPath,
-          extras?.maxResultChars ?? 0,
+          maxChars,
           text,
           columnElidedBytes,
+          artifactError,
         );
         if (restored === undefined) {
+          const fullOutputPath = artifactError === undefined ? extras?.bashArtifactPath : undefined;
+          const oversizedBytes = columnElidedBytes === undefined
+            ? oversizedArtifactBytes(fullOutputPath, maxChars)
+            : undefined;
           details = {
             ...detailRecord,
             columnTruncated: { maxColumn: columnCap, restored: false },
-            ...(extras?.bashArtifactPath ? { fullOutputPath: extras.bashArtifactPath } : {}),
+            ...(fullOutputPath ? { fullOutputPath } : {}),
           };
           output = appendTruncationMarker(text, {
             tool: name,
             partial: true,
             reasons: ["columnLimit"],
             maxColumn: columnCap,
-            fullOutputPath: extras?.bashArtifactPath ?? null,
+            fullOutputPath: fullOutputPath ?? null,
             continue: null,
-            note: columnElidedBytes !== undefined && columnElidedBytes > 0
-              ? `Output lines were cut at ${columnCap} bytes by the host bash executor, and the artifact is itself capped: ${columnElidedBytes} bytes were dropped from its middle, so the full output is unrecoverable. Set the host's \`tools.artifactMaxBytes\` to \`0\` for an uncapped file.`
-              : `Output lines were cut at ${columnCap} bytes by the host bash executor, which reads global settings and ignores this session's tools.outputMaxColumns.`,
+            note: artifactError !== undefined
+              ? `Output lines were cut at ${columnCap} bytes by the host bash executor and ${artifactFailureClause(artifactError)}, so the full output is unrecoverable.`
+              : columnElidedBytes !== undefined && columnElidedBytes > 0
+                ? `Output lines were cut at ${columnCap} bytes by the host bash executor, and the artifact is itself capped: ${columnElidedBytes} bytes were dropped from its middle, so the full output is unrecoverable. Set the host's \`tools.artifactMaxBytes\` to \`0\` for an uncapped file.`
+                : oversizedBytes !== undefined && fullOutputPath
+                  ? `Output lines were cut at ${columnCap} bytes by the host bash executor; the complete output is on disk at ${fullOutputPath}, ${oversizedBytes} bytes that exceed this session's \`executor.maxNestedResultChars\` (${maxChars}), so it was not inlined here.`
+                  : `Output lines were cut at ${columnCap} bytes by the host bash executor, which reads global settings and ignores this session's tools.outputMaxColumns.`,
           });
         } else {
           output = restored;
@@ -924,7 +976,7 @@ export class OmpToolsProvider implements FabricProvider {
       bash: createNativeBashToolDefinition(cwd, this.#artifacts, this.#identity, this.#autoBackground),
       edit: createNativeReplaceEditToolDefinition(cwd, this.#identity),
       write: createPreviewWriteToolDefinition(cwd, createNativeSession(cwd, { identity: this.#identity })),
-      grep: createGrepDefinitionWithSkip(cwd),
+      grep: createGrepDefinitionWithOptions(cwd),
       find: createFindDefinitionWithFilters(cwd),
       ls: createLsToolDefinition(cwd),
       wait: createNativeWaitToolDefinition(cwd, this.#identity, this.#autoBackground),
@@ -1221,6 +1273,10 @@ export class OmpToolsProvider implements FabricProvider {
     artifacts?: readonly string[],
   ): Promise<unknown> {
     const extras: NormalizeExtras = {};
+    if (name === "grep") {
+      const limit = finiteNumber(args.limit);
+      if (limit !== undefined) extras.grepLimit = limit;
+    }
     if (isOmpShellToolName(name)) {
       const artifactPath = artifacts?.at(-1);
       if (artifactPath !== undefined) extras.bashArtifactPath = artifactPath;
