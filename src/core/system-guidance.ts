@@ -67,6 +67,7 @@ export const defaultFabricExecutionGuidance = (
 export interface ExtensionRosterToolSource {
   name: string;
   sourceInfo?: { source?: string; path?: string };
+  definition?: { mcpServerName?: string };
 }
 
 // Namespace labels come from the extension package's own identity: the
@@ -114,6 +115,8 @@ export const extensionToolRosterGuidance = (
   const extensionTools = tools.filter((tool) => !coreToolNames.has(tool.name));
   if (extensionTools.length === 0) return undefined;
   const namespaceLabel = (tool: ExtensionRosterToolSource): string => {
+    const mcpServer = tool.definition?.mcpServerName?.trim();
+    if (mcpServer) return "mcp:" + mcpServer;
     const source = tool.sourceInfo?.source?.trim();
     if (source?.startsWith("npm:")) return source.slice("npm:".length) || source;
     const rawPath = tool.sourceInfo?.path?.trim();

@@ -482,6 +482,9 @@ const UNREADABLE_READ_NOTE = /^\[Cannot read (?:binary file '|\.[^\s:]+ file: )/
 const REPEAT_READ_HINT_PATTERN =
   /\n\n\[You have received this identical output \d+ times\. Re-reading '[\s\S]*?' will not change it — use a narrower selector \(path:A-B\), or proceed with the edit\.\]$/;
 
+const stripGrepPageCursor = (text: string): string =>
+  text.replace(/\n*Showing files \d+-\d+ of [^\n]*\. Use skip=\d+ for the next page, or narrow paths\/pattern\.\n?/, "\n");
+
 const stripRepeatReadHint = (text: string): string =>
   text.endsWith("]") ? text.replace(REPEAT_READ_HINT_PATTERN, "") : text;
 
@@ -806,7 +809,9 @@ const normalizeResult = (
   }
   if (name === "grep") {
     const signal = grepTruncationSignal(result.details, extras?.grepLimit);
-    return signal ? appendTruncationMarker(text, signal) : text;
+    if (!signal) return text;
+    const body = signal.matchLimit === undefined ? text : stripGrepPageCursor(text);
+    return appendTruncationMarker(body, signal);
   }
   if (name === "find") {
     const signal = findTruncationSignal(result.details);

@@ -899,6 +899,25 @@ describe("OmpToolsProvider result fidelity", () => {
     );
   });
 
+  it("drops the host page cursor that would skip the file a grep limit cut", async () => {
+    await withFixtures(
+      (dir) => {
+        for (const name of ["a.txt", "b.txt", "c.txt", "d.txt", "e.txt", "f.txt"]) {
+          fs.writeFileSync(path.join(dir, name), "MATCHME\n");
+        }
+      },
+      async (registry, dir) => {
+        const capped = String(
+          await registry.invoke("omp.grep", { pattern: "MATCHME", path: dir, limit: 3 }, baseContext),
+        );
+        expect(capped.split("\n").filter((line) => line.includes("MATCHME"))).toHaveLength(3);
+        expect(capped).not.toContain("d.txt");
+        expect(capped).not.toMatch(/skip=\d/);
+        expect(parseMarker(capped)).toMatchObject({ reasons: ["matchLimit"], matchLimit: 3, continue: null });
+      },
+    );
+  });
+
   it("forwards grep skip to the underlying tool", async () => {
     await withFixtures(
       (dir) => {

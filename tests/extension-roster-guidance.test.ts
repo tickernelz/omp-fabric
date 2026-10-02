@@ -129,6 +129,28 @@ describe("extensionToolRosterGuidance", () => {
     }
   });
 
+  it("groups MCP tools by their server instead of one extension bucket", () => {
+    const mcp = (name: string, server: string) => ({
+      name,
+      sourceInfo: { path: "<extension:" + name + ">", source: "extension" },
+      definition: { mcpServerName: server },
+    });
+    const guidance = extensionToolRosterGuidance(
+      [
+        mcp("mcp__vidwatch_ask_video", "vidwatch"),
+        mcp("mcp__context7_query_docs", "context7"),
+        mcp("mcp__vidwatch_get_moment", "vidwatch"),
+        entry("update_notes", { path: "<extension:update_notes>", source: "extension" }),
+      ],
+      new Set(),
+    );
+    expect(guidance?.split("\n").slice(1)).toEqual([
+      "- extension: update_notes",
+      "- mcp:context7: mcp__context7_query_docs",
+      "- mcp:vidwatch: mcp__vidwatch_ask_video, mcp__vidwatch_get_moment",
+    ]);
+  });
+
   it("excludes captured core overrides and empty catalogs", () => {
     expect(extensionToolRosterGuidance([entry("read")], new Set(["read"]))).toBeUndefined();
     expect(extensionToolRosterGuidance([], new Set())).toBeUndefined();

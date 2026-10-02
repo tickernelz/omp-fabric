@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.25.9
+
+### Changed
+
+- The extension roster groups MCP tools by their server. 1.25.8 stopped crediting them to the open project, but put every MCP tool and the host's autoresearch tools into one `extension:` bucket of about 150 names. Tools that front an MCP server now list under `mcp:<server>`, read from the host's `mcpServerName` on the tool definition, so `extension:` keeps only the host's own inline tools.
+
+### Fixed
+
+- A grep cut short by `limit` still carried the host's file-page footer, such as "Showing files 1-4 of 30. Use skip=4 for the next page". The host widens its file window to `limit + 1` to detect the cut, so that cursor pointed past a file whose matches were never shown: following it silently skipped that file. The footer is dropped whenever the result is capped by `limit`, leaving the partial marker's `continue: null` and its "raise limit or narrow the pattern" note as the only guidance.
+
 ## 1.25.8
 
 ### Fixed
