@@ -3,7 +3,7 @@ import path from "node:path";
 import { executeFile } from "./transports/process-utils.js";
 
 const FABRIC_WORKTREE_SEGMENTS = [".omp", "fabric", "worktrees"] as const;
-export const FABRIC_WORKTREE_EXCLUDE = ".omp/fabric/worktrees/";
+export const FABRIC_STATE_EXCLUDE = "**/.omp/fabric/";
 
 export const fabricWorktreePath = (gitRoot: string, id: string): string =>
   path.join(gitRoot, ...FABRIC_WORKTREE_SEGMENTS, id);
@@ -19,12 +19,12 @@ export const isFabricWorktreePath = (worktree: string, id: string): boolean => {
   );
 };
 
-export const ensureWorktreeExclude = async (gitRoot: string): Promise<void> => {
+export const ensureFabricStateExclude = async (directory: string): Promise<void> => {
   const located = await executeFile("git", ["rev-parse", "--git-path", "info/exclude"], {
-    cwd: gitRoot,
+    cwd: directory,
     timeoutMs: 10_000,
   });
-  const excludePath = path.resolve(gitRoot, located.stdout.trim());
+  const excludePath = path.resolve(directory, located.stdout.trim());
   fs.mkdirSync(path.dirname(excludePath), { recursive: true });
   let current = "";
   try {
@@ -34,7 +34,7 @@ export const ensureWorktreeExclude = async (gitRoot: string): Promise<void> => {
     if (code !== "ENOENT") throw error;
   }
   const lines = current.split(/\r?\n/);
-  if (lines.some((line) => line.trim() === FABRIC_WORKTREE_EXCLUDE)) return;
+  if (lines.some((line) => line.trim() === FABRIC_STATE_EXCLUDE)) return;
   const prefix = current.length === 0 || current.endsWith("\n") ? "" : "\n";
-  fs.appendFileSync(excludePath, `${prefix}${FABRIC_WORKTREE_EXCLUDE}\n`);
+  fs.appendFileSync(excludePath, `${prefix}${FABRIC_STATE_EXCLUDE}\n`);
 };

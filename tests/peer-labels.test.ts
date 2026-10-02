@@ -104,6 +104,22 @@ describe("peer labels", () => {
     expect(beta.peers().map((peer) => [peer.label, peer.name])).toEqual([["PQS-1", "PQS-1"]]);
   });
 
+  it("keeps a minted label visible once the peer host lease lapses", async () => {
+    const meshRoot = tmpRoot();
+    const alpha = createDirectory(meshRoot, mainIdentity("alpha"), "session:alpha", () => [
+      rootRecord("session:alpha", "alpha", "/repo/pi-queue-steer"),
+    ]);
+    const beta = createDirectory(meshRoot, mainIdentity("beta"), "session:beta", () => [
+      rootRecord("session:beta", "beta", "/repo/pi-queue-steer"),
+    ]);
+
+    await alpha.start();
+    await beta.start();
+
+    const lapsed = Date.now() + 1_000;
+    expect(beta.peers(lapsed).map((peer) => [peer.label, peer.name])).toEqual([["PQS-1", "PQS-1"]]);
+  });
+
   it("keeps labels stable across refreshes and never labels agents", async () => {
     const meshRoot = tmpRoot();
     const alpha = createDirectory(meshRoot, mainIdentity("alpha"), "session:alpha", () => [

@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.25.10
+
+### Fixed
+
+- Fabric's per-project state under `.omp/fabric/` (the mesh and the MCP descriptor cache) made repositories without an `.omp/` ignore rule show `?? .omp/`. Only managed worktrees were excluded, and only once an agent created one. Every session now adds `**/.omp/fabric/` to the repository's local `.git/info/exclude`, once, from whatever subdirectory it starts in; the old `.omp/fabric/worktrees/` rule was anchored to the repository root and missed a session started below it. Tracked ignore files are never edited, and OMP's own `.omp/` files (plans, `lsp.json`) are left alone.
+- A peer whose host lease lapsed showed up to other sessions as `Peer <session>` without its label. The listing falls back to the legacy session record when a host lease expires, and that record's reader dropped the label its writer stores. On Windows CI a slow refresh published an already-expired lease, which is why `peer-labels` failed intermittently there.
+- The `matchLimit` note on a grep cut short by `limit` now says the host takes matches from each file in turn, so `skip` cannot reach the rest of a file the limit cut, and suggests pointing `path` at one file.
+
 ## 1.25.9
 
 ### Changed

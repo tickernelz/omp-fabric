@@ -471,7 +471,7 @@ See the [interface reference](interface.md).
 
 ## Mesh
 
-Mesh data lives at `<project>/.omp/fabric/mesh` by default. Set `mesh.root` to a relative or absolute path to relocate durable topics, shared state, and actor sessions. Add `.omp/fabric/mesh/` to the project's ignore file unless you version the coordination log on purpose. Set `mesh.enabled` to `false` to disable both mesh actions and ambient actor restoration.
+Mesh data lives at `<project>/.omp/fabric/mesh` by default. Set `mesh.root` to a relative or absolute path to relocate durable topics, shared state, and actor sessions. In a Git repository Fabric adds `**/.omp/fabric/` to the local `.git/info/exclude` when a session starts, so the mesh, the MCP descriptor cache, and managed worktrees never show as untracked; the rule is local to the clone and never touches a tracked ignore file. To version the coordination log on purpose, point `mesh.root` outside `.omp/fabric/`. Set `mesh.enabled` to `false` to disable both mesh actions and ambient actor restoration.
 
 `mesh.actorScope` is the default storage scope for `agents.create`; each actor can override it with `scope: "project"` or `scope: "session"`. Both scopes run concurrently:
 

@@ -888,7 +888,7 @@ describe("OmpToolsProvider result fidelity", () => {
           reasons: ["matchLimit"],
           matchLimit: 4,
           continue: null,
-          note: "Only the first 4 matches are returned because limit=4; raise limit or narrow the pattern.",
+          note: "Only the first 4 matches are returned because limit=4. The host takes matches from each file in turn, so skip cannot reach the rest of a file the limit cut; raise limit, narrow the pattern, or point path at one file.",
         });
 
         const skipped = String(

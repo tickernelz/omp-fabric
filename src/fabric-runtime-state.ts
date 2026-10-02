@@ -13,6 +13,7 @@ import { fileURLToPath } from "node:url";
 import { FabricActivityStore } from "./activity/store.js";
 import { ActorDirectory } from "./actors/directory.js";
 import { resolveOmpBinary } from "./agents/omp-binary.js";
+import { ensureFabricStateExclude } from "./agents/worktree-paths.js";
 import { isOmpShellRef } from "./core/omp-tools.js";
 import { GlobalActorRegistry } from "./actors/global-registry.js";
 import { buildActorContext } from "./actors/context.js";
@@ -640,6 +641,7 @@ export class FabricRuntimeState {
     );
     this.#mainAgent = mainAgent;
     const projectRoot = process.env.OMP_FABRIC_PROJECT_ROOT ?? context.cwd;
+    void ensureFabricStateExclude(projectRoot).catch(() => undefined);
     const configuredMeshRoot = this.#config.mesh.root;
     const meshRoot =
       process.env.OMP_FABRIC_MESH_ROOT ??

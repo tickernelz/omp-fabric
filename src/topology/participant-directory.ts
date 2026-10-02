@@ -158,6 +158,7 @@ const legacyRootFromEntry = (
     ownerHostId: value.id,
     ownerIdentityId: value.id,
     name: typeof value.name === "string" ? value.name : "main",
+    ...(typeof value.label === "string" && value.label ? { label: value.label } : {}),
     status: value.status,
     runner: "omp",
     transport: "host",

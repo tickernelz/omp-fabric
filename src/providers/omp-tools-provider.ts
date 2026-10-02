@@ -642,7 +642,7 @@ const grepTruncationSignal = (details: unknown, requestedLimit?: number): Record
   if (totalLimit !== undefined) {
     reasons.push("matchLimit");
     notes.push(
-      `Only the first ${totalLimit} matches are returned because limit=${totalLimit}; raise limit or narrow the pattern.`,
+      `Only the first ${totalLimit} matches are returned because limit=${totalLimit}. The host takes matches from each file in turn, so skip cannot reach the rest of a file the limit cut; raise limit, narrow the pattern, or point path at one file.`,
     );
   }
   if (perFile !== undefined) {

@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { cloneTree, CowUnavailableError, CLONE_SKIP_PREFIXES } from "./cow-clone.js";
 import { executeFile } from "./transports/process-utils.js";
-import { ensureWorktreeExclude, isFabricWorktreePath } from "./worktree-paths.js";
+import { ensureFabricStateExclude, isFabricWorktreePath } from "./worktree-paths.js";
 
 export interface CloneFirstWorktreeAdd {
   gitRoot: string;
@@ -23,7 +23,7 @@ export const addCloneFirstWorktree = async (
 ): Promise<CloneFirstWorktreeResult> => {
   const dest = options.dest;
   if (isFabricWorktreePath(dest, path.basename(dest))) {
-    await ensureWorktreeExclude(options.gitRoot);
+    await ensureFabricStateExclude(options.gitRoot);
   }
   fs.mkdirSync(path.dirname(dest), { recursive: true });
   const args = ["worktree", "add", "--no-checkout"];

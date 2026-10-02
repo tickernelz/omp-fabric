@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { addCloneFirstWorktree } from "../src/agents/clone-first-worktree.js";
-import { FABRIC_WORKTREE_EXCLUDE, fabricWorktreePath } from "../src/agents/worktree-paths.js";
+import { ensureFabricStateExclude, FABRIC_STATE_EXCLUDE, fabricWorktreePath } from "../src/agents/worktree-paths.js";
 import { WorktreeManager } from "../src/agents/worktree-manager.js";
 
 const roots: string[] = [];
@@ -57,10 +57,28 @@ describe("clone-first worktrees", () => {
     expect(fs.realpathSync(dest)).toBe(fs.realpathSync(path.join(repository, ".omp", "fabric", "worktrees", "agentid0123456789abcdef012345")));
     expect(fs.readFileSync(path.join(dest, "README.md"), "utf8")).toBe("tracked head\n");
     const exclude = git(repository, "rev-parse", "--git-path", "info/exclude").trim();
-    expect(fs.readFileSync(path.resolve(repository, exclude), "utf8")).toContain(FABRIC_WORKTREE_EXCLUDE);
+    expect(fs.readFileSync(path.resolve(repository, exclude), "utf8")).toContain(FABRIC_STATE_EXCLUDE);
     if (result.cloned) {
       expect(fs.readFileSync(path.join(dest, "node_modules", "pkg", "index.js"), "utf8")).toBe("artifact\n");
     }
+  });
+
+  it("keeps fabric state untracked from any subdirectory and adds the rule once", async () => {
+    const repository = initRepository();
+    git(repository, "checkout", "--", "README.md");
+    const nested = path.join(repository, "sub", "deep");
+    fs.mkdirSync(path.join(nested, ".omp", "fabric", "mesh"), { recursive: true });
+    fs.writeFileSync(path.join(nested, ".omp", "fabric", "mesh", "state.json"), "{}\n");
+    fs.mkdirSync(path.join(repository, ".omp", "fabric"), { recursive: true });
+    fs.writeFileSync(path.join(repository, ".omp", "fabric", "mcp-cache.json"), "{}\n");
+    expect(git(repository, "status", "--porcelain", "--untracked-files=all")).not.toBe("");
+
+    await ensureFabricStateExclude(nested);
+    await ensureFabricStateExclude(repository);
+
+    expect(git(repository, "status", "--porcelain", "--untracked-files=all")).toBe("");
+    const exclude = fs.readFileSync(path.resolve(repository, git(repository, "rev-parse", "--git-path", "info/exclude").trim()), "utf8");
+    expect(exclude.split("\n").filter((line) => line === FABRIC_STATE_EXCLUDE)).toHaveLength(1);
   });
 
   it("places WorktreeManager leases on the managed path", async () => {
