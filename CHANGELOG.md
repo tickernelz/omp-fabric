@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.25.13
+
+### Fixed
+
+- 1.25.12 told every full-code session to call OMP-loaded MCP tools as `extensions.mcp__<server>_<tool>(args)`. That holds where OMP registers MCP through the extension runner, as in `omp -p` and the Paperclip adapter, but an interactive session loads its MCP servers after startup straight into the host tool registry, Fabric never captures them, and the call fails with `Unknown Fabric action` while the tools stay on the model's direct tool list. The guidance now follows the catalog: it names the `extensions.mcp__` path only when Fabric holds captured MCP tools, and otherwise says those tools stay direct calls outside `fabric_exec`.
+
 ## 1.25.12
 
 ### Fixed

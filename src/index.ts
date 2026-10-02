@@ -856,7 +856,11 @@ export default async function ompFabric(omp: ExtensionAPI): Promise<void> {
       target: process.env.OMP_FABRIC_PARENT_RUN ? "participant" : "main",
       defaults: [{
         slot: FABRIC_EXECUTION_GUIDANCE_SLOT,
-        content: defaultFabricExecutionGuidance(effectiveFullCodeMode, deniedCoreTools),
+        content: defaultFabricExecutionGuidance(
+          effectiveFullCodeMode,
+          deniedCoreTools,
+          capturedTools.list().some((entry) => entry.definition.mcpServerName !== undefined),
+        ),
       }],
     });
     const overrideGuidance = effectiveFullCodeMode
