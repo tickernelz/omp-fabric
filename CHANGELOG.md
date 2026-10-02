@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.25.11
+
+### Fixed
+
+- Outside a Git repository the `.git/info/exclude` step from 1.25.10 still ran `git rev-parse` on every session start and discarded the failure, and it ran unawaited, so a session or test could tear down its directory while that `git` child still held it (`EBUSY` on Windows CI). Fabric now looks for a `.git` entry first and skips plain directories without spawning `git` (0.02 ms against about 2 ms), and the step is awaited. 1.25.10 was tagged but never published, because that race failed its release gate.
+
 ## 1.25.10
 
 ### Fixed

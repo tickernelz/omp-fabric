@@ -641,7 +641,7 @@ export class FabricRuntimeState {
     );
     this.#mainAgent = mainAgent;
     const projectRoot = process.env.OMP_FABRIC_PROJECT_ROOT ?? context.cwd;
-    void ensureFabricStateExclude(projectRoot).catch(() => undefined);
+    await ensureFabricStateExclude(projectRoot).catch(() => undefined);
     const configuredMeshRoot = this.#config.mesh.root;
     const meshRoot =
       process.env.OMP_FABRIC_MESH_ROOT ??

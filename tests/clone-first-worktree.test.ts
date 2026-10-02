@@ -81,6 +81,13 @@ describe("clone-first worktrees", () => {
     expect(exclude.split("\n").filter((line) => line === FABRIC_STATE_EXCLUDE)).toHaveLength(1);
   });
 
+  it("skips a directory outside any git repository without running git", async () => {
+    const plain = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-no-git-"));
+    roots.push(plain);
+    await expect(ensureFabricStateExclude(plain)).resolves.toBeUndefined();
+    expect(fs.readdirSync(plain)).toEqual([]);
+  });
+
   it("places WorktreeManager leases on the managed path", async () => {
     const repository = initRepository();
     const manager = new WorktreeManager();

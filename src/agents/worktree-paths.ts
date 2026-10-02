@@ -19,7 +19,18 @@ export const isFabricWorktreePath = (worktree: string, id: string): boolean => {
   );
 };
 
+const insideGitRepository = (directory: string): boolean => {
+  let current = path.resolve(directory);
+  while (true) {
+    if (fs.existsSync(path.join(current, ".git"))) return true;
+    const parent = path.dirname(current);
+    if (parent === current) return false;
+    current = parent;
+  }
+};
+
 export const ensureFabricStateExclude = async (directory: string): Promise<void> => {
+  if (!insideGitRepository(directory)) return;
   const located = await executeFile("git", ["rev-parse", "--git-path", "info/exclude"], {
     cwd: directory,
     timeoutMs: 10_000,
