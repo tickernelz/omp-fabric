@@ -5,6 +5,8 @@ import {
   type ExtensionContext,
   type ExtensionRunner,
 } from "@oh-my-pi/pi-coding-agent";
+import { Settings } from "@oh-my-pi/pi-coding-agent/config/settings";
+import { cfgToolsArtifactMaxBytes } from "@oh-my-pi/pi-coding-agent/tools/settings";
 import { describe, expect, it, vi } from "vitest";
 import { FabricExecutionTraceRecorder } from "../src/audit/trace.js";
 import { CapturedToolCatalog } from "../src/capture/catalog.js";
@@ -902,6 +904,55 @@ describe("OmpToolsProvider result fidelity", () => {
         expect(meta?.limits?.columnTruncated).toBeUndefined();
       },
     );
+  });
+
+  it("refuses to restore from an artifact the host size cap elided", async () => {
+    const settings = await Settings.init();
+    cfgToolsArtifactMaxBytes.override(settings, 0.1);
+    try {
+      await withFixtures(
+        () => {},
+        async (registry) => {
+          const result = (await registry.invoke(
+            "omp.bash",
+            { command: "seq 1 100000 | tr -d '\\n' | head -c 200000; echo" },
+            baseContext,
+          )) as { output: string; details: Record<string, unknown> };
+
+          expect(result.details).toMatchObject({ columnTruncated: { maxColumn: 768, restored: false } });
+          const marker = parseMarker(result.output);
+          expect(marker).toMatchObject({ tool: "bash", reasons: ["columnLimit"] });
+          expect(String(marker?.note)).toContain("artifact is itself capped");
+          expect(String(marker?.note)).toContain("tools.artifactMaxBytes");
+        },
+      );
+    } finally {
+      cfgToolsArtifactMaxBytes.clearOverride(settings);
+    }
+  });
+
+  it("names the elided middle when the host caps a truncated artifact", async () => {
+    const settings = await Settings.init();
+    cfgToolsArtifactMaxBytes.override(settings, 0.1);
+    try {
+      await withFixtures(
+        () => {},
+        async (registry) => {
+          const result = (await registry.invoke(
+            "omp.bash",
+            { command: "seq 1 40000 | sed s/^/row-/" },
+            baseContext,
+          )) as { output: string; details: Record<string, unknown> };
+          const marker = parseMarker(result.output);
+
+          expect(marker).toMatchObject({ tool: "bash", partial: true });
+          expect(String(marker?.note)).toContain("is itself capped");
+          expect(String(marker?.note)).toContain("bytes were dropped from its middle");
+        },
+      );
+    } finally {
+      cfgToolsArtifactMaxBytes.clearOverride(settings);
+    }
   });
 
   it("marks bash output the host budget elided and leaves complete output unmarked", async () => {

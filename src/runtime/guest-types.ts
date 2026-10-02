@@ -467,7 +467,7 @@ type OmpShellOptions = {
   timeout?: number; timeoutMs?: number; settle?: boolean;
   async?: boolean;
   cwd?: string; workdir?: string; directory?: string; workingDirectory?: string;
-  env?: Record<string, string>; pty?: boolean;
+  pty?: boolean;
 };
 type OmpBashOptions = OmpShellOptions;
 type OmpGrepOptions = { path?: string; glob?: string; globPattern?: string; ignoreCase?: boolean; ic?: boolean; caseInsensitive?: boolean; literal?: boolean; context?: number; ctx?: number; skip?: number; gitignore?: boolean };

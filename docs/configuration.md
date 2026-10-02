@@ -313,7 +313,7 @@ A guest core-tool call returns the whole result, or it says that it did not. Whe
 
 The marker is the last line, it is emitted only for a partial result, and a complete result is byte-identical to the file or command output. Programs that parse a whole file therefore keep working, and a program that must detect a cut branches on the marker.
 
-`omp.read` pages internally, so the host's per-call line ceiling is not visible to a program; a marker appears only where paging cannot help, such as one line larger than the byte budget. `omp.grep` and `omp.find` carry host caps that Fabric cannot lift, so they signal. `omp.bash` recovers column-truncated output from its own artifact and marks only what it could not restore.
+`omp.read` pages internally, so the host's per-call line ceiling is not visible to a program; a marker appears only where paging cannot help, such as one line larger than the byte budget. `omp.grep` and `omp.find` carry host caps that Fabric cannot lift, so they signal. `omp.bash` recovers column-truncated output from its own artifact and marks only what it could not restore. The host also caps the artifact file itself at `tools.artifactMaxBytes` (16 MiB by default, read from host settings, so this session's override cannot lift it), keeping its head and tail with the middle dropped. When that cap hits, the marker note names the dropped bytes and the setting, and the column-cap restore refuses the holed file so no program reads it as the full output.
 
 A file the host cannot decode as text is an error, not content: `omp.read` throws with a message beginning `omp.read returned no text content:` and names the `:raw` selector that does work.
 

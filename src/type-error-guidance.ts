@@ -37,6 +37,8 @@ const PROPERTY_NOTES: Readonly<Record<string, string>> = {
 const SHELL_OPTION_NOTES: Readonly<Record<string, string>> = {
   stdin:
     "OMP shell tools do not accept `stdin`. Write the content with `omp.write(path, content)`, then pass that path to the command or redirect the file into it.",
+  env:
+    "OMP 18.4.4 removed the bash tool's per-call `env`. Commands inherit the configured shell environment, so set variables inline (`FOO=1 command`) or `export` them inside the command string.",
 };
 
 const isCoreToolName = (name: string): name is (typeof CORE_TOOL_NAMES)[number] =>

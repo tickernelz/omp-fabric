@@ -559,8 +559,10 @@ const restoreBashOutput = (
   artifactPath: string | undefined,
   maxChars: number,
   delivered: string,
+  artifactElidedBytes?: number,
 ): string | undefined => {
   if (!artifactPath || maxChars <= 0) return undefined;
+  if (artifactElidedBytes !== undefined && artifactElidedBytes > 0) return undefined;
   let size: number;
   try {
     size = statSync(artifactPath).size;
@@ -793,6 +795,7 @@ const normalizeResult = (
       const fullOutputPath = typeof artifactId === "string"
         ? artifactPaths?.get(artifactId) ?? extras?.bashArtifactPath
         : extras?.bashArtifactPath;
+      const artifactElidedBytes = finiteNumber(truncationRecord.artifactElidedBytes);
       details = {
         ...detailRecord,
         truncation: { ...truncationRecord, truncated: true },
@@ -812,14 +815,24 @@ const normalizeResult = (
           fullOutputPath: fullOutputPath ?? null,
           continue: null,
           note: fullOutputPath
-            ? `Output exceeded the host bash result budget; the complete stream is on disk at ${fullOutputPath}.`
+            ? artifactElidedBytes === undefined
+              ? `Output exceeded the host bash result budget; the complete stream is on disk at ${fullOutputPath}.`
+              : `Output exceeded the host bash result budget, and the on-disk artifact at ${fullOutputPath} is itself capped: ${artifactElidedBytes} bytes were dropped from its middle. Only the artifact's head and tail survive; set the host's \`tools.artifactMaxBytes\` to \`0\` for an uncapped file.`
             : "Output exceeded the host bash result budget and no full-output artifact was retained.",
         });
       }
     } else {
       const columnCap = finiteNumber(asRecord(asRecord(metaRecord?.limits)?.columnTruncated)?.maxColumn);
       if (columnCap !== undefined) {
-        const restored = restoreBashOutput(extras?.bashArtifactPath, extras?.maxResultChars ?? 0, text);
+        const columnElidedBytes = finiteNumber(
+          asRecord(asRecord(metaRecord?.limits)?.columnTruncated)?.artifactElidedBytes,
+        );
+        const restored = restoreBashOutput(
+          extras?.bashArtifactPath,
+          extras?.maxResultChars ?? 0,
+          text,
+          columnElidedBytes,
+        );
         if (restored === undefined) {
           details = {
             ...detailRecord,
@@ -833,7 +846,9 @@ const normalizeResult = (
             maxColumn: columnCap,
             fullOutputPath: extras?.bashArtifactPath ?? null,
             continue: null,
-            note: `Output lines were cut at ${columnCap} bytes by the host bash executor, which reads global settings and ignores this session's tools.outputMaxColumns.`,
+            note: columnElidedBytes !== undefined && columnElidedBytes > 0
+              ? `Output lines were cut at ${columnCap} bytes by the host bash executor, and the artifact is itself capped: ${columnElidedBytes} bytes were dropped from its middle, so the full output is unrecoverable. Set the host's \`tools.artifactMaxBytes\` to \`0\` for an uncapped file.`
+              : `Output lines were cut at ${columnCap} bytes by the host bash executor, which reads global settings and ignores this session's tools.outputMaxColumns.`,
           });
         } else {
           output = restored;

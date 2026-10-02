@@ -27,6 +27,28 @@ describe("typeErrorRecoveryHint", () => {
     )).toContain("omp.write(path, content)");
   });
 
+  it("guides the removed omp.bash env option toward inline assignments", () => {
+    expect(typeErrorRecoveryHint(
+      'await omp.bash({ command: "deploy", env: { TOKEN: "x" } });',
+      [{
+        line: 1,
+        column: 38,
+        message:
+          "Object literal may only specify known properties, and 'env' does not exist in type 'OmpCommandArgument & OmpBashOptions'.",
+      }],
+    )).toContain("removed the bash tool's per-call `env`");
+
+    const checked = typeCheckFabricCode(
+      'await omp.bash({ command: "deploy", env: { TOKEN: "x" } });',
+      GUEST_TYPE_DECLARATIONS,
+    );
+    expect(checked.errors.length).toBeGreaterThan(0);
+    expect(typeErrorRecoveryHint(
+      'await omp.bash({ command: "deploy", env: { TOKEN: "x" } });',
+      checked.errors,
+    )).toContain("inline");
+  });
+
   it("recognizes the real TypeScript diagnostics for unsupported bash options", () => {
     const cases = [
       {

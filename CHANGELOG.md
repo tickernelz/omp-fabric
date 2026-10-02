@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.25.7
+
+### Fixed
+
+- `omp.bash` still advertised a per-call `env` option that OMP removed in 18.4.4, so a program could pass it, typecheck, and have the host silently ignore it — commands ran without the variables the model believed it had set. The guest shell options no longer declare `env`, and the unknown-property recovery hint now says where the host moved it: inline assignments or `export` inside the command, since commands inherit the configured shell environment.
+- The host caps bash artifacts at `tools.artifactMaxBytes` (16 MiB default, read from host settings, so this session's override cannot lift it) and keeps only a head and tail sample with the middle dropped. Fabric's truncation note promised "the complete stream is on disk" regardless, and the column-cap restore would happily read the holed file back and present it as the full output. The note now names the dropped bytes and the setting, and the restore refuses an artifact the host reports as elided.
+- Host pins move from `18.3.4` to `18.4.10`. The declared peer floor stays `>=18.3.0`; typecheck, the full suite, and certification re-run green against the new pin, and `docs/certification.md` records the re-certified host facts.
+
 ## 1.25.6
 
 ### Fixed
