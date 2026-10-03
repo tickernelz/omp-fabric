@@ -5,8 +5,17 @@ import { writeJsonAtomic } from "../core/atomic-write.js";
 
 export const FABRIC_RUN_ROOT_PREFIX = "omp-fabric-runs-";
 
+const fabricStateRoot = (env: NodeJS.ProcessEnv): string =>
+  path.join(env.XDG_STATE_HOME || path.join(env.HOME || os.homedir(), ".local", "state"), "omp-fabric");
+
 export const defaultRunRootParent = (env: NodeJS.ProcessEnv = process.env): string =>
-  path.join(env.XDG_STATE_HOME || path.join(env.HOME || os.homedir(), ".local", "state"), "omp-fabric", "runs");
+  path.join(fabricStateRoot(env), "runs");
+
+export const FABRIC_BASH_ROOT_PREFIX = "omp-fabric-bash-";
+const BASH_ROOT_ORPHAN_RETENTION_MS = 6 * 60 * 60 * 1_000;
+
+export const defaultBashRootParent = (env: NodeJS.ProcessEnv = process.env): string =>
+  path.join(fabricStateRoot(env), "bash");
 const RUN_ROOT_OWNER_FILE = ".fabric-owner.json";
 const TERMINAL_STATUSES = new Set(["completed", "failed", "stopped", "timed_out"]);
 
@@ -131,8 +140,10 @@ export const sweepTempRunRoots = (options: {
   orphanedTempRunRetentionMs: number;
   oneShotRunRetentionMs: number;
   now?: number;
+  prefix?: string;
 }): RetentionSweepResult => {
   const now = options.now ?? Date.now();
+  const prefix = options.prefix ?? FABRIC_RUN_ROOT_PREFIX;
   const result: RetentionSweepResult = { removedRoots: [], removedRuns: [] };
   let entries: fs.Dirent[];
   try {
@@ -141,7 +152,7 @@ export const sweepTempRunRoots = (options: {
     return result;
   }
   for (const entry of entries) {
-    if (!entry.isDirectory() || !entry.name.startsWith(FABRIC_RUN_ROOT_PREFIX)) continue;
+    if (!entry.isDirectory() || !entry.name.startsWith(prefix)) continue;
     const root = path.join(options.tempRoot, entry.name);
     if (options.currentRoot && path.resolve(root) === path.resolve(options.currentRoot)) continue;
     const owner = readJson<RunRootOwner>(ownerPath(root));
@@ -179,6 +190,23 @@ export const sweepTempRunRoots = (options: {
     result.removedRoots.push(root);
   }
   return result;
+};
+
+export const createBashArtifactRoot = (env: NodeJS.ProcessEnv = process.env, now = Date.now()): string => {
+  const parent = defaultBashRootParent(env);
+  fs.mkdirSync(parent, { recursive: true, mode: 0o700 });
+  try {
+    sweepTempRunRoots({
+      tempRoot: parent,
+      orphanedTempRunRetentionMs: BASH_ROOT_ORPHAN_RETENTION_MS,
+      oneShotRunRetentionMs: BASH_ROOT_ORPHAN_RETENTION_MS,
+      now,
+      prefix: FABRIC_BASH_ROOT_PREFIX,
+    });
+  } catch {}
+  const root = fs.mkdtempSync(path.join(parent, FABRIC_BASH_ROOT_PREFIX));
+  markRunRootActive(root, now);
+  return root;
 };
 
 export const pruneActorRunArchives = (options: {

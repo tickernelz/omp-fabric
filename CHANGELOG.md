@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.25.18
+
+### Fixed
+
+- Full output that `omp.bash` keeps for truncated results (up to the host's 16 MiB artifact cap per call) went into an `omp-fabric-bash-*` directory under the system temp directory, one per session, and nothing ever removed it. On a memory-backed `/tmp` those piled up: 624 were found on one workstation. The directories now live under `$XDG_STATE_HOME/omp-fabric/bash`, each records its owning process, and a new session removes the directory of any process that has been dead for six hours.
+
 ## 1.25.17
 
 ### Fixed

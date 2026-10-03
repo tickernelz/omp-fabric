@@ -3,7 +3,10 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  createBashArtifactRoot,
+  defaultBashRootParent,
   defaultRunRootParent,
+  FABRIC_BASH_ROOT_PREFIX,
   FABRIC_RUN_ROOT_PREFIX,
   markRunRootActive,
   markRunRootClosed,
@@ -39,6 +42,28 @@ describe("default run root location", () => {
     expect(defaultRunRootParent({ XDG_STATE_HOME: state })).toBe(path.join(state, "omp-fabric", "runs"));
     expect(defaultRunRootParent({ HOME: "/home/someone" })).toBe(path.join("/home/someone", ".local", "state", "omp-fabric", "runs"));
     expect(defaultRunRootParent({ HOME: "/home/someone" }).startsWith(os.tmpdir() + path.sep)).toBe(false);
+  });
+
+  it("keeps bash artifact roots under the Fabric state directory and sweeps a dead session's root", () => {
+    const state = temporaryDirectory();
+    const env = { XDG_STATE_HOME: state };
+    const parent = defaultBashRootParent(env);
+    expect(parent).toBe(path.join(state, "omp-fabric", "bash"));
+    fs.mkdirSync(parent, { recursive: true });
+    const dead = path.join(parent, FABRIC_BASH_ROOT_PREFIX + "dead00");
+    fs.mkdirSync(dead);
+    fs.writeFileSync(path.join(dead, "bash-x.log"), "x".repeat(1024));
+    fs.writeFileSync(
+      path.join(dead, ".fabric-owner.json"),
+      JSON.stringify({ pid: 2_147_483_000, startedAt: 0, heartbeatAt: 0, orphanedAt: 1 }),
+    );
+
+    const root = createBashArtifactRoot(env, 1 + DAY);
+
+    expect(path.dirname(root)).toBe(parent);
+    expect(path.basename(root).startsWith(FABRIC_BASH_ROOT_PREFIX)).toBe(true);
+    expect(fs.existsSync(dead)).toBe(false);
+    expect(fs.existsSync(root)).toBe(true);
   });
 
   it("falls back to the OS home directory when HOME is unset, as on Windows", () => {

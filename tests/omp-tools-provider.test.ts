@@ -14,6 +14,7 @@ import { DEFAULT_FABRIC_CONFIG } from "../src/config.js";
 import { ActionRegistry, type FabricCallAudit } from "../src/core/action-registry.js";
 import { NESTED_TOOL_CALL_ID_PREFIX } from "../src/core/action-registry.js";
 import { OmpToolsProvider, TRUNCATION_MARKER } from "../src/providers/omp-tools-provider.js";
+import { defaultBashRootParent } from "../src/storage/retention.js";
 
 const baseContext = {
   cwd: process.cwd(),
@@ -1102,23 +1103,24 @@ describe("OmpToolsProvider result fidelity", () => {
   });
 
   it("keeps bash alive when the artifact root disappeared mid-session", async () => {
+    const parent = defaultBashRootParent();
     const artifactRoots = () =>
-      new Set(fs.readdirSync(os.tmpdir()).filter((entry) => entry.startsWith("omp-fabric-bash-")));
+      new Set(fs.existsSync(parent) ? fs.readdirSync(parent).filter((entry) => entry.startsWith("omp-fabric-bash-")) : []);
     const before = artifactRoots();
     const registry = new ActionRegistry();
     registry.register(new OmpToolsProvider(os.tmpdir(), undefined, undefined));
     const owned = [...artifactRoots()].filter((entry) => !before.has(entry));
 
     expect(owned).toHaveLength(1);
-    for (const entry of owned) fs.rmSync(path.join(os.tmpdir(), entry), { recursive: true, force: true });
+    for (const entry of owned) fs.rmSync(path.join(parent, entry), { recursive: true, force: true });
 
     const result = (await registry.invoke("omp.bash", { command: "echo survived" }, baseContext)) as {
       output: string;
     };
 
     expect(result.output.trim()).toBe("survived");
-    expect(fs.existsSync(path.join(os.tmpdir(), owned[0] as string))).toBe(true);
-    for (const entry of owned) fs.rmSync(path.join(os.tmpdir(), entry), { recursive: true, force: true });
+    expect(fs.existsSync(path.join(parent, owned[0] as string))).toBe(true);
+    for (const entry of owned) fs.rmSync(path.join(parent, entry), { recursive: true, force: true });
   });
 });
 

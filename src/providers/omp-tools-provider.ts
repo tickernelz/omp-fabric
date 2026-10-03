@@ -1,6 +1,5 @@
-import { mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { AsyncLocalStorage } from "node:async_hooks";
-import os from "node:os";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { BashTool } from "@oh-my-pi/pi-coding-agent/tools/bash";
@@ -49,6 +48,7 @@ import { writeContentForPreview } from "./write-diff-limits.js";
 import { createPreviewWriteToolDefinition } from "./write-preview.js";
 
 import { readChildToolAllowlist } from "../core/child-tool-allowlist.js";
+import { createBashArtifactRoot } from "../storage/retention.js";
 import { type OmpJobScope, ompJobScope, shellBackgroundSettings } from "./omp-session-scope.js";
 
 const MAX_RENDERER_ARGUMENT_CHARS = 200_000;
@@ -71,7 +71,7 @@ export const setOmpSessionIdentity = (identity: OmpSessionIdentity | undefined):
 /** Output artifacts for every shell definition of one provider: one root, one id map. */
 class ShellArtifacts {
   readonly paths = new Map<string, string>();
-  readonly root = mkdtempSync(path.join(os.tmpdir(), "omp-fabric-bash-"));
+  readonly root = createBashArtifactRoot();
 }
 
 interface NativeSessionOptions {
