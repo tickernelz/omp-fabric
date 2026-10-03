@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.25.14
+
+### Changed
+
+- Host pins move from `18.4.10` to `18.5.0`; the declared peer floor stays `>=18.4.4`. 18.5.0's two breaking changes (`task.completionProbeMs` and the `SessionStorage` session-claim API) touch nothing Fabric uses. Typecheck, the full suite, and `certify:context` (31 checks) pass against the new pin, and `docs/certification.md` records the re-certified host.
+
 ## 1.25.13
 
 ### Fixed
