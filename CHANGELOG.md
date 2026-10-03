@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.25.16
+
+### Fixed
+
+- Fabric chat showed "No retained transcript yet" for a running `agents.spawn` agent once its transcript was gone. Each agent writes `events.jsonl` into a run root, and that root sat in the system temp directory; on this workstation `/tmp` is a 14 GiB memory-backed tmpfs that filled twice in one day, so a run root could lose its writes or be cleared under a live agent. Run roots now live under `$XDG_STATE_HOME/omp-fabric/runs` (`~/.local/state/omp-fabric/runs` by default), and the retention sweep tidies that directory instead of `/tmp`. `OMP_FABRIC_RUN_ROOT` still overrides it.
+
+### Added
+
+- `ui.conversationShortcut` sets the key that opens Fabric chat (default `"ctrl+shift+a"`). Browser-hosted terminals and some window managers take that chord before it reaches OMP; set another OMP key id, or `""` to bind nothing and use `/fabric chat`. The widget hint follows the setting.
+
 ## 1.25.15
 
 ### Fixed

@@ -3,7 +3,7 @@ import { truncateToWidth, visibleWidth } from "@oh-my-pi/pi-tui";
 import type { Theme } from "@oh-my-pi/pi-coding-agent";
 import type { FabricUiWidgetMode } from "../config.js";
 import { spinnerFrame } from "./spinner.js";
-import { FABRIC_CONVERSATION_HINT } from "./conversation-shortcut.js";
+import { conversationHint, FABRIC_CONVERSATION_SHORTCUT } from "./conversation-shortcut.js";
 import type {
   FabricActivityRun,
   FabricActivityStatus,
@@ -116,6 +116,7 @@ export class FabricWidget implements Component {
     readonly theme: Theme,
     readonly snapshot: () => FabricDashboardSnapshot,
     readonly maxRows: number,
+    readonly conversationShortcut: string = FABRIC_CONVERSATION_SHORTCUT,
   ) {}
 
   #lastWidth: number | undefined;
@@ -234,7 +235,7 @@ export class FabricWidget implements Component {
     )}${parts.length > 0 ? this.theme.fg("dim", ` · ${parts.join(" · ")}`) : ""}`;
     const hasActiveConversations = activeAgents.some((agent) => !agent.stale) ||
       activeActorWorkers.length > 0 || visibleActors.some((actor) => isActiveStatus(actor.status));
-    const lines = [hasActiveConversations ? `${header} · ${this.theme.fg("dim", FABRIC_CONVERSATION_HINT)}` : header];
+    const lines = [hasActiveConversations ? `${header} · ${this.theme.fg("dim", conversationHint(this.conversationShortcut))}` : header];
 
     lines.push(
       ...activeAgents.flatMap((agent) => agentLines(this.theme, agent, snapshot.now)),

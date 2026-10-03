@@ -383,6 +383,7 @@ export const coerceValue = (id: string, value: string, config: FabricConfig): un
       : withRemovals(config.models.aliases, parsed);
   }
   if (id === "speculation.mcpAllowlist") return splitEntries(value);
+  if (id === "ui.conversationShortcut") return value === "off" ? "" : value;
   if (id === COMPACTION_THRESHOLD_SETTING_ID) {
     if (value === COMPACTION_DEFAULT_THRESHOLD_LABEL) return { mode: "default" };
     const tokens = /^(.+?) tokens$/.exec(value);
@@ -1960,6 +1961,23 @@ export const buildFabricSettingsItems = (
               description:
                 "Show spawned agent/actor tool trees — including recursive descendants — in Fabric tool-call previews.",
               values: BOOLEANS,
+            },
+          ),
+          setting(
+            "ui.conversationShortcut",
+            "Chat shortcut",
+            config.ui.conversationShortcut || "off",
+            {
+              description:
+                "Key that opens Fabric chat; applies on the next OMP start. Pick another chord when the terminal or browser takes Ctrl+Shift+A, or off to use /fabric chat.",
+              values: [...new Set([
+                "ctrl+shift+a",
+                "alt+shift+a",
+                "alt+shift+c",
+                "ctrl+alt+a",
+                "off",
+                config.ui.conversationShortcut || "off",
+              ])],
             },
           ),
           setting("ui.haltOnEscape", "Escape halts actors", config.ui.haltOnEscape ? "true" : "false", {

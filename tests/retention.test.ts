@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  defaultRunRootParent,
   FABRIC_RUN_ROOT_PREFIX,
   markRunRootActive,
   markRunRootClosed,
@@ -30,6 +31,15 @@ const writeStatus = (
 
 afterEach(() => {
   for (const root of roots.splice(0)) fs.rmSync(root, { recursive: true, force: true });
+});
+
+describe("default run root location", () => {
+  it("keeps agent runs under the Fabric state directory, not the system temp directory", () => {
+    const state = temporaryDirectory();
+    expect(defaultRunRootParent({ XDG_STATE_HOME: state })).toBe(path.join(state, "omp-fabric", "runs"));
+    expect(defaultRunRootParent({ HOME: "/home/someone" })).toBe(path.join("/home/someone", ".local", "state", "omp-fabric", "runs"));
+    expect(defaultRunRootParent({ HOME: "/home/someone" }).startsWith(os.tmpdir() + path.sep)).toBe(false);
+  });
 });
 
 describe("temporal retention", () => {

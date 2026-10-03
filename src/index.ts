@@ -44,6 +44,7 @@ import { FabricSpeculationWarmup } from "./speculation/warmup.js";
 import {
   DEFAULT_FABRIC_CONFIG,
   effectiveToolCaptureConfig,
+  loadFabricConfigForScope,
 } from "./config.js";
 import { registerCompactionHook } from "./compaction/hook.js";
 import type { LcmRuntime } from "./compaction/lcm-runtime.js";
@@ -998,8 +999,20 @@ export default async function ompFabric(omp: ExtensionAPI): Promise<void> {
     suspendToolCapture,
     refreshCodePreviewSettings,
     refreshToolDisplay: () => toolDisplay.refresh(),
+    conversationShortcut: globalConversationShortcut(),
   });
 }
+
+const globalConversationShortcut = (): string => {
+  try {
+    return loadFabricConfigForScope(
+      { cwd: process.cwd(), agentDir: resolveAgentDir(), projectTrusted: false },
+      "global",
+    ).ui.conversationShortcut;
+  } catch {
+    return DEFAULT_FABRIC_CONFIG.ui.conversationShortcut;
+  }
+};
 
 export * from "./audit/index.js";
 export * from "./entropy/index.js";

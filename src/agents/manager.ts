@@ -1,6 +1,5 @@
 import { randomUUID } from "node:crypto";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { writeJsonAtomic } from "../core/atomic-write.js";
@@ -70,11 +69,19 @@ import {
 import type { BudgetLedgerState } from "./budget-ledger.js";
 import { readJsonlPage } from "../log-tail.js";
 import {
+  defaultRunRootParent,
+  FABRIC_RUN_ROOT_PREFIX,
   heartbeatRunRoot,
   markRunRootActive,
   markRunRootClosed,
   sweepTempRunRoots,
 } from "../storage/retention.js";
+
+const managedRunRootParent = (): string => {
+  const parent = defaultRunRootParent();
+  fs.mkdirSync(parent, { recursive: true, mode: 0o700 });
+  return parent;
+};
 import { resolveSessionExportDir, sessionExportFileFor } from "./session-export.js";
 import {
   isFabricLifecycleEventType,
@@ -448,7 +455,7 @@ export class AgentManager {
     this.#semaphore = new Semaphore(config.maxConcurrent);
     this.#managedTempRoot = options.runRoot === undefined && process.env.OMP_FABRIC_RUN_ROOT === undefined;
     this.#runRoot =
-      options.runRoot ?? process.env.OMP_FABRIC_RUN_ROOT ?? fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-runs-"));
+      options.runRoot ?? process.env.OMP_FABRIC_RUN_ROOT ?? fs.mkdtempSync(path.join(managedRunRootParent(), FABRIC_RUN_ROOT_PREFIX));
     this.#retention = options.retention ?? DEFAULT_FABRIC_CONFIG.retention;
     this.#workerPath =
       options.workerPath ?? fileURLToPath(new URL("../worker.js", import.meta.url));
@@ -492,7 +499,7 @@ export class AgentManager {
     if (this.#managedTempRoot) {
       markRunRootActive(this.#runRoot);
       sweepTempRunRoots({
-        tempRoot: os.tmpdir(),
+        tempRoot: path.dirname(this.#runRoot),
         currentRoot: this.#runRoot,
         orphanedTempRunRetentionMs: this.#retention.orphanedTempRunMs,
         oneShotRunRetentionMs: this.#retention.oneShotRunMs,
@@ -1081,7 +1088,7 @@ export class AgentManager {
     if (this.#managedTempRoot) {
       heartbeatRunRoot(this.#runRoot, now);
       sweepTempRunRoots({
-        tempRoot: os.tmpdir(),
+        tempRoot: path.dirname(this.#runRoot),
         currentRoot: this.#runRoot,
         orphanedTempRunRetentionMs: this.#retention.orphanedTempRunMs,
         oneShotRunRetentionMs: this.#retention.oneShotRunMs,

@@ -63,6 +63,7 @@ interface FabricCommandDeps {
   autoArmPrewalk?: (context: ExtensionContext) => Promise<void>;
   refreshCodePreviewSettings?: () => void;
   refreshToolDisplay?: () => void;
+  conversationShortcut?: string;
 }
 
 const extractContentText = (content: unknown): string => {
@@ -280,7 +281,8 @@ export function registerFabricCommand(omp: ExtensionAPI, deps: FabricCommandDeps
     ].join("\n");
   };
 
-  omp.registerShortcut?.(FABRIC_CONVERSATION_SHORTCUT, {
+  const conversationShortcut = (deps.conversationShortcut ?? FABRIC_CONVERSATION_SHORTCUT).trim();
+  if (conversationShortcut) omp.registerShortcut?.(conversationShortcut as Parameters<ExtensionAPI["registerShortcut"]>[0], {
     description: "Open Fabric conversation or return to Main",
     handler: async (context) => {
       if (context.mode !== "tui") return;

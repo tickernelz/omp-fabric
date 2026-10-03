@@ -157,7 +157,8 @@ where absent values do not participate. Orchestration programs (`agents.run` / `
     "haltOnEscape": true,
     "showAgentToolPreview": true,
     "toolDisplay": "compact",
-    "updateDebounceMs": 100
+    "updateDebounceMs": 100,
+    "conversationShortcut": "ctrl+shift+a"
   },
   "compaction": {
     "engine": "lcm"
@@ -386,7 +387,7 @@ The classifier receives the exact action, bounded prepared arguments, cwd, user-
 
 Fabric clears inactive run artifacts by age. It never truncates active JSONL files. The defaults are:
 
-- `retention.orphanedTempRunMs`: remove a temporary run root six hours after its owner process dies. Active roots carry a heartbeat marker and are never removed.
+- `retention.orphanedTempRunMs`: remove a temporary run root six hours after its owner process dies. Active roots carry a heartbeat marker and are never removed. Run roots, which hold each agent's `events.jsonl` transcript, live under `$XDG_STATE_HOME/omp-fabric/runs` (`~/.local/state/omp-fabric/runs` by default), outside the system temp directory, so a memory-backed `/tmp` that fills or is cleared does not take a running agent's transcript with it. `OMP_FABRIC_RUN_ROOT` still overrides the location.
 - `retention.oneShotRunMs`: retain terminal one-shot agent run artifacts for 24 hours. An explicit `agents.cleanup()` may remove them sooner. On every other path, graceful shutdown marks their temporary root closed for temporal cleanup.
 - `retention.actorRunArchiveMs`: retain terminal actor run archives for seven days. Fabric always preserves the latest run for each actor.
 - `retention.outputArtifactMs`: retain saved output overflow for seven days. A tool or model result larger than its character budget is written to `$XDG_STATE_HOME/omp-fabric/output` (`~/.local/state/omp-fabric/output` by default) and linked from the visible text, so the file has to outlive the turn that produced it.
@@ -464,6 +465,7 @@ See the [`mcp` reference](../skills/fabric-exec/references/mcp.md) for the call 
 - `ui.showAgentToolPreview` defaults to `true` and controls the child-agent and actor tool rows in both the parent `fabric_exec` card and the widget. Recursive agents render their full descendant tree, bounded by the preview depth/node budget. The version 2 config migration renamed this key from `ui.showNestedToolCalls`.
 - `ui.toolDisplay` is `"compact"` (default) or `"full"`. Compact elevates the declared display name and description and keeps bounded nested tool detail visible; full retains the outer Fabric TypeScript transcript. OMP's tool-expand keybinding (`ctrl+o` by default) expands a compact card to the full transcript and collapses it again. Invalid values fall back to `"compact"`. If configuration fails to load, rendering falls back to full so a degraded startup never hides the transcript. Change it under `/fabric settings` → **UI**; successful changes apply immediately to live and completed cards.
 - `ui.updateDebounceMs` defaults to `100`. It applies one execution-wide coalescing interval to every live `fabric_exec` card update: nested calls, progress text, and agent tool previews. Continuous streams emit at most once per interval, so a long call no longer postpones every render until completion. Set it to `0` to emit every update. Accepted values clamp to `0..2000`. The version 3 config migration renamed this key from `ui.nestedToolDebounceMs`.
+- `ui.conversationShortcut` defaults to `"ctrl+shift+a"` and opens the Fabric conversation. Some terminals, browser-hosted terminals, and window managers take that chord before it reaches OMP; set another OMP key id such as `"alt+shift+c"`, or `""` to bind nothing and use `/fabric chat`. It is read from the global `fabric.json` when OMP starts, so a change applies on the next start, and the widget hint follows it.
 - `ui.haltOnEscape` defaults to `true`. A native Escape pressed outside Fabric UI halts running actors, which resume on the next message. Escape inside a Fabric overlay stays navigation. The switch needs `mesh.enabled`; set it to `false` to leave Escape to OMP alone.
 - The widget renders above the chat, like `pi-supervisor`. Set `ui.enabled` to `false` to disable both the widget and the dashboard controller.
 

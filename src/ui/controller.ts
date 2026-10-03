@@ -697,7 +697,7 @@ export class FabricUiController {
         WIDGET_ID,
         (tui, theme) => {
           this.#widgetTui = tui;
-          this.#widget = new FabricWidget(theme, () => this.#snapshot, config.maxRows);
+          this.#widget = new FabricWidget(theme, () => this.#snapshot, config.maxRows, config.conversationShortcut);
           return this.#widget;
         },
         { placement: "aboveEditor" },

@@ -329,6 +329,24 @@ describe("/fabric chat command routing", () => {
     expect(fabricUi.openConversation).not.toHaveBeenCalled();
   });
 
+  it("binds the configured conversation shortcut, or none when it is blank", () => {
+    const bind = (conversationShortcut: string | undefined) => {
+      const registerShortcut = vi.fn();
+      registerFabricCommand({ registerCommand: vi.fn(), registerShortcut } as unknown as ExtensionAPI, {
+        state: stubState(),
+        fabricUi: {} as FabricUiController,
+        capturedTools: {} as CapturedToolCatalog,
+        applyFabricMode: vi.fn(),
+        suspendToolCapture: vi.fn(),
+        ...(conversationShortcut === undefined ? {} : { conversationShortcut }),
+      });
+      return registerShortcut.mock.calls.map((call) => call[0]);
+    };
+    expect(bind(undefined)).toEqual([FABRIC_CONVERSATION_SHORTCUT]);
+    expect(bind("alt+shift+c")).toEqual(["alt+shift+c"]);
+    expect(bind("")).toEqual([]);
+  });
+
   it("registers the ctrl+shift+a conversation shortcut and initializes state before opening", async () => {
     const state = stubState();
     const controller = new FabricUiController(state);

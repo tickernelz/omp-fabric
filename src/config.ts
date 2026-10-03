@@ -199,6 +199,7 @@ interface FabricUiConfig {
   showAgentToolPreview: boolean;
   toolDisplay: FabricToolDisplayMode;
   updateDebounceMs: number;
+  conversationShortcut: string;
 }
 
 interface FabricCompactionConfig {
@@ -528,6 +529,7 @@ export const DEFAULT_FABRIC_CONFIG: FabricConfig = {
     showAgentToolPreview: true,
     toolDisplay: "compact",
     updateDebounceMs: 100,
+    conversationShortcut: "ctrl+shift+a",
   },
   compaction: {
     engine: "lcm",
@@ -1193,6 +1195,9 @@ export const normalizeFabricConfig = (input: Record<string, unknown>): FabricCon
         0,
         2_000,
       ),
+      conversationShortcut: typeof ui.conversationShortcut === "string"
+        ? ui.conversationShortcut.trim().toLowerCase()
+        : DEFAULT_FABRIC_CONFIG.ui.conversationShortcut,
     },
     compaction: {
       engine: compactionEngineValue(compaction.engine, DEFAULT_FABRIC_CONFIG.compaction.engine),
