@@ -198,10 +198,11 @@ export default async function ompFabric(omp: ExtensionAPI): Promise<void> {
   let lcmCwd: string | undefined;
   let lcmProjectKey: string | undefined;
   const toolOwnership = new FabricToolOwnership(omp);
+  const conversationShortcut = globalConversationShortcut();
   const fabricUi = new FabricUiController(state, codePreviewSettings, {
     getToolDefinition: (name) => name === "fabric_exec" ? fabricTool : capturedTools.get(name)?.definition,
     getMessageRenderer: (type) => capturedTools.runner?.getMessageRenderer(type),
-  });
+  }, conversationShortcut);
   const toolDisplay = new FabricToolDisplayController();
 
   const capturePolicy = () => effectiveToolCaptureConfig(state.config);
@@ -999,7 +1000,7 @@ export default async function ompFabric(omp: ExtensionAPI): Promise<void> {
     suspendToolCapture,
     refreshCodePreviewSettings,
     refreshToolDisplay: () => toolDisplay.refresh(),
-    conversationShortcut: globalConversationShortcut(),
+    conversationShortcut,
   });
 }
 

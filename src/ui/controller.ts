@@ -20,6 +20,7 @@ import { createDashboardSnapshot } from "./snapshot.js";
 import { safeText } from "./format.js";
 import { isActiveStatus, type FabricDashboardSnapshot, type FabricUiActor, type FabricUiAgent } from "./types.js";
 import { FabricWidget, shouldShowFabricWidget } from "./widget.js";
+import { FABRIC_CONVERSATION_SHORTCUT } from "./conversation-shortcut.js";
 import { AgentTranscriptReader, type FabricTranscriptSource } from "./transcript.js";
 
 const WIDGET_ID = "omp-fabric";
@@ -91,6 +92,7 @@ export class FabricUiController {
     readonly state: FabricState,
     readonly codePreviewSettings?: CodePreviewSettings,
     readonly conversationRenderers?: FabricConversationTranscriptRendererOptions,
+    readonly conversationShortcut: string = FABRIC_CONVERSATION_SHORTCUT,
   ) {}
 
   start(context: ExtensionContext): void {
@@ -697,7 +699,7 @@ export class FabricUiController {
         WIDGET_ID,
         (tui, theme) => {
           this.#widgetTui = tui;
-          this.#widget = new FabricWidget(theme, () => this.#snapshot, config.maxRows, config.conversationShortcut);
+          this.#widget = new FabricWidget(theme, () => this.#snapshot, config.maxRows, this.conversationShortcut);
           return this.#widget;
         },
         { placement: "aboveEditor" },

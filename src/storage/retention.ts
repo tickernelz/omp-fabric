@@ -1,11 +1,12 @@
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { writeJsonAtomic } from "../core/atomic-write.js";
 
 export const FABRIC_RUN_ROOT_PREFIX = "omp-fabric-runs-";
 
 export const defaultRunRootParent = (env: NodeJS.ProcessEnv = process.env): string =>
-  path.join(env.XDG_STATE_HOME || path.join(env.HOME || ".", ".local", "state"), "omp-fabric", "runs");
+  path.join(env.XDG_STATE_HOME || path.join(env.HOME || os.homedir(), ".local", "state"), "omp-fabric", "runs");
 const RUN_ROOT_OWNER_FILE = ".fabric-owner.json";
 const TERMINAL_STATUSES = new Set(["completed", "failed", "stopped", "timed_out"]);
 

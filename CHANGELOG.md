@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.25.17
+
+### Fixed
+
+- 1.25.16 built the default run root from `HOME`, falling back to `.`; a process without `HOME`, as Windows usually is, put agent transcripts under a relative `./.local/state` in its working directory. The fallback is now the OS home directory.
+- The Fabric chat hint in the widget read `ui.conversationShortcut` from the merged configuration, so a project `.omp/fabric.json` value showed a key that was never bound; the shortcut itself is bound once from the global configuration. The hint now shows the bound key, and the settings row says the value is global and applies after a restart.
+- The settings panel offered `alt+shift+c` as a chat shortcut, which OMP already binds to copying the prompt. The presets are now `ctrl+shift+a`, `alt+shift+a`, `ctrl+alt+a` and `ctrl+alt+f`, none of which OMP binds.
+
 ## 1.25.16
 
 ### Fixed

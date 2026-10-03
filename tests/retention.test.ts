@@ -40,6 +40,12 @@ describe("default run root location", () => {
     expect(defaultRunRootParent({ HOME: "/home/someone" })).toBe(path.join("/home/someone", ".local", "state", "omp-fabric", "runs"));
     expect(defaultRunRootParent({ HOME: "/home/someone" }).startsWith(os.tmpdir() + path.sep)).toBe(false);
   });
+
+  it("falls back to the OS home directory when HOME is unset, as on Windows", () => {
+    const parent = defaultRunRootParent({});
+    expect(path.isAbsolute(parent)).toBe(true);
+    expect(parent).toBe(path.join(os.homedir(), ".local", "state", "omp-fabric", "runs"));
+  });
 });
 
 describe("temporal retention", () => {

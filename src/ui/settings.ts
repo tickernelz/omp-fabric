@@ -1969,12 +1969,12 @@ export const buildFabricSettingsItems = (
             config.ui.conversationShortcut || "off",
             {
               description:
-                "Key that opens Fabric chat; applies on the next OMP start. Pick another chord when the terminal or browser takes Ctrl+Shift+A, or off to use /fabric chat.",
+                "Key that opens Fabric chat. Global setting, read when OMP starts, so a change applies after restart; a project override is ignored. Pick another chord when the terminal or browser takes Ctrl+Shift+A, or off to use /fabric chat.",
               values: [...new Set([
                 "ctrl+shift+a",
                 "alt+shift+a",
-                "alt+shift+c",
                 "ctrl+alt+a",
+                "ctrl+alt+f",
                 "off",
                 config.ui.conversationShortcut || "off",
               ])],
