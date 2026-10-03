@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.25.15
+
+### Fixed
+
+- In an interactive session Fabric made the first request about 2.5 times larger. Measured on the same plugins and MCP servers, a "halo" turn cost 161,178 input tokens with Fabric against 65,136 without it. OMP mounts rarely used tools, including every MCP tool, behind `xd://` devices so their schemas stay out of the request, but it only does that while `read` and `write` sit on the direct tool list. Full code mode hides those two, so the mounting switched off and all 143 MCP schemas went out on every turn. Print mode escaped it because there OMP registers MCP through the extension runner and Fabric captured the tools; an interactive session loads MCP afterwards straight into its tool registry, out of Fabric's reach. Fabric now also captures the MCP tools OMP's MCP manager holds, built with OMP's own tool-definition adapter, re-checks that set before each turn, and hides them from the direct list like any other captured tool. The same "halo" turn now costs 72,071 tokens with 25 direct tools, and the MCP tools stay callable as `extensions.mcp__<server>_<tool>(args)`.
+
 ## 1.25.14
 
 ### Changed

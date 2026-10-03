@@ -26,6 +26,7 @@ export interface RegisteredToolCaptureOptions {
   initialPolicy?: FabricToolCaptureConfig;
   runner?: ExtensionRunner;
   onCatalogRefresh?: () => void;
+  hostMcpTools?: () => readonly ToolDefinition<any, any>[];
 }
 
 const HUB_SYMBOL = Symbol.for("omp-fabric.registered-tool-capture.v1");
@@ -216,7 +217,7 @@ export const installRegisteredToolCapture = async (
     );
     if (!anchor) return tools;
 
-    options.catalog.replace(tools, runner, policy, anchor.extensionPath);
+    options.catalog.replace(tools, runner, policy, anchor.extensionPath, options.hostMcpTools?.() ?? []);
     options.onCatalogRefresh?.();
     return tools;
   };

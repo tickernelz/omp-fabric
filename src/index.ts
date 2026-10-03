@@ -10,6 +10,7 @@ import {
 } from "./ui/code-preview-shell.js";
 import { registerFabricActorHostEventObservers } from "./actors/host-event-observer.js";
 import { CapturedToolCatalog } from "./capture/catalog.js";
+import { createHostMcpToolSource } from "./capture/host-mcp-tools.js";
 import { installRegisteredToolCapture } from "./capture/interceptor.js";
 import { registerFabricCommand } from "./commands/fabric.js";
 import { resolveAgentDir } from "./core/agent-dir.js";
@@ -285,14 +286,24 @@ export default async function ompFabric(omp: ExtensionAPI): Promise<void> {
     enabled: false,
     hideFromModel: false,
   };
+  const hostMcpTools = createHostMcpToolSource();
+  await hostMcpTools.load();
+  let hostMcpSignature = "";
   const toolCapture = await installRegisteredToolCapture({
     anchorDefinition: fabricTool,
     catalog: capturedTools,
     initialPolicy: inactiveCapturePolicy,
+    hostMcpTools: () => {
+      hostMcpSignature = hostMcpTools.signature();
+      return hostMcpTools.tools();
+    },
     onCatalogRefresh: () => {
       scheduleOwnershipReassert();
     },
   });
+  const refreshHostMcpCapture = (): void => {
+    if (hostMcpTools.signature() !== hostMcpSignature) capturedTools.refresh();
+  };
   omp.registerTool(fabricTool);
   const applyFabricMode = (): void => {
     capturedTools.markResumed();
@@ -813,6 +824,7 @@ export default async function ompFabric(omp: ExtensionAPI): Promise<void> {
     const schemaMode = state.cwd
       ? state.config.schema.mode
       : DEFAULT_FABRIC_CONFIG.schema.mode;
+    refreshHostMcpCapture();
     reassertToolOwnership();
     const effectiveFullCodeMode = fullCodeMode || schemaMode === "enforce";
     if (!omp.getActiveTools().includes("fabric_exec")) return;

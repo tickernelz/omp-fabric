@@ -48,6 +48,7 @@ export class CapturedToolCatalog {
     runner: ExtensionRunner,
     config: FabricToolCaptureConfig,
     ownSourcePath: string,
+    hostMcpTools: readonly ToolDefinition<any, any>[] = [],
   ): void {
     // Always remember the runner (see field comment) before the enabled gate.
     this.#runner = runner;
@@ -75,6 +76,20 @@ export class CapturedToolCatalog {
         definition,
         registeredTool,
         sourceInfo,
+        runner,
+        wrappedTool: wrapRegisteredToolForCapture(registeredTool, runner),
+        risk: config.risks[definition.name] ?? config.defaultRisk,
+      });
+    }
+    for (const definition of hostMcpTools) {
+      if (this.#tools.has(definition.name)) continue;
+      const path = `<mcp:${definition.name}>`;
+      const registeredTool = { definition, extensionPath: path } as RegisteredTool;
+      this.#tools.set(definition.name, {
+        name: definition.name,
+        definition,
+        registeredTool,
+        sourceInfo: { path, source: "mcp", scope: "project", origin: "top-level" },
         runner,
         wrappedTool: wrapRegisteredToolForCapture(registeredTool, runner),
         risk: config.risks[definition.name] ?? config.defaultRisk,

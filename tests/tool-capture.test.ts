@@ -87,6 +87,36 @@ describe("registered extension tool capture", () => {
     expect(catalog.size).toBe(0);
   });
 
+  it("captures MCP tools the host loaded outside the extension runner", async () => {
+    const fabricTool = tool("fabric_exec");
+    const runner = runnerWith(registered(fabricTool, "/extensions/omp-fabric/index.ts"));
+    const lateTool = { ...tool("mcp__docs_lookup"), mcpServerName: "docs", mcpToolName: "lookup" };
+    const runnerOwned = { ...tool("mcp__runner_ping"), mcpServerName: "runner" };
+    Object.assign(runner, { createContext: () => ({}), getActiveTools: () => [] });
+    const extensionsWithMcp = runner as unknown as { extensions: Array<{ tools: Map<string, RegisteredTool> }> };
+    extensionsWithMcp.extensions[0]!.tools.set(
+      runnerOwned.name,
+      registered(runnerOwned, "/extensions/omp-fabric/index.ts.mcp"),
+    );
+    const catalog = new CapturedToolCatalog();
+    const controller = await installRegisteredToolCapture({
+      anchorDefinition: fabricTool,
+      catalog,
+      runner,
+      initialPolicy: capturePolicy,
+      hostMcpTools: () => [lateTool, { ...runnerOwned }],
+    });
+    controllers.push(controller);
+    runner.getAllRegisteredTools();
+
+    expect(catalog.list().map((entry) => entry.name)).toEqual(["mcp__docs_lookup", "mcp__runner_ping"]);
+    const late = catalog.require("mcp__docs_lookup");
+    expect(late.definition.mcpServerName).toBe("docs");
+    expect(late.sourceInfo.path).toBe("<mcp:mcp__docs_lookup>");
+    const result = await late.wrappedTool.execute("call-1", { value: "hit" }, undefined, () => {}, undefined);
+    expect(result.content[0].text).toBe("hit");
+  });
+
   it("refresh() repopulates after a suspended-pass clear, as on /reload (#73)", async () => {
     const fabricTool = tool("fabric_exec");
     const customTool = tool("deploy_release");
