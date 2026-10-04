@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.25.19
+
+### Changed
+
+- Host pins move from `18.5.0` to `18.6.0`; the declared peer floor stays `>=18.4.4`.
+
+### Changed (breaking)
+
+- OMP 18.6.0 changed host `wait` with nothing running from an ok result (`No running background jobs…`) into a thrown `ToolError` (`Nothing to wait for…`). Fabric passes that through, so `omp.wait()` now rejects when no job or service is running instead of returning. The `fabric-exec` skill and the kernel guidance say so, and `docs/certification.md` records the re-certified 18.6.0 host.
+
 ## 1.25.18
 
 ### Fixed

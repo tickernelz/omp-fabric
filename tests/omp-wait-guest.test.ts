@@ -110,12 +110,7 @@ describe("omp.wait", () => {
 
     const bash = await provider.describe("bash", context());
     expect((bash?.inputSchema.properties as Record<string, unknown> | undefined)?.async).toBeUndefined();
-    const waited = (await provider.invoke("wait", {}, context())) as {
-      ok: boolean;
-      output: string;
-    };
-    expect(waited.ok).toBe(true);
-    expect(waited.output).toMatch(/No running background jobs/i);
+    await expect(provider.invoke("wait", {}, context())).rejects.toThrow(/Nothing to wait for/i);
   });
 
   it("is denied when the host's active tool selection omits it", async () => {
@@ -140,9 +135,6 @@ describe("omp.wait", () => {
     setOmpSessionIdentity({ getSessionId: () => SESSION_ID });
     const provider = await OmpToolsProvider.create(process.cwd());
 
-    const waited = (await provider.invoke("wait", {}, context())) as { ok: boolean; output: string };
-
-    expect(waited.ok).toBe(true);
-    expect(waited.output.length).toBeGreaterThan(0);
+    await expect(provider.invoke("wait", {}, context())).rejects.toThrow(/Nothing to wait for/i);
   });
 });
