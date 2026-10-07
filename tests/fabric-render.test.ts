@@ -476,6 +476,18 @@ omp.write({ path: "nested.md", metadata: { content: payloads.wrong }, text: payl
     expect(expanded.join(" ").replace(/\s+/g, " ")).toContain("without losing its ending.");
   });
 
+  it("prefixes expanded multicall rows with a status gutter, collapsed stays flat", () => {
+    const audits = [
+      { ref: "omp.read", provider: "omp", tool: "read", args: { path: "a.ts" }, success: true },
+      { ref: "omp.bash", provider: "omp", tool: "bash", args: { command: "false" }, success: false, error: "boom" },
+    ];
+    const collapsed = renderFabricMulticallPartial({ audits, phases: [], expanded: false }, plainTheme).render(80);
+    expect(collapsed.every((line) => !line.startsWith("\u2502"))).toBe(true);
+    const expanded = renderFabricMulticallPartial({ audits, phases: [], expanded: true }, plainTheme).render(80);
+    const guttered = expanded.filter((line) => line.startsWith("\u2502"));
+    expect(guttered.length).toBeGreaterThan(0);
+    expect(expanded.every((line) => visibleWidth(line) <= 80)).toBe(true);
+  });
   it("wraps a compact call row instead of clipping it at the terminal edge", () => {
     const command = "psql -d dcm19 -At -c \"SELECT name, state FROM ir_module_module\"";
     const audits = [{

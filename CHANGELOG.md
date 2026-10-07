@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.25.21
+
+### Fixed
+
+- **Truncation marker no longer leaks raw JSON into the TUI.** `[[omp-fabric:truncated]]` payloads are now parsed by a host-free `src/core/truncation-marker.ts` and rendered as a styled `output truncated` arc badge at the read, grep, path-list, bash, and non-core `renderBody` sites.
+- **Failed results carry visual weight.** Bash bodies and call titles show a `failed` arc badge with the exit code when `success === false`, in addition to the existing error-colored lines.
+- **Long bash titles stay on one screen.** The title's first command line caps at 120 characters with an ellipsis; the full line is still reachable in the expanded body.
+- **Expanded multicall rows gain a status-colored gutter.** Success, running, and failed rows each get their own gutter color; collapsed rows stay flat and all rows remain width-bounded.
+
 ## 1.25.20
 
 ### Changed

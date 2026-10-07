@@ -656,6 +656,23 @@ const callHeadlinePreview = (audit: FabricRenderAudit): string | undefined => {
     || structuralCallDetail(provider, tool, args, audit.result);
 };
 
+const resultDetailsOf = (audit: FabricRenderAudit): Record<string, unknown> | undefined => {
+  const preview = audit.preview;
+  if (typeof preview === "object" && preview !== null) {
+    const details = (preview as Record<string, unknown>).details;
+    if (typeof details === "object" && details !== null) return details as Record<string, unknown>;
+  }
+  const result = audit.result;
+  if (typeof result === "object" && result !== null) {
+    const details = (result as Record<string, unknown>).details;
+    if (typeof details === "object" && details !== null) return details as Record<string, unknown>;
+  }
+  return undefined;
+};
+
+const finiteExitCode = (value: unknown): number | undefined =>
+  typeof value === "number" && Number.isSafeInteger(value) && value !== 0 ? value : undefined;
+
 const nestedResultTruncated = (audit: FabricRenderAudit): boolean => {
   if (audit.resultTruncated === true) return true;
   const result = audit.result;
@@ -675,9 +692,13 @@ export function nestedCallTitle(
   core?: { cwd: string; settings: CodePreviewSettings },
 ): string {
   const title = nestedCallTitleText(audit, theme, invalidate, core);
-  return nestedResultTruncated(audit)
-    ? `${title} ${theme.fg("warning", "· truncated")}`
-    : title;
+  const markers: string[] = [];
+  if (audit.success === false) {
+    const exitCode = finiteExitCode(resultDetailsOf(audit)?.exitCode);
+    markers.push(theme.fg("error", exitCode === undefined ? "· failed" : `· failed · exit ${exitCode}`));
+  }
+  if (nestedResultTruncated(audit)) markers.push(theme.fg("warning", "· truncated"));
+  return markers.length > 0 ? `${title} ${markers.join(" ")}` : title;
 }
 
 const nestedCallTitleText = (
@@ -1030,26 +1051,28 @@ export const renderFabricMulticallPartial = (
       core: input.core,
       ...(invalidate ? { invalidate } : {}),
     });
+    const gutterColor = audit.success === false ? "error" : audit.success === undefined ? "warning" : "success";
+    const gutter = theme.fg(gutterColor, "│");
+    const withGutter = (row: string): string => `${gutter} ${row}`;
     let callRow = `${glyph} ${nestedCallTitle(audit, theme, invalidate, input.core)}`;
     if (audit.success === false && audit.error) {
       callRow += ` ${theme.fg("dim", "›")} ${theme.fg("error", truncateOneLine(safeTerminalText(audit.error), 240))}`;
     } else if (previewLines[0]) {
       callRow += ` ${previewLines[0]}`;
     }
-    rows.push(callRow);
+    rows.push(input.expanded ? withGutter(callRow) : callRow);
     if (audit.success !== false && input.preview?.auditIndex === auditIndex) {
-      for (const line of input.preview.body.split("\n")) rows.push(`  ${line}`);
+      for (const line of input.preview.body.split("\n")) rows.push(input.expanded ? withGutter(`  ${line}`) : `  ${line}`);
       if (input.preview.hidden > 0) {
-        rows.push(
-          theme.fg(
-            "dim",
-            `  … ${input.preview.hidden} more ${input.preview.hidden === 1 ? "line" : "lines"}`,
-          ),
+        const moreRow = theme.fg(
+          "dim",
+          `  … ${input.preview.hidden} more ${input.preview.hidden === 1 ? "line" : "lines"}`,
         );
+        rows.push(input.expanded ? withGutter(moreRow) : moreRow);
       }
     }
     if (audit.success !== false && previewLines.length > 1) {
-      for (const line of previewLines.slice(1)) rows.push(line);
+      for (const line of previewLines.slice(1)) rows.push(input.expanded ? withGutter(line) : line);
     }
   }
 

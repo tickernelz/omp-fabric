@@ -815,20 +815,29 @@ const reportedDetails = {
 const normalize = (rendered: string): string => rendered.replace(/\s+/g, " ");
 
 describe("compact single-call rows reach their end", () => {
-  it("wraps the reported bash command instead of clipping it at the terminal edge", () => {
-    const rendered = renderResult(
+  it("caps the collapsed bash title and recovers the tail on expand", () => {
+    const collapsed = renderResult(
       toolFor(stateFor("compact")),
       { code: "await omp.bash({ cmd: '…' });" },
       reportedDetails,
       REPORTED_OUTPUT,
       { width: 100 },
     );
-    const rows = rendered.split("\n");
+    const collapsedRows = collapsed.split("\n");
 
     expect(REPORTED_COMMAND.length).toBeGreaterThan(180);
-    expect(rows.every((row) => visibleWidth(row) <= 100)).toBe(true);
-    expect(normalize(rendered)).toContain(REPORTED_COMMAND);
-    expect(rendered).not.toContain(" …+");
+    expect(collapsedRows.every((row) => visibleWidth(row) <= 100)).toBe(true);
+    expect(normalize(collapsed)).toContain(REPORTED_COMMAND.slice(0, 60));
+    expect(normalize(collapsed)).toContain("…");
+    expect(collapsed).not.toContain(" …+");
+    const expanded = renderResult(
+      toolFor(stateFor("compact")),
+      { code: "await omp.bash({ cmd: '…' });" },
+      reportedDetails,
+      REPORTED_OUTPUT,
+      { width: 100, expanded: true },
+    );
+    expect(normalize(expanded)).toContain(REPORTED_COMMAND);
   });
 
   it("bounds the collapsed command and leaves the expanded one unbounded", () => {

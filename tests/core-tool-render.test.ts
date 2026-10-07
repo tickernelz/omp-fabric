@@ -1,6 +1,8 @@
 import type { Theme } from "@oh-my-pi/pi-coding-agent";
 import type { CodePreviewSettings } from "../src/ui/code-preview.js";
 import { visibleWidth } from "@oh-my-pi/pi-tui";
+import { TRUNCATION_MARKER } from "../src/core/truncation-marker.js";
+import { nestedCallTitle } from "../src/ui/fabric-render.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   configureHighlighting,
@@ -297,6 +299,89 @@ describe("Fabric core tool parity rendering", () => {
     expect(rendered!.lines.join("\n")).not.toContain("\x1b[48;2;0;0;0m");
   });
 
+  it("weights failed bash results with an arc badge and exit code", () => {
+    const failed = renderCoreToolBody(
+      audit("bash", {
+        args: { command: "pnpm test" },
+        result: { ok: false, output: "boom: assertion failed", details: { exitCode: 42 } },
+        success: false,
+      }),
+      theme,
+      options(),
+    );
+    const failedText = failed!.lines.join("\n");
+    expect(failedText).toContain("failed · exit 42");
+
+    const plain = renderCoreToolBody(
+      audit("bash", {
+        args: { command: "false" },
+        result: { ok: false, output: "nope", details: {} },
+        success: false,
+      }),
+      theme,
+      options(),
+    );
+    expect(plain!.lines.join("\n")).toContain("failed");
+    expect(plain!.lines.join("\n")).not.toContain("exit 0");
+  });
+
+  it("marks failed call titles with a failed marker", () => {
+    const failed = audit("bash", {
+      args: { command: "pnpm test" },
+      result: { ok: false, output: "x", details: { exitCode: 1 } },
+      success: false,
+    });
+    const title = nestedCallTitle(failed, theme);
+    expect(title).toContain("failed · exit 1");
+  });
+  it("caps long bash command titles and reveals the full line on expand", () => {
+    const long = `run ${"x".repeat(200)}`;
+    const short = audit("bash", { args: { command: long }, result: { ok: true, output: "ok", details: {} }, success: true });
+    const title = coreToolTitle(short, theme, { cwd: process.cwd(), settings });
+    expect(title).toContain("\u2026");
+    expect(title).not.toContain("x".repeat(200));
+
+    const collapsed = renderCoreToolBody(short, theme, options());
+    expect(collapsed!.lines.join("\n")).not.toContain(long);
+    const expandedBody = renderCoreToolBody(
+      audit("bash", { args: { command: `${long}\nsecond flag` }, result: { ok: true, output: "ok", details: {} }, success: true }),
+      theme,
+      options({ expanded: true }),
+    );
+    expect(expandedBody!.lines.join("\n")).toContain(long);
+  });
+  it("renders a truncation badge and never leaks the raw marker JSON", () => {
+    const marker = `${TRUNCATION_MARKER} ${JSON.stringify({ tool: "bash", partial: true, reasons: ["columnLimit"], maxColumn: 768 })}`;
+    const rendered = renderCoreToolBody(
+      audit("bash", {
+        args: { command: "ls" },
+        result: { ok: true, output: `line one\nline two\n${marker}\n`, details: {} },
+        success: true,
+      }),
+      theme,
+      options(),
+    );
+    const text = rendered!.lines.join("\n");
+    expect(text).not.toContain(TRUNCATION_MARKER);
+    expect(text).not.toContain('"reasons"');
+    expect(text).toContain("bash truncated · column limit");
+  });
+
+  it("keeps the badge when the tool output is otherwise empty", () => {
+    const marker = `${TRUNCATION_MARKER} ${JSON.stringify({ tool: "wait", partial: true, reasons: ["outputLimit"] })}`;
+    const rendered = renderCoreToolBody(
+      audit("bash", {
+        args: { command: "true" },
+        result: { ok: true, output: `${marker}\n`, details: {} },
+        success: true,
+      }),
+      theme,
+      options(),
+    );
+    const text = rendered!.lines.join("\n");
+    expect(text).not.toContain(TRUNCATION_MARKER);
+    expect(text).toContain("wait truncated · output limit");
+  });
   it("renders bash warnings, timeout metadata, output limits, and full output details", () => {
     const call = audit("bash", {
       args: { command: "sudo rm -rf build", timeout: 30 },

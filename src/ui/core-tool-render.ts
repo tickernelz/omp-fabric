@@ -16,7 +16,8 @@ import {
   languageFromPath,
   observeOmpTheme,
 } from "./highlight.js";
-import { arcItem, pushArcItem } from "./arc-group.js";
+import { arcItem, arcItemStyled, pushArcItem } from "./arc-group.js";
+import { splitTruncationNotice } from "../core/truncation-marker.js";
 import { markDiffLine } from "./diff-background.js";
 import { countContentLines, selectPreviewTextLines } from "./preview-lines.js";
 import {
@@ -76,6 +77,22 @@ const CONTENT_LANGUAGE_DETECTION_CHARS = positiveEnvInteger(
   "CODE_PREVIEW_CONTENT_LANGUAGE_DETECTION_CHARS",
   50_000,
 );
+
+const bashExitCode = (audit: FabricRenderAudit): number | undefined => {
+  const value = resultDetails(audit)?.exitCode;
+  return typeof value === "number" && Number.isSafeInteger(value) && value !== 0 ? value : undefined;
+};
+
+const bashFailureArc = (audit: FabricRenderAudit, theme: Theme): string | null => {
+  if (audit.success !== false) return null;
+  const exitCode = bashExitCode(audit);
+  return arcItemStyled(theme, theme.fg("error", exitCode === undefined ? "failed" : `failed · exit ${exitCode}`));
+};
+
+const BASH_TITLE_COMMAND_CHARS = 120;
+
+const truncateBashTitleCommand = (line: string): string =>
+  line.length <= BASH_TITLE_COMMAND_CHARS ? line : `${line.slice(0, BASH_TITLE_COMMAND_CHARS - 1)}…`;
 
 const recordOf = (value: unknown): Record<string, unknown> | undefined =>
   typeof value === "object" && value !== null && !Array.isArray(value)
@@ -159,6 +176,14 @@ const resultOutput = (audit: FabricRenderAudit): string | undefined => {
   return stringOf(record?.output)
     ?? stringOf(record?.text)
     ?? contentOutput(record?.content);
+};
+
+
+const stripTruncationNotice = (value: string): { output: string; badge?: string } => {
+  const notice = splitTruncationNotice(value);
+  if (!notice) return { output: value };
+  const trimmed = notice.text.endsWith("\n") ? notice.text.slice(0, -1) : notice.text;
+  return { output: trimmed, badge: notice.label };
 };
 
 const resultDetails = (audit: FabricRenderAudit): Record<string, unknown> | undefined => {
@@ -928,8 +953,9 @@ const renderRead = (
   options: CoreToolRenderOptions,
 ): RenderedCoreToolBody | null => {
   if (!options.expanded && !options.settings.readContentPreview) return null;
-  const output = resultOutput(audit);
-  if (output === undefined) return null;
+  const raw = resultOutput(audit);
+  if (raw === undefined) return null;
+  const { output, badge } = stripTruncationNotice(raw);
   const filePath = argString(audit, "path") ?? "";
   if (/^Read image file/i.test(output)) {
     return { lines: [theme.fg("dim", escapeControlChars(output))], hidden: 0 };
@@ -947,6 +973,7 @@ const renderRead = (
   });
   if (notice) pushArcItem(rendered.lines, arcItem(theme, notice));
   else if (truncated) pushArcItem(rendered.lines, arcItem(theme, "Output truncated by read"));
+  if (badge) pushArcItem(rendered.lines, arcItem(theme, badge));
   return rendered;
 };
 
@@ -1225,7 +1252,7 @@ const renderGrep = (
   options: CoreToolRenderOptions,
 ): RenderedCoreToolBody | null => {
   if (!options.expanded && !options.settings.grepResultPreview) return null;
-  const output = resultOutput(audit)?.replace(/\r?\n$/, "");
+  const { output, badge } = stripTruncationNotice(resultOutput(audit) ?? "");
   if (!output || output === "No matches found") {
     return { lines: [theme.fg("muted", output || "No matches found")], hidden: 0 };
   }
@@ -1286,6 +1313,7 @@ const renderGrep = (
   if (skipHighlight) {
     pushArcItem(lines, arcItem(theme, "Syntax highlighting skipped for large grep output"));
   }
+  if (badge) pushArcItem(lines, arcItem(theme, badge));
   return { lines, hidden: selected.hidden };
 };
 
@@ -1328,7 +1356,7 @@ const renderPathList = (
 ): RenderedCoreToolBody | null => {
   const enabled = audit.tool === "find" ? options.settings.findResultPreview : options.settings.lsResultPreview;
   if (!options.expanded && !enabled) return null;
-  const output = resultOutput(audit)?.replace(/\r?\n$/, "") ?? "";
+  const { output, badge } = stripTruncationNotice(resultOutput(audit) ?? "");
   const emptyMarker = audit.tool === "find" ? "No files found matching pattern" : "(empty directory)";
   if (!output || output === emptyMarker) {
     return {
@@ -1404,6 +1432,7 @@ const renderPathList = (
     }
   }
   flush();
+  if (badge) pushArcItem(lines, arcItem(theme, badge));
   return { lines, hidden: selected.hidden };
 };
 
@@ -1432,6 +1461,7 @@ const renderBash = (
   // can't drift into the plain fallback as duplicated lines.
   const displayCommand = escapeControlChars(command.replace(/\r\n/g, "\n"));
   const commandLines = displayCommand.split("\n");
+  const showFirstCommandLine = options.expanded;
   const highlightedCommand = command
     ? highlightCode(
         displayCommand,
@@ -1439,16 +1469,21 @@ const renderBash = (
         options.invalidate,
       )
     : null;
-  const lines = commandLines.slice(1).map((line, index) =>
-    `${theme.fg("dim", "  ")}${highlightedCommand?.[index + 1] ?? theme.fg("accent", line)}`,
+  const bodyCommandLines = showFirstCommandLine ? commandLines : commandLines.slice(1);
+  const highlightOffset = showFirstCommandLine ? 0 : 1;
+  const lines = bodyCommandLines.map((line, index) =>
+    `${theme.fg("dim", "  ")}${highlightedCommand?.[index + highlightOffset] ?? theme.fg("accent", line)}`,
   );
-  const output = resultOutput(audit)?.replace(/\r?\n$/, "") ?? "";
+  const { output, badge } = stripTruncationNotice(resultOutput(audit) ?? "");
   if (!output || output === "(no output)") {
     if (!output && audit.fromTrace) {
       // Trace-derived audits never retain results, so an empty output slot
       // after a session reload means "not persisted", not "no output".
       return { lines: [...lines, theme.fg("dim", "output not retained across reload")], hidden: 0 };
     }
+    const failure = bashFailureArc(audit, theme);
+    if (failure) pushArcItem(lines, failure);
+    if (badge) pushArcItem(lines, arcItem(theme, badge));
     return {
       lines: [...lines, theme.fg("muted", output || "No output")],
       hidden: 0,
@@ -1466,9 +1501,12 @@ const renderBash = (
     const text = theme.fg(audit.success === false ? "error" : "muted", escapeControlChars(entry.line) || " ");
     lines.push(text);
   }
+  const failure = bashFailureArc(audit, theme);
+  if (failure) pushArcItem(lines, failure);
   if (nativeTruncated(audit)) {
     pushArcItem(lines, arcItem(theme, `Output truncated by ${audit.tool ?? "shell"}`));
   }
+  if (badge) pushArcItem(lines, arcItem(theme, badge));
   const fullOutputPath = stringOf(resultDetails(audit)?.fullOutputPath);
   if (fullOutputPath) pushArcItem(lines, arcItem(theme, `Full output: ${escapeControlChars(fullOutputPath)}`));
   return { lines, hidden: selected.hidden };
@@ -1555,7 +1593,7 @@ export const coreToolTitle = (
   const filePath = argString(audit, "path") ?? "";
   if (audit.tool === "bash") {
     const command = bashCommand(audit);
-    const firstLine = command.split("\n")[0] ?? "";
+    const firstLine = truncateBashTitleCommand(command.split("\n")[0] ?? "");
     const language = "bash";
     const highlighted = firstLine ? highlightCode(firstLine, language, options.invalidate)?.[0] : undefined;
     const timeout = numberOf(audit.args?.timeout);

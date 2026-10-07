@@ -430,7 +430,8 @@ const imageBlocks = (content: unknown): FabricMediaBlock[] => {
   return blocks;
 };
 
-export const TRUNCATION_MARKER = "[[omp-fabric:truncated]]";
+import { TRUNCATION_MARKER } from "../core/truncation-marker.js";
+export { TRUNCATION_MARKER };
 
 const asRecord = (value: unknown): Record<string, unknown> | undefined =>
   typeof value === "object" && value !== null && !Array.isArray(value)

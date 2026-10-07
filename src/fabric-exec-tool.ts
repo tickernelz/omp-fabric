@@ -66,6 +66,7 @@ import {
   type FabricWriteBinding,
   type FabricWritePreview,
 } from "./ui/fabric-render.js";
+import { splitTruncationNotice } from "./core/truncation-marker.js";
 import {
   coreToolPreviewEnabled,
   coreToolRendererEnabled,
@@ -484,18 +485,22 @@ export const createFabricExecTool = (
         if (core) return { body: core.lines.join(nl), hidden: core.hidden };
         if (coreToolRendererEnabled(audit, codePreviewSettings)) return null;
 
-        const body = nestedCallBody(audit);
-        if (!body) return null;
+        const rawBody = nestedCallBody(audit);
+        if (!rawBody) return null;
+        const notice = splitTruncationNotice(rawBody);
+        const body = notice ? notice.text : rawBody;
+        const badge = notice?.label;
         const bodyLines = safeTerminalText(body).split(nl);
         while (bodyLines.length > 0) {
           const last = bodyLines[bodyLines.length - 1];
           if (last === undefined || last.trim() === "") bodyLines.pop();
           else break;
         }
-        if (bodyLines.length === 0) return null;
+        if (bodyLines.length === 0 && !badge) return null;
         const shown = bodyLines.slice(0, limit);
+        const rendered = shown.map((line) => theme.fg("toolOutput", line || " ")).join(nl);
         return {
-          body: shown.map((line) => theme.fg("toolOutput", line || " ")).join(nl),
+          body: badge ? `${rendered}${nl}${theme.fg("muted", `╰─ ${badge}`)}` : rendered,
           hidden: bodyLines.length - shown.length,
         };
       };
