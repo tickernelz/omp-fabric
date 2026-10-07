@@ -1,7 +1,0 @@
-feat(compaction): follow host 18.7.0 dimension-based token pricing
-
-OMP 18.7.0 charges image blocks by pixel size via @oh-my-pi/pi-agent-core/image-tokens instead of a flat 1200 tokens, and calculateContextTokens now prefers usage.contextTokens and subtracts orchestration tokens. token-math.ts was a mirror pinned to the old behaviour, so it overcharged small images and undercharged large ones and disagreed with provider-reported occupancy. It now wraps one host Tokenizer and re-exports the host calculateContextTokens.
-
-Host pins 18.6.0 -> 18.7.0. certify:context green on 18.7.0 with the recorded root exports unchanged.
-
-BREAKING CHANGE: token estimates driving fabric and LCM compaction budgets change for any session containing images or orchestration usage
