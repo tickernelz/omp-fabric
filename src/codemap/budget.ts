@@ -244,7 +244,7 @@ export function assembleMap(request: MapBudgetRequest): BudgetedMap {
   const text = plan.lines.length === 0 ? "" : legendShown ? `${LEGEND}\n${body}\n` : `${body}\n`;
   return {
     text,
-    tokensEstimated: estimateTokens({ role: "user", content: text }),
+    tokensEstimated: estimateTokens({ role: "user", content: text, timestamp: 0 } as never),
     filesShown: plan.filesShown,
     symbolsShown: plan.symbolsShown,
     omittedFiles: plan.omittedFiles,

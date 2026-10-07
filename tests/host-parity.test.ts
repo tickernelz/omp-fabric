@@ -18,12 +18,33 @@ afterEach(() => {
   else process.env.OMP_FABRIC_AGENT_DIR = path;
 });
 
+const pngHeader = (width: number, height: number): string => {
+  const bytes = Buffer.alloc(26);
+  bytes.writeUInt32BE(0x89504e47, 0);
+  bytes.writeUInt32BE(0x0d0a1a0a, 4);
+  bytes.write("IHDR", 12, "binary");
+  bytes.writeUInt32BE(width, 16);
+  bytes.writeUInt32BE(height, 20);
+  bytes.writeUInt8(6, 25);
+  return bytes.toString("base64");
+};
+
+const image = (width = 1024, height = 1024) => ({ type: "image", data: pngHeader(width, height), mimeType: "image/png" });
+
+const estimateOrThrow = (estimate: () => number): { tokens: number } | { threw: string } => {
+  try {
+    return { tokens: estimate() };
+  } catch (error) {
+    return { threw: error instanceof Error ? error.name : String(error) };
+  }
+};
+
 describe("host parity", () => {
   it("estimates tokens identically to the host", () => {
     const messages = [
       { role: "user", content: "hello world" },
-      { role: "user", content: [{ type: "text", text: "abc" }, { type: "image" }] },
-      { role: "user", content: [{ type: "image" }] },
+      { role: "user", content: [{ type: "text", text: "abc" }, image(1024, 1024)] },
+      { role: "user", content: [image(64, 64)] },
       { role: "user", content: [{ type: "text", text: "a" }, { type: "text", text: "b" }] },
       { role: "user", content: [{ type: "text", text: "abcde" }, { type: "text", text: "fghij" }] },
       { role: "assistant", content: [{ type: "text", text: "a" }, { type: "thinking", thinking: "b" }] },
@@ -33,30 +54,45 @@ describe("host parity", () => {
       { role: "assistant", content: [{ type: "toolCall", name: "abc", arguments: { a: "q".repeat(101) } }] },
       { role: "assistant", content: [{ type: "toolCall", name: "bash" }] },
       { role: "toolResult", content: "output" },
-      { role: "toolResult", content: [{ type: "image" }] },
+      { role: "toolResult", content: [image(1568, 1568)] },
       { role: "toolResult", content: [{ type: "text", text: "a" }, { type: "text", text: "b" }] },
-      { role: "toolResult", content: [{ type: "text", text: "x".repeat(400) }, { type: "image" }] },
+      { role: "toolResult", content: [{ type: "text", text: "x".repeat(400) }, image(800, 600)] },
       { role: "custom", customType: "x", content: "custom text" },
       { role: "bashExecution", command: "a", output: "b" },
       { role: "bashExecution", command: "echo hi", output: "hi" },
       { role: "branchSummary", summary: "branch" },
       { role: "compactionSummary", summary: "compaction" },
-      { role: "developer", content: [{ type: "text", text: "dev" }, { type: "image" }] },
-      { role: "user", content: [{ type: "image" }, { type: "image" }] },
-      { role: "hookMessage", content: [{ type: "text", text: "hook" }, { type: "image" }] },
+      { role: "developer", content: [{ type: "text", text: "dev" }, image(120, 120)] },
+      { role: "user", content: [image(320, 320), image(96, 96)] },
+      { role: "hookMessage", content: [{ type: "text", text: "hook" }, image(90, 90)] },
       { role: "custom", customType: "x", content: [{ type: "text", text: "blocks" }] },
       { role: "assistant", content: [{ type: "thinking", thinking: "t", thinkingSignature: "s".repeat(64) }] },
       { role: "assistant", content: [{ type: "redactedThinking", data: "d".repeat(128) }] },
       { role: "assistant", content: [{ type: "anthropicServerTool", block: { name: "web_search", input: { q: "x" } } }] },
-      { role: "compactionSummary", summary: "s", blocks: [{ type: "text", text: "kept" }, { type: "image" }] },
-      { role: "compactionSummary", summary: "s", images: [{ type: "image" }, { type: "image" }] },
+      { role: "compactionSummary", summary: "s", blocks: [{ type: "text", text: "kept" }, image(400, 400)] },
+      { role: "compactionSummary", summary: "s", images: [image(500, 500), image(300, 300)] },
+      { role: "user", content: [{ type: "image" }] },
       { role: "user", content: "héllo wörld — ünïcode" },
     ];
     for (const message of messages) {
-      expect(localEstimateTokens(message as never)).toBe(hostEstimateTokens(message as never));
+      expect(estimateOrThrow(() => localEstimateTokens(message as never)))
+        .toEqual(estimateOrThrow(() => hostEstimateTokens(message as never)));
     }
   });
 
+  it("prices images by pixel size, not a flat estimate", () => {
+    const sized = [image(64, 64), image(512, 512), image(1024, 1024), image(1568, 1568)];
+    for (const block of sized) {
+      const local = localEstimateTokens({ role: "user", content: [block] } as never);
+      const host = hostEstimateTokens({ role: "user", content: [block] } as never);
+      expect(local).toBe(host);
+    }
+    expect(localEstimateTokens({ role: "user", content: [image(64, 64)] } as never)).toBe(5);
+    expect(localEstimateTokens({ role: "user", content: [image(1024, 1024)] } as never)).toBe(1229);
+    expect(localEstimateTokens({ role: "user", content: [image(1568, 1568)] } as never)).toBe(2882);
+    const distinct = new Set(sized.map((block) => localEstimateTokens({ role: "user", content: [block] } as never)));
+    expect(distinct.size).toBe(sized.length);
+  });
   it("counts context tokens identically to the host", () => {
     const usages = [
       { totalTokens: 1000 },

@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.25.20
+
+### Changed
+
+- Host pins move from `18.6.0` to `18.7.0`; the declared peer floor stays `>=18.4.4`.
+
+### Changed (breaking)
+
+- **Token estimation now delegates to the host.** OMP 18.7.0 charges image blocks by pixel size (`@oh-my-pi/pi-agent-core/image-tokens`, the OpenAI Responses rule) instead of a flat 1,200 tokens, and `calculateContextTokens` now prefers `usage.contextTokens` and subtracts orchestration tokens. The old `token-math` mirror was pinned to the flat 1,200 behaviour and to a component-sum context count, so it overcharged small images, undercharged large ones, and disagreed with provider-reported occupancy. `src/core/token-math.ts` is now a one-instance `Tokenizer` wrapper plus a direct `calculateContextTokens` re-export; `DEFAULT_COMPACTION_SETTINGS` stays as the only local constant. `@oh-my-pi/pi-agent-core/image-tokens` is already in the eager graph, so the delegation adds no startup import.
+
+### Fixed
+
+- `tests/host-parity.test.ts` compared synthetic `{ type: "image" }` blocks, which the host 18.7.0 tokenizer throws a `TypeError` on because they carry no `data`, so the parity run aborted before reaching any assertion. Images now carry a real 26-byte PNG header with genuine dimensions, a new case pins the per-size prices the host charges (5 / 1229 / 2882 tokens for 64x64 / 1024x1024 / 1568x1568) and requires them to differ, and a block with no data is asserted to throw on both sides alike.
+
 ## 1.25.19
 
 ### Changed
