@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.25.22
+
+### Changed
+
+- Host pins move from `18.7.0` to `18.8.0`; the declared peer floor stays `>=18.4.4`. No API surface used by fabric changed (changelog is perf, titles, previews, and fixes); `host-parity.test.ts` 8/8 and `certify:context` 28/28 checks pass against the new host, with `hostApi.rootExports` observations unchanged.
+
 ## 1.25.21
 
 ### Fixed
