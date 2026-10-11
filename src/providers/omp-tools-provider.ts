@@ -657,7 +657,7 @@ const grepTruncationSignal = (details: unknown, requestedLimit?: number): Record
   if (maxColumn !== undefined) {
     reasons.push("columnLimit");
     notes.push(
-      `Match lines are cut at ${maxColumn} bytes by the host, so a reported line need not contain the match; read the full line with omp.read("<file>:<line>").`,
+      `Match lines longer than ${maxColumn} bytes are cut by the host; read the full line with omp.read("<file>:<line>").`,
     );
   }
   if (reasons.length === 0) {

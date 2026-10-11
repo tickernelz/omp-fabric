@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.25.23
+
+### Changed
+
+- Host pins move from `18.8.0` to `18.9.0`; the declared peer floor stays `>=18.4.4`.
+
+### Fixed
+
+- The `omp.grep` column-limit note no longer claims a cut line may lack its match. Host 18.9.0 cuts a long match line to a window around the first match and appends `[col N]`, so the note now only says the line was cut and points at `omp.read("<file>:<line>")` for the full text.
+
 ## 1.25.22
 
 ### Changed

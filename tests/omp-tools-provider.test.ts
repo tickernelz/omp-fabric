@@ -786,7 +786,7 @@ describe("OmpToolsProvider result fidelity", () => {
         const wide = String(
           await registry.invoke("omp.grep", { pattern: "NEEDLE", path: path.join(dir, "wide.txt") }, baseContext),
         );
-        expect(wide).not.toContain("NEEDLE");
+        expect(wide).toContain("NEEDLE [col 901]");
         expect(parseMarker(wide)).toMatchObject({ tool: "grep", reasons: ["columnLimit"], maxColumn: 512 });
       },
     );
