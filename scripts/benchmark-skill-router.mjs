@@ -4,7 +4,7 @@ import path from "node:path";
 import { FabricJudgmentLane } from "../src/judgment/lane.ts";
 import { DEFAULT_FABRIC_CONFIG } from "../src/config.ts";
 import { suggestSkill } from "../src/judgment/gates/skills.ts";
-import { TypeSafeJudge } from "@oh-my-pi/pi-ai/judgment/typesafe";
+import { NativeJudge } from "@oh-my-pi/pi-ai/judgment/native";
 
 const fixturePath = process.argv[2] ?? path.join(import.meta.dir, "fixtures", "skill-router.json");
 const key = process.env.TYPESAFE_API_KEY;
@@ -58,7 +58,7 @@ console.log("");
 
 const lane = new FabricJudgmentLane(
   DEFAULT_FABRIC_CONFIG.judgment,
-  async () => new TypeSafeJudge({ apiKey: key }),
+  async () => new NativeJudge({ apiKey: key }),
 );
 
 let hit = 0;

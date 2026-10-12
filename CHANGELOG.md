@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.25.24
+
+### Fixed
+
+- scripts/benchmark-skill-router.mjs follows host 18.10.1: @oh-my-pi/pi-ai/judgment/typesafe no longer exists (TypeSafeJudge became NativeJudge under @oh-my-pi/pi-ai/judgment/native), so the harness imports from the new path and constructs NativeJudge({ apiKey }).
+
+### Changed
+
+- Host pins move from 18.9.0 to 18.10.1; the declared peer floor stays >=18.4.4. Only additive drift reaches fabric: the api unions gain openai-decisions and workers-ai-systemone, model config gains optional supportsThinkingBindingControls, and the wrapped host tools (bash, glob, grep, read, wait, write) are byte-identical in both source and declarations, so no truncation notes move. Typecheck clean and certify:context 28/28 checks pass against the new host.
+
 ## 1.25.23
 
 ### Changed
