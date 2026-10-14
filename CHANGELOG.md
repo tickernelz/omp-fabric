@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.25.25
+
+### Changed
+
+- Host pins move from 18.10.1 to 18.10.4 (dependencies pi-agent-core, pi-ai, pi-utils, omptype; dev pi-coding-agent, pi-natives, pi-tui); the declared peer floor stays >=18.4.4. Host 18.10.4 removes Codex Code Mode and the session code-mode types; none of the 30 subpaths fabric imports were removed in the 18.10.4 exports map. Full bun run check green: 252 files / 3254 tests pass, certify:context 28/28 checks pass against the new host.
+
+
 ## 1.25.24
 
 ### Fixed
