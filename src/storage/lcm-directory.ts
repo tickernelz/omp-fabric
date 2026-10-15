@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { writeJsonAtomic } from "../core/atomic-write.js";
 import { defaultLedgerPath, type ProjectIdentity } from "./lcm-identity.js";
@@ -7,6 +8,15 @@ const DIRECTORY_FILE = "projects.json";
 const DIRECTORY_VERSION = 1;
 const SWEEP_INTERVAL_MS = 24 * 60 * 60 * 1_000;
 const RETENTION_MS = 30 * 24 * 60 * 60 * 1_000;
+const TEMP_RETENTION_MS = 2 * 24 * 60 * 60 * 1_000;
+
+const isUnderTempRoot = (target: string): boolean => {
+  const resolved = path.resolve(target);
+  return [os.tmpdir(), "/tmp", "/var/tmp"].some((root) => {
+    const base = root.endsWith(path.sep) ? root.slice(0, -1) : root;
+    return resolved === base || resolved.startsWith(base + path.sep);
+  });
+};
 
 interface LcmDirectoryRecord {
   key: string;
@@ -84,10 +94,11 @@ export const stableProjectKey = (rootDir: string, identity: ProjectIdentity, now
 /** Removes ledgers whose project directory is gone and that nothing wrote for the retention window. */
 export const sweepLedgers = (
   rootDir: string,
-  options: { keepKey: string; now?: number; retentionMs?: number; force?: boolean },
+  options: { keepKey: string; now?: number; retentionMs?: number; tempRetentionMs?: number; force?: boolean },
 ): LcmSweepResult => {
   const now = options.now ?? Date.now();
   const retentionMs = options.retentionMs ?? RETENTION_MS;
+  const tempRetentionMs = options.tempRetentionMs ?? TEMP_RETENTION_MS;
   const file = read(rootDir);
   if (!options.force && now - file.sweptAt < SWEEP_INTERVAL_MS) return { removed: [], bytes: 0, skipped: true };
   const removed: string[] = [];
@@ -99,12 +110,15 @@ export const sweepLedgers = (
     try {
       stats = fs.statSync(ledger);
     } catch {
+      if (record.key !== options.keepKey) continue;
+      kept.push(record);
       continue;
     }
+    const retention = isUnderTempRoot(record.path) ? tempRetentionMs : retentionMs;
     const abandoned =
       record.key !== options.keepKey &&
       !fs.existsSync(record.path) &&
-      now - Math.max(stats.mtimeMs, record.updatedAt) >= retentionMs;
+      now - Math.max(stats.mtimeMs, record.updatedAt) >= retention;
     if (!abandoned) {
       kept.push(record);
       continue;

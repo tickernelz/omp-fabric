@@ -106,6 +106,55 @@ describe("LCM ledger directory", () => {
     expect(fs.existsSync(defaultLedgerPath(ledgers, key))).toBe(true);
   });
 
+  it("reclaims an abandoned temporary project on the short tier", () => {
+    const base = make();
+    const ledgers = path.join(base, "ledgers");
+    const project = path.join(base, "fixture-project");
+    fs.mkdirSync(project);
+    const key = stableProjectKey(ledgers, canonicalProjectIdentity({ liveCwd: project }), Date.now() - 3 * DAY);
+    fs.writeFileSync(defaultLedgerPath(ledgers, key), "x");
+    const threeDays = new Date(Date.now() - 3 * DAY);
+    fs.utimesSync(defaultLedgerPath(ledgers, key), threeDays, threeDays);
+    fs.rmSync(project, { recursive: true, force: true });
+
+    expect(sweepLedgers(ledgers, { keepKey: "other", force: true }).removed).toEqual([canonical(project)]);
+    expect(fs.existsSync(defaultLedgerPath(ledgers, key))).toBe(false);
+  });
+
+  it("keeps an abandoned temporary project when the temporary retention is longer", () => {
+    const base = make();
+    const ledgers = path.join(base, "ledgers");
+    const project = path.join(base, "fixture-project");
+    fs.mkdirSync(project);
+    const key = stableProjectKey(ledgers, canonicalProjectIdentity({ liveCwd: project }), Date.now() - 3 * DAY);
+    fs.writeFileSync(defaultLedgerPath(ledgers, key), "x");
+    const threeDays = new Date(Date.now() - 3 * DAY);
+    fs.utimesSync(defaultLedgerPath(ledgers, key), threeDays, threeDays);
+    fs.rmSync(project, { recursive: true, force: true });
+
+    expect(sweepLedgers(ledgers, { keepKey: "other", force: true, tempRetentionMs: 30 * DAY }).removed).toEqual([]);
+    expect(fs.existsSync(defaultLedgerPath(ledgers, key))).toBe(true);
+  });
+
+  it("drops a record whose ledger file is gone and keeps the active project's record", () => {
+    const base = make();
+    const ledgers = path.join(base, "ledgers");
+    const ghost = path.join(base, "ghost");
+    fs.mkdirSync(ghost);
+    stableProjectKey(ledgers, canonicalProjectIdentity({ liveCwd: ghost }));
+    const activeKey = stableProjectKey(ledgers, canonicalProjectIdentity({ liveCwd: base }));
+    fs.rmSync(ghost, { recursive: true, force: true });
+    const directoryFile = path.join(ledgers, "projects.json");
+    const read = (): Array<{ path: string; key: string }> =>
+      (JSON.parse(fs.readFileSync(directoryFile, "utf8")) as { projects: Array<{ path: string; key: string }> }).projects;
+    expect(read().some((record) => record.path === canonical(ghost))).toBe(true);
+
+    sweepLedgers(ledgers, { keepKey: activeKey, force: true });
+
+    expect(read().some((record) => record.path === canonical(ghost))).toBe(false);
+    expect(read().some((record) => record.key === activeKey)).toBe(true);
+  });
+
   it("sweeps at most once a day", () => {
     const base = make();
     const ledgers = path.join(base, "ledgers");

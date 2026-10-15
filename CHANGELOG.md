@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.25.29
+
+### Changed
+
+- Ledger sweep works on two retention tiers: a project path under a temporary root (`os.tmpdir()`, `/tmp`, `/var/tmp`) is reclaimed after 2 days instead of 30, because fixture and smoke repos are throwaway by construction while a real project directory can be missing temporarily (unmounted drive, renamed checkout) and still deserve its history. `sweepLedgers` takes `tempRetentionMs` for callers that want a different tier. The sweep interval stays 24h.
+- The sweep also drops a directory record whose ledger file is gone. It used to skip those records forever (`statSync` failed, `continue`), so every deleted ledger left a permanent entry in `projects.json`.
+
+### Notes
+
+- Measured before this change: the ledger root held 17.36GB across 69 files, and the biggest ones belong to real projects (Kaitech/Odoo19/modifier 2.5GB, Kaitech/Odoo19 2.4GB, apollo-coworker 2.0GB, paperclip-pro 1.9GB). Files whose project directory is gone totalled 0.15GB, so reclaiming abandoned paths is a hygiene fix, not a disk fix; per-project ledger growth is the real consumer and needs entry-level retention inside a ledger.
+- Operational hazard found while aligning the plugin tree: with `~/.omp/plugins` pinning `@oh-my-pi/pi-coding-agent` at 18.11.0 instead of 18.7.0, one measurement session logged a `session_start` timeout again, and reverting the pin cleared it (6 sessions clean at 18.7.0). Fabric eagerly imports host tool subpaths, which the tree resolves to raw TypeScript, so the tree's host pin changes the extension's own load cost. Making those imports lazy is the prerequisite for moving that pin.
+
 ## 1.25.28
 
 ### Fixed
