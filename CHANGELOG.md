@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.25.31
+
+### Notes
+
+- Test-only fix for the Windows job: the temporary-tier sweep test removed the right ledger but compared that path against a freshly canonicalized one, which differs in path form between platforms. It now asserts one removal whose tail is the fixture project.
+- 1.25.29 and 1.25.30 both failed the windows-latest Test job and never published; every sweep change described under 1.25.29 and 1.25.30 ships in this release. Their `v1.25.29` and `v1.25.30` tags stay where they are.
+
 ## 1.25.30
 
 ### Fixed

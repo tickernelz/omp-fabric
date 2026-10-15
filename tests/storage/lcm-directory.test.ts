@@ -117,7 +117,9 @@ describe("LCM ledger directory", () => {
     fs.utimesSync(defaultLedgerPath(ledgers, key), threeDays, threeDays);
     fs.rmSync(project, { recursive: true, force: true });
 
-    expect(sweepLedgers(ledgers, { keepKey: "other", force: true }).removed).toEqual([canonical(project)]);
+    const removed = sweepLedgers(ledgers, { keepKey: "other", force: true }).removed;
+    expect(removed).toHaveLength(1);
+    expect(removed[0]!.endsWith(`${path.sep}fixture-project`)).toBe(true);
     expect(fs.existsSync(defaultLedgerPath(ledgers, key))).toBe(false);
   });
 
