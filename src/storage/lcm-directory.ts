@@ -10,11 +10,43 @@ const SWEEP_INTERVAL_MS = 24 * 60 * 60 * 1_000;
 const RETENTION_MS = 30 * 24 * 60 * 60 * 1_000;
 const TEMP_RETENTION_MS = 2 * 24 * 60 * 60 * 1_000;
 
+const tempRootCandidates = (): string[] => {
+  const roots = new Set<string>();
+  for (const root of [os.tmpdir(), "/tmp", "/var/tmp"]) {
+    const resolved = path.resolve(root);
+    roots.add(resolved);
+    try {
+      roots.add(fs.realpathSync.native(resolved));
+    } catch {
+    }
+  }
+  return [...roots];
+};
+
 const isUnderTempRoot = (target: string): boolean => {
   const resolved = path.resolve(target);
-  return [os.tmpdir(), "/tmp", "/var/tmp"].some((root) => {
-    const base = root.endsWith(path.sep) ? root.slice(0, -1) : root;
-    return resolved === base || resolved.startsWith(base + path.sep);
+  const candidates = new Set<string>([resolved]);
+  try {
+    candidates.add(fs.realpathSync.native(resolved));
+  } catch {
+    let probe = resolved;
+    while (true) {
+      const parent = path.dirname(probe);
+      if (parent === probe) break;
+      probe = parent;
+      try {
+        const real = fs.realpathSync.native(probe);
+        candidates.add(path.join(real, path.relative(probe, resolved)));
+        break;
+      } catch {
+      }
+    }
+  }
+  const normalize = (value: string): string => (process.platform === "win32" ? value.toLowerCase() : value);
+  const normalized = [...candidates].map(normalize);
+  return tempRootCandidates().some((root) => {
+    const base = normalize(root.endsWith(path.sep) ? root.slice(0, -1) : root);
+    return normalized.some((candidate) => candidate === base || candidate.startsWith(base + path.sep));
   });
 };
 

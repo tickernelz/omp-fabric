@@ -147,11 +147,13 @@ describe("LCM ledger directory", () => {
     const directoryFile = path.join(ledgers, "projects.json");
     const read = (): Array<{ path: string; key: string }> =>
       (JSON.parse(fs.readFileSync(directoryFile, "utf8")) as { projects: Array<{ path: string; key: string }> }).projects;
-    expect(read().some((record) => record.path === canonical(ghost))).toBe(true);
+    const ghostRecords = (): Array<{ path: string }> =>
+      read().filter((record) => record.path.endsWith(`${path.sep}ghost`));
+    expect(ghostRecords()).toHaveLength(1);
 
     sweepLedgers(ledgers, { keepKey: activeKey, force: true });
 
-    expect(read().some((record) => record.path === canonical(ghost))).toBe(false);
+    expect(ghostRecords()).toHaveLength(0);
     expect(read().some((record) => record.key === activeKey)).toBe(true);
   });
 

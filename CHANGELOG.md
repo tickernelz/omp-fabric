@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.25.30
+
+### Fixed
+
+- Temporary-root detection survives Windows path forms. `os.tmpdir()` reports the short-name form (`C:\Users\RUNNER~1\AppData\Local\Temp`) while a project path that went through `realpath` is long-name, and the comparison was case-sensitive, so the temporary retention tier missed those projects on Windows. Both sides now resolve through `fs.realpathSync.native` (falling back to the deepest existing ancestor) and compare case-insensitively on win32.
+- The stale-record sweep test asserts on the record's path tail instead of a canonicalized equality, which differed between platforms.
+
+### Notes
+
+- 1.25.29's Test job failed on windows-latest for those two cases and it never published; its sweep changes ship in this release. Its `v1.25.29` tag stays where it is.
+
 ## 1.25.29
 
 ### Changed
