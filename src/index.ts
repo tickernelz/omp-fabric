@@ -602,7 +602,11 @@ export default async function ompFabric(omp: ExtensionAPI): Promise<void> {
     const warmupEpoch = entropyLifecycleEpoch;
     const warmupCurrent = (): boolean => warmupEpoch === entropyLifecycleEpoch;
     void (async () => {
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      if (!warmupCurrent()) return;
       if (state.config.compaction.engine !== "lcm" || !lcmRuntime) return;
+      lcmRuntime.open();
+      if (!warmupCurrent()) return;
       await lcmRuntime.reconcileSelectedSession();
       if (!warmupCurrent()) return;
       await lcmRuntime.syncAndSchedule().catch(() => {});
@@ -805,7 +809,7 @@ export default async function ompFabric(omp: ExtensionAPI): Promise<void> {
   // OMP's own summarization proceeds normally.
   registerCompactionHook(omp, {
     getEngine: () =>
-      lcmLoader.unavailable || !lcmRuntime
+      lcmLoader.unavailable || !lcmRuntime?.ready
         ? "omp"
         : state.cwd
           ? state.config.compaction.engine

@@ -243,6 +243,10 @@ export class LcmRuntime {
     });
   }
 
+  get ready(): boolean { return this.ledger.startupChecksComplete; }
+
+  open(): void { this.ledger.runStartupChecks(); }
+
   private get options(): LcmRuntimeOptions { return this.resolveOptions(); }
 
   get projectKey(): string { return this.ledger.project.key; }

@@ -117,6 +117,7 @@ export class LcmLedger {
   private transactionDepth = 0;
   private closed = false;
   private fts = false;
+  private startupChecksRun = false;
   readonly migrations: LedgerMigrationReport[] = [];
   constructor(options: LedgerOptions = {}) {
     this.now = options.now ?? Date.now;
@@ -142,12 +143,25 @@ export class LcmLedger {
         this.db.exec("ALTER TABLE raw_entries ADD COLUMN payload_json TEXT NOT NULL DEFAULT ''");
       }
       this.fts = probeFts5(this.db);
-      this.migrateSchema();
+      this.ensureFtsObjects();
       this.db.exec("PRAGMA foreign_keys=ON");
-      const result = this.db.prepare("PRAGMA integrity_check").get() as { integrity_check?: string };
-      if (result.integrity_check !== "ok") throw new Error(String(result.integrity_check));
       this.registerProject(this.project);
     } catch (error) { this.degraded = true; throw new LedgerDegradedError("ledger startup failed", error); }
+  }
+
+  get startupChecksComplete(): boolean { return this.startupChecksRun; }
+
+  runStartupChecks(): void {
+    if (this.startupChecksRun) return;
+    try {
+      this.migrateSchema();
+      const result = this.db.prepare("PRAGMA integrity_check").get() as { integrity_check?: string };
+      if (result.integrity_check !== "ok") throw new Error(String(result.integrity_check));
+    } catch (error) {
+      this.degraded = true;
+      throw new LedgerDegradedError("ledger startup checks failed", error);
+    }
+    this.startupChecksRun = true;
   }
   readRepairLadder(projectKey = this.project.key): Map<string, { attempts: number; nextAt: number; detail: string; updatedAt: number }> {
     return this.readOnly(db => new Map((db.prepare("SELECT fault,attempts,next_at,detail,updated_at FROM repair_ladder WHERE project_key=?").all(projectKey) as Array<{ fault: string; attempts: number; next_at: number; detail: string; updated_at: number }>).map(row => [row.fault, { attempts: Number(row.attempts), nextAt: Number(row.next_at), detail: row.detail, updatedAt: Number(row.updated_at) }])));
@@ -197,6 +211,11 @@ export class LcmLedger {
     if (version < 3 || (this.db.prepare("PRAGMA foreign_key_list(summary_edges)").all().length === 0)) this.migrations.push(this.migrateDerivedForeignKeys());
     if (version !== LEDGER_SCHEMA_VERSION) this.db.prepare("INSERT INTO schema_metadata(key,value) VALUES('version',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(String(LEDGER_SCHEMA_VERSION));
   }
+  private ensureFtsObjects(): void {
+    if (!this.fts) return;
+    this.db.exec("CREATE VIRTUAL TABLE IF NOT EXISTS raw_entries_fts USING fts5(content, project_key UNINDEXED, session_id UNINDEXED, entry_id UNINDEXED, revision UNINDEXED)");
+    this.db.exec("CREATE TRIGGER IF NOT EXISTS raw_entries_fts_insert AFTER INSERT ON raw_entries BEGIN INSERT INTO raw_entries_fts(content,project_key,session_id,entry_id,revision) VALUES(new.content,new.project_key,new.session_id,new.entry_id,new.revision); END");
+  }
   private migrateFullTextIndex(): LedgerMigrationReport {
     if (!this.fts) {
       this.db.exec("DROP TRIGGER IF EXISTS raw_entries_fts_insert");
@@ -204,8 +223,7 @@ export class LcmLedger {
     }
     let indexed = 0;
     this.transaction(db => {
-      db.exec("CREATE VIRTUAL TABLE IF NOT EXISTS raw_entries_fts USING fts5(content, project_key UNINDEXED, session_id UNINDEXED, entry_id UNINDEXED, revision UNINDEXED)");
-      db.exec("CREATE TRIGGER IF NOT EXISTS raw_entries_fts_insert AFTER INSERT ON raw_entries BEGIN INSERT INTO raw_entries_fts(content,project_key,session_id,entry_id,revision) VALUES(new.content,new.project_key,new.session_id,new.entry_id,new.revision); END");
+      this.ensureFtsObjects();
       indexed = Number((db.prepare("SELECT count(*) n FROM raw_entries").get() as { n: number }).n);
       if (Number((db.prepare("SELECT count(*) n FROM raw_entries_fts").get() as { n: number }).n) === indexed) return;
       db.exec("DELETE FROM raw_entries_fts");

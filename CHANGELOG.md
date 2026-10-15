@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.25.27
+
+### Fixed
+
+- Correction to the 1.25.26 entry: it says its host pins moved from 18.10.1, but the working tree was already on 18.10.4 (shipped in 1.25.25). The range was 18.10.4 to 18.11.0.
+- **Session start no longer blocks on the LCM ledger's size.** `LcmLedger` construction ran `migrateSchema()` and `PRAGMA integrity_check` — both O(file size) — inline, so every `session_start` handler paid them: 5929ms, 9210ms, 17393ms and 22245ms across measured runs against this project's 611MB ledger (the ledger directory holds several 1.5-2.4GB files), inside the host's 30000ms per-handler budget. The host log has the receipts: `Extension handler timed out` for `event: "session_start"`, 17 times on 2026-10-15 alone, including one at 11:12:57 with 1.25.26 already installed. The FTS table and trigger DDL stays synchronous, because it is cheap and `searchRaw` needs those objects to exist; migrations, their backfill and the integrity check moved to `LcmLedger.runStartupChecks()`, which the detached session warmup runs after a macrotask yield. Compaction is unaffected: the compaction hook's `getEngine()` reports `omp` until the runtime is `ready`, so a cold session hands compaction to the host core instead of summarising through an unverified ledger.
+- Same phase marks before and after: `session_start` returned after 5929-22245ms before and 672ms after (compat 155ms, bootstrap 3ms, LCM prepare 513ms, activation 0ms). The deferred migrations and integrity check still cost about 2s on the 611MB ledger, now on a background macrotask outside the handler.
+- `tests/storage/lcm-ledger.test.ts` now drives `runStartupChecks()` explicitly for the five migration cases (orphan quarantine, FTS backfill, fts5-less fallback, index re-sync, purge counts). The contracts are unchanged; only their timing moved.
+
 ## 1.25.26
 
 ### Changed
