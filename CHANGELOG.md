@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.25.26
+
+### Changed
+
+- Host pins move from 18.10.1 to 18.11.0 (dependencies pi-agent-core, pi-ai, pi-utils, omptype; dev pi-coding-agent, pi-natives, pi-tui); the declared peer floor stays >=18.4.4. Nothing fabric imports changed: `formatApprovalDetails` lost its optional options parameter and `truncateApprovalDetail`/`ApprovalDetailsOptions` are gone, but fabric calls none of them, the grep per-file caps stay 20/200, and every wrapped tool's truncation contract is unchanged. bun run check green at 254 files / 3256 tests, certify:context 28/28 checks against the new host.
+- Extension startup stops waiting on avoidable work. The Shiki language catalog (measured at 1263ms to import) now loads on demand instead of at module load, and registered-tool capture installs detached from the extension factory, whose body measures 5-10ms either way. Host readyMs did not move measurably at N=8 in either run order (old 6400ms vs new 6900ms; single runs 4.4-12.7s), so this is a tail-risk reduction rather than a speedup: the one sample above the host's 30000ms handler budget (34.3s) happened on the old bundle.
+- `session_start` awaits the LCM runtime before activation and leaves ledger reconcile, sync and sweep detached behind the session epoch. The order is load-bearing: the memory provider samples the LCM context once at activation, so the runtime must exist first.
+
+### Fixed
+
+- Compaction is no longer cancelled before the LCM runtime is up: `getEngine()` reported `lcm` with no runtime behind it, and the hook cancels a compaction it cannot summarize. It now reports `omp` (the host's own engine) until the runtime loads. Covered by tests/compaction-cold-start.test.ts.
+- The memory provider is installed with its LCM context present. Covered by tests/lcm-memory-context.test.ts, which fails if the runtime is prepared after activation.
+
 ## 1.25.25
 
 ### Changed

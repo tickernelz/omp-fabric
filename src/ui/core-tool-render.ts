@@ -6,7 +6,7 @@ import type { Theme } from "@oh-my-pi/pi-coding-agent";
 import type { CodePreviewSettings } from "./code-preview.js";
 import { formatToolCallDuration } from "./tool-call-timing.js";
 import { diffLines } from "diff";
-import { bundledLanguages } from "shiki/langs";
+import { languageIdsLoaded } from "./shiki-languages.js";
 import type { FabricRenderAudit } from "./fabric-render.js";
 import {
   effectiveShikiThemeIsLight,
@@ -312,7 +312,8 @@ const resolveLanguage = (filePath: string, content?: string): string | undefined
       php: "php",
     };
     const language = executable ? shebang[executable] : undefined;
-    if (language && language in bundledLanguages) return language;
+    const catalog = languageIdsLoaded();
+    if (language && (catalog === undefined || catalog.has(language))) return language;
   }
   if (!content || content.length > CONTENT_LANGUAGE_DETECTION_CHARS) return undefined;
   const trimmed = content.trim();

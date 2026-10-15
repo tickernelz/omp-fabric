@@ -11,7 +11,7 @@ import {
 import { registerFabricActorHostEventObservers } from "./actors/host-event-observer.js";
 import { CapturedToolCatalog } from "./capture/catalog.js";
 import { createHostMcpToolSource } from "./capture/host-mcp-tools.js";
-import { installRegisteredToolCapture } from "./capture/interceptor.js";
+import { installRegisteredToolCapture, type RegisteredToolCaptureController } from "./capture/interceptor.js";
 import { registerFabricCommand } from "./commands/fabric.js";
 import { resolveAgentDir } from "./core/agent-dir.js";
 import {
@@ -44,6 +44,7 @@ import { FabricSpeculationWarmup } from "./speculation/warmup.js";
 import {
   DEFAULT_FABRIC_CONFIG,
   effectiveToolCaptureConfig,
+  type FabricToolCaptureConfig,
   loadFabricConfigForScope,
 } from "./config.js";
 import { registerCompactionHook } from "./compaction/hook.js";
@@ -175,10 +176,6 @@ export default async function ompFabric(omp: ExtensionAPI): Promise<void> {
   const decorateShell: FabricToolShellDecorator = withCodePreviewShell;
   let compatibilityWarningShown = false;
   let updateCheckStarted = false;
-  configureHighlighting(
-    codePreviewSettings.shikiTheme,
-    codePreviewSettings.syntaxHighlighting,
-  );
   const capturedTools = new CapturedToolCatalog();
   const proxyContract = new ProxyContractLedger();
   const state = new FabricState(omp, capturedTools, {
@@ -289,19 +286,30 @@ export default async function ompFabric(omp: ExtensionAPI): Promise<void> {
     hideFromModel: false,
   };
   const hostMcpTools = createHostMcpToolSource();
-  await hostMcpTools.load();
   let hostMcpSignature = "";
-  const toolCapture = await installRegisteredToolCapture({
-    anchorDefinition: fabricTool,
-    catalog: capturedTools,
-    initialPolicy: inactiveCapturePolicy,
-    hostMcpTools: () => {
-      hostMcpSignature = hostMcpTools.signature();
-      return hostMcpTools.tools();
-    },
-    onCatalogRefresh: () => {
-      scheduleOwnershipReassert();
-    },
+  let toolCapture: RegisteredToolCaptureController | undefined;
+  let requestedCapturePolicy: FabricToolCaptureConfig | undefined;
+  void (async () => {
+    await hostMcpTools.load();
+    const capture = await installRegisteredToolCapture({
+      anchorDefinition: fabricTool,
+      catalog: capturedTools,
+      initialPolicy: inactiveCapturePolicy,
+      hostMcpTools: () => {
+        hostMcpSignature = hostMcpTools.signature();
+        return hostMcpTools.tools();
+      },
+      onCatalogRefresh: () => {
+        scheduleOwnershipReassert();
+      },
+    });
+    toolCapture = capture;
+    if (requestedCapturePolicy) capture.setPolicy(requestedCapturePolicy);
+    capturedTools.refresh();
+  })().catch((error) => {
+    console.warn(
+      `[omp-fabric] tool capture unavailable: ${error instanceof Error ? error.message : String(error)}`,
+    );
   });
   const refreshHostMcpCapture = (): void => {
     if (hostMcpTools.signature() !== hostMcpSignature) capturedTools.refresh();
@@ -309,7 +317,8 @@ export default async function ompFabric(omp: ExtensionAPI): Promise<void> {
   omp.registerTool(fabricTool);
   const applyFabricMode = (): void => {
     capturedTools.markResumed();
-    toolCapture.setPolicy(capturePolicy());
+    requestedCapturePolicy = capturePolicy();
+    toolCapture?.setPolicy(requestedCapturePolicy);
     omp.registerTool(fabricTool);
     toolOwnership.apply(ownershipPolicy(), hiddenCapturedToolNames());
     capturedTools.refresh();
@@ -319,7 +328,8 @@ export default async function ompFabric(omp: ExtensionAPI): Promise<void> {
     // catalog, and the freeze must already be in effect when that clear
     // reaches derived-surface listeners.
     capturedTools.markSuspended();
-    toolCapture.setPolicy(inactiveCapturePolicy);
+    requestedCapturePolicy = inactiveCapturePolicy;
+    toolCapture?.setPolicy(inactiveCapturePolicy);
   };
 
   // ESC stop-the-world: a lone Escape (debounced to ignore escape sequences
@@ -538,6 +548,17 @@ export default async function ompFabric(omp: ExtensionAPI): Promise<void> {
       }
     }
     await state.bootstrap(context);
+    refreshCodePreviewSettings();
+    applyFabricMode();
+    if (!updateCheckStarted) {
+      updateCheckStarted = true;
+      void scheduleFabricUpdateCheck(context, {
+        enabled: state.config.update.check,
+        agentDir: resolveAgentDir(),
+      });
+    }
+
+    const prepareLcmRuntime = async (): Promise<void> => {
     const recordedCwd = context.sessionManager.getRecordedCwd?.() || context.cwd;
     const projectKey = canonicalProjectIdentity({ liveCwd: recordedCwd }).key;
     if (lcmRuntime && (lcmCwd !== context.cwd || lcmProjectKey !== projectKey || state.config.compaction.engine !== "lcm")) {
@@ -568,21 +589,30 @@ export default async function ompFabric(omp: ExtensionAPI): Promise<void> {
       lcmCwd = lcmRuntime ? context.cwd : undefined;
       lcmProjectKey = lcmRuntime?.projectKey;
     }
-    if (state.config.compaction.engine === "lcm" && lcmRuntime) {
-      await lcmRuntime.reconcileSelectedSession();
-      await lcmRuntime.syncAndSchedule().catch(() => {});
-      lcmRuntime.sweepLedgers();
-    }
-    refreshCodePreviewSettings();
-    applyFabricMode();
-    if (!updateCheckStarted) {
-      updateCheckStarted = true;
-      void scheduleFabricUpdateCheck(context, {
-        enabled: state.config.update.check,
-        agentDir: resolveAgentDir(),
-      });
+    };
+    try {
+      await prepareLcmRuntime();
+    } catch (error) {
+      console.warn(
+        `[omp-fabric] LCM runtime unavailable: ${error instanceof Error ? error.message : String(error)}`,
+      );
     }
     if (state.shouldEagerlyActivate(context)) await state.ensure(context);
+
+    const warmupEpoch = entropyLifecycleEpoch;
+    const warmupCurrent = (): boolean => warmupEpoch === entropyLifecycleEpoch;
+    void (async () => {
+      if (state.config.compaction.engine !== "lcm" || !lcmRuntime) return;
+      await lcmRuntime.reconcileSelectedSession();
+      if (!warmupCurrent()) return;
+      await lcmRuntime.syncAndSchedule().catch(() => {});
+      if (!warmupCurrent()) return;
+      lcmRuntime.sweepLedgers();
+    })().catch((error) => {
+      console.warn(
+        `[omp-fabric] LCM ledger warmup failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    });
   });
 
   // Branch changes move the leaf: emitted echoes and spent reminder budget
@@ -775,7 +805,7 @@ export default async function ompFabric(omp: ExtensionAPI): Promise<void> {
   // OMP's own summarization proceeds normally.
   registerCompactionHook(omp, {
     getEngine: () =>
-      lcmLoader.unavailable
+      lcmLoader.unavailable || !lcmRuntime
         ? "omp"
         : state.cwd
           ? state.config.compaction.engine
@@ -980,7 +1010,7 @@ export default async function ompFabric(omp: ExtensionAPI): Promise<void> {
       suspendToolCapture();
       toolOwnership.release();
       fabricToolLifecycle.clear();
-      toolCapture.dispose();
+      toolCapture?.dispose();
     }
   });
 

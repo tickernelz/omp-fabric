@@ -1,12 +1,11 @@
 import { readFileSync, statSync } from "node:fs";
 import { basename, extname } from "node:path";
-// The light shiki subpath entries carry only catalog metadata (~5ms combined).
 // The full shiki entry (createHighlighter, ~50ms in-host) is dynamic-imported
 // lazily inside initHighlighting so extension startup stays off the shiki graph.
-import { bundledLanguages } from "shiki/langs";
 import { bundledThemesInfo } from "shiki/themes";
 import type { GrammarState, Highlighter } from "shiki";
 import { resolveShikiTheme, type ShikiThemeVariant } from "./code-preview.js";
+import { languageIdsLoaded, loadLanguageIds } from "./shiki-languages.js";
 import { resolveShikiThemeObject } from "./shiki-theme.js";
 import { resolveShikiLanguageObjects } from "./shiki-language.js";
 
@@ -303,18 +302,20 @@ export const observedThemeVariant = (): ShikiThemeVariant => observedVariant;
 /** Resolve a shiki language id from a file path, or undefined if unsupported. */
 export function languageFromPath(filePath: string | undefined): string | undefined {
   if (!filePath) return undefined;
+  const catalog = languageIdsLoaded();
+  const supported = (id: string): boolean => catalog === undefined || catalog.has(id);
   const name = basename(filePath).toLowerCase();
   if (name.startsWith(".env")) {
     const candidate = "dotenv";
-    return candidate in bundledLanguages ? candidate : undefined;
+    return supported(candidate) ? candidate : undefined;
   }
   if (name === "dockerfile" || name.startsWith("dockerfile.")) {
-    return "dockerfile" in bundledLanguages ? "dockerfile" : undefined;
+    return supported("dockerfile") ? "dockerfile" : undefined;
   }
   const exact = EXACT_BASENAMES.get(name);
-  if (exact && exact in bundledLanguages) return exact;
+  if (exact && supported(exact)) return exact;
   const byExt = EXTENSION_ALIASES.get(extname(name));
-  return byExt && byExt in bundledLanguages ? byExt : undefined;
+  return byExt && supported(byExt) ? byExt : undefined;
 }
 
 /** Configure highlighting without loading Shiki until the first code preview needs it. */
@@ -340,6 +341,7 @@ export function configureHighlighting(themePreferenceValue: string, syntaxEnable
     resetFileHighlighting();
     return;
   }
+  void loadLanguageIds();
   const themeChanged = syncEffectiveTheme(preference, observedVariant);
   // syncEffectiveTheme already rebuilds eagerly on a real theme swap and
   // highlightCode's requestInit lazily covers a never-initialized highlighter;
@@ -360,6 +362,7 @@ export async function initHighlighting(theme: string, syntaxEnabled = true): Pro
   const version = ++initVersion;
   initializingTheme = theme;
   try {
+    await loadLanguageIds();
     const { createHighlighter } = await import("shiki");
     // Resolve the theme object from omp-fabric's own module graph and hand
     // createHighlighter the *object*, not a bare id string. Shiki's internal
@@ -534,7 +537,12 @@ export function highlightCode(
     return null;
   }
   const shikiLang = normalizeLanguage(lang);
-  if (!(shikiLang in bundledLanguages)) return null;
+  const catalog = languageIdsLoaded();
+  if (!catalog) {
+    requestInit(invalidate);
+    return null;
+  }
+  if (!catalog.has(shikiLang)) return null;
   const cacheKey = `${currentTheme}\0${shikiLang}\0${text.length}\0${hashString(text)}`;
   const cached = renderCache.get(cacheKey);
   if (cached) {
@@ -736,7 +744,12 @@ export function highlightFileLines(
     return null;
   }
   const shikiLang = normalizeLanguage(lang);
-  if (!(shikiLang in bundledLanguages)) return null;
+  const catalog = languageIdsLoaded();
+  if (!catalog) {
+    requestInit(invalidate);
+    return null;
+  }
+  if (!catalog.has(shikiLang)) return null;
   if (!loadedLanguages.has(shikiLang)) {
     requestLanguageLoad(shikiLang, invalidate);
     return null;
@@ -815,7 +828,12 @@ export function highlightSourceLines(
     return null;
   }
   const shikiLang = normalizeLanguage(lang);
-  if (!(shikiLang in bundledLanguages)) return null;
+  const catalog = languageIdsLoaded();
+  if (!catalog) {
+    requestInit(invalidate);
+    return null;
+  }
+  if (!catalog.has(shikiLang)) return null;
   if (!loadedLanguages.has(shikiLang)) {
     requestLanguageLoad(shikiLang, invalidate);
     return null;
