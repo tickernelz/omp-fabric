@@ -264,6 +264,7 @@ export function migrateSessions(options: MigrationOptions): MigrationResult {
             if (options.ledger) ledger = options.ledger;
             else if (options.ledgerRoot) ledger = new LcmLedger({ rootDir: options.ledgerRoot, project: { recordedCwd: cwd } });
             else ledger = new LcmLedger({ project: { recordedCwd: cwd } });
+            ledger.runStartupChecks();
             database = ledger.db;
             database.exec(CHECKPOINT_SCHEMA);
           } else if (options.ledger) database = options.ledger.db;

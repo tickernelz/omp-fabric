@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.25.28
+
+### Fixed
+
+- The `/fabric` ledger migration path now runs `LcmLedger.runStartupChecks()` after it opens a ledger. 1.25.27 moved migrations, the FTS backfill and the integrity check out of the constructor into that method, but `src/storage/lcm-migration.ts` opens a ledger and writes through `ledger.db` directly, so a migration would have written into an un-migrated, unverified ledger. The two dev benchmarks (`scripts/benchmark-lcm.mjs`, `benchmark-lcm-contender.mjs`) construct ledgers without the checks as well; they measure raw ledger mechanics, so they stay as they are.
+
+### Changed
+
+- Correction to the 1.25.26 entry: it called the 30000ms handler overrun a tail risk and said the single sample above it came from the old bundle. The host log for 2026-10-15 says otherwise: `Extension handler timed out` with `event: "session_start"` on 17 separate session starts between 08:01 and 11:12, so the overrun was systematic and no bundle in that window was immune.
+- Real-host confirmation of 1.25.27 from the host logs after this session's restart: a session that booted 12:27:04 on 1.25.26 logged its `session_start` timeout at 12:27:40, 36s after boot; five sessions that booted after the 12:36:25 install of 1.25.27, three of them concurrent, logged none.
+
 ## 1.25.27
 
 ### Fixed
