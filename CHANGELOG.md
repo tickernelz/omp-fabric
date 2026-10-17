@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.25.32
+
+### Fixed
+
+- Mesh polling does less work per tick. Every periodic poll first compares a stat fingerprint of the files it reads and skips the read and parse when nothing changed; the control-plane poll backs off from 100 ms to at most 1 s while idle and snaps back on any request or change; `get` is a direct lookup, and `list`/`listAll` reuse one key-sorted snapshot per state revision instead of filtering, sorting and deep-cloning every entry on every call.
+- LCM no longer blocks the host event loop for seconds. Startup counts and `PRAGMA integrity_check` run on a worker thread, and session import, readback, node loading and maintenance yield every ~20 ms. On a 2 GB ledger the integrity check used to block 27 s; the longest slice is now under 50 ms in most phases (maintenance with model summaries off peaks around 100 ms).
+- `selectCondensation` and the ancestor lookup scanned every node pair; rewriting the summary-edge joins brings them from 6.9 s to 19 ms on a real ledger with identical results.
+- Subagent sessions no longer open, migrate, reconcile or maintain the LCM ledger; only the top-level session owns it, and subagents compact with OMP core.
+- `omp.write` to `agent://<id>` inside `fabric_exec` now reaches live peers through the host agent registry instead of always failing with `Peer messaging is unavailable in this session.`; sessions where the host disables messaging still get that error.
+
 ## 1.25.31
 
 ### Notes
