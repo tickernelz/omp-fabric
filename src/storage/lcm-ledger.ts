@@ -2,6 +2,8 @@ import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
 import { sqliteDriver, type SqliteDatabase } from "./sqlite.js";
+import { queryLedgerOffThread } from "./lcm-offthread.js";
+import type { EventLoopSlice } from "../core/event-loop-slice.js";
 import { stableProjectKey } from "./lcm-directory.js";
 import { canonicalLcmEntry, canonicalLcmPayload, canonicalProjectIdentity, createDeleteConfirmationToken, defaultLedgerPath, defaultLedgerRoot, hash, hashLcmPayload, isPrunedLcmEntry, type DeleteConfirmationToken, type ProjectIdentity, type ProjectIdentityInput, type RawEntry, type SessionEntry } from "./lcm-identity.js";
 
@@ -118,6 +120,8 @@ export class LcmLedger {
   private closed = false;
   private fts = false;
   private startupChecksRun = false;
+  private startupChecksPending: Promise<void> | undefined;
+  private readonly closing = new AbortController();
   readonly migrations: LedgerMigrationReport[] = [];
   constructor(options: LedgerOptions = {}) {
     this.now = options.now ?? Date.now;
@@ -151,17 +155,33 @@ export class LcmLedger {
 
   get startupChecksComplete(): boolean { return this.startupChecksRun; }
 
-  runStartupChecks(): void {
-    if (this.startupChecksRun) return;
+  /** Whole-file scans run on a worker thread so a multi-gigabyte ledger never stalls the host event loop. */
+  runStartupChecks(): Promise<void> {
+    if (this.startupChecksRun) return Promise.resolve();
+    this.startupChecksPending ??= this.checkStartup().finally(() => { this.startupChecksPending = undefined; });
+    return this.startupChecksPending;
+  }
+  private async checkStartup(): Promise<void> {
     try {
-      this.migrateSchema();
-      const result = this.db.prepare("PRAGMA integrity_check").get() as { integrity_check?: string };
-      if (result.integrity_check !== "ok") throw new Error(String(result.integrity_check));
+      await this.migrateSchema();
+      const [result] = await this.scan(["PRAGMA integrity_check"]) as Array<{ integrity_check?: string }>;
+      if (result?.integrity_check !== "ok") throw new Error(String(result?.integrity_check));
     } catch (error) {
       this.degraded = true;
       throw new LedgerDegradedError("ledger startup checks failed", error);
     }
     this.startupChecksRun = true;
+  }
+  private async scan(statements: readonly string[], snapshot = false): Promise<Array<Record<string, unknown>>> {
+    const offThread = await queryLedgerOffThread({ file: this.dbPath, statements, snapshot, signal: this.closing.signal });
+    if (offThread) return offThread;
+    this.guard();
+    if (snapshot && this.transactionDepth === 0) this.db.exec("BEGIN");
+    try {
+      return statements.map(sql => ({ ...(this.db.prepare(sql).get() as Record<string, unknown> | undefined ?? {}) }));
+    } finally {
+      if (snapshot && this.transactionDepth === 0) this.db.exec("COMMIT");
+    }
   }
   readRepairLadder(projectKey = this.project.key): Map<string, { attempts: number; nextAt: number; detail: string; updatedAt: number }> {
     return this.readOnly(db => new Map((db.prepare("SELECT fault,attempts,next_at,detail,updated_at FROM repair_ladder WHERE project_key=?").all(projectKey) as Array<{ fault: string; attempts: number; next_at: number; detail: string; updated_at: number }>).map(row => [row.fault, { attempts: Number(row.attempts), nextAt: Number(row.next_at), detail: row.detail, updatedAt: Number(row.updated_at) }])));
@@ -199,15 +219,16 @@ export class LcmLedger {
   private hasObject(type: string, name: string): boolean {
     return this.db.prepare("SELECT 1 FROM sqlite_master WHERE type=? AND name=?").get(type, name) !== undefined;
   }
-  private indexOutOfStep(): boolean {
+  private async indexOutOfStep(): Promise<boolean> {
     if (this.fts !== this.hasObject("table", "raw_entries_fts")) return true;
     if (!this.fts) return false;
     if (!this.hasObject("trigger", "raw_entries_fts_insert")) return true;
-    return Number((this.db.prepare("SELECT count(*) n FROM raw_entries_fts").get() as { n: number }).n) !== Number((this.db.prepare("SELECT count(*) n FROM raw_entries").get() as { n: number }).n);
+    const [indexed, stored] = await this.scan(["SELECT count(*) n FROM raw_entries_fts", "SELECT count(*) n FROM raw_entries"], true);
+    return Number(indexed?.n) !== Number(stored?.n);
   }
-  private migrateSchema(): void {
+  private async migrateSchema(): Promise<void> {
     const version = this.schemaVersion();
-    if (version < 2 || this.indexOutOfStep()) this.migrations.push(this.migrateFullTextIndex());
+    if (version < 2 || await this.indexOutOfStep()) this.migrations.push(this.migrateFullTextIndex());
     if (version < 3 || (this.db.prepare("PRAGMA foreign_key_list(summary_edges)").all().length === 0)) this.migrations.push(this.migrateDerivedForeignKeys());
     if (version !== LEDGER_SCHEMA_VERSION) this.db.prepare("INSERT INTO schema_metadata(key,value) VALUES('version',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(String(LEDGER_SCHEMA_VERSION));
   }
@@ -305,6 +326,22 @@ ALTER TABLE summary_node_revisions_next RENAME TO summary_node_revisions;`);
     return identity;
   }
   readRaw(projectKey = this.project.key, sessionId?: string): RawEntry[] { this.guard(); this.assertProjectKey(projectKey); const rows = sessionId ? this.db.prepare("SELECT * FROM raw_entries WHERE project_key=? AND session_id=? ORDER BY created_at,revision,rowid").all(projectKey,sessionId) : this.db.prepare("SELECT * FROM raw_entries WHERE project_key=? ORDER BY created_at,session_id,entry_id,revision").all(projectKey); return toRawEntries(rows); }
+  /** The same rows in the same order as readRaw for one session, read in keyset pages that yield between batches. */
+  async readSessionRaw(sessionId: string, slice: EventLoopSlice): Promise<RawEntry[]> {
+    const entries: RawEntry[] = [];
+    let cursor: { createdAt: number; revision: number; rowid: number } | undefined;
+    for (;;) {
+      this.guard();
+      const rows = (cursor
+        ? this.db.prepare("SELECT rowid AS lcm_rowid,* FROM raw_entries WHERE project_key=? AND session_id=? AND (created_at,revision,rowid)>(?,?,?) ORDER BY created_at,revision,rowid LIMIT ?").all(this.project.key, sessionId, cursor.createdAt, cursor.revision, cursor.rowid, LCM_SCAN_BATCH)
+        : this.db.prepare("SELECT rowid AS lcm_rowid,* FROM raw_entries WHERE project_key=? AND session_id=? ORDER BY created_at,revision,rowid LIMIT ?").all(this.project.key, sessionId, LCM_SCAN_BATCH)) as Array<Record<string, unknown>>;
+      for (const row of rows) entries.push(toRawEntry(row));
+      const last = rows.at(-1);
+      if (!last || rows.length < LCM_SCAN_BATCH) return entries;
+      cursor = { createdAt: Number(last.created_at), revision: Number(last.revision), rowid: Number(last.lcm_rowid) };
+      await slice.pause();
+    }
+  }
   readRawPage(projectKey = this.project.key, sessionId?: string, offset = 0, limit = 100): RawEntry[] { if (!Number.isSafeInteger(offset) || offset < 0 || !Number.isSafeInteger(limit) || limit < 1) throw new Error("invalid raw page"); this.guard(); this.assertProjectKey(projectKey); const rows = sessionId ? this.db.prepare("SELECT * FROM raw_entries WHERE project_key=? AND session_id=? ORDER BY created_at,revision,rowid LIMIT ? OFFSET ?").all(projectKey,sessionId,limit,offset) : this.db.prepare("SELECT * FROM raw_entries WHERE project_key=? ORDER BY created_at,session_id,entry_id,revision LIMIT ? OFFSET ?").all(projectKey,limit,offset); return toRawEntries(rows); }
   readRawEntry(projectKey: string, sessionId: string, entryId: string, revision: number): RawEntry | undefined { this.guard(); this.assertProjectKey(projectKey); const row = this.db.prepare("SELECT * FROM raw_entries WHERE project_key=? AND session_id=? AND entry_id=? AND revision=?").get(projectKey,sessionId,entryId,revision) as Record<string, unknown> | undefined; return row ? toRawEntry(row) : undefined; }
   searchRaw(projectKey: string | undefined, options: LcmSearchOptions): LcmSearchPage {
@@ -477,5 +514,5 @@ ALTER TABLE summary_node_revisions_next RENAME TO summary_node_revisions;`);
     fs.writeFileSync(`${backupManifest.destination}.delete-manifest.json`, JSON.stringify(audit), { mode: 0o600 });
   }
   private serializeSync<T>(operation: () => T): T { this.guard(); return operation(); }
-  close() { if (this.closed) return; this.db.close(); this.closed = true; }
+  close() { if (this.closed) return; this.closing.abort(); this.db.close(); this.closed = true; }
 }

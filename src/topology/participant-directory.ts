@@ -235,6 +235,22 @@ export interface ParticipantDirectoryOptions {
 
 export type ParticipantSnapshotSource = () => FabricParticipantRecord[];
 
+interface DirectoryIndex {
+  revision: number;
+  hosts: Map<string, FabricHostRecord>;
+  participants: { entry: MeshStateEntry; participant: FabricParticipantRecord }[];
+  participantsById: Map<string, FabricParticipantRecord>;
+  legacySessions: readonly MeshStateEntry[];
+  legacyActors: readonly MeshStateEntry[];
+}
+
+interface ProjectMemo {
+  revision: number;
+  after: number;
+  until: number;
+  byId: Map<string, FabricParticipantInfo>;
+}
+
 export class ParticipantDirectory implements FabricParticipantSource {
   readonly #sources = new Set<ParticipantSnapshotSource>();
   readonly #startedAt = Date.now();
@@ -247,6 +263,8 @@ export class ParticipantDirectory implements FabricParticipantSource {
   #refreshScheduled = false;
   #refreshAgain = false;
   #quiescing = false;
+  #index: DirectoryIndex | undefined;
+  #projectMemo: ProjectMemo | undefined;
 
   constructor(
     readonly mesh: MeshStore,
@@ -330,18 +348,89 @@ export class ParticipantDirectory implements FabricParticipantSource {
       if (!options.kinds || options.kinds.includes(self.kind)) byId.set(self.id, self);
       return [...byId.values()];
     }
-    const hosts = new Map(
-      this.mesh
-        .listAll(HOST_PREFIX)
-        .flatMap((entry) => {
-          const host = hostFromEntry(entry);
-          return host ? [[host.id, host] as const] : [];
-        }),
+    const byId = this.#collect(options, now, this.#currentIndex());
+    const self = this.self(now);
+    if (
+      (!options.kinds || options.kinds.includes(self.kind)) &&
+      options.scope !== "project" &&
+      !byId.has(self.id)
+    ) {
+      byId.set(self.id, self);
+    }
+    return structuredClone(
+      [...byId.values()].sort(
+        (left, right) =>
+          left.startedAt - right.startedAt || left.name.localeCompare(right.name) || left.id.localeCompare(right.id),
+      ),
     );
-    const byId = new Map<string, FabricParticipantInfo>();
-    for (const entry of this.mesh.listAll(PARTICIPANT_PREFIX)) {
+  }
+
+  get(id: string, now = Date.now()): FabricParticipantInfo | undefined {
+    const target = id === "main" ? this.options.rootId : id;
+    if (!this.options.enabled) {
+      return this.list({ scope: "project" }, now).find((participant) => participant.id === target);
+    }
+    const found = this.#projectParticipants(now).get(target);
+    return found ? structuredClone(found) : undefined;
+  }
+
+  #currentIndex(): DirectoryIndex {
+    const revision = this.mesh.stateRevision();
+    if (this.#index?.revision === revision) return this.#index;
+    const hosts = new Map<string, FabricHostRecord>();
+    for (const entry of this.mesh.scan(HOST_PREFIX)) {
+      const host = hostFromEntry(entry);
+      if (host) hosts.set(host.id, host);
+    }
+    const participants: DirectoryIndex["participants"] = [];
+    const participantsById = new Map<string, FabricParticipantRecord>();
+    for (const entry of this.mesh.scan(PARTICIPANT_PREFIX)) {
       const participant = participantFromEntry(entry);
       if (!participant) continue;
+      participants.push({ entry, participant });
+      if (!participantsById.has(participant.id)) participantsById.set(participant.id, participant);
+    }
+    this.#index = {
+      revision,
+      hosts,
+      participants,
+      participantsById,
+      legacySessions: this.mesh.scan(LEGACY_SESSION_PREFIX),
+      legacyActors: this.mesh.scan(LEGACY_ACTOR_PREFIX),
+    };
+    return this.#index;
+  }
+
+  #projectParticipants(now: number): Map<string, FabricParticipantInfo> {
+    const index = this.#currentIndex();
+    const memo = this.#projectMemo;
+    if (memo && memo.revision === index.revision && memo.after < now && now <= memo.until) {
+      return memo.byId;
+    }
+    let after = Number.NEGATIVE_INFINITY;
+    let until = Number.POSITIVE_INFINITY;
+    const boundary = (threshold: number): void => {
+      if (threshold < now) after = Math.max(after, threshold);
+      else until = Math.min(until, threshold);
+    };
+    for (const { participant } of index.participants) {
+      const owner = index.hosts.get(participant.ownerHostId);
+      if (owner) boundary(owner.expiresAt);
+    }
+    for (const entry of index.legacySessions) boundary(entry.updatedAt + PARTICIPANT_LEASE_MS);
+    const byId = this.#collect({ scope: "project" }, now, index);
+    this.#projectMemo = { revision: index.revision, after, until, byId };
+    return byId;
+  }
+
+  #collect(
+    options: FabricParticipantListOptions,
+    now: number,
+    index: DirectoryIndex,
+  ): Map<string, FabricParticipantInfo> {
+    const hosts = index.hosts;
+    const byId = new Map<string, FabricParticipantInfo>();
+    for (const { participant } of index.participants) {
       const owner = hosts.get(participant.ownerHostId);
       const stale =
         !owner ||
@@ -358,53 +447,38 @@ export class ParticipantDirectory implements FabricParticipantSource {
         stale,
       });
     }
-    const legacyRoots = new Map(
-      this.mesh
-        .listAll(LEGACY_SESSION_PREFIX)
-        .flatMap((entry) => {
-          const root = legacyRootFromEntry(entry, this.options.rootId, now);
-          return root ? [[root.id, root] as const] : [];
-        }),
-    );
     if (options.scope !== "local" && options.scope !== "lineage") {
+      const legacyRoots = this.#legacyRoots(index, now);
       if (!options.kinds || options.kinds.includes("root")) {
         for (const root of legacyRoots.values()) {
           if (!byId.has(root.id)) byId.set(root.id, root);
         }
       }
       if (!options.kinds || options.kinds.includes("actor")) {
-        for (const entry of this.mesh.listAll(LEGACY_ACTOR_PREFIX)) {
+        for (const entry of index.legacyActors) {
           const actor = legacyActorFromEntry(entry, legacyRoots);
           if (actor && !byId.has(actor.id)) byId.set(actor.id, actor);
         }
       }
     }
-    const self = this.self(now);
-    if (
-      (!options.kinds || options.kinds.includes(self.kind)) &&
-      options.scope !== "project" &&
-      !byId.has(self.id)
-    ) {
-      byId.set(self.id, self);
-    }
-    return [...byId.values()].sort(
-      (left, right) =>
-        left.startedAt - right.startedAt || left.name.localeCompare(right.name) || left.id.localeCompare(right.id),
-    );
+    return byId;
   }
 
-  get(id: string, now = Date.now()): FabricParticipantInfo | undefined {
-    const target = id === "main" ? this.options.rootId : id;
-    return this.list({ scope: "project" }, now).find((participant) => participant.id === target);
+  #legacyRoots(index: DirectoryIndex, now: number): Map<string, FabricParticipantInfo> {
+    const roots = new Map<string, FabricParticipantInfo>();
+    for (const entry of index.legacySessions) {
+      const root = legacyRootFromEntry(entry, this.options.rootId, now);
+      if (root) roots.set(root.id, root);
+    }
+    return roots;
   }
 
   self(now = Date.now()): FabricParticipantInfo {
-    const existing =
-      this.#localRecords.get(this.options.identity.id) ??
-      this.mesh
-        .listAll(PARTICIPANT_PREFIX)
-        .map(participantFromEntry)
-        .find((participant) => participant?.id === this.options.identity.id);
+    const local = this.#localRecords.get(this.options.identity.id);
+    const indexed = local
+      ? undefined
+      : this.#currentIndex().participantsById.get(this.options.identity.id);
+    const existing = local ?? (indexed ? structuredClone(indexed) : undefined);
     if (existing) {
       return {
         ...existing,
@@ -487,7 +561,7 @@ export class ParticipantDirectory implements FabricParticipantSource {
     await this.#refreshing?.catch(() => undefined);
     if (!this.options.enabled) return;
     const owned = this.mesh
-      .listAll(PARTICIPANT_PREFIX)
+      .scan(PARTICIPANT_PREFIX)
       .filter((entry) => participantFromEntry(entry)?.ownerHostId === this.options.hostId);
     await Promise.allSettled(owned.map((entry) => this.mesh.delete({ key: entry.key, ifVersion: entry.version })));
     const legacySessionKey = this.#legacySessionKey();
@@ -574,24 +648,14 @@ export class ParticipantDirectory implements FabricParticipantSource {
       });
     }
 
-    const existing = this.mesh
-      .listAll(PARTICIPANT_PREFIX)
-      .flatMap((entry) => {
-        const participant = participantFromEntry(entry);
-        return participant?.ownerHostId === this.options.hostId ? [{ entry, participant }] : [];
-      });
-    const existingById = new Map(existing.map((item) => [item.participant.id, item]));
-    const legacyRoots = new Map(
-      this.mesh
-        .listAll(LEGACY_SESSION_PREFIX)
-        .flatMap((entry) => {
-          const root = legacyRootFromEntry(entry, this.options.rootId, now);
-          return root ? [[root.id, root] as const] : [];
-        }),
+    const index = this.#currentIndex();
+    const existing = index.participants.filter(
+      ({ participant }) => participant.ownerHostId === this.options.hostId,
     );
+    const existingById = new Map(existing.map((item) => [item.participant.id, item]));
+    const legacyRoots = this.#legacyRoots(index, now);
     const legacyActorOwners = new Map(
-      this.mesh
-        .listAll(LEGACY_ACTOR_PREFIX)
+      index.legacyActors
         .flatMap((entry) => {
           const actor = legacyActorFromEntry(entry, legacyRoots);
           return actor ? [[actor.id, actor.ownerIdentityId] as const] : [];

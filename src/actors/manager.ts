@@ -279,6 +279,7 @@ export class ActorManager {
   readonly #claimResidency: FabricParticipantResidency | undefined;
   readonly #rootId: string;
   readonly #meshCursorPath: string | undefined;
+  #writtenMeshCursor: number | undefined;
   readonly #relayParticipantSteering: boolean;
   readonly #retention: FabricRetentionConfig;
   readonly #acquireCapabilityView:
@@ -1063,9 +1064,10 @@ export class ActorManager {
   }
 
   #writeMeshCursor(): void {
-    if (!this.#meshCursorPath) return;
+    if (!this.#meshCursorPath || this.#writtenMeshCursor === this.#meshOffset) return;
     try {
       atomicWrite(this.#meshCursorPath, { format: 1, cursor: this.#meshOffset });
+      this.#writtenMeshCursor = this.#meshOffset;
     } catch {
       // Cursor persistence is best-effort; replay resumes from the latest safe cursor.
     }

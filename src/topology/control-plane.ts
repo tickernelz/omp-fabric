@@ -1,4 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
+import fs from "node:fs";
+import path from "node:path";
 import type { FabricActorRunBinding } from "../actors/types.js";
 import { MeshStore, type MeshEvent, type MeshIdentity } from "../mesh/store.js";
 
@@ -6,6 +8,8 @@ const CONTROL_TOPIC = "fabric.control.command";
 const ACK_TOPIC = "fabric.control.ack";
 const CONTROL_SEEN_PREFIX = "topology/control-seen/";
 const DEFAULT_POLL_MS = 100;
+const MAX_IDLE_POLL_MS = 1_000;
+const ACTIVE_WINDOW_MS = 3_000;
 const DEFAULT_ACK_TIMEOUT_MS = 5_000;
 const DEFAULT_RESULT_TIMEOUT_MS = 60 * 60 * 1_000;
 const MAX_CONTROL_TIMEOUT_MS = 24 * 60 * 60 * 1_000 + 60_000;
@@ -145,10 +149,14 @@ export class FabricControlPlane {
   >();
   readonly #activeHandlers = new Set<Promise<void>>();
   readonly #pollMs: number;
+  readonly #idlePollMs: number;
   readonly #ackTimeoutMs: number;
   #offset: number;
   #lastSequence: number;
   #timer: NodeJS.Timeout | undefined;
+  #delay = 0;
+  #lastActivityAt = 0;
+  #watcher: fs.FSWatcher | undefined;
   #polling: Promise<void> | undefined;
   #closed = false;
   #handler: FabricControlHandler | undefined;
@@ -161,6 +169,10 @@ export class FabricControlPlane {
   ) {
     this.#pollMs = Math.max(20, options.pollMs ?? DEFAULT_POLL_MS);
     this.#ackTimeoutMs = Math.max(this.#pollMs * 4, options.acknowledgementTimeoutMs ?? DEFAULT_ACK_TIMEOUT_MS);
+    this.#idlePollMs = Math.max(
+      this.#pollMs,
+      Math.min(MAX_IDLE_POLL_MS, Math.floor(this.#ackTimeoutMs / 4)),
+    );
     // Replay the retained log from its current generation. Durable claims
     // recover unclaimed commands and make interrupted outcomes explicit without re-execution.
     this.#offset = 0;
@@ -171,8 +183,57 @@ export class FabricControlPlane {
     this.#handler = handler;
     if (!this.options.enabled || this.#timer) return;
     this.#closed = false;
-    this.#timer = setInterval(() => void this.#poll().catch(() => undefined), this.#pollMs);
-    this.#timer.unref();
+    this.#lastActivityAt = Date.now();
+    this.#watch();
+    this.#schedule(this.#pollMs);
+  }
+
+  #schedule(delay: number): void {
+    if (this.#timer) clearTimeout(this.#timer);
+    this.#delay = delay;
+    const timer = setTimeout(() => {
+      void this.#poll()
+        .catch(() => undefined)
+        .finally(() => {
+          if (this.#timer === timer && !this.#closed) this.#schedule(this.#nextDelay());
+        });
+    }, delay);
+    timer.unref();
+    this.#timer = timer;
+  }
+
+  #nextDelay(): number {
+    if (
+      this.#pending.size > 0 ||
+      this.#activeCommands.size > 0 ||
+      Date.now() - this.#lastActivityAt < ACTIVE_WINDOW_MS
+    ) {
+      return this.#pollMs;
+    }
+    return Math.min(this.#idlePollMs, Math.max(this.#pollMs, this.#delay * 2));
+  }
+
+  #wake(): void {
+    this.#lastActivityAt = Date.now();
+    if (!this.#timer || this.#closed || this.#delay <= this.#pollMs) return;
+    this.#schedule(this.#pollMs);
+  }
+
+  #watch(): void {
+    if (process.platform === "win32" || this.#watcher) return;
+    try {
+      const watcher = fs.watch(this.mesh.root, { persistent: false }, (_event, filename) => {
+        if (filename !== null && path.basename(filename.toString()) !== "events.jsonl") return;
+        this.#wake();
+      });
+      watcher.on("error", () => {
+        watcher.close();
+        if (this.#watcher === watcher) this.#watcher = undefined;
+      });
+      this.#watcher = watcher;
+    } catch {
+      this.#watcher = undefined;
+    }
   }
 
   async request(
@@ -258,6 +319,7 @@ export class FabricControlPlane {
       };
       pendingRequest = pending;
       this.#pending.set(commandId, pending);
+      this.#wake();
       if (options.signal) {
         const onAbort = (): void => {
           const cancelled = this.#clearPending(commandId);
@@ -349,8 +411,10 @@ export class FabricControlPlane {
 
   async close(): Promise<void> {
     if (this.#closed) return;
-    if (this.#timer) clearInterval(this.#timer);
+    if (this.#timer) clearTimeout(this.#timer);
     this.#timer = undefined;
+    this.#watcher?.close();
+    this.#watcher = undefined;
     await this.#polling?.catch(() => undefined);
     await this.#drain().catch(() => undefined);
     this.#closed = true;
@@ -383,6 +447,7 @@ export class FabricControlPlane {
     while (true) {
       const tail = this.mesh.tail(this.#offset, 100);
       this.#offset = tail.nextOffset;
+      if (tail.events.length > 0) this.#lastActivityAt = Date.now();
       for (const event of tail.events) {
         if (event.sequence <= this.#lastSequence) continue;
         this.#lastSequence = event.sequence;
@@ -588,7 +653,7 @@ export class FabricControlPlane {
   async #cleanupSeen(now: number): Promise<void> {
     if (now - this.#seenCleanupAt < this.#ackTimeoutMs) return;
     this.#seenCleanupAt = now;
-    const candidates = this.mesh.listAll(CONTROL_SEEN_PREFIX).flatMap((entry) => {
+    const candidates = this.mesh.scan(CONTROL_SEEN_PREFIX).flatMap((entry) => {
       const record = controlSeenRecord(entry.value);
       return !record || record.expiresAt < now ? [{ entry, record }] : [];
     });

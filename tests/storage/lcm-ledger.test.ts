@@ -135,12 +135,12 @@ describe("LCM ledger", () => {
     expect(capped.scanned).toBe(1);
     expect(capped.complete).toBe(false);
   });
-  it("backfills the full-text index of an existing populated ledger and stays verifiable", () => {
+  it("backfills the full-text index of an existing populated ledger and stays verifiable", async () => {
     const d = make(); const dbPath = path.join(d, "legacy.sqlite");
     const key = canonicalProjectIdentity({ liveCwd: d }).key;
     legacyLedger(dbPath, key, ["historic quasariform record", "unrelated line"]);
     const l = openLedger({ dbPath, project: { liveCwd: d } });
-    l.runStartupChecks();
+    await l.runStartupChecks();
     expect(l.migrations.find(report => report.name === "raw-entries-fts")).toMatchObject({ applied: true, counts: { indexed: 2 } });
     expect((l.db.prepare("PRAGMA integrity_check").get() as { integrity_check: string }).integrity_check).toBe("ok");
     const page = l.searchRaw(undefined, { query: "quasariform", mode: "literal", offset: 0, limit: 5 });
@@ -148,7 +148,7 @@ describe("LCM ledger", () => {
     expect(page.complete).toBe(true);
     expect(l.backup(path.join(d, "backup.sqlite")).integrity).toBe("ok");
   });
-  it("quarantines orphaned derived rows instead of dropping them silently", () => {
+  it("quarantines orphaned derived rows instead of dropping them silently", async () => {
     const d = make(); const dbPath = path.join(d, "legacy.sqlite");
     const key = canonicalProjectIdentity({ liveCwd: d }).key;
     legacyLedger(dbPath, key, ["one"]);
@@ -161,7 +161,7 @@ describe("LCM ledger", () => {
     seed.exec("COMMIT");
     seed.close();
     const l = openLedger({ dbPath, project: { liveCwd: d } });
-    l.runStartupChecks();
+    await l.runStartupChecks();
     expect(l.migrations.find(report => report.name === "derived-foreign-keys")?.counts).toEqual({ summary_edges: 1, summary_node_revisions: 1 });
     expect((l.db.prepare("SELECT count(*) n FROM summary_edges").get() as { n: number }).n).toBe(1);
     const quarantined = l.db.prepare("SELECT table_name,row_json FROM orphaned_rows ORDER BY table_name").all() as Array<{ table_name: string; row_json: string }>;
@@ -185,12 +185,12 @@ describe("LCM ledger", () => {
       expect((l.db.prepare(`SELECT count(*) n FROM ${table}`).get() as { n: number }).n).toBe(0);
     }
   });
-  it("keeps searching without an fts5 module and marks the page incomplete", () => {
+  it("keeps searching without an fts5 module and marks the page incomplete", async () => {
     const base = sqliteDriver() as unknown as { new (target: string, options?: unknown): { exec(sql: string): void } };
     setSqliteDriver(class extends base { exec(sql: string) { if (/using\s+fts5/i.test(sql)) throw new Error("no such module: fts5"); return super.exec(sql); } } as unknown as SqliteDriver);
     try {
       const d = make(); const l = openLedger({ dbPath: path.join(d, "a.sqlite"), project: { liveCwd: d } });
-      l.runStartupChecks();
+      await l.runStartupChecks();
       expect(l.ftsAvailable).toBe(false);
       expect(l.migrations.find(report => report.name === "raw-entries-fts")).toMatchObject({ applied: false });
       l.appendRaw(entry(l.project.key, "durable haystack needle", "e1"));
@@ -200,7 +200,7 @@ describe("LCM ledger", () => {
       expect(l.searchRaw(undefined, { mode: "literal", offset: 0, limit: 5 }).complete).toBe(true);
     } finally { setSqliteDriver(undefined); }
   });
-  it("keeps appending without fts5 and re-syncs the index on the next capable open", () => {
+  it("keeps appending without fts5 and re-syncs the index on the next capable open", async () => {
     const d = make(); const dbPath = path.join(d, "a.sqlite");
     const healthy = openLedger({ dbPath, project: { liveCwd: d } });
     expect(healthy.ftsAvailable).toBe(true);
@@ -215,7 +215,7 @@ describe("LCM ledger", () => {
       blind.close();
     } finally { setSqliteDriver(undefined); }
     const healed = openLedger({ dbPath, project: { liveCwd: d } });
-    healed.runStartupChecks();
+    await healed.runStartupChecks();
     expect(healed.migrations.find(report => report.name === "raw-entries-fts")).toMatchObject({ applied: true, counts: { indexed: 2 } });
     const page = healed.searchRaw(undefined, { query: "blind", mode: "literal", offset: 0, limit: 5 });
     expect(page.rows.map(row => row.entryId)).toEqual(["e2"]);
@@ -228,7 +228,7 @@ describe("LCM ledger", () => {
     expect(l.readRawPage(l.project.key, "s1", 0, 3).map(row => row.entryId)).toEqual(["e1", "e2", "e3"]);
     expect(l.searchRaw(undefined, { sessionId: "s1", mode: "literal", offset: 0, limit: 3 }).rows.map(row => row.entryId)).toEqual(["e3", "e2", "e1"]);
   });
-  it("purges the deleted project's quarantined rows and reports an honest remaining count", () => {
+  it("purges the deleted project's quarantined rows and reports an honest remaining count", async () => {
     const d = make(); const dbPath = path.join(d, "legacy.sqlite"); const backup = path.join(d, "backup.sqlite");
     const key = canonicalProjectIdentity({ liveCwd: d }).key;
     legacyLedger(dbPath, key, ["retained line"]);
@@ -242,7 +242,7 @@ describe("LCM ledger", () => {
     seed.exec("COMMIT");
     seed.close();
     const l = openLedger({ dbPath, project: { liveCwd: d } });
-    l.runStartupChecks();
+    await l.runStartupChecks();
     expect((l.db.prepare("SELECT count(*) n FROM orphaned_rows").get() as { n: number }).n).toBe(3);
     l.appendRaw(entry(l.project.key, RAW_MARKER, "e-raw"));
     l.deleteProject(createDeleteConfirmationToken(l.project.key), l.backup(backup));

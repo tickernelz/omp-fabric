@@ -449,4 +449,49 @@ describe("ParticipantDirectory", () => {
     expect(directory.mesh.listAll("topology/hosts/")).toHaveLength(1);
     expect(directory.mesh.listAll("topology/participants/")).toHaveLength(1);
   });
+
+  it("answers get from one memoized snapshot per state revision", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-topology-"));
+    roots.push(root);
+    const meshRoot = path.join(root, "mesh");
+    const alphaIdentity: MeshIdentity = {
+      id: "session:alpha",
+      name: "main",
+      kind: "main",
+      sessionId: "alpha",
+    };
+    const betaIdentity: MeshIdentity = {
+      id: "session:beta",
+      name: "main",
+      kind: "main",
+      sessionId: "beta",
+    };
+    const alpha = createDirectory(meshRoot, alphaIdentity, alphaIdentity.id, () => [
+      rootRecord(alphaIdentity.id, alphaIdentity.id, "alpha"),
+      agentRecord("agent:alpha-child", alphaIdentity.id, alphaIdentity.id, alphaIdentity.id),
+    ]);
+    await alpha.start();
+    const listAll = vi.spyOn(alpha.mesh, "listAll");
+    expect(alpha.get("agent:alpha-child")).toMatchObject({
+      ownerHostId: alphaIdentity.id,
+      local: true,
+    });
+    expect(listAll).not.toHaveBeenCalled();
+    const scan = vi.spyOn(alpha.mesh, "scan");
+    for (let tick = 0; tick < 20; tick++) {
+      expect(alpha.get("agent:alpha-child")?.ownerHostId).toBe(alphaIdentity.id);
+      expect(alpha.get("agent:missing")).toBeUndefined();
+    }
+    expect(scan).not.toHaveBeenCalled();
+    alpha.get("agent:alpha-child")!.capabilities.push("ask");
+    expect(alpha.get("agent:alpha-child")?.capabilities).toEqual(["steer", "followUp", "stop"]);
+
+    const beta = createDirectory(meshRoot, betaIdentity, betaIdentity.id, () => [
+      rootRecord(betaIdentity.id, betaIdentity.id, "beta"),
+    ]);
+    await beta.start();
+    expect(alpha.get(betaIdentity.id)).toMatchObject({ ownerHostId: betaIdentity.id, local: false });
+    expect(alpha.get(betaIdentity.id, Date.now() + 60_000)).toBeUndefined();
+    expect(listAll).not.toHaveBeenCalled();
+  });
 });

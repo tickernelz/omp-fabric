@@ -172,6 +172,28 @@ const atomicWrite = (filePath: string, value: unknown, maxBytes = Number.POSITIV
   writeFileAtomic(filePath, serialized);
 };
 
+const fileFingerprint = (filePath: string): string | undefined => {
+  try {
+    const stat = fs.statSync(filePath, { throwIfNoEntry: false });
+    return stat ? `${stat.dev}:${stat.ino}:${stat.size}:${stat.mtimeMs}` : "missing";
+  } catch {
+    return undefined;
+  }
+};
+
+interface MeshStateCache {
+  device: number;
+  inode: number;
+  size: number;
+  modifiedAt: number;
+  state: MeshStateFile;
+  revision: number;
+  sorted?: MeshStateEntry[];
+  byPrefix?: Map<string, MeshStateEntry[]>;
+}
+
+const MAX_IDLE_TAIL_CURSORS = 64;
+
 const compactStateTombstones = (state: MeshStateFile, maxTombstones: number): void => {
   state.versions ??= {};
   const orderedKeys: string[] = [];
@@ -206,9 +228,10 @@ export class MeshStore {
   readonly #maxStateTombstones: number;
   readonly #lockTimeoutMs: number;
   readonly #staleLockMs: number;
-  #stateCache:
-    | { device: number; inode: number; size: number; modifiedAt: number; state: MeshStateFile }
-    | undefined;
+  #stateCache: MeshStateCache | undefined;
+  #stateRevision = 0;
+  #generationCache: { fingerprint: string; value: number } | undefined;
+  #idleTail: { fingerprint: string; cursors: Set<number> } | undefined;
 
   constructor(
     readonly root: string,
@@ -332,7 +355,32 @@ export class MeshStore {
 
   tail(cursor: number, limit = 100): MeshTailResult {
     const boundedLimit = Math.max(1, Math.min(Math.floor(limit), this.maxReadEvents));
-    const generation = this.#readGeneration();
+    const generationFingerprint = fileFingerprint(this.#generationPath);
+    const eventsFingerprint = fileFingerprint(this.#eventsPath);
+    const fingerprint =
+      generationFingerprint !== undefined && eventsFingerprint !== undefined
+        ? `${eventsFingerprint}|${generationFingerprint}`
+        : undefined;
+    const idle = this.#idleTail;
+    if (fingerprint !== undefined && idle?.fingerprint === fingerprint && idle.cursors.has(cursor)) {
+      return { events: [], nextOffset: cursor };
+    }
+    const result = this.#readTail(cursor, boundedLimit, generationFingerprint);
+    if (fingerprint !== undefined && result.events.length === 0 && result.nextOffset === cursor) {
+      if (this.#idleTail?.fingerprint !== fingerprint) {
+        this.#idleTail = { fingerprint, cursors: new Set() };
+      }
+      if (this.#idleTail.cursors.size < MAX_IDLE_TAIL_CURSORS) this.#idleTail.cursors.add(cursor);
+    }
+    return result;
+  }
+
+  #readTail(
+    cursor: number,
+    boundedLimit: number,
+    generationFingerprint: string | undefined,
+  ): MeshTailResult {
+    const generation = this.#readGeneration(generationFingerprint);
     const decoded = this.#decodeCursor(cursor);
     let descriptor: number | undefined;
     try {
@@ -499,16 +547,33 @@ export class MeshStore {
 
   list(prefix = "", limit = 100): MeshStateEntry[] {
     const boundedLimit = Math.max(1, Math.min(Math.floor(limit), this.maxReadEvents));
-    return this.listAll(prefix).slice(0, boundedLimit);
+    return this.scan(prefix).slice(0, boundedLimit).map((entry) => jsonClone(entry));
   }
 
   /** Internal project-state scan for host-managed indexes that must reconcile every key. */
   listAll(prefix = ""): MeshStateEntry[] {
+    return this.scan(prefix).map((entry) => jsonClone(entry));
+  }
+
+  /** Shared key-sorted entries of the current state revision; callers must not mutate them. */
+  scan(prefix = ""): readonly MeshStateEntry[] {
     if (prefix) this.#validateKey(prefix);
-    return Object.values(this.#readCachedState().entries)
-      .filter((entry) => !prefix || entry.key.startsWith(prefix))
-      .sort((left, right) => left.key.localeCompare(right.key))
-      .map((entry) => jsonClone(entry));
+    const cache = this.#currentStateCache();
+    cache.sorted ??= Object.values(cache.state.entries).sort((left, right) =>
+      left.key.localeCompare(right.key),
+    );
+    if (!prefix) return cache.sorted;
+    cache.byPrefix ??= new Map();
+    let matched = cache.byPrefix.get(prefix);
+    if (!matched) {
+      matched = cache.sorted.filter((entry) => entry.key.startsWith(prefix));
+      cache.byPrefix.set(prefix, matched);
+    }
+    return matched;
+  }
+
+  stateRevision(): number {
+    return this.#currentStateCache().revision;
   }
 
   async put(input: {
@@ -599,41 +664,62 @@ export class MeshStore {
   }
 
   #readCachedState(): MeshStateFile {
+    return this.#currentStateCache().state;
+  }
+
+  #currentStateCache(): MeshStateCache {
+    let stat: fs.Stats | undefined;
     try {
-      const stat = fs.statSync(this.#statePath);
-      const cached = this.#stateCache;
-      if (
-        cached &&
-        cached.device === stat.dev &&
-        cached.inode === stat.ino &&
-        cached.size === stat.size &&
-        cached.modifiedAt === stat.mtimeMs
-      ) {
-        return cached.state;
-      }
+      stat = fs.statSync(this.#statePath, { throwIfNoEntry: false });
     } catch (error) {
       this.#stateCache = undefined;
-      if (errorCode(error) === "ENOENT") return { format: 1, entries: {} };
       throw error;
     }
+    const cached = this.#stateCache;
+    if (!stat) {
+      if (cached && cached.inode === -1) return cached;
+      return this.#storeStateCache({ format: 1, entries: {} }, -1, -1, -1, -1);
+    }
+    if (
+      cached &&
+      cached.device === stat.dev &&
+      cached.inode === stat.ino &&
+      cached.size === stat.size &&
+      cached.modifiedAt === stat.mtimeMs
+    ) {
+      return cached;
+    }
     const state = readState(this.#statePath, this.#maxStateBytes);
-    this.#cacheState(state);
-    return state;
+    return this.#storeStateCache(state, stat.dev, stat.ino, stat.size, stat.mtimeMs);
   }
 
   #cacheState(state: MeshStateFile): void {
     try {
       const stat = fs.statSync(this.#statePath);
-      this.#stateCache = {
-        device: stat.dev,
-        inode: stat.ino,
-        size: stat.size,
-        modifiedAt: stat.mtimeMs,
-        state,
-      };
+      this.#storeStateCache(state, stat.dev, stat.ino, stat.size, stat.mtimeMs);
     } catch {
       this.#stateCache = undefined;
     }
+  }
+
+  #storeStateCache(
+    state: MeshStateFile,
+    device: number,
+    inode: number,
+    size: number,
+    modifiedAt: number,
+  ): MeshStateCache {
+    this.#stateRevision += 1;
+    const cache: MeshStateCache = {
+      device,
+      inode,
+      size,
+      modifiedAt,
+      state,
+      revision: this.#stateRevision,
+    };
+    this.#stateCache = cache;
+    return cache;
   }
 
   async #withLock<T>(operation: () => T): Promise<T> {
@@ -714,13 +800,20 @@ export class MeshStore {
     }
   }
 
-  #readGeneration(): number {
-    try {
-      const parsed: unknown = JSON.parse(fs.readFileSync(this.#generationPath, "utf8"));
-      return typeof parsed === "number" && Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : 0;
-    } catch {
-      return 0;
+  #readGeneration(fingerprint = fileFingerprint(this.#generationPath)): number {
+    const cached = this.#generationCache;
+    if (fingerprint !== undefined && cached?.fingerprint === fingerprint) return cached.value;
+    let value = 0;
+    if (fingerprint !== "missing") {
+      try {
+        const parsed: unknown = JSON.parse(fs.readFileSync(this.#generationPath, "utf8"));
+        if (typeof parsed === "number" && Number.isSafeInteger(parsed) && parsed >= 0) value = parsed;
+      } catch {
+        value = 0;
+      }
     }
+    if (fingerprint !== undefined) this.#generationCache = { fingerprint, value };
+    return value;
   }
 
   #encodeCursor(generation: number, offset: number): number {

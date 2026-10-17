@@ -4,6 +4,7 @@ import path from "node:path";
 import { sqliteDriver, type SqliteDatabase } from "./sqlite.js";
 import { sessionsDirRoot, sessionDirNamesForCwd } from "../memory/discovery.js";
 import { canonicalLcmEntry, canonicalLcmPayload, canonicalProjectIdentity, defaultLedgerPath, LcmLedger } from "./lcm-ledger.js";
+import { EventLoopSlice } from "../core/event-loop-slice.js";
 
 export interface MigrationOptions {
   agentDir: string;
@@ -25,6 +26,8 @@ export interface MigrationOptions {
   maxLineBytes?: number;
   maxTotalBytes?: number;
   onProgress?: (progress: MigrationProgress) => void;
+  slice?: EventLoopSlice;
+  signal?: AbortSignal;
 }
 interface MigrationProgress {
   projectKey: string;
@@ -190,11 +193,13 @@ export function discoverMigrationSessions(options: MigrationOptions): { files: s
   return { files: [...files].sort(), incomplete };
 }
 const CHECKPOINT_SCHEMA =   "CREATE TABLE IF NOT EXISTS migration_checkpoints (project_key TEXT NOT NULL, session_path TEXT NOT NULL, source_hash TEXT NOT NULL, line_ordinal INTEGER NOT NULL, entry_id TEXT NOT NULL, content_hash TEXT NOT NULL, PRIMARY KEY(project_key,session_path,source_hash,line_ordinal,entry_id,content_hash))";
-export function reconcileSession(options: Omit<MigrationOptions, "files"> & { files: [string] }): MigrationResult {
+export function reconcileSession(options: Omit<MigrationOptions, "files"> & { files: [string] }): Promise<MigrationResult> {
   return migrateSessions({ ...options, onDemand: true });
 }
 
-export function migrateSessions(options: MigrationOptions): MigrationResult {
+/** Imports session files line by line, yielding to the event loop between lines once a slice exceeds its budget. */
+export async function migrateSessions(options: MigrationOptions): Promise<MigrationResult> {
+  const slice = options.slice ?? new EventLoopSlice();
   const window = migrationWindow(options);
   const maxFileBytes = positive(options.maxFileBytes, 64 * 1024 ** 2);
   const maxLineBytes = positive(options.maxLineBytes, 8 * 1024 ** 2);
@@ -211,6 +216,8 @@ export function migrateSessions(options: MigrationOptions): MigrationResult {
   const drops = result.drops;
   const drySeen = new Set<string>();
   files: for (const [position, file] of discovery.files.entries()) {
+    await slice.pause();
+    if (options.signal?.aborted) break;
     const read = readSource(file, maxFileBytes, maxTotalBytes - result.bytesScanned);
     counts.raced += read.raced;
     if (read.kind !== "data") {
@@ -238,6 +245,8 @@ export function migrateSessions(options: MigrationOptions): MigrationResult {
     let ordinal = 0;
     try {
       for (let start = 0; start < data.length;) {
+        if (slice.due) await slice.yield();
+        if (options.signal?.aborted) break;
         ordinal++;
         const newline = data.indexOf(10, start);
         const end = newline < 0 ? data.length : newline;
@@ -264,7 +273,7 @@ export function migrateSessions(options: MigrationOptions): MigrationResult {
             if (options.ledger) ledger = options.ledger;
             else if (options.ledgerRoot) ledger = new LcmLedger({ rootDir: options.ledgerRoot, project: { recordedCwd: cwd } });
             else ledger = new LcmLedger({ project: { recordedCwd: cwd } });
-            ledger.runStartupChecks();
+            await ledger.runStartupChecks();
             database = ledger.db;
             database.exec(CHECKPOINT_SCHEMA);
           } else if (options.ledger) database = options.ledger.db;

@@ -9,7 +9,8 @@ import { GrepTool, MULTI_FILE_PER_FILE_MATCHES, SINGLE_FILE_MATCHES } from "@oh-
 import { ReadTool } from "@oh-my-pi/pi-coding-agent/tools/read";
 import { WaitTool } from "@oh-my-pi/pi-coding-agent/tools/wait";
 import { piEscapeRegexLiteral, piJoinPath } from "@oh-my-pi/pi-ai/providers/cursor-pi-args";
-import { Settings, type ToolSession } from "@oh-my-pi/pi-coding-agent";
+import { AgentRegistry, Settings, type ToolSession } from "@oh-my-pi/pi-coding-agent";
+import { cfgTaskMaxRecursionDepth } from "@oh-my-pi/pi-coding-agent/task/settings";
 import {
   createFindToolDefinition,
   createGrepToolDefinition,
@@ -60,7 +61,38 @@ export interface OmpSessionIdentity {
   getSessionFile?: () => string | null;
   modelRegistry?: NonNullable<ToolSession["modelRegistry"]>;
   getActiveModelString?: () => string | undefined;
+  getAgentRegistry?: () => AgentRegistry | undefined;
+  getAgentId?: () => string | null;
+  getTaskDepth?: () => number;
+  getTaskMaxRecursionDepth?: () => number | undefined;
 }
+
+type HostAgentIdentity = Required<
+  Pick<OmpSessionIdentity, "getAgentRegistry" | "getAgentId" | "getTaskDepth" | "getTaskMaxRecursionDepth">
+>;
+
+/** Peer-messaging identity of the host session an extension context serves. */
+export const hostAgentIdentity = (
+  context: Pick<ExtensionContext, "sessionManager"> & { agent?: ExtensionContext["agent"] | undefined },
+): HostAgentIdentity => {
+  const liveHost = () => {
+    const agentId = context.agent?.id;
+    if (!agentId) return undefined;
+    const registry = AgentRegistry.global();
+    const session = registry.get(agentId)?.session;
+    if (!session || session.sessionManager.getSessionId() !== context.sessionManager.getSessionId()) return undefined;
+    return { registry, session };
+  };
+  return {
+    getAgentRegistry: () => liveHost()?.registry,
+    getAgentId: () => context.agent?.id ?? null,
+    getTaskDepth: () => context.agent?.depth ?? 0,
+    getTaskMaxRecursionDepth: () => {
+      const settings = liveHost()?.session.settings;
+      return settings ? cfgTaskMaxRecursionDepth.get(settings) : undefined;
+    },
+  };
+};
 
 let sessionIdentity: OmpSessionIdentity | undefined;
 
@@ -80,16 +112,58 @@ interface NativeSessionOptions {
   identity?: OmpSessionIdentity | undefined;
   imageQuestions?: boolean | undefined;
   autoBackground?: (() => boolean) | undefined;
+  messaging?: boolean | undefined;
 }
+
+const withHostMessaging = (
+  session: ToolSession,
+  identity: OmpSessionIdentity | undefined,
+  overrides: Record<string, unknown>,
+): ToolSession => {
+  let settings = session.settings;
+  let maxDepth: number | undefined;
+  return Object.defineProperties(session, {
+    getAgentId: { value: () => identity?.getAgentId?.() ?? null },
+    agentRegistry: { get: () => identity?.getAgentRegistry?.(), enumerable: true },
+    taskDepth: { get: () => identity?.getTaskDepth?.() ?? 0, enumerable: true },
+    settings: {
+      get: () => {
+        const hostMaxDepth = identity?.getTaskMaxRecursionDepth?.();
+        if (hostMaxDepth !== maxDepth) {
+          maxDepth = hostMaxDepth;
+          settings = Settings.isolated(
+            hostMaxDepth === undefined ? overrides : { ...overrides, [cfgTaskMaxRecursionDepth.id]: hostMaxDepth },
+          );
+        }
+        return settings;
+      },
+      enumerable: true,
+    },
+  });
+};
 
 const createNativeSession = (
   cwd: string,
-  { artifacts, jobs: withJobs = false, identity: ownerIdentity, imageQuestions = false, autoBackground }: NativeSessionOptions = {},
+  {
+    artifacts,
+    jobs: withJobs = false,
+    identity: ownerIdentity,
+    imageQuestions = false,
+    autoBackground,
+    messaging = false,
+  }: NativeSessionOptions = {},
 ): ToolSession => {
   const identity = ownerIdentity ?? sessionIdentity;
   const sessionId = (): string | null => identity?.getSessionId?.() ?? null;
   const jobs = withJobs ? ompJobScope(sessionId) : undefined;
-  return {
+  const settingsOverrides: Record<string, unknown> = {
+    readLineNumbers: false,
+    "read.defaultLimit": GUEST_READ_LINE_LIMIT,
+    "tools.outputMaxColumns": 0,
+    "launch.enabled": false,
+    ...shellBackgroundSettings(jobs, undefined, autoBackground),
+  };
+  const session: ToolSession = {
     cwd,
     hasUI: false,
     hasEditTool: false,
@@ -103,13 +177,7 @@ const createNativeSession = (
     ...(imageQuestions && identity?.getActiveModelString
       ? { getActiveModelString: identity.getActiveModelString }
       : {}),
-    settings: Settings.isolated({
-      readLineNumbers: false,
-      "read.defaultLimit": GUEST_READ_LINE_LIMIT,
-      "tools.outputMaxColumns": 0,
-      "launch.enabled": false,
-      ...shellBackgroundSettings(jobs, undefined, autoBackground),
-    }),
+    settings: Settings.isolated(settingsOverrides),
     ...(artifacts
       ? {
           allocateOutputArtifact: async (toolType: string) => {
@@ -128,6 +196,7 @@ const createNativeSession = (
         }
       : {}),
   };
+  return messaging ? withHostMessaging(session, identity, settingsOverrides) : session;
 };
 
 const artifactAllocations = new AsyncLocalStorage<string[]>();
@@ -981,7 +1050,7 @@ export class OmpToolsProvider implements FabricProvider {
       read: createNativeReadToolDefinition(cwd, this.#identity),
       bash: createNativeBashToolDefinition(cwd, this.#artifacts, this.#identity, this.#autoBackground),
       edit: createNativeReplaceEditToolDefinition(cwd, this.#identity),
-      write: createPreviewWriteToolDefinition(cwd, createNativeSession(cwd, { identity: this.#identity })),
+      write: createPreviewWriteToolDefinition(cwd, createNativeSession(cwd, { identity: this.#identity, messaging: true })),
       grep: createGrepDefinitionWithOptions(cwd),
       find: createFindDefinitionWithFilters(cwd),
       ls: createLsToolDefinition(cwd),

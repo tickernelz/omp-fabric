@@ -604,15 +604,17 @@ export default async function ompFabric(omp: ExtensionAPI): Promise<void> {
     void (async () => {
       await new Promise<void>((resolve) => setImmediate(resolve));
       if (!warmupCurrent()) return;
-      if (state.config.compaction.engine !== "lcm" || !lcmRuntime) return;
-      lcmRuntime.open();
+      const runtime = lcmRuntime;
+      if (state.config.compaction.engine !== "lcm" || !runtime?.owner) return;
+      await runtime.open();
       if (!warmupCurrent()) return;
-      await lcmRuntime.reconcileSelectedSession();
+      await runtime.reconcileSelectedSession();
       if (!warmupCurrent()) return;
-      await lcmRuntime.syncAndSchedule().catch(() => {});
+      await runtime.syncAndSchedule().catch(() => {});
       if (!warmupCurrent()) return;
-      lcmRuntime.sweepLedgers();
+      runtime.sweepLedgers();
     })().catch((error) => {
+      if (!warmupCurrent()) return;
       console.warn(
         `[omp-fabric] LCM ledger warmup failed: ${error instanceof Error ? error.message : String(error)}`,
       );
@@ -650,7 +652,7 @@ export default async function ompFabric(omp: ExtensionAPI): Promise<void> {
     // the program never executed (type errors, aborts).
     if (state.initialized) state.resetSpeculation();
     if (state.initialized) await state.publishHostLifecycle("omp.turn_end", event);
-    void lcmRuntime?.syncAndSchedule().catch(() => {});
+    if (lcmRuntime?.ready) void lcmRuntime.syncAndSchedule().catch(() => {});
     // A turn with new action evidence only enqueues the background compiler;
     // the hook returns without scanning session files or waiting on a lock.
     if (entropyEvidenceThisTurn) {
@@ -661,7 +663,7 @@ export default async function ompFabric(omp: ExtensionAPI): Promise<void> {
 
   omp.on("agent_end", async (event, context) => {
     if (event.willContinue === true) return;
-    await lcmRuntime?.syncAndSchedule();
+    if (lcmRuntime?.ready) await lcmRuntime.syncAndSchedule();
     const config = state.bootstrapped ? state.config : undefined;
     if (!state.initialized || !config) {
       if (config) await compactAtConfiguredThreshold(context, config);
@@ -746,7 +748,7 @@ export default async function ompFabric(omp: ExtensionAPI): Promise<void> {
 
   omp.on("message_end", (_event, _context) => {
     lcmRuntime?.markDirty();
-    lcmRuntime?.syncEntries();
+    if (lcmRuntime?.ready) lcmRuntime.syncEntries();
   });
 
   omp.on("message_end", (event) => {
@@ -799,7 +801,7 @@ export default async function ompFabric(omp: ExtensionAPI): Promise<void> {
   });
 
   omp.on("session_compact", async (event, context) => {
-    await lcmRuntime?.syncAndSchedule();
+    if (lcmRuntime?.ready) await lcmRuntime.syncAndSchedule();
     if (!state.initialized) return;
     await state.publishHostLifecycle("omp.session_compact", event);
   });

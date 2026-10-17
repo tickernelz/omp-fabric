@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   MeshStore,
   type MeshIdentity,
@@ -273,5 +273,75 @@ describe("MeshStore lock recovery", () => {
       store.publish({ topic: "team.auth", from: identity, text: "blocked" }),
     ).rejects.toThrow("Timed out waiting for the Fabric mesh lock");
     expect(fs.existsSync(lockPath)).toBe(true);
+  });
+});
+
+describe("MeshStore polling snapshots", () => {
+  it("answers an idle tail from file fingerprints and picks up the next change", async () => {
+    const store = createStore();
+    await store.publish({ topic: "team.auth", from: identity, text: "one" });
+    const first = store.tail(0, 10);
+    expect(first.events).toMatchObject([{ sequence: 1 }]);
+    expect(store.tail(first.nextOffset, 10).events).toEqual([]);
+    const readFile = vi.spyOn(fs, "readFileSync");
+    const open = vi.spyOn(fs, "openSync");
+    const read = vi.spyOn(fs, "readSync");
+    try {
+      for (let poll = 0; poll < 5; poll++) {
+        expect(store.tail(first.nextOffset, 10)).toEqual({ events: [], nextOffset: first.nextOffset });
+      }
+      expect(readFile).not.toHaveBeenCalled();
+      expect(open).not.toHaveBeenCalled();
+      expect(read).not.toHaveBeenCalled();
+
+      await store.publish({ topic: "team.auth", from: identity, text: "two" });
+      open.mockClear();
+      const second = store.tail(first.nextOffset, 10);
+      expect(second.events).toMatchObject([{ sequence: 2, text: "two" }]);
+      expect(open).toHaveBeenCalled();
+
+      const eventsPath = path.join(store.root, "events.jsonl");
+      const rotated = eventsPath + ".rotated";
+      fs.writeFileSync(
+        rotated,
+        fs.readFileSync(eventsPath, "utf8") +
+          JSON.stringify({
+            id: "external",
+            sequence: 3,
+            topic: "team.auth",
+            kind: "message",
+            from: identity,
+            text: "three",
+            createdAt: Date.now(),
+          }) +
+          "\n",
+      );
+      fs.renameSync(rotated, eventsPath);
+      expect(store.tail(second.nextOffset, 10).events).toMatchObject([
+        { sequence: 3, text: "three" },
+      ]);
+    } finally {
+      readFile.mockRestore();
+      open.mockRestore();
+      read.mockRestore();
+    }
+  });
+
+  it("reuses one sorted snapshot per state revision and clones only returned entries", async () => {
+    const store = createStore();
+    await store.put({ key: "b/one", value: { n: 1 }, identity });
+    await store.put({ key: "a/one", value: { n: 2 }, identity });
+    const revision = store.stateRevision();
+    const first = store.scan("a/");
+    expect(store.scan("a/")).toBe(first);
+    expect(store.stateRevision()).toBe(revision);
+    const listed = store.listAll("a/");
+    expect(listed).toMatchObject([{ key: "a/one", value: { n: 2 } }]);
+    (listed[0]!.value as { n: number }).n = 99;
+    expect(store.get("a/one")?.value).toEqual({ n: 2 });
+    expect(store.list("", 1).map((entry) => entry.key)).toEqual(["a/one"]);
+    await store.put({ key: "a/two", value: { n: 3 }, identity });
+    expect(store.stateRevision()).toBeGreaterThan(revision);
+    expect(store.scan("a/").map((entry) => entry.key)).toEqual(["a/one", "a/two"]);
   });
 });

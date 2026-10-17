@@ -123,6 +123,7 @@ import { McpProvider, type McpProviderHooks } from "./providers/mcp-provider.js"
 import { MemoryProvider, type MemoryProviderContext } from "./providers/memory-provider.js";
 import { MeshProvider } from "./providers/mesh-provider.js";
 import {
+  hostAgentIdentity,
   OmpToolsProvider,
   setOmpSessionIdentity,
   type FabricHostToolAuthority,
@@ -578,6 +579,7 @@ export class FabricRuntimeState {
         modelRegistry: context.modelRegistry,
         getActiveModelString: () =>
           context.model ? `${context.model.provider}/${context.model.id}` : undefined,
+        ...hostAgentIdentity(context),
       };
       setOmpSessionIdentity(sessionIdentity);
       await installBuiltin(createProviderComponent({

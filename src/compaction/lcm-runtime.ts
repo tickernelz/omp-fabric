@@ -15,6 +15,7 @@ import { lcmChecks, type LcmAutoRepair, type LcmCheck, type LcmDiagnostics, type
 import { DEFAULT_LEAF_ENTRIES, DEFAULT_MAINTENANCE_CONCURRENCY, isLcmCapacityRejection, isLcmRejection, LcmMaintenance, type LcmBudgetPolicy, type LcmJob, type LcmNode } from "./lcm-maintenance.js";
 import type { LcmCompactionInput, LcmCompactionOutput } from "./hook.js";
 import { decodeCompactionInstructions } from "./instructions.js";
+import { EventLoopSlice } from "../core/event-loop-slice.js";
 
 type LcmMaintenanceTrigger = "occupancy" | "jobs" | "backlog";
 
@@ -72,6 +73,7 @@ export interface LcmRuntimeOptions {
   maxDailyModelSeconds?: number;
   maintenanceRunSeconds?: number;
   softThresholdRatio?: number;
+  sliceMs?: number;
 }
 
 const SHUTDOWN_GRACE_MS = 500;
@@ -217,9 +219,14 @@ export class LcmRuntime {
   private persisted = new WeakMap<object, { key: string; contentHash: string }>();
   private persistedSessionId: string | undefined;
   private lastReconciliation: LcmReconciliation | undefined;
+  private reconciled = false;
+  /** Subagent sessions share the parent's ledger; only the top-level session migrates and maintains it. */
+  readonly owner: boolean;
 
   constructor(context: ExtensionContext, options: LcmRuntimeOptions | (() => LcmRuntimeOptions) = {}) {
     this.context = context;
+    const agent = (context as { agent?: { kind?: string; depth?: number } }).agent;
+    this.owner = agent?.kind !== "sub" && (agent?.depth ?? 0) === 0;
     this.resolveOptions = typeof options === "function" ? options : () => options;
     const initial = this.resolveOptions();
     const recorded = context.sessionManager.getRecordedCwd?.();
@@ -243,9 +250,11 @@ export class LcmRuntime {
     });
   }
 
-  get ready(): boolean { return this.ledger.startupChecksComplete; }
+  get ready(): boolean { return this.owner && this.reconciled && this.ledger.startupChecksComplete; }
 
-  open(): void { this.ledger.runStartupChecks(); }
+  open(): Promise<void> { return this.owner ? this.ledger.runStartupChecks() : Promise.resolve(); }
+
+  private slice(): EventLoopSlice { return new EventLoopSlice(this.options.sliceMs); }
 
   private get options(): LcmRuntimeOptions { return this.resolveOptions(); }
 
@@ -298,40 +307,48 @@ export class LcmRuntime {
   }
 
   reconcileSelectedSession(): Promise<void> {
-    if (this.closed) return Promise.resolve();
-    return this.enqueueWrite(() => {
-      const getSessionFile = this.context.sessionManager.getSessionFile;
-      if (typeof getSessionFile !== "function") return;
-      const sessionFile = getSessionFile.call(this.context.sessionManager);
-      if (!sessionFile) return;
-      const recorded = this.context.sessionManager.getRecordedCwd?.();
-      const cwd = recorded || this.context.cwd;
-      const result = reconcileSession({
-        agentDir: this.options.rootDir ?? process.env.PI_CODING_AGENT_DIR ?? `${process.env.HOME ?? "."}/.omp/agent`,
-        ledger: this.ledger,
-        files: [sessionFile],
-        liveCwd: cwd,
-        projectCwd: cwd,
-        apply: true,
-      });
-      this.lastReconciliation = {
-        degraded: result.degraded,
-        errors: result.counts.errors,
-        raced: result.counts.raced,
-        absent: result.counts.absent,
-        drops: result.drops,
-        reasons: migrationDropReasons(result.drops),
-      };
-      const sessionId = this.context.sessionManager.getSessionId();
-      this.refreshActiveSources(sessionId, this.context.sessionManager.getBranch());
+    if (this.closed || !this.owner) return Promise.resolve();
+    return this.enqueueWrite(async () => {
+      try { await this.reconcileSessionFile(); } finally { this.reconciled = true; }
     });
+  }
+
+  private async reconcileSessionFile(): Promise<void> {
+    const getSessionFile = this.context.sessionManager.getSessionFile;
+    if (typeof getSessionFile !== "function") return;
+    const sessionFile = getSessionFile.call(this.context.sessionManager);
+    if (!sessionFile) return;
+    const recorded = this.context.sessionManager.getRecordedCwd?.();
+    const cwd = recorded || this.context.cwd;
+    const result = await reconcileSession({
+      agentDir: this.options.rootDir ?? process.env.PI_CODING_AGENT_DIR ?? `${process.env.HOME ?? "."}/.omp/agent`,
+      ledger: this.ledger,
+      files: [sessionFile],
+      liveCwd: cwd,
+      projectCwd: cwd,
+      apply: true,
+      slice: this.slice(),
+      signal: this.signal,
+    });
+    if (this.closed) return;
+    this.lastReconciliation = {
+      degraded: result.degraded,
+      errors: result.counts.errors,
+      raced: result.counts.raced,
+      absent: result.counts.absent,
+      drops: result.drops,
+      reasons: migrationDropReasons(result.drops),
+    };
+    const sessionId = this.context.sessionManager.getSessionId();
+    this.refreshActiveSources(sessionId, this.context.sessionManager.getBranch());
   }
 
   /** Appends only the entries this session has not stored yet; the rest are already addressed. */
   readback(): Promise<void> {
-    if (this.closed) return Promise.resolve();
-    return this.enqueueWrite(() => {
+    if (this.closed || !this.owner) return Promise.resolve();
+    return this.enqueueWrite(async () => {
       if (this.closed) return;
+      const slice = this.slice();
       const entries = this.context.sessionManager.getBranch();
       const sessionId = this.context.sessionManager.getSessionId();
       const recorded = this.context.sessionManager.getRecordedCwd?.();
@@ -342,15 +359,20 @@ export class LcmRuntime {
       const active = new Set<string>();
       const pending: Array<{ entry: (typeof entries)[number]; payloadJson: string; contentHash: string }> = [];
       for (const entry of entries) {
+        if (slice.due) await slice.yield();
         const payloadJson = canonicalLcmPayload(entry);
         const contentHash = hash(canonicalLcmEntry(entry));
         const known = this.persisted.get(entry);
         if (known?.contentHash === contentHash) active.add(known.key);
         else pending.push({ entry, payloadJson, contentHash });
       }
-      if (pending.length > 0) {
+      for (let next = 0; next < pending.length;) {
+        if (slice.due) await slice.yield();
+        if (this.closed) return;
+        const first = next;
         this.ledger.transaction(() => {
-          for (const { entry, payloadJson, contentHash } of pending) {
+          for (; next < pending.length && (next === first || !slice.due); next += 1) {
+            const { entry, payloadJson, contentHash } = pending[next]!;
             const message = entry.type === "message" ? entry.message as { role?: string; content?: unknown } : undefined;
             const stored = this.ledger.appendRaw({
               projectKey: this.projectKey,
@@ -383,7 +405,7 @@ export class LcmRuntime {
   }
 
   async syncAndSchedule(): Promise<void> {
-    if (this.closed) return;
+    if (this.closed || !this.owner) return;
     const sessionId = this.context.sessionManager.getSessionId();
     if (this.dirty || !this.activeSessionId || this.activeSessionId !== sessionId || this.activeSources.size === 0) {
       await this.readback();
@@ -431,7 +453,7 @@ export class LcmRuntime {
 
   /** Reclaims ledgers whose project directory is gone; bounded to one sweep a day. */
   sweepLedgers(): LcmSweepResult {
-    if (this.closed) return { removed: [], bytes: 0, skipped: true };
+    if (this.closed || !this.owner) return { removed: [], bytes: 0, skipped: true };
     try {
       return sweepLedgers(this.options.rootDir ?? defaultLedgerRoot(), { keepKey: this.projectKey });
     } catch {
@@ -482,7 +504,7 @@ export class LcmRuntime {
   maintain(): Promise<void> { return this.syncAndSchedule(); }
 
   scheduleMaintenance(): void {
-    if (this.closed) return;
+    if (this.closed || !this.owner) return;
     if (this.maintenanceRunning) { this.maintenanceQueued = true; return; }
     this.maintenanceRunning = true;
     const run = this.maintenancePending
@@ -542,9 +564,13 @@ export class LcmRuntime {
     const fanIn = Math.max(2, this.options.maxCondenseChildren ?? 4);
     const passes = Math.max(1, this.options.maxMaintenancePasses ?? 4);
     const runDeadline = Date.now() + Math.max(1, this.options.maintenanceRunSeconds ?? 60) * 1_000;
-    const raw = this.ledger.readRaw(this.projectKey, sessionId).filter((entry) =>
+    const slice = this.slice();
+    await slice.pause();
+    if (this.closed) return;
+    const raw = (await this.ledger.readSessionRaw(sessionId, slice)).filter((entry) =>
       this.activeSources.has(this.sourceKey(entry)),
     );
+    if (this.closed) return;
     const inputFor = (node: NonNullable<ReturnType<LcmMaintenance["getNode"]>>): string => {
       if (node.kind === "condensed") return node.children.map((id) => this.maintenance.getNode(id)?.text ?? "").filter(Boolean).join("\n\n");
       return node.sources.map((source) => {
@@ -570,6 +596,8 @@ export class LcmRuntime {
       let next = 0;
       const worker = async (slot: number): Promise<void> => {
         while (!this.closed && Date.now() < runDeadline && slot < this.maintenance.concurrencyLimit) {
+          await slice.pause();
+          if (this.closed) return;
           const item = items[next];
           if (!item) return;
           next += 1;
@@ -588,7 +616,10 @@ export class LcmRuntime {
       const leaves: LcmNode[] = [];
       const seen = new Set<string>();
       while (leaves.length < this.maintenance.concurrencyLimit) {
-        const rows = this.maintenance.selectLeaf(raw, this.activeSources);
+        const nodes = await this.maintenance.loadNodes(slice);
+        await slice.pause();
+        if (this.closed) return;
+        const rows = this.maintenance.selectLeaf(raw, this.activeSources, nodes);
         if (rows.length === 0) break;
         const created = this.maintenance.createLeaf(rows);
         const node = created ? this.maintenance.getNode(created.nodeId) : undefined;
@@ -603,10 +634,15 @@ export class LcmRuntime {
         const job = this.maintenance.jobForNode(leaf.nodeId);
         if (job && this.maintenance.isClaimable(job)) { batch.push({ job, node: leaf }); queued.add(job.jobId); }
       }
+      await slice.pause();
+      if (this.closed) return;
       const pending = this.actionableJobs(sessionId, passes);
       for (const item of pending) if (!queued.has(item.job.jobId)) { queued.add(item.job.jobId); batch.push(item); }
       await dispatch(batch);
-      const children = this.maintenance.selectCondensation(sessionId, this.activeSources);
+      const nodes = await this.maintenance.loadNodes(slice);
+      await slice.pause();
+      if (this.closed) return;
+      const children = this.maintenance.selectCondensation(sessionId, this.activeSources, nodes);
       if (children.length >= fanIn) {
         const node = this.maintenance.createCondensed(children);
         if (node) {
@@ -615,7 +651,10 @@ export class LcmRuntime {
         }
       }
       if (leaves.length === 0 && pending.length === 0 && children.length < fanIn) {
-        const upgrade = this.maintenance.selectUpgrades(sessionId, this.activeSources, UPGRADE_CANDIDATES).find(fitsBound);
+        const nodes = await this.maintenance.loadNodes(slice);
+        await slice.pause();
+        if (this.closed) return;
+        const upgrade = this.maintenance.selectUpgrades(sessionId, this.activeSources, UPGRADE_CANDIDATES, nodes).find(fitsBound);
         if (!upgrade) break;
         const job = this.maintenance.reopen(upgrade.nodeId);
         await runJob(job, upgrade);

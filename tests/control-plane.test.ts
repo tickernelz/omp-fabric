@@ -546,4 +546,45 @@ describe("FabricControlPlane", () => {
       sender.request("host:receiver", "agent:missing", "stop"),
     ).rejects.toThrow("target already settled");
   });
+
+  it("backs off idle polling yet keeps in-flight requests on the fast interval", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "Date"] });
+    try {
+      const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-control-"));
+      roots.push(root);
+      const meshRoot = path.join(root, "mesh");
+      const sender = plane(meshRoot, "host:sender");
+      const receiver = plane(meshRoot, "host:receiver");
+      const receive = vi.fn(() => ({ accepted: true, messageId: "local:idle" }));
+      const tail = vi.spyOn(receiver.mesh, "tail");
+      const senderTail = vi.spyOn(sender.mesh, "tail");
+      sender.start(() => ({ accepted: false }));
+      receiver.start(receive);
+
+      await vi.advanceTimersByTimeAsync(3_000);
+      tail.mockClear();
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(tail.mock.calls.length).toBeGreaterThan(0);
+      expect(tail.mock.calls.length).toBeLessThanOrEqual(5_000 / 250 + 6);
+
+      senderTail.mockClear();
+      let settled = false;
+      const result = sender
+        .request("host:receiver", "agent:target", "steer", { message: "wake" })
+        .finally(() => {
+          settled = true;
+        });
+      let elapsed = 0;
+      while (!settled && elapsed < 900) {
+        await vi.advanceTimersByTimeAsync(20);
+        elapsed += 20;
+      }
+      await expect(result).resolves.toMatchObject({ acknowledged: true, messageId: "local:idle" });
+      expect(receive).toHaveBeenCalledTimes(1);
+      expect(elapsed).toBeLessThanOrEqual(400);
+      expect(senderTail.mock.calls.length).toBeGreaterThanOrEqual(Math.floor(elapsed / 20) - 2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
