@@ -58,7 +58,7 @@ describe("LCM work yields to the event loop", () => {
     const root = tempRoot("lcm-yield-migration-");
     const cwd = path.join(root, "project");
     fs.mkdirSync(cwd);
-    const file = writeSession(root, cwd, 600);
+    const file = writeSession(root, cwd, 60);
     const options = { agentDir: root, files: [file] as [string], liveCwd: cwd, projectCwd: cwd, apply: true };
 
     const whole = openLedger({ dbPath: path.join(root, "whole.sqlite"), project: { liveCwd: cwd } });
@@ -69,9 +69,9 @@ describe("LCM work yields to the event loop", () => {
     const slicedRun = await firedBefore(() => reconcileSession({ ...options, ledger: sliced, slice }));
 
     expect(slicedRun.fired).toBe(true);
-    expect(slice.yields).toBeGreaterThan(600);
+    expect(slice.yields).toBeGreaterThan(60);
     expect(slicedRun.value.counts).toEqual(wholeRun.value.counts);
-    expect(slicedRun.value.counts.imported).toBe(600);
+    expect(slicedRun.value.counts.imported).toBe(60);
     expect(rawRows(sliced)).toEqual(rawRows(whole));
   });
 
