@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.25.33
+
+### Notes
+
+- Test-only fix for the windows-latest job: the LCM concurrency dispatch tests stepped the runtime one event-loop turn at a time, so on a slow runner the new 20 ms maintenance slices added turns and one test hung. Those tests now pin `sliceMs` so they stay deterministic; slicing itself is covered by `tests/compaction/lcm-yielding.test.ts`. The full suite also passes with the slice budget forced to 0 ms.
+- 1.25.32 failed the windows-latest Test job and never published; every change listed under 1.25.32 ships in this release. Its `v1.25.32` tag stays where it is.
+
 ## 1.25.32
 
 ### Fixed
