@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.25.34
+
+### Notes
+
+- Test-only fix for the windows-latest job: the sliced-import test in `tests/compaction/lcm-yielding.test.ts` forced a 0 ms slice budget over a 600-entry session, so every entry became its own SQLite commit and Windows fsync pushed it past the 30 s test timeout. It now imports 60 entries, which still forces more than 60 slices and is compared against one synchronous run.
+- 1.25.33 failed the windows-latest Test job and never published; every change listed under 1.25.32 and 1.25.33 ships in this release. The `v1.25.32` and `v1.25.33` tags stay where they are.
+
 ## 1.25.33
 
 ### Notes
