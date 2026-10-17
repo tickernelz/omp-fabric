@@ -343,6 +343,7 @@ const stageBacklog = async (options: { concurrency: number; passes: number; runS
   const knob = { concurrency: options.concurrency };
   const runtime = closeAfterTest(new LcmRuntime(makeContext(root, entries), () => ({
     rootDir: root,
+    sliceMs: Number.POSITIVE_INFINITY,
     maxLeafEntries: 1,
     maxCondenseChildren: 32,
     maxMaintenancePasses: options.passes,
