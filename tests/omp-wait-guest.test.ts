@@ -107,10 +107,18 @@ describe("omp.wait", () => {
     const provider = await OmpToolsProvider.create(process.cwd());
 
     registerSession(liveManager());
+    const later = await OmpToolsProvider.create(process.cwd());
 
     const bash = await provider.describe("bash", context());
     expect((bash?.inputSchema.properties as Record<string, unknown> | undefined)?.async).toBeUndefined();
-    await expect(provider.invoke("wait", {}, context())).rejects.toThrow(/Nothing to wait for/i);
+    const started = (await later.invoke("bash", { command: "printf bound-later", async: true }, context())) as {
+      details: { async?: { state?: string } };
+    };
+    expect(started.details.async?.state).toBe("running");
+
+    const waited = (await provider.invoke("wait", {}, context())) as { ok: boolean; output: string };
+    expect(waited.output).not.toContain("bound-later");
+    expect(waited.output).toMatch(/Nothing to wait for/i);
   });
 
   it("is denied when the host's active tool selection omits it", async () => {
@@ -135,6 +143,8 @@ describe("omp.wait", () => {
     setOmpSessionIdentity({ getSessionId: () => SESSION_ID });
     const provider = await OmpToolsProvider.create(process.cwd());
 
-    await expect(provider.invoke("wait", {}, context())).rejects.toThrow(/Nothing to wait for/i);
+    const waited = (await provider.invoke("wait", {}, context())) as { ok: boolean; output: string };
+    expect(waited.ok).toBe(true);
+    expect(waited.output).toMatch(/Nothing to wait for/i);
   });
 });

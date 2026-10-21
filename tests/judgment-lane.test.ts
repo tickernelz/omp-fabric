@@ -22,7 +22,9 @@ const answerFor = (question: Questions[string]): Answer => {
       return { type: "noul", noul: 0.75 };
     case "score":
       return { type: "score", score: 1, probabilities: { "0": 0.2, "1": 0.8 }, confidence: 0.8 };
-    default: {
+    case "box":
+      return { type: "box", box: { top: 0, bottom: 10, left: 0, right: 10 }, confidence: 0.8 };
+    case "choice": {
       const labels = Object.keys(question.criteria);
       const probabilities: Record<string, number> = {};
       for (const label of labels) probabilities[label] = label === labels[0] ? 0.9 : 0.1;

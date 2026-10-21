@@ -165,6 +165,21 @@ const nextCallId = (): string => callId(++callCounter);
 
 const buildSession = (...entries: SessionEntry[]): SessionEntry[] => entries;
 
+describe("single-entry context projection", () => {
+  it("keeps a tool call whose result is not in the entry", () => {
+    resetIds();
+    resetClock();
+    const entry = assistant(textPart("Reading the manifest"), toolCallPart("inflight", "read", { path: "a.ts" }));
+
+    const messages = sessionEntryToContextMessages(entry);
+    const toolCalls = messages.flatMap((message) =>
+      message.role === "assistant" ? message.content.filter((part) => part.type === "toolCall") : [],
+    );
+
+    expect(toolCalls.map((part) => part.type === "toolCall" && part.id)).toEqual(["inflight"]);
+  });
+});
+
 describe("thinking erasure", () => {
   it("normalizes assistant thinking parts into no events", () => {
     resetIds();

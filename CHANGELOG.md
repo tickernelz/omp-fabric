@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.25.35
+
+### Fixed
+
+- OMP 18.12.5 compatibility. The host renamed the transcript projection option `keepDanglingToolCalls` to `inFlightToolCallIds`, so a single-entry projection built for token estimates stripped every in-flight `toolCall` and undercounted the compaction budget. Fabric now passes both names: `inFlightToolCallIds` on 18.12.5 and `keepDanglingToolCalls` on 18.4.4 through 18.11.x, so the declared host floor keeps working.
+- `omp.wait` with no running job resolves with the host's `Nothing to wait for` result on 18.12.5 instead of rejecting, matching the host contract.
+- Development and test pins move from 18.11.0 to 18.12.5.
+
 ## 1.25.34
 
 ### Notes
