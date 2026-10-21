@@ -6,7 +6,7 @@
 
 - OMP 18.12.5 compatibility. The host renamed the transcript projection option `keepDanglingToolCalls` to `inFlightToolCallIds`, so a single-entry projection built for token estimates stripped every in-flight `toolCall` and undercounted the compaction budget. Fabric now passes both names: `inFlightToolCallIds` on 18.12.5 and `keepDanglingToolCalls` on 18.4.4 through 18.11.x, so the declared host floor keeps working.
 - `omp.wait` with no running job resolves with the host's `Nothing to wait for` result on 18.12.5 instead of rejecting, matching the host contract.
-- Development and test pins move from 18.11.0 to 18.12.5.
+- Host pins move from 18.11.0 to 18.12.5 (dependencies pi-agent-core, pi-ai, pi-utils; dev omptype, pi-coding-agent, pi-natives, pi-tui); the declared peer floor stays >=18.4.4, and all 59 names fabric imports resolve at runtime against a real 18.4.4 tree.
 
 ## 1.25.34
 

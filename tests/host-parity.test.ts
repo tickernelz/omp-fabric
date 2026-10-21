@@ -133,6 +133,30 @@ describe("host parity", () => {
     }
   });
 
+  it("keeps an unpaired tool call when it projects a single entry", () => {
+    const entry = {
+      id: "m1",
+      type: "message",
+      timestamp: 11,
+      parentId: "u1",
+      message: {
+        role: "assistant",
+        content: [
+          { type: "text", text: "Reading the manifest" },
+          { type: "toolCall", id: "inflight", name: "read", arguments: { path: "a.ts" } },
+        ],
+        provider: "openai",
+        model: "gpt-4",
+      },
+    } as unknown as SessionEntry;
+
+    const toolCalls = localSessionEntry(entry).flatMap((message) =>
+      message.role === "assistant" ? message.content.filter((part) => part.type === "toolCall") : [],
+    );
+
+    expect(toolCalls.map((part) => part.type === "toolCall" && part.id)).toEqual(["inflight"]);
+  });
+
   it("builds session context identically", () => {
     const entries = ([
       { id: "root", type: "message", timestamp: 1, message: { role: "user", content: "start" } },
