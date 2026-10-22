@@ -23,7 +23,7 @@ Written files stay on disk, and the image is attached to the `fabric_exec` resul
 
 `options` accepts `model` (try this entry first), `aspectRatio`, `size` (`1024x1024`, `1536x1024`, `1024x1536`), `count` (images API only, capped at 4), and `saveTo` (file path for a single image).
 
-`aspectRatio` and `size` reach the backend only where the wire has a field for them. The `images` dialect sends `size`/`aspect_ratio`, `gemini` sends `imageConfig`, and `responses` maps the ratio onto the image tool's `size` (`1:1` becomes `1024x1024`, `16:9` becomes `1536x1024`). The `chat` dialect has neither field, so a successful call through it reports `ignored: ["aspectRatio", "size"]` and never implies the request was honoured. An unrecognised ratio on `responses` is reported the same way.
+`aspectRatio` and `size` reach the backend only where the wire has a field for them. The `images` dialect sends `size`/`aspect_ratio`, `gemini` sends `imageConfig`, and `responses` maps the ratio onto the image tool's `size` (`1:1` becomes `1024x1024`, `16:9` becomes `1536x1024`). The `chat` dialect has neither field, so a successful call through it reports `ignored: ["aspectRatio", "size"]` and never implies the request was honoured. An unrecognised ratio on `responses` is reported the same way. `count` is honoured by the `images` dialect alone, so asking for more than one image anywhere else reports `count`, and a `saveTo` that cannot apply because several images came back reports `saveTo`.
 
 An operational failure never throws. `image.generate` answers `{ ok: false, reason, failures }` so a caller can read which model failed and why:
 

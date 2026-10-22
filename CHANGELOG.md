@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.26.3
+
+### Fixed
+
+- The `ignored` report covers every parameter a dialect cannot honour. `count` is honoured by the `images` dialect alone, so `count: 3` through `chat`, `responses`, or `gemini` returned one image and said nothing; a `saveTo` that cannot apply because several images came back was dropped the same way. Both now appear in the result.
+
 ## 1.26.2
 
 ### Fixed

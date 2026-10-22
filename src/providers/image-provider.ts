@@ -539,20 +539,29 @@ const readSourceImage = async (source: string, cwd: string): Promise<InlineImage
   return { data: bytes.toString("base64"), mimeType };
 };
 
-const ignoredParams = (
-  dialect: FabricImageDialect,
-  aspectRatio: string | undefined,
-  size: string | undefined,
-): string[] => {
+interface IgnoredInput {
+  dialect: FabricImageDialect;
+  aspectRatio: string | undefined;
+  size: string | undefined;
+  count: number;
+  saveTo: string | undefined;
+  returned: number;
+}
+
+const ignoredParams = (input: IgnoredInput): string[] => {
   const ignored: string[] = [];
-  if (dialect === "chat") {
-    if (aspectRatio !== undefined) ignored.push("aspectRatio");
-    if (size !== undefined) ignored.push("size");
-    return ignored;
-  }
-  if (dialect === "responses" && aspectRatio !== undefined && resolveImageSize(aspectRatio, undefined) === undefined) {
+  if (input.dialect === "chat") {
+    if (input.aspectRatio !== undefined) ignored.push("aspectRatio");
+    if (input.size !== undefined) ignored.push("size");
+  } else if (
+    input.dialect === "responses" &&
+    input.aspectRatio !== undefined &&
+    resolveImageSize(input.aspectRatio, undefined) === undefined
+  ) {
     ignored.push("aspectRatio");
   }
+  if (input.dialect !== "images" && input.count > 1) ignored.push("count");
+  if (input.saveTo !== undefined && input.returned > 1) ignored.push("saveTo");
   return ignored;
 };
 
@@ -809,7 +818,14 @@ export class ImageProvider implements FabricProvider {
               .map((entry) => `  ${entry.path} (${entry.bytes} bytes)`)
               .join("\n")}`,
           );
-          const ignored = ignoredParams(dialect, aspectRatio, size);
+          const ignored = ignoredParams({
+            dialect,
+            aspectRatio,
+            size,
+            count,
+            saveTo,
+            returned: written.length,
+          });
           return {
             ok: true,
             model: `${model.provider}/${model.id}`,

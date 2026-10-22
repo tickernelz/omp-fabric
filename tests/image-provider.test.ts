@@ -548,6 +548,46 @@ describe("image provider failure paths", () => {
     expect(result.ignored).toEqual(["aspectRatio", "size"]);
   });
 
+  it("reports count when the dialect can only return one image", async () => {
+    const models = [model("xai-hm", "cx/gpt-6.1-sol", "openai-responses", "http://xai.test/v1")];
+    const fetchImpl = (async () => jsonResponse(responsesPayload(PNG.toString("base64")))) as unknown as typeof fetch;
+    const dir = await tempDir();
+    const provider = new ImageProvider(
+      () => configOf({ models: ["xai-hm/cx/gpt-6.1-sol"], outputDir: dir }),
+      { fetchImpl },
+    );
+
+    const result = (await provider.invoke(
+      "generate",
+      { prompt: "x", count: 3 },
+      contextOf(models, []),
+    )) as { ok: boolean; ignored?: string[] };
+
+    expect(result.ok).toBe(true);
+    expect(result.ignored).toEqual(["count"]);
+  });
+
+  it("reports saveTo when more than one image comes back", async () => {
+    const models = [model("openai", "gpt-image-2", "openai-images", "https://api.test/v1")];
+    const two = { data: [{ b64_json: PNG.toString("base64") }, { b64_json: PNG.toString("base64") }] };
+    const fetchImpl = (async () => jsonResponse(two)) as unknown as typeof fetch;
+    const dir = await tempDir();
+    const provider = new ImageProvider(
+      () => configOf({ models: ["openai/gpt-image-2"], outputDir: dir }),
+      { fetchImpl },
+    );
+
+    const result = (await provider.invoke(
+      "generate",
+      { prompt: "x", count: 2, saveTo: path.join(dir, "one.png") },
+      contextOf(models, []),
+    )) as { ok: boolean; ignored?: string[]; images: unknown[] };
+
+    expect(result.ok).toBe(true);
+    expect(result.images).toHaveLength(2);
+    expect(result.ignored).toEqual(["saveTo"]);
+  });
+
   it("declares a write risk because it writes files", async () => {
     const provider = new ImageProvider(() => configOf({ models: ["a/b"] }));
     const context = contextOf([], []);
