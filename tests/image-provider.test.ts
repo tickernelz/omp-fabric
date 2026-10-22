@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -431,11 +431,13 @@ describe("image provider failure paths", () => {
       calls += 1;
       return jsonResponse(imagesPayload(JPEG.toString("base64")));
     }) as unknown as typeof fetch;
+    const blocker = path.join(await tempDir(), "blocker");
+    await writeFile(blocker, "not a directory");
     const provider = new ImageProvider(
       () => configOf({
         models: ["xai-hm/antigravity/gemini-3.1-flash-image"],
         retries: 2,
-        outputDir: "/proc/omp-image-denied",
+        outputDir: path.join(blocker, "nested"),
       }),
       { fetchImpl },
     );
