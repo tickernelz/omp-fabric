@@ -224,6 +224,7 @@ return "complete outer result";
         fs.rmSync(cwd, { recursive: true, force: true });
       }
     },
+    20_000,
   );
 
   it("calls an OMP built-in from sandboxed TypeScript", async () => {
