@@ -11,6 +11,7 @@ import {
   parseImagesApiPayload,
   parseResponsesPayload,
   parseSsePayload,
+  resolveImageSize,
   splitModelSelector,
 } from "../src/providers/image-provider.js";
 import type { FabricImageConfig } from "../src/config.js";
@@ -473,6 +474,78 @@ describe("image provider failure paths", () => {
 
     expect(result.ok).toBe(true);
     expect(result.model).toBe("xai-hm/antigravity/gemini-3.1-flash-image");
+  });
+
+  it("maps each supported ratio onto a concrete pixel size", () => {
+    expect(resolveImageSize("1:1", undefined)).toBe("1024x1024");
+    expect(resolveImageSize("3:4", undefined)).toBe("1024x1536");
+    expect(resolveImageSize("16:9", undefined)).toBe("1536x1024");
+    expect(resolveImageSize("1:1", "1536x1024")).toBe("1536x1024");
+    expect(resolveImageSize("5:4", undefined)).toBeUndefined();
+    expect(resolveImageSize(undefined, undefined)).toBeUndefined();
+  });
+
+  it("maps aspectRatio onto the hosted image tool size", async () => {
+    const models = [model("xai-hm", "cx/gpt-6.1-sol", "openai-responses", "http://xai.test/v1")];
+    const calls: Recorded[] = [];
+    const fetchImpl = (async (input: string, init?: RequestInit) => {
+      calls.push({ url: String(input), body: JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown> });
+      return jsonResponse(responsesPayload(PNG.toString("base64")));
+    }) as unknown as typeof fetch;
+    const dir = await tempDir();
+    const provider = new ImageProvider(
+      () => configOf({ models: ["xai-hm/cx/gpt-6.1-sol"], outputDir: dir }),
+      { fetchImpl },
+    );
+
+    const result = (await provider.invoke(
+      "generate",
+      { prompt: "x", aspectRatio: "1:1" },
+      contextOf(models, []),
+    )) as { ok: boolean; ignored?: string[] };
+
+    expect(result.ok).toBe(true);
+    expect(result.ignored).toBeUndefined();
+    const tools = calls[0]?.body.tools as Array<Record<string, unknown>>;
+    expect(tools[0]).toMatchObject({ type: "image_generation", action: "generate", size: "1024x1024" });
+  });
+
+  it("marks the aspectRatio the hosted tool cannot represent as ignored", async () => {
+    const models = [model("xai-hm", "cx/gpt-6.1-sol", "openai-responses", "http://xai.test/v1")];
+    const fetchImpl = (async () => jsonResponse(responsesPayload(PNG.toString("base64")))) as unknown as typeof fetch;
+    const dir = await tempDir();
+    const provider = new ImageProvider(
+      () => configOf({ models: ["xai-hm/cx/gpt-6.1-sol"], outputDir: dir }),
+      { fetchImpl },
+    );
+
+    const result = (await provider.invoke(
+      "generate",
+      { prompt: "x", aspectRatio: "5:4" },
+      contextOf(models, []),
+    )) as { ok: boolean; ignored?: string[] };
+
+    expect(result.ok).toBe(true);
+    expect(result.ignored).toEqual(["aspectRatio"]);
+  });
+
+  it("reports that the chat dialect drops size and aspectRatio", async () => {
+    const models = [model("sub2api-agy", "gemini-3.1-flash-image", "openai-completions")];
+    const fetchImpl = (async () => jsonResponse(chatPayload(JPEG.toString("base64")))) as unknown as typeof fetch;
+    const dir = await tempDir();
+    const provider = new ImageProvider(
+      () => configOf({ models: ["sub2api-agy/gemini-3.1-flash-image"], outputDir: dir }),
+      { fetchImpl },
+    );
+
+    const result = (await provider.invoke(
+      "generate",
+      { prompt: "x", aspectRatio: "1:1", size: "1024x1024" },
+      contextOf(models, []),
+    )) as { ok: boolean; ignored?: string[] };
+
+    expect(result.ok).toBe(true);
+    expect(result.ignored).toEqual(["aspectRatio", "size"]);
   });
 
   it("declares a write risk because it writes files", async () => {

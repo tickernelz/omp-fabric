@@ -358,6 +358,24 @@ export const parseSsePayload = (text: string): unknown => {
 
 const dataUrl = (image: InlineImage): string => `data:${image.mimeType};base64,${image.data}`;
 
+export const resolveImageSize = (aspectRatio?: string, size?: string): string | undefined => {
+  if (size !== undefined) return size;
+  switch (aspectRatio) {
+    case "1:1":
+      return "1024x1024";
+    case "2:3":
+    case "3:4":
+    case "9:16":
+      return "1024x1536";
+    case "3:2":
+    case "4:3":
+    case "16:9":
+      return "1536x1024";
+    default:
+      return undefined;
+  }
+};
+
 const requestImages = async (env: RequestEnv, model: ImageModelRef, options: CallOptions): Promise<InlineImage[]> => {
   const openrouter = model.api === "openrouter-images";
   const body: Record<string, unknown> = { model: model.id, prompt: options.prompt, n: options.count };
@@ -422,10 +440,17 @@ const requestResponses = async (env: RequestEnv, model: ImageModelRef, options: 
   for (const image of options.inputImages) {
     content.push({ type: "input_image", image_url: dataUrl(image) });
   }
+  const size = resolveImageSize(options.aspectRatio, options.size);
   const body: Record<string, unknown> = {
     model: model.id,
     input: [{ role: "user", content }],
-    tools: [{ type: "image_generation" }],
+    tools: [
+      {
+        type: "image_generation",
+        action: options.inputImages.length > 0 ? "edit" : "generate",
+        ...(size !== undefined ? { size } : {}),
+      },
+    ],
     tool_choice: { type: "image_generation" },
     store: false,
   };
@@ -512,6 +537,23 @@ const readSourceImage = async (source: string, cwd: string): Promise<InlineImage
   const mimeType = mimeFromMagic(bytes);
   if (!mimeType) throw new Error(`unsupported or missing image file: ${resolved}`);
   return { data: bytes.toString("base64"), mimeType };
+};
+
+const ignoredParams = (
+  dialect: FabricImageDialect,
+  aspectRatio: string | undefined,
+  size: string | undefined,
+): string[] => {
+  const ignored: string[] = [];
+  if (dialect === "chat") {
+    if (aspectRatio !== undefined) ignored.push("aspectRatio");
+    if (size !== undefined) ignored.push("size");
+    return ignored;
+  }
+  if (dialect === "responses" && aspectRatio !== undefined && resolveImageSize(aspectRatio, undefined) === undefined) {
+    ignored.push("aspectRatio");
+  }
+  return ignored;
 };
 
 const transient = (error: unknown): boolean => {
@@ -767,6 +809,7 @@ export class ImageProvider implements FabricProvider {
               .map((entry) => `  ${entry.path} (${entry.bytes} bytes)`)
               .join("\n")}`,
           );
+          const ignored = ignoredParams(dialect, aspectRatio, size);
           return {
             ok: true,
             model: `${model.provider}/${model.id}`,
@@ -774,6 +817,7 @@ export class ImageProvider implements FabricProvider {
             images: written.map((entry) => ({ path: entry.path, bytes: entry.bytes, mimeType: entry.mimeType })),
             attempts: attempt,
             elapsedMs: Math.max(0, now() - started),
+            ...(ignored.length > 0 ? { ignored } : {}),
             failures,
           };
         } catch (error) {

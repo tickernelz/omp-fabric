@@ -1407,6 +1407,7 @@ interface FabricImageResult {
   images?: FabricImageGenerated[];
   attempts?: number;
   elapsedMs?: number;
+  ignored?: string[];
   failures?: FabricImageAttempt[];
 }
 interface FabricImageGenerateOptions {

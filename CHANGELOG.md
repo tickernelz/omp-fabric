@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.26.2
+
+### Fixed
+
+- `aspectRatio` and `size` were silently dropped by the `chat` and `responses` dialects while both schemas advertised them, so a call asking for `1:1` returned a 1536x1024 image with no hint that the request was ignored. The `responses` dialect now maps the ratio onto the image tool's own `size` field, the way the host adapter does, and `image.edit` through it sets `action: "edit"`. A dialect that has no field for the parameter reports it in a new `ignored` array on the result, and an unrecognised ratio on `responses` is reported there too.
+
 ## 1.26.1
 
 ### Fixed
