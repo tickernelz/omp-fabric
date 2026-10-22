@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.26.0
+
+### Added
+
+- The `image` provider: `image.generate`, `image.edit`, and `image.models` inside `fabric_exec`, driven by an ordered chain of up to 10 `provider/model` entries. The first entry that returns bytes wins and the result names the model and dialect that produced them. Generated files stay on disk and the image is attached to the `fabric_exec` result, so a vision model receives the pixels and the terminal renders the preview.
+- Four wire dialects chosen per model: `images` (`/images/generations`, `/images/edits`), `responses` (the hosted `image_generation` tool), `chat` (`modalities: ["image","text"]`, reading `message.images` or a data URL in the content), and `gemini` (`:generateContent` with `responseModalities: ["IMAGE"]`). Inference reads the model `api`; `image.dialects` overrides one entry when a gateway needs a different shape.
+- `image.retries` re-attempts one model after a transient failure before the chain moves on, because hosted image backends drop calls without an error body.
+- The **Image** section under `/fabric settings`: master switch, ten ordered priority rows picked from the host model registry, retries, attempt deadline, and output directory.
+
+### Notes
+
+- Every dialect carries reference images in the shape its backend expects: `input_references` for a JSON gateway, multipart parts for `openai`, `image`/`images` for xAI, `image_url` for chat, `input_image` for responses, and `inlineData` for gemini. A backend that refuses the reference reports its own error and the chain continues, so a source image is never silently dropped.
+- Measured against live gateways while building this: `images` returned a JPEG on 3 of 3 calls, `chat` on 3 of 3, and `responses` on 1 of 3 with the rest reporting `status=failed`. A `responses` entry needs a retry budget; an `images` entry is the steadier default.
+
 ## 1.25.35
 
 ### Fixed

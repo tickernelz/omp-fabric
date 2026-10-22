@@ -109,6 +109,7 @@ import {
 import { AgentsProvider } from "./providers/agents-provider.js";
 import { CapturedToolsProvider } from "./providers/captured-tools-provider.js";
 import { CodemapProvider } from "./providers/codemap-provider.js";
+import { ImageProvider } from "./providers/image-provider.js";
 import { JudgmentProvider } from "./providers/judgment-provider.js";
 import { FabricJudgmentLane } from "./judgment/lane.js";
 import { resolveHostJudge } from "./judgment/host-judge.js";
@@ -752,6 +753,19 @@ export class FabricRuntimeState {
         'disabled by configuration (judgment.enabled=false); set "judgment": { "enabled": true } in .omp/fabric.json or the agent fabric.json to enable judgment.* actions',
       );
     }
+    if (this.#config.image.enabled) {
+      const imageConfig = () => this.#config?.image ?? DEFAULT_FABRIC_CONFIG.image;
+      await installBuiltin(createProviderComponent({
+        provider: "image",
+        description: "Image generation and editing across a configured priority chain",
+        create: () => new ImageProvider(imageConfig),
+      }));
+    } else {
+      this.#registry.markUnavailable(
+        "image",
+        'disabled by configuration (image.enabled=false); set "image": { "enabled": true } in .omp/fabric.json or the agent fabric.json to enable image.* actions',
+      );
+    }
     const agentConfig = enforceSchema
       ? { ...this.#config.agents, enabled: false }
       : this.#config.agents;
@@ -1081,6 +1095,7 @@ export class FabricRuntimeState {
       "compact",
       ...(this.#config.codemap.enabled ? ["codemap"] : []),
       ...(this.#config.judgment.enabled ? ["judgment"] : []),
+      ...(this.#config.image.enabled ? ["image"] : []),
       "agents",
       ...(this.#config.memory.enabled ? ["memory"] : []),
     ]);

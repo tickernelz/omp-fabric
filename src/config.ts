@@ -386,6 +386,60 @@ export interface FabricModelsConfig {
   aliases: Record<string, string[]>;
 }
 
+export type FabricImageDialect = "images" | "responses" | "chat" | "gemini";
+
+export interface FabricImageConfig {
+  enabled: boolean;
+  models: string[];
+  dialects: Record<string, FabricImageDialect>;
+  timeoutMs: number;
+  retries: number;
+  outputDir: string;
+}
+
+export const MAX_IMAGE_MODELS = 10;
+
+const IMAGE_DIALECT_SET: ReadonlySet<string> = new Set<FabricImageDialect>([
+  "images",
+  "responses",
+  "chat",
+  "gemini",
+]);
+
+const imageSelector = (value: unknown): string | undefined => {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  const separator = trimmed.indexOf("/");
+  if (separator <= 0 || separator === trimmed.length - 1) return undefined;
+  if (/\s/.test(trimmed)) return undefined;
+  return trimmed;
+};
+
+const normalizeImageModels = (input: unknown): string[] => {
+  if (!Array.isArray(input)) return [];
+  const models: string[] = [];
+  for (const candidate of input) {
+    const selector = imageSelector(candidate);
+    if (selector === undefined || models.includes(selector)) continue;
+    models.push(selector);
+    if (models.length === MAX_IMAGE_MODELS) break;
+  }
+  return models;
+};
+
+const normalizeImageDialects = (input: unknown): Record<string, FabricImageDialect> => {
+  if (typeof input !== "object" || input === null || Array.isArray(input)) return {};
+  const dialects: Record<string, FabricImageDialect> = {};
+  for (const [rawSelector, rawDialect] of Object.entries(input as Record<string, unknown>)) {
+    const selector = imageSelector(rawSelector);
+    if (selector === undefined) continue;
+    if (typeof rawDialect !== "string" || !IMAGE_DIALECT_SET.has(rawDialect)) continue;
+    dialects[selector] = rawDialect as FabricImageDialect;
+    if (Object.keys(dialects).length === 64) break;
+  }
+  return dialects;
+};
+
 export interface FabricConfig {
   fullCodeMode: boolean;
   executor: FabricExecutorConfig;
@@ -395,6 +449,7 @@ export interface FabricConfig {
   codemap: FabricCodemapConfig;
   agents: FabricAgentConfig;
   models: FabricModelsConfig;
+  image: FabricImageConfig;
   components: FabricComponentEntry[];
   capture: FabricToolCaptureConfig;
   ui: FabricUiConfig;
@@ -571,6 +626,14 @@ export const DEFAULT_FABRIC_CONFIG: FabricConfig = {
   },
   models: {
     aliases: {},
+  },
+  image: {
+    enabled: true,
+    models: [],
+    dialects: {},
+    timeoutMs: 90_000,
+    retries: 2,
+    outputDir: "",
   },
   memory: {
     enabled: true,
@@ -808,6 +871,7 @@ export const normalizeFabricConfig = (input: Record<string, unknown>): FabricCon
   const repairs = objectValue(input.repairs);
   const update = objectValue(input.update);
   const modelsSection = objectValue(input.models);
+  const imageSection = objectValue(input.image);
   const schema = objectValue(input.schema);
   const schemaMode = schemaModeValue(schema.mode, DEFAULT_FABRIC_CONFIG.schema.mode);
   const speculation = objectValue(input.speculation);
@@ -1301,6 +1365,20 @@ export const normalizeFabricConfig = (input: Record<string, unknown>): FabricCon
     },
     models: {
       aliases: normalizeModelAliases(modelsSection.aliases),
+    },
+    image: {
+      enabled: booleanValue(imageSection.enabled, DEFAULT_FABRIC_CONFIG.image.enabled),
+      models: normalizeImageModels(imageSection.models),
+      dialects: normalizeImageDialects(imageSection.dialects),
+      timeoutMs: boundedInteger(
+        imageSection.timeoutMs,
+        DEFAULT_FABRIC_CONFIG.image.timeoutMs,
+        5_000,
+        900_000,
+      ),
+      retries: boundedInteger(imageSection.retries, DEFAULT_FABRIC_CONFIG.image.retries, 0, 4),
+      outputDir:
+        typeof imageSection.outputDir === "string" ? imageSection.outputDir.trim().slice(0, 1_024) : "",
     },
     memory: {
       enabled: booleanValue(memory.enabled, DEFAULT_FABRIC_CONFIG.memory.enabled),

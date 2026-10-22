@@ -649,6 +649,20 @@ globalThis.components = __providerProxy("components");
 globalThis.compact = __providerProxy("compact");
 globalThis.codemap = __providerProxy("codemap");
 globalThis.judgment = __providerProxy("judgment");
+const __imagePromptArgs = (first, second) =>
+  typeof first === "string" ? { prompt: first, ...(second ?? {}) } : { ...(first ?? {}) };
+const __imageEditArgs = (first, second, third) => {
+  if (typeof first === "string") {
+    return { prompt: first, images: Array.isArray(second) ? second : [], ...(third ?? {}) };
+  }
+  const args = { ...(first ?? {}) };
+  if (!Array.isArray(args.images)) args.images = Array.isArray(second) ? second : [];
+  return args;
+};
+globalThis.image = __providerProxy("image", {
+  generate: (first, second) => __call("image.generate", __imagePromptArgs(first, second)),
+  edit: (first, second, third) => __call("image.edit", __imageEditArgs(first, second, third)),
+});
 const __chunkBatchItems = (items, maxItems = 25, maxBytes = 49152) => {
   const chunks = [];
   let current = [];

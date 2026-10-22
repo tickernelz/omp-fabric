@@ -31,6 +31,7 @@ import {
   DEFAULT_FABRIC_CONFIG,
   loadFabricConfigForScope,
   MAX_COMPACTION_RATIO_THRESHOLD,
+  MAX_IMAGE_MODELS,
   MAX_COMPACTION_TOKEN_THRESHOLD,
   maxExecutorMemoryLimitBytes,
   MIN_COMPACTION_RATIO_THRESHOLD,
@@ -134,6 +135,7 @@ export const ROOT_ITEM_IDS = [
   "memory",
   "speculation",
   "judgment",
+  "image",
   "codePreview",
 ] as const;
 const RELOAD_SECTIONS = new Set(["mesh", "agents", "mcp", "retention", "memory"]);
@@ -141,6 +143,8 @@ const RELOAD_SECTIONS = new Set(["mesh", "agents", "mcp", "retention", "memory"]
 export const FILE_ONLY_CONFIG_KEYS: Readonly<Record<string, string>> = {
   components:
     "Every entry is a supervised instance record whose config field carries definition-specific JSON that no fixed row can validate.",
+  "image.dialects":
+    "Per-model dialect overrides are a provider-by-provider escape hatch; the panel edits the priority chain and leaves the override map to the file.",
   "schema.trustedCommands":
     "Every entry is an execution record (command, args, shell, timeoutMs) that bypasses approval in enforce mode, so a mistyped row would widen that bypass.",
 };
@@ -148,6 +152,7 @@ export const FILE_ONLY_CONFIG_KEYS: Readonly<Record<string, string>> = {
 export const ALIASED_CONFIG_KEYS: Readonly<Record<string, string>> = {
   "compaction.thresholds": COMPACTION_THRESHOLD_SETTING_ID,
   "compaction.tokenThresholds": COMPACTION_THRESHOLD_SETTING_ID,
+  "image.models": "image.models.1",
 };
 const SAVE_SCOPE_SHORTCUT = Key.ctrl("g");
 
@@ -369,6 +374,28 @@ const parseModelAliases = (value: string): Record<string, string[]> | undefined 
   return parsed;
 };
 
+const IMAGE_SLOT_PREFIX = "image.models.";
+const IMAGE_EMPTY_SLOT = "— empty —";
+
+const imageSlotIndex = (id: string): number | undefined => {
+  if (!id.startsWith(IMAGE_SLOT_PREFIX)) return undefined;
+  const raw = id.slice(IMAGE_SLOT_PREFIX.length);
+  if (!/^\d+$/.test(raw)) return undefined;
+  const slot = Number(raw);
+  return slot >= 1 && slot <= MAX_IMAGE_MODELS ? slot : undefined;
+};
+
+const imageSlotPartial = (config: FabricConfig, id: string, value: unknown): Record<string, unknown> => {
+  const slot = imageSlotIndex(id);
+  const models = [...config.image.models];
+  if (slot === undefined) return { image: { models } };
+  const selector = typeof value === "string" && value !== IMAGE_EMPTY_SLOT ? value.trim() : "";
+  if (selector.length === 0) models.splice(slot - 1, 1);
+  else if (slot <= models.length) models[slot - 1] = selector;
+  else models.push(selector);
+  return { image: { models } };
+};
+
 export const coerceValue = (id: string, value: string, config: FabricConfig): unknown => {
   if (id === "executor.hostCallTimeouts") {
     const parsed = parseHostCallTimeouts(value);
@@ -382,6 +409,8 @@ export const coerceValue = (id: string, value: string, config: FabricConfig): un
       ? { ...config.models.aliases }
       : withRemovals(config.models.aliases, parsed);
   }
+  if (imageSlotIndex(id) !== undefined) return value === IMAGE_EMPTY_SLOT ? "" : value;
+  if (id === "image.outputDir") return value === "OS temp" ? "" : value;
   if (id === "speculation.mcpAllowlist") return splitEntries(value);
   if (id === "ui.conversationShortcut") return value === "off" ? "" : value;
   if (id === COMPACTION_THRESHOLD_SETTING_ID) {
@@ -490,6 +519,11 @@ const summaryFor = (id: string, config: FabricConfig): string => {
       if (!config.judgment.enabled) return "disabled";
       const gates = Object.values(config.judgment.gates).filter(Boolean).length;
       return gates === 0 ? formatMs(config.judgment.timeoutMs) : `${gates} gate${gates === 1 ? "" : "s"} on`;
+    }
+    case "image": {
+      if (!config.image.enabled) return "disabled";
+      const count = config.image.models.length;
+      return count === 0 ? "no models" : `${count} model${count === 1 ? "" : "s"}`;
     }
     case "codePreview":
       return config.codePreview.shikiTheme;
@@ -626,9 +660,18 @@ const sectionSubmenu = (
   description: string,
   items: SettingItem[],
   persist: (id: string, value: string) => void,
+  rebuild?: () => SettingItem[],
 ): SettingsSubmenu => (_currentValue, done) =>
-  // Match the root page: sections get type-to-search filtering too.
-  new SectionSubmenu(theme, title, description, markDrillIn(items), persist, () => done(), true);
+  new SectionSubmenu(
+    theme,
+    title,
+    description,
+    markDrillIn(items),
+    persist,
+    () => done(),
+    true,
+    rebuild === undefined ? undefined : () => markDrillIn(rebuild()),
+  );
 
 class IntegerInputSubmenu extends Container {
   readonly input: Input;
@@ -948,9 +991,11 @@ const modelPickerSubmenu = (
 };
 
 class SectionSubmenu extends Container {
-  readonly settingsList: SettingsList;
-  readonly items: SettingItem[];
+  settingsList: SettingsList;
+  items: SettingItem[];
   readonly applyChange: (id: string, newValue: string) => void;
+  private readonly listContainer: Container;
+  private readonly rebuild: (() => SettingItem[]) | undefined;
 
   constructor(
     theme: Theme,
@@ -960,25 +1005,49 @@ class SectionSubmenu extends Container {
     onChange: (id: string, newValue: string) => void,
     onCancel: () => void,
     enableSearch = false,
+    rebuild?: () => SettingItem[],
   ) {
     super();
     this.items = items;
-    this.applyChange = onChange;
+    this.rebuild = rebuild;
+    this.applyChange = (id, newValue) => {
+      onChange(id, newValue);
+      const rebuild = this.rebuild;
+      if (!rebuild) return;
+      queueMicrotask(() => {
+        this.items = rebuild();
+        this.listContainer.clear();
+        this.settingsList = this.createList(theme, this.items, onChange, onCancel, enableSearch);
+        this.listContainer.addChild(this.settingsList);
+      });
+    };
     this.addChild(new Text(theme.bold(theme.fg("accent", title)), 0, 0));
     if (description) {
       this.addChild(new Spacer(1));
       this.addChild(new Text(theme.fg("muted", description), 0, 0));
     }
     this.addChild(new Spacer(1));
-    this.settingsList = new SettingsList(
+    this.listContainer = new Container();
+    this.settingsList = this.createList(theme, items, onChange, onCancel, enableSearch);
+    this.listContainer.addChild(this.settingsList);
+    this.addChild(this.listContainer);
+  }
+
+  private createList(
+    theme: Theme,
+    items: SettingItem[],
+    onChange: (id: string, newValue: string) => void,
+    onCancel: () => void,
+    enableSearch: boolean,
+  ): SettingsList {
+    return new SettingsList(
       items,
       Math.min(items.length, 16),
       settingsListTheme(theme),
-      onChange,
+      (id, newValue) => this.applyChange(id, newValue),
       onCancel,
       { typeToSearch: enableSearch },
     );
-    this.addChild(this.settingsList);
   }
 
   handleInput(data: string): void {
@@ -1122,6 +1191,57 @@ export const buildFabricSettingsItems = (
   const fullCodeDescription = envFullCode
     ? "Fabric owns OMP core tools (read, bash, edit, write, grep, find, ls) via fabric_exec; only tools active in OMP stay reachable. Currently overridden by the OMP_FABRIC_FULL_CODE_MODE environment variable."
     : "Fabric owns OMP core tools (read, bash, edit, write, grep, find, ls) via fabric_exec; only tools active in OMP stay reachable. Disable to keep native tools model-facing (orchestration-only mode).";
+  const imageSectionItems = (): SettingItem[] => [
+    setting("image.enabled", "Enabled", config.image.enabled ? "true" : "false", {
+      description: "Master switch for the image.generate, image.edit, and image.models actions.",
+      values: BOOLEANS,
+    }),
+    ...Array.from({ length: MAX_IMAGE_MODELS }, (_unused, index) => {
+      const slot = index + 1;
+      return setting(
+        `image.models.${slot}`,
+        `Priority ${slot}`,
+        config.image.models[index] ?? IMAGE_EMPTY_SLOT,
+        {
+          description: "Model tried at this priority. Pick a model, or Empty to skip this slot.",
+          submenu: modelPickerSubmenu(theme, options.modelSource, {
+            headerText: `Model tried at priority ${slot}. Empty skips this slot.`,
+            inheritLabel: IMAGE_EMPTY_SLOT,
+            inheritName: "Leave this priority empty",
+          }),
+        },
+      );
+    }),
+    setting("image.retries", "Retries", String(config.image.retries), {
+      description: "Extra attempts per model after a failure; hosted image backends drop calls often.",
+      submenu: numericSubmenu(
+        theme,
+        [0, 1, 2, 3, 4],
+        String,
+        "Retries",
+        "Extra attempts per model after a failure.",
+      ),
+    }),
+    setting("image.timeoutMs", "Attempt deadline", formatMs(config.image.timeoutMs), {
+      description: "Deadline for one model attempt, including the body read.",
+      submenu: numericSubmenu(
+        theme,
+        [30_000, 60_000, 90_000, 120_000, 180_000, 300_000, 600_000, 900_000],
+        formatMs,
+        "Attempt deadline",
+        "Deadline for one model attempt, including the body read.",
+      ),
+    }),
+    setting("image.outputDir", "Output directory", config.image.outputDir || "OS temp", {
+      description: "Where generated files are written. Empty uses the OS temp directory.",
+      submenu: stringInputSubmenu(
+        theme,
+        "Output directory",
+        "Directory for generated files, absolute or relative to the session cwd. Enter OS temp to clear.",
+      ),
+    }),
+  ];
+
   const executorMemoryDescription = (): string =>
     config.executor.runtime === "quickjs"
       ? "Maximum QuickJS heap size. WASM32 limits this to less than 4 GiB."
@@ -2820,6 +2940,17 @@ export const buildFabricSettingsItems = (
         persist,
       ),
     }),
+    setting("image", "Image", summaryFor("image", config), {
+      description: "Image generation and editing through a configurable priority chain of image models.",
+      submenu: sectionSubmenu(
+        theme,
+        "Image",
+        "Each priority is tried in order until a model returns bytes. An empty priority is skipped, so the chain compacts upward. Changes apply after /fabric reload.",
+        imageSectionItems(),
+        persist,
+        imageSectionItems,
+      ),
+    }),
     setting("codePreview", "Code previews", summaryFor("codePreview", config), {
       description: "Core tool previews, diffs, and Shiki syntax highlighting.",
       submenu: sectionSubmenu(
@@ -3199,7 +3330,9 @@ export async function openFabricSettings(
   const apply = (id: string, value: unknown): void => {
     const partial = id === COMPACTION_THRESHOLD_SETTING_ID && activeModelKey
       ? compactionThresholdPartial(activeModelKey, value as CompactionThresholdSelection)
-      : buildPartial(id, value);
+      : imageSlotIndex(id) !== undefined
+        ? imageSlotPartial(settingsConfig, id, value)
+        : buildPartial(id, value);
     try {
       saveFabricConfig(
         { cwd: context.cwd, agentDir, projectTrusted, scope: saveScope },

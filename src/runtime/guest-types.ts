@@ -1388,6 +1388,65 @@ type FabricJudgmentAnswer =
   | FabricJudgmentChoiceAnswer
   | FabricJudgmentBoolAnswer
   | FabricJudgmentScoreAnswer;
+interface FabricImageGenerated {
+  path: string;
+  bytes: number;
+  mimeType: string;
+}
+interface FabricImageAttempt {
+  model: string;
+  dialect: "images" | "responses" | "chat" | "gemini";
+  error: string;
+  status?: number;
+}
+interface FabricImageResult {
+  ok: boolean;
+  reason?: string;
+  model?: string;
+  dialect?: "images" | "responses" | "chat" | "gemini";
+  images?: FabricImageGenerated[];
+  attempts?: number;
+  elapsedMs?: number;
+  failures?: FabricImageAttempt[];
+}
+interface FabricImageGenerateOptions {
+  model?: string;
+  aspectRatio?: string;
+  size?: "1024x1024" | "1536x1024" | "1024x1536";
+  count?: number;
+  saveTo?: string;
+}
+interface FabricImageEditOptions {
+  model?: string;
+  aspectRatio?: string;
+  size?: "1024x1024" | "1536x1024" | "1024x1536";
+  saveTo?: string;
+}
+interface FabricImageModelEntry {
+  selector: string;
+  resolved: boolean;
+  provider?: string;
+  id?: string;
+  api?: string;
+  baseUrl?: string;
+  dialect?: "images" | "responses" | "chat" | "gemini";
+  credentials?: boolean;
+  reason?: string;
+}
+interface FabricImageChain {
+  enabled: boolean;
+  timeoutMs: number;
+  retries: number;
+  outputDir: string;
+  models: FabricImageModelEntry[];
+}
+interface FabricImageApi {
+  generate(prompt: string, options?: FabricImageGenerateOptions): Promise<FabricImageResult>;
+  generate(options: FabricImageGenerateOptions & { prompt: string }): Promise<FabricImageResult>;
+  edit(prompt: string, images: string[], options?: FabricImageEditOptions): Promise<FabricImageResult>;
+  edit(options: FabricImageEditOptions & { prompt: string; images: string[] }): Promise<FabricImageResult>;
+  models(): Promise<FabricImageChain>;
+}
 interface FabricJudgmentApi {
   ask(args: {
     state: unknown;
@@ -1491,6 +1550,7 @@ declare const components: FabricComponentsApi;
 declare const compact: FabricCompactApi;
 declare const codemap: FabricCodemapApi;
 declare const judgment: FabricJudgmentApi;
+declare const image: FabricImageApi;
 declare const judge: FabricJudgeApi;
 declare const council: FabricCouncilApi;
 declare const workflow: FabricWorkflowApi;

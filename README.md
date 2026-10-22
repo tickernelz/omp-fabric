@@ -160,6 +160,7 @@ The command bills your provider and stops at `OMP_FABRIC_BENCH_MAX_USD`. Without
 - [Configuration](docs/configuration.md): `fabric.json`, code modes, tool capture, approvals, and budgets.
 - [Code map](docs/codemap.md): the native symbol index, token-budgeted disclosure, and git co-change ranking.
 - [Judgment](docs/judgment.md): calibrated choice, bool, and score answers over one state, batched into a single backend request, and the four gates that read them.
+- [Image](docs/image.md): generate and edit images through an ordered chain of up to 10 models, with four wire dialects and per-model dialect overrides.
 - [Memory & recall](docs/memory-recall.md): compact ranked hits, uniform follow calls, lossless expansion, and guest-local `memory.walk` computation.
 - [Interface & commands](docs/interface.md): dashboard, settings, keybindings, slash commands, and headless runs.
 - [Agents, actors & mesh](docs/agents.md): model handoff, `/fabric prewalk`, runners, transports, actors, councils, recursive queries, and durable coordination.

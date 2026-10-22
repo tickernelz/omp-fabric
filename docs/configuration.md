@@ -536,12 +536,24 @@ Mesh topics, shared state, and the participant directory remain project-scoped. 
 - `judgment.gates.skills` (default `false`) ranks the skill roster for the turn and names at most one skill on the message channel. Measured on a 765-skill roster it adds 1.1 seconds at the median and 1.9 at the worst; see [Judgment](judgment.md).
 - `judgment.maxStateBytes` (1 KiB-512 KiB, default 64 KiB) bounds the judged state. A larger state is refused, never truncated, because silently cutting the evidence changes the answer while reporting nothing.
 
+## Image
+
+`image` configures the priority chain behind `image.generate` and `image.edit`, documented in [Image](image.md). Edit it under `/fabric settings` → **Image**. Fabric installs the provider at startup, so a change applies after `/fabric reload` or in the next session.
+
+- `image.enabled` (default `true`) exposes the `image.*` actions. With it off the provider is not registered at all: the actions are unavailable and the `image` guest global is removed.
+- `image.models` (default empty) is the ordered chain of up to 10 `provider/model` entries. The first entry that returns bytes wins, duplicates and entries without a slash are dropped on load, and an empty priority in the panel compacts the list upward.
+- `image.dialects` (default empty) overrides the inferred wire shape per `provider/model`. It stays in the file because each entry encodes one gateway's behaviour.
+- `image.timeoutMs` (5000-900000, default 90000) bounds one model attempt, including the body read. The whole attempt budget has to fit inside `executor.timeoutMs`, which bounds the program, or the executor cancels the call before the attempt's own deadline.
+- `image.retries` (0-4, default 2) is the extra attempts per model after a transient failure, before the chain moves to the next entry.
+- `image.outputDir` (default empty) is where generated files are written. Empty uses the OS temp directory.
+
 ## File-only settings
 
-Every key that carries a default value is editable under `/fabric settings`, with two deliberate exceptions. The panel names them in `FILE_ONLY_CONFIG_KEYS` (`src/ui/settings.ts`), and `tests/settings-parity.test.ts` fails when any other default key loses its row:
+Every key that carries a default value is editable under `/fabric settings`, with three deliberate exceptions. The panel names them in `FILE_ONLY_CONFIG_KEYS` (`src/ui/settings.ts`), and `tests/settings-parity.test.ts` fails when any other default key loses its row:
 
 - `components` is an array whose entries carry definition-specific `config` JSON. A fixed row cannot validate that payload, so the array stays in the file. See [Components](#components).
 - `schema.trustedCommands` maps a name to an execution record (`command`, `args`, `shell`, `timeoutMs`) that bypasses approval in schema enforce mode. A mistyped row would widen that bypass, so the allowlist stays in the file.
+- `image.dialects` maps a model to its wire shape when inference from `api` picks the wrong one. The panel edits the priority chain, and this override map stays in the file.
 
 `compaction.thresholds` and `compaction.tokenThresholds` are per-model maps. **Compaction → Threshold** edits the entry for the active session model and writes both maps; entries for other models are set in the file.
 

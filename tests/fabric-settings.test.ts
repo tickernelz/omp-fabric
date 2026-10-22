@@ -55,6 +55,72 @@ type SectionProbe = {
   applyChange(id: string, value: string): void;
   render(width: number): readonly string[];
 };
+describe("image priority rows", () => {
+  const imageConfig = (models: string[]): typeof DEFAULT_FABRIC_CONFIG => {
+    const config = structuredClone(DEFAULT_FABRIC_CONFIG);
+    config.image.models = models;
+    return config;
+  };
+
+  const openImageSection = (config: typeof DEFAULT_FABRIC_CONFIG, applied: Array<[string, unknown]>) => {
+    const items = buildFabricSettingsItems(theme, config, (id, value) => {
+      applied.push([id, value]);
+      if (id.startsWith("image.models.")) {
+        const slot = Number(id.slice("image.models.".length));
+        const next = [...config.image.models];
+        if (value === "") next.splice(slot - 1, 1);
+        else if (slot <= next.length) next[slot - 1] = String(value);
+        else next.push(String(value));
+        config.image.models = next;
+      }
+    }, { keepVisibleCandidates: ["fabric_exec"], modelSource: fakeModelSource });
+    const row = items.find((item) => item.id === "image");
+    if (!row?.submenu) throw new Error("image section is missing its submenu");
+    return row.submenu("", () => {}) as unknown as SectionProbe;
+  };
+
+  it("offers ten ordered priorities that reflect the configured chain", () => {
+    const config = imageConfig(["a/one", "b/two"]);
+    const section = openImageSection(config, []);
+    const priorities = section.items.filter((item) => item.id.startsWith("image.models."));
+    expect(priorities).toHaveLength(10);
+    expect(priorities[0]?.currentValue).toBe("a/one");
+    expect(priorities[1]?.currentValue).toBe("b/two");
+    expect(priorities[2]?.currentValue).toContain("empty");
+  });
+
+  const settle = async (): Promise<void> => {
+    await Promise.resolve();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  };
+
+  it("compacts the chain and refreshes the rows after a slot is cleared", async () => {
+    const config = imageConfig(["a/one", "b/two", "c/three"]);
+    const applied: Array<[string, unknown]> = [];
+    const section = openImageSection(config, applied);
+
+    section.applyChange("image.models.1", "");
+    await settle();
+
+    expect(config.image.models).toEqual(["b/two", "c/three"]);
+    const priorities = section.items.filter((item) => item.id.startsWith("image.models."));
+    expect(priorities[0]?.currentValue).toBe("b/two");
+    expect(priorities[1]?.currentValue).toBe("c/three");
+  });
+
+  it("appends at the end when a slot past the chain length is filled", async () => {
+    const config = imageConfig(["a/one"]);
+    const applied: Array<[string, unknown]> = [];
+    const section = openImageSection(config, applied);
+
+    section.applyChange("image.models.5", "d/four");
+    await settle();
+
+    expect(config.image.models).toEqual(["a/one", "d/four"]);
+    expect(section.items.filter((item) => item.id.startsWith("image.models."))[1]?.currentValue).toBe("d/four");
+  });
+});
+
 describe("FabricSettingsComponent", () => {
   it("populates Claude models asynchronously without requiring startup discovery", async () => {
     const source: ModelSource = {
@@ -176,11 +242,12 @@ describe("FabricSettingsComponent", () => {
       "Memory",
       "Speculation",
       "Judgment",
+      "Image",
       "Code previews",
     ]) {
       expect(labels).toContain(label);
     }
-    expect(items.length).toBe(18);
+    expect(items.length).toBe(19);
   });
 
   it("marks submenu rows with a drill-in marker and leaves inline toggles plain", () => {
