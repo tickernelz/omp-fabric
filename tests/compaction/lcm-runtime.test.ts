@@ -261,12 +261,15 @@ describe("LCM runtime", () => {
 
   it("bounds maintenance work by passes times concurrency, not the condensation fan-in", async () => {
     const settle = async (runtime: LcmRuntime): Promise<number> => {
+      const quietSamples = 6;
       let previous = -1;
-      for (let attempt = 0; attempt < 200; attempt += 1) {
+      let stable = 0;
+      for (let attempt = 0; attempt < 300; attempt += 1) {
         const count = runtime.maintenance.listNodes(1_000).length;
-        if (count === previous) return count;
+        stable = count === previous ? stable + 1 : 0;
+        if (stable >= quietSamples) return count;
         previous = count;
-        await new Promise((resolve) => setTimeout(resolve, 5));
+        await new Promise((resolve) => setTimeout(resolve, 10));
       }
       return runtime.maintenance.listNodes(1_000).length;
     };
