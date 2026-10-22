@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.26.4
+
+### Fixed
+
+- The result now reports what the backend actually produced. A `16:9` request through the `responses` dialect resolved to `1536x1024`, the gateway accepted it and returned a 2172x724 image, and the call reported `ignored` as absent because nothing was dropped on the way out. Each `images` entry now carries the pixel `width` and `height` read from the file header, the result names the `requestedSize` it resolved, and a backend that returned a different size sets `sizeHonoured: false`. `ignored` keeps its narrower meaning: parameters the wire cannot carry at all.
+
 ## 1.26.3
 
 ### Fixed

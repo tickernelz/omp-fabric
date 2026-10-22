@@ -10,6 +10,7 @@ import {
   parseGeminiPayload,
   parseImagesApiPayload,
   parseResponsesPayload,
+  imageDimensions,
   parseSsePayload,
   resolveImageSize,
   splitModelSelector,
@@ -19,6 +20,19 @@ import type { FabricInvocationContext, FabricMediaBlock } from "../src/protocol.
 
 const JPEG = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff]), Buffer.alloc(200, 7)]);
 const PNG = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(200, 9)]);
+
+const pngOf = (width: number, height: number): Buffer => {
+  const header = Buffer.alloc(8);
+  header.writeUInt32BE(width, 0);
+  header.writeUInt32BE(height, 4);
+  return Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    Buffer.from([0, 0, 0, 13]),
+    Buffer.from("IHDR", "latin1"),
+    header,
+    Buffer.alloc(120, 3),
+  ]);
+};
 
 interface FakeModel {
   provider: string;
@@ -586,6 +600,70 @@ describe("image provider failure paths", () => {
     expect(result.ok).toBe(true);
     expect(result.images).toHaveLength(2);
     expect(result.ignored).toEqual(["saveTo"]);
+  });
+
+  it("reads PNG and JPEG dimensions from the header", () => {
+    expect(imageDimensions(pngOf(1024, 1024))).toEqual({ width: 1024, height: 1024 });
+    expect(imageDimensions(pngOf(2172, 724))).toEqual({ width: 2172, height: 724 });
+    const jpeg = Buffer.concat([
+      Buffer.from([0xff, 0xd8]),
+      Buffer.from([0xff, 0xc0, 0x00, 0x11, 0x08]),
+      Buffer.from([0x04, 0x00, 0x06, 0x00]),
+      Buffer.alloc(64, 0),
+    ]);
+    expect(imageDimensions(jpeg)).toEqual({ width: 1536, height: 1024 });
+    expect(imageDimensions(Buffer.alloc(8, 1))).toBeUndefined();
+  });
+
+  it("reports the size the backend actually produced and flags a mismatch", async () => {
+    const models = [model("xai-hm", "cx/gpt-6.1-sol", "openai-responses", "http://xai.test/v1")];
+    const odd = pngOf(2172, 724);
+    const fetchImpl = (async () =>
+      jsonResponse(responsesPayload(odd.toString("base64")))) as unknown as typeof fetch;
+    const dir = await tempDir();
+    const provider = new ImageProvider(
+      () => configOf({ models: ["xai-hm/cx/gpt-6.1-sol"], outputDir: dir }),
+      { fetchImpl },
+    );
+
+    const result = (await provider.invoke(
+      "generate",
+      { prompt: "x", aspectRatio: "16:9" },
+      contextOf(models, []),
+    )) as {
+      ok: boolean;
+      requestedSize?: string;
+      sizeHonoured?: false;
+      images: Array<{ width?: number; height?: number }>;
+    };
+
+    expect(result.ok).toBe(true);
+    expect(result.requestedSize).toBe("1536x1024");
+    expect(result.images[0]).toMatchObject({ width: 2172, height: 724 });
+    expect(result.sizeHonoured).toBe(false);
+  });
+
+  it("leaves sizeHonoured unset when the backend matches the request", async () => {
+    const models = [model("xai-hm", "cx/gpt-6.1-sol", "openai-responses", "http://xai.test/v1")];
+    const square = pngOf(1024, 1024);
+    const fetchImpl = (async () =>
+      jsonResponse(responsesPayload(square.toString("base64")))) as unknown as typeof fetch;
+    const dir = await tempDir();
+    const provider = new ImageProvider(
+      () => configOf({ models: ["xai-hm/cx/gpt-6.1-sol"], outputDir: dir }),
+      { fetchImpl },
+    );
+
+    const result = (await provider.invoke(
+      "generate",
+      { prompt: "x", aspectRatio: "1:1" },
+      contextOf(models, []),
+    )) as { ok: boolean; requestedSize?: string; sizeHonoured?: false; images: Array<{ width?: number }> };
+
+    expect(result.ok).toBe(true);
+    expect(result.requestedSize).toBe("1024x1024");
+    expect(result.images[0]?.width).toBe(1024);
+    expect(result.sizeHonoured).toBeUndefined();
   });
 
   it("declares a write risk because it writes files", async () => {

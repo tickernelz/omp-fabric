@@ -1392,6 +1392,8 @@ interface FabricImageGenerated {
   path: string;
   bytes: number;
   mimeType: string;
+  width?: number;
+  height?: number;
 }
 interface FabricImageAttempt {
   model: string;
@@ -1407,6 +1409,8 @@ interface FabricImageResult {
   images?: FabricImageGenerated[];
   attempts?: number;
   elapsedMs?: number;
+  requestedSize?: string;
+  sizeHonoured?: false;
   ignored?: string[];
   failures?: FabricImageAttempt[];
 }

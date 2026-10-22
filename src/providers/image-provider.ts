@@ -148,6 +148,47 @@ const mimeFromMagic = (bytes: Buffer): string | undefined => {
   return undefined;
 };
 
+export const imageDimensions = (bytes: Buffer): { width: number; height: number } | undefined => {
+  if (bytes.length > 24 && bytes[0] === 0x89 && bytes[1] === 0x50) {
+    return { width: bytes.readUInt32BE(16), height: bytes.readUInt32BE(20) };
+  }
+  if (bytes.length > 10 && bytes[0] === 0xff && bytes[1] === 0xd8) {
+    let offset = 2;
+    while (offset + 9 < bytes.length) {
+      if (bytes[offset] !== 0xff) {
+        offset += 1;
+        continue;
+      }
+      const marker = bytes[offset + 1] ?? 0;
+      if (marker === 0xd8 || marker === 0x01 || (marker >= 0xd0 && marker <= 0xd7)) {
+        offset += 2;
+        continue;
+      }
+      const length = bytes.readUInt16BE(offset + 2);
+      const isSof =
+        (marker >= 0xc0 && marker <= 0xc3) ||
+        (marker >= 0xc5 && marker <= 0xc7) ||
+        (marker >= 0xc9 && marker <= 0xcb) ||
+        (marker >= 0xcd && marker <= 0xcf);
+      if (isSof) {
+        return { width: bytes.readUInt16BE(offset + 7), height: bytes.readUInt16BE(offset + 5) };
+      }
+      if (length < 2) return undefined;
+      offset += 2 + length;
+    }
+    return undefined;
+  }
+  if (bytes.length > 10 && bytes.subarray(0, 3).toString("latin1") === "GIF") {
+    return { width: bytes.readUInt16LE(6), height: bytes.readUInt16LE(8) };
+  }
+  if (bytes.length > 30 && bytes.subarray(12, 16).toString("latin1") === "VP8X") {
+    const width = 1 + (bytes.readUIntLE(24, 3) | 0);
+    const height = 1 + (bytes.readUIntLE(27, 3) | 0);
+    return { width, height };
+  }
+  return undefined;
+};
+
 const extensionForMime = (mimeType: string): string => {
   if (mimeType === "image/jpeg") return "jpg";
   if (mimeType === "image/webp") return "webp";
@@ -799,7 +840,14 @@ export class ImageProvider implements FabricProvider {
             signal: env.signal,
           });
           if (images.length === 0) throw new Error("backend returned no image data");
-          let written: Array<{ path: string; bytes: number; mimeType: string; data: string }>;
+          let written: Array<{
+            path: string;
+            bytes: number;
+            mimeType: string;
+            data: string;
+            width?: number;
+            height?: number;
+          }>;
           try {
             written = await this.write(images, saveTo, context.cwd);
           } catch (error) {
@@ -826,13 +874,27 @@ export class ImageProvider implements FabricProvider {
             saveTo,
             returned: written.length,
           });
+          const requestedSize = resolveImageSize(aspectRatio, size);
+          const first = written[0];
+          const mismatch =
+            requestedSize !== undefined &&
+            first?.width !== undefined &&
+            first.height !== undefined &&
+            requestedSize !== `${first.width}x${first.height}`;
           return {
             ok: true,
             model: `${model.provider}/${model.id}`,
             dialect,
-            images: written.map((entry) => ({ path: entry.path, bytes: entry.bytes, mimeType: entry.mimeType })),
+            images: written.map((entry) => ({
+              path: entry.path,
+              bytes: entry.bytes,
+              mimeType: entry.mimeType,
+              ...(entry.width !== undefined ? { width: entry.width, height: entry.height } : {}),
+            })),
             attempts: attempt,
             elapsedMs: Math.max(0, now() - started),
+            ...(requestedSize !== undefined ? { requestedSize } : {}),
+            ...(mismatch ? { sizeHonoured: false } : {}),
             ...(ignored.length > 0 ? { ignored } : {}),
             failures,
           };
@@ -863,7 +925,9 @@ export class ImageProvider implements FabricProvider {
     images: InlineImage[],
     saveTo: string | undefined,
     cwd: string,
-  ): Promise<Array<{ path: string; bytes: number; mimeType: string; data: string }>> {
+  ): Promise<
+    Array<{ path: string; bytes: number; mimeType: string; data: string; width?: number; height?: number }>
+  > {
     const configured = this.config().outputDir;
     const directory =
       configured.length > 0
@@ -872,7 +936,14 @@ export class ImageProvider implements FabricProvider {
           : path.resolve(cwd, configured)
         : os.tmpdir();
     await mkdir(directory, { recursive: true, mode: 0o700 });
-    const written: Array<{ path: string; bytes: number; mimeType: string; data: string }> = [];
+    const written: Array<{
+      path: string;
+      bytes: number;
+      mimeType: string;
+      data: string;
+      width?: number;
+      height?: number;
+    }> = [];
     for (const [index, image] of images.entries()) {
       const extension = extensionForMime(image.mimeType);
       const target =
@@ -884,7 +955,14 @@ export class ImageProvider implements FabricProvider {
       await mkdir(path.dirname(target), { recursive: true, mode: 0o700 });
       const bytes = Buffer.from(image.data, "base64");
       await writeFile(target, bytes, { mode: 0o600 });
-      written.push({ path: target, bytes: bytes.length, mimeType: image.mimeType, data: image.data });
+      const dimensions = imageDimensions(bytes);
+      written.push({
+        path: target,
+        bytes: bytes.length,
+        mimeType: image.mimeType,
+        data: image.data,
+        ...(dimensions !== undefined ? { width: dimensions.width, height: dimensions.height } : {}),
+      });
     }
     return written;
   }
