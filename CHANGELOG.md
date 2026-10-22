@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.26.5
+
+### Fixed
+
+- The docs said a `16:9` request "becomes `1536x1024`" without saying that `1536x1024` is 3:2. The hosted image tool accepts three pixel sizes only, so a ratio outside those is approximated, and `requestedSize` reports the resolved pixel size rather than the ratio. Measured: a `16:9` call returned 1536x1024 through that path, and a separate `responses` call on a panoramic prompt returned 2172x724 with `requestedSize` matching the sent value, which is what `sizeHonoured: false` reports.
+
 ## 1.26.4
 
 ### Fixed
