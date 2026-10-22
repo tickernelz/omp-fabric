@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.26.1
+
+### Fixed
+
+- `image.generate` and `image.edit` declare `risk: "write"`. They write files to `image.outputDir` or `saveTo`, so a caller who tightened `approvals.write` to `ask` or `deny` was bypassed while the call was classified as network only. Every other provider that writes files already used `"write"`.
+- The attempt budget now fits the program deadline. `image.timeoutMs` defaults to 60 s with one retry, 120 s in total, matching the default `executor.timeoutMs`; the previous 180 s attempt with two retries could never finish inside it, so the executor cancelled the program and the documented `{ ok: false, failures }` never returned.
+- The provider resolves its model registry at mount. Component and actor invocations pass an empty extension context, so the per-invoke lookup returned nothing and `image.generate` threw instead of answering; the mount site now injects the registry and a session-id getter, and the per-invoke lookup stays as the fallback.
+
 ## 1.26.0
 
 ### Added

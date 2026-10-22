@@ -758,7 +758,10 @@ export class FabricRuntimeState {
       await installBuiltin(createProviderComponent({
         provider: "image",
         description: "Image generation and editing across a configured priority chain",
-        create: () => new ImageProvider(imageConfig),
+        create: () => new ImageProvider(imageConfig, {
+          registry: context.modelRegistry,
+          getSessionId: () => context.sessionManager.getSessionId() ?? undefined,
+        }),
       }));
     } else {
       this.#registry.markUnavailable(

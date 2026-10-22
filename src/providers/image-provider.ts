@@ -102,14 +102,14 @@ const descriptors: FabricActionDescriptor[] = [
     description:
       "Generate an image from a prompt. Tries each configured model in priority order and returns the first success with its path, bytes, model, and dialect. Returns { ok: false, reason, failures } instead of throwing when every model fails.",
     inputSchema: generateSchema as unknown as Record<string, unknown>,
-    risk: "network",
+    risk: "write",
   },
   {
     name: "edit",
     description:
       "Edit existing images with a prompt. Tries each configured model in priority order and returns the first success or { ok: false, reason, failures }. Source images travel in the shape each dialect expects: input_references or image/images for the images API, image_url parts for chat, input_image for responses, inlineData for gemini.",
     inputSchema: editSchema as unknown as Record<string, unknown>,
-    risk: "network",
+    risk: "write",
   },
   {
     name: "models",
@@ -528,7 +528,12 @@ export class ImageProvider implements FabricProvider {
 
   constructor(
     private readonly config: () => FabricImageConfig,
-    private readonly options: { fetchImpl?: typeof fetch; now?: () => number } = {},
+    private readonly options: {
+      fetchImpl?: typeof fetch;
+      now?: () => number;
+      registry?: ImageModelRegistry;
+      getSessionId?: () => string | undefined;
+    } = {},
   ) {}
 
   async list(
@@ -567,9 +572,17 @@ export class ImageProvider implements FabricProvider {
   }
 
   private registry(context: FabricInvocationContext): ImageModelRegistry {
+    const injected = this.options.registry;
+    if (injected) return injected;
     const registry = (context.extensionContext as unknown as { modelRegistry?: ImageModelRegistry }).modelRegistry;
     if (!registry) throw new Error("image provider needs a model registry on the extension context");
     return registry;
+  }
+
+  private sessionId(context: FabricInvocationContext): string | undefined {
+    const injected = this.options.getSessionId;
+    if (injected) return injected();
+    return context.extensionContext?.sessionManager?.getSessionId?.() ?? undefined;
   }
 
   private resolveModel(registry: ImageModelRegistry, selector: string): ImageModelRef | undefined {
@@ -610,7 +623,7 @@ export class ImageProvider implements FabricProvider {
 
   private async chain(context: FabricInvocationContext): Promise<unknown> {
     const registry = this.registry(context);
-    const sessionId = context.extensionContext.sessionManager.getSessionId() ?? undefined;
+    const sessionId = this.sessionId(context);
     const entries: Record<string, unknown>[] = [];
     for (const selector of this.config().models) {
       const model = this.resolveModel(registry, selector);
@@ -685,7 +698,7 @@ export class ImageProvider implements FabricProvider {
     }
 
     const registry = this.registry(context);
-    const sessionId = context.extensionContext.sessionManager.getSessionId() ?? undefined;
+    const sessionId = this.sessionId(context);
     const fetchImpl = this.options.fetchImpl ?? fetch;
     const now = this.options.now ?? Date.now;
     const started = now();

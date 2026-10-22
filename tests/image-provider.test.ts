@@ -452,6 +452,38 @@ describe("image provider failure paths", () => {
     expect(calls).toBe(1);
   });
 
+  it("runs from a mount-injected registry when the invocation context carries none", async () => {
+    const models = [model("xai-hm", "antigravity/gemini-3.1-flash-image", "openai-responses", "http://xai.test/v1")];
+    const fetchImpl = (async () => jsonResponse(imagesPayload(JPEG.toString("base64")))) as unknown as typeof fetch;
+    const dir = await tempDir();
+    const provider = new ImageProvider(
+      () => configOf({ models: ["xai-hm/antigravity/gemini-3.1-flash-image"], outputDir: dir }),
+      { fetchImpl, registry: registryOf(models), getSessionId: () => "mounted" },
+    );
+    const supervisorContext = {
+      cwd: process.cwd(),
+      signal: undefined,
+      extensionContext: {},
+    } as unknown as FabricInvocationContext;
+
+    const result = (await provider.invoke("generate", { prompt: "x" }, supervisorContext)) as {
+      ok: boolean;
+      model: string;
+    };
+
+    expect(result.ok).toBe(true);
+    expect(result.model).toBe("xai-hm/antigravity/gemini-3.1-flash-image");
+  });
+
+  it("declares a write risk because it writes files", async () => {
+    const provider = new ImageProvider(() => configOf({ models: ["a/b"] }));
+    const context = contextOf([], []);
+    const risks = await Promise.all(
+      ["generate", "edit", "models"].map(async (name) => (await provider.describe(name, context))?.risk),
+    );
+    expect(risks).toEqual(["write", "write", "read"]);
+  });
+
   it("takes the last response event from a stream and skips keep-alives", () => {
     const first = { type: "response.created", response: { status: "in_progress", output: [] } };
     const last = responsesPayload(PNG.toString("base64"));

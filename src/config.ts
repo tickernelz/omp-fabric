@@ -631,8 +631,8 @@ export const DEFAULT_FABRIC_CONFIG: FabricConfig = {
     enabled: true,
     models: [],
     dialects: {},
-    timeoutMs: 90_000,
-    retries: 2,
+    timeoutMs: 60_000,
+    retries: 1,
     outputDir: "",
   },
   memory: {

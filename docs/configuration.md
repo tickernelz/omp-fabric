@@ -543,8 +543,8 @@ Mesh topics, shared state, and the participant directory remain project-scoped. 
 - `image.enabled` (default `true`) exposes the `image.*` actions. With it off the provider is not registered at all: the actions are unavailable and the `image` guest global is removed.
 - `image.models` (default empty) is the ordered chain of up to 10 `provider/model` entries. The first entry that returns bytes wins, duplicates and entries without a slash are dropped on load, and an empty priority in the panel compacts the list upward.
 - `image.dialects` (default empty) overrides the inferred wire shape per `provider/model`. It stays in the file because each entry encodes one gateway's behaviour.
-- `image.timeoutMs` (5000-900000, default 90000) bounds one model attempt, including the body read. The whole attempt budget has to fit inside `executor.timeoutMs`, which bounds the program, or the executor cancels the call before the attempt's own deadline.
-- `image.retries` (0-4, default 2) is the extra attempts per model after a transient failure, before the chain moves to the next entry.
+- `image.timeoutMs` (5000-900000, default 60000) bounds one model attempt, including the body read. The whole attempt budget has to fit inside `executor.timeoutMs`, which bounds the program, or the executor cancels the call before the attempt's own deadline.
+- `image.retries` (0-4, default 1) is the extra attempts per model after a transient failure, before the chain moves to the next entry.
 - `image.outputDir` (default empty) is where generated files are written. Empty uses the OS temp directory.
 
 ## File-only settings

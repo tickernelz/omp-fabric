@@ -60,8 +60,8 @@ A selector keeps every slash after the provider, so `xai-hm/antigravity/gemini-3
 - `image.enabled` (default `true`) exposes the `image.*` actions. With it off the provider is not registered and the `image` guest global is removed.
 - `image.models` (default empty) is the ordered chain, capped at 10 entries. Duplicates and entries without a slash are dropped on load.
 - `image.dialects` (default empty) overrides the inferred dialect per `provider/model`. File-only, because it is a per-gateway escape hatch.
-- `image.timeoutMs` (5000-900000, default 90000) bounds one model attempt, including the body read. Keep the whole attempt budget inside `executor.timeoutMs`, which bounds the program: a 90 s attempt with two retries fits a 300 s executor deadline, and the defaults are chosen so one attempt fits the 120 s default.
-- `image.retries` (0-4, default 2) is the extra attempts per model after a transient failure.
+- `image.timeoutMs` (5000-900000, default 60000) bounds one model attempt, including the body read. The whole attempt budget has to fit inside `executor.timeoutMs`, which bounds the program: the defaults of one 60 s attempt with one retry come to 120 s, exactly the executor default. Raise both together, or a slow gateway is cancelled by the program deadline before the attempt reports `{ ok: false }`.
+- `image.retries` (0-4, default 1) is the extra attempts per model after a transient failure.
 - `image.outputDir` (default empty) is where files are written. Empty uses the OS temp directory.
 
 ## Measured on one workstation
