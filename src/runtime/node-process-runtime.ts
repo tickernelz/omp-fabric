@@ -55,7 +55,7 @@ const createStderrTail = (
   return () => tail.trim();
 };
 
-const diagnoseChildExit = (detail: string, stderrTail: string): string => {
+export const describeChildExit = (detail: string, stderrTail: string): string => {
   const base = `Process executor exited before returning a result (${detail})`;
   if (!stderrTail) {
     return `${base}. The child wrote nothing to stderr; rerun with a narrower program to isolate the crash.`;
@@ -248,7 +248,7 @@ export class NodeProcessRuntime {
         if (settled) return;
         const detail = signal ? `signal ${signal}` : `exit code ${exitCode ?? "unknown"}`;
         const tail = childStderr();
-        const diagnosis = diagnoseChildExit(detail, tail);
+        const diagnosis = describeChildExit(detail, tail);
         finish({
           value: undefined,
           logs: [],

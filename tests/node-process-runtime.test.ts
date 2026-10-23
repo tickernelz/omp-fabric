@@ -3,7 +3,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { BunProcessRuntime, NodeProcessRuntime } from "../src/runtime/node-process-runtime.js";
+import { BunProcessRuntime, NodeProcessRuntime, describeChildExit } from "../src/runtime/node-process-runtime.js";
 
 const options = {
   timeoutMs: 5_000,
@@ -40,7 +40,25 @@ return { models, process: typeof process, require: typeof require };
     });
   });
 
-  it("reports the child stderr tail instead of guessing a memory limit", async () => {
+  it("classifies a child exit from its stderr instead of guessing a memory limit", () => {
+    const oom = describeChildExit("exit code 1", "FATAL ERROR: Reached heap limit Allocation failed");
+    expect(oom).toContain("exit code 1");
+    expect(oom).toContain("ran out of memory");
+    expect(oom).toContain("Reached heap limit Allocation failed");
+
+    const crash = describeChildExit("signal SIGSEGV", "TypeError: x is not a function");
+    expect(crash).toContain("signal SIGSEGV");
+    expect(crash).toContain("crashed");
+    expect(crash).toContain("TypeError: x is not a function");
+    expect(crash).not.toContain("ran out of memory");
+
+    const silent = describeChildExit("exit code 137", "");
+    expect(silent).toContain("exit code 137");
+    expect(silent).toContain("wrote nothing to stderr");
+    expect(silent).not.toContain("ran out of memory");
+  });
+
+  it.skipIf(process.platform === "win32")("pipes the child stderr into the failure message", async () => {
     const dir = await mkdtemp(path.join(tmpdir(), "fabric-crash-"));
     const fake = path.join(dir, "node");
     await writeFile(
@@ -58,7 +76,6 @@ return { models, process: typeof process, require: typeof require };
       );
       expect(result.terminationReason).toBe("runtime_error");
       expect(result.error).toContain("exit code 1");
-      expect(result.error).toContain("ran out of memory");
       expect(result.error).toContain("Reached heap limit Allocation failed");
     } finally {
       if (previous === undefined) delete process.env.OMP_FABRIC_NODE_BINARY;
