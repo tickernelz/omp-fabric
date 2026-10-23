@@ -210,11 +210,11 @@ const __ompArgAliases = {
   },
 };
 // Multi-arg positional order, used only when a call passes >= 2 args and the
-// (primary, options) merge in __positionalToArgs does not apply. One-field
-// tools (read/bash/ls) stay absent: their two-arg form is a bare string plus
-// an options object, repaired by the merge instead of a wrong-arity (2554)
-// type error; only a non-object second arg still fails 2554.
+// (primary, options) merge in __positionalToArgs does not apply. bash/ls stay
+// absent: their two-arg form is a bare string plus an options object, repaired
+// by the merge instead of a wrong-arity (2554) type error.
 const __ompPositionalFields = {
+  read: ["path", "offset", "limit"],
   grep: ["pattern", "path", "skip"],
   find: ["pattern", "path", "limit"],
   write: ["path", "content"],
@@ -641,7 +641,30 @@ const __lazyNamespace = (names, resolve, local = {}) => new Proxy(local, {
 });
 const __providerProxy = (provider, local = {}, names = []) =>
   __lazyNamespace(names, (property) => (args = {}) => __call(provider + "." + property, args), local);
-globalThis.extensions = __providerProxy("extensions", {}, __nameList(__proxyNames.extensions));
+const __mcpAlias = (name) => {
+  if (name.indexOf("mcp__") !== 0) return undefined;
+  const rest = name.slice(5);
+  let best;
+  for (const server of Object.keys(__mcpServerTools)) {
+    const prefix = server + "_";
+    if (rest.indexOf(prefix) !== 0) continue;
+    if (best === undefined || server.length > best.length) best = server;
+  }
+  if (best === undefined) return undefined;
+  const available = __mcpServerTools[best] || [];
+  return { server: best, tool: __resolveToolName(available, rest.slice(best.length + 1)) };
+};
+const __extensionBase = __providerProxy("extensions", {}, __nameList(__proxyNames.extensions));
+globalThis.extensions = new Proxy(__extensionBase, {
+  get(target, property) {
+    if (typeof property === "symbol") return target[property];
+    const alias = __mcpAlias(String(property));
+    if (alias && Object.prototype.hasOwnProperty.call(target, property) === false) {
+      return (args = {}) => __call("mcp." + alias.server + "." + alias.tool, args);
+    }
+    return target[property];
+  },
+});
 globalThis.memory = __providerProxy("memory", { walk: __memoryWalk });
 globalThis.state = __providerProxy("state");
 globalThis.schema = __providerProxy("schema");
@@ -935,11 +958,22 @@ const __mcpManagement = {
   register: (args) => __call("mcp.$register", args),
   call: (args) => __call("mcp.$call", args),
 };
+const __nameKey = (name) => String(name).toLowerCase().replace(/[^a-z0-9]/g, "");
+const __resolveToolName = (available, requested) => {
+  const wanted = String(requested);
+  if (available.indexOf(wanted) >= 0) return wanted;
+  const key = __nameKey(wanted);
+  const matches = available.filter((candidate) => __nameKey(candidate) === key);
+  return matches.length === 1 ? matches[0] : wanted;
+};
 globalThis.mcp = __lazyNamespace(
   Object.keys(__mcpServerTools).sort(),
   (server) => __lazyNamespace(
     __mcpServerTools[server] ? __mcpServerTools[server].slice().sort() : [],
-    (tool) => (args = {}) => __call("mcp." + server + "." + tool, args),
+    (tool) => (args = {}) => {
+      const available = __mcpServerTools[server] ? __mcpServerTools[server] : [];
+      return __call("mcp." + server + "." + __resolveToolName(available, tool), args);
+    },
   ),
   __mcpManagement,
 );

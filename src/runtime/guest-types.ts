@@ -492,6 +492,7 @@ type OmpFindCompatibilityArgument = string | (OmpFindPatternArgument & OmpNumeri
 type OmpLsCompatibilityArgument = string | (OmpOptionalPathArgument & OmpNumericStringOptions<OmpLsOptions>);
 interface OmpToolsApi {
   read(args: OmpReadArgument, options?: OmpReadOptions): Promise<string>;
+  read(path: string, offset?: number, limit?: number): Promise<string>;
   bash(args: OmpBashArgument, options?: OmpBashOptions): Promise<{ ok: true; output: string; details: unknown } | { ok: false; output: string; details: null; exitCode: number; error: string }>;
   edit(args: OmpEditArgument): Promise<{ ok: true; output: string; details: unknown }>;
   edit(path: string, oldText: string, newText: string): Promise<{ ok: true; output: string; details: unknown }>;

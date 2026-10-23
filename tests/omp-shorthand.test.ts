@@ -288,10 +288,14 @@ describe("omp positional args", () => {
     expect(result.value).toEqual({ a: "g", b: "f", c: "w", d: "e" });
   });
 
-  it("type-check-rejects 2-arg calls with a non-object second arg so it is not silently dropped", () => {
-    const result = typeCheckFabricCode('await omp.read("/x", 10); return "never";', GUEST_TYPE_DECLARATIONS);
-    expect(result.errors.length).toBeGreaterThan(0);
-    expect(result.errors.some((e) => /properties in common|argument/i.test(e.message))).toBe(true);
+  it("type-checks positional read offsets and still rejects a non-numeric second arg", () => {
+    const positional = typeCheckFabricCode(
+      'const a = await omp.read("/x", 10); const b = await omp.read("/x", 10, 20); return a + b;',
+      GUEST_TYPE_DECLARATIONS,
+    );
+    expect(positional.errors).toEqual([]);
+    const rejected = typeCheckFabricCode('await omp.read("/x", true); return "never";', GUEST_TYPE_DECLARATIONS);
+    expect(rejected.errors.length).toBeGreaterThan(0);
   });
 
   it("type-checks two-arg (primary, options) calls for string-primary tools", () => {

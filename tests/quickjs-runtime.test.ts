@@ -184,6 +184,82 @@ return {
     expect(result.value).toEqual([{ ref: "extensions.fovea_focus" }]);
   });
 
+  it("maps every documented omp.read argument shape to the host path/offset/limit", async () => {
+    const seen: unknown[] = [];
+    const result = await new QuickJsRuntime().execute(
+      `
+await omp.read({ path: "a.txt", offset: 5, limit: 10 });
+await omp.read("a.txt", { offset: 6, limit: 11 });
+await omp.read("a.txt", 7, 12);
+await omp.read("a.txt", { start: 8, max: 13 });
+return "ok";
+`,
+      async (ref, args) => {
+        expect(ref).toBe("omp.read");
+        seen.push(args);
+        return "body";
+      },
+      options,
+    );
+    expect(result.error).toBeUndefined();
+    expect(seen).toEqual([
+      { path: "a.txt", offset: 5, limit: 10 },
+      { path: "a.txt", offset: 6, limit: 11 },
+      { path: "a.txt", offset: 7, limit: 12 },
+      { path: "a.txt", offset: 8, limit: 13 },
+    ]);
+  });
+
+  it("resolves camelCase and mcp__ spellings to the registered MCP tool", async () => {
+    const seen: Array<{ ref: string; args: Record<string, unknown> }> = [];
+    const result = await new QuickJsRuntime().execute(
+      `
+await mcp.paperclip.paperclipCreateChildIssue({ title: "a" });
+await extensions.mcp__paperclip_paperclip_create_child_issue({ title: "b" });
+return "ok";
+`,
+      async (ref, args) => {
+        seen.push({ ref, args });
+        return { ok: true };
+      },
+      {
+        ...options,
+        proxyNames: {
+          mcp: { paperclip: ["paperclip_create_child_issue", "paperclip_comment"] },
+          extensions: [],
+        },
+      },
+    );
+    expect(result.error).toBeUndefined();
+    expect(seen.map((call) => call.ref)).toEqual([
+      "mcp.paperclip.paperclip_create_child_issue",
+      "mcp.paperclip.paperclip_create_child_issue",
+    ]);
+  });
+
+  it("picks the longest MCP server prefix when server names nest", async () => {
+    const seen: string[] = [];
+    const result = await new QuickJsRuntime().execute(
+      `await extensions.mcp__paperclip_local_browser_act({ action: "open" }); return "ok";`,
+      async (ref) => {
+        seen.push(ref);
+        return { ok: true };
+      },
+      {
+        ...options,
+        proxyNames: {
+          mcp: {
+            paperclip: ["paperclip_create_child_issue"],
+            paperclip_local_browser: ["act", "open"],
+          },
+          extensions: [],
+        },
+      },
+    );
+    expect(result.error).toBeUndefined();
+    expect(seen).toEqual(["mcp.paperclip_local_browser.act"]);
+  });
+
   it("routes stable Fabric providers through first-class proxies", async () => {
     const calls: Array<{ ref: string; args: Record<string, unknown> }> = [];
     const result = await new QuickJsRuntime().execute(
