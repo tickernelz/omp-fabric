@@ -658,8 +658,9 @@ const __mcpServerEnd = (rest, server) => {
     while (j < server.length && !__isAlnum(server[j])) j += 1;
   }
   if (rest[i] === undefined || __isAlnum(rest[i])) return -1;
-  while (i < rest.length && !__isAlnum(rest[i])) i += 1;
-  return i;
+  const toolStart = i + 1;
+  if (toolStart >= rest.length || !__isAlnum(rest[toolStart])) return -1;
+  return toolStart;
 };
 const __mcpAlias = (name) => {
   if (name.indexOf("mcp__") !== 0) return undefined;

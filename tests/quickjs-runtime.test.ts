@@ -326,6 +326,25 @@ return "ok";
     expect(seen).toEqual(["extensions.mcp__a-b_do"]);
   });
 
+  it("does not fall through to a shorter server when the separator is doubled", async () => {
+    const seen: string[] = [];
+    await new QuickJsRuntime().execute(
+      `await extensions["mcp__paperclip__local_browser_act"]({}); return "ok";`,
+      async (ref) => {
+        seen.push(ref);
+        return { ok: true };
+      },
+      {
+        ...options,
+        proxyNames: {
+          mcp: { paperclip: ["local_browser_act"], paperclip_local_browser: ["act"] },
+          extensions: [],
+        },
+      },
+    );
+    expect(seen).toEqual(["extensions.mcp__paperclip__local_browser_act"]);
+  });
+
   it("routes stable Fabric providers through first-class proxies", async () => {
     const calls: Array<{ ref: string; args: Record<string, unknown> }> = [];
     const result = await new QuickJsRuntime().execute(

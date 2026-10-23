@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.26.9
+
+### Fixed
+
+- A doubled separator in an `mcp__<server>_<tool>` name routed the call to the wrong server. With `paperclip` and `paperclip_local_browser` both registered, `mcp__paperclip__local_browser_act` did not match the nested server, then matched `paperclip`, and the leftover `_local_browser_act` still resolved through the punctuation-insensitive tool matcher, so the call ran against `paperclip` without any error. The server match now ends at exactly one separator and the tool segment must start with an alphanumeric character, so a doubled or trailing separator leaves the name unresolved. Reverting the guard makes the test route to `mcp.paperclip.local_browser_act`, which is the misroute it prevents.
+
 ## 1.26.8
 
 ### Fixed
