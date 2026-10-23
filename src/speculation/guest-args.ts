@@ -7,6 +7,11 @@ const STRING_FIELDS: Readonly<Record<string, string>> = {
 };
 
 const POSITIONAL_FIELDS: Readonly<Record<string, readonly string[]>> = {
+  read: [
+    "path",
+    "offset",
+    "limit"
+  ],
   grep: [
     "pattern",
     "path",
