@@ -32,6 +32,42 @@ type ChildMessage = ChildCallMessage | ChildResultMessage;
 
 const HOST_TASK_SETTLE_GRACE_MS = 250;
 
+const STDERR_TAIL_CHARS = 4_000;
+
+const OUT_OF_MEMORY_PATTERNS = [
+  /heap out of memory/i,
+  /out of memory/i,
+  /allocation failed/i,
+  /memory limit exceeded/i,
+  /Cannot allocate memory/i,
+];
+
+const createStderrTail = (
+  stream: NodeJS.ReadableStream | null,
+  limit: number,
+): (() => string) => {
+  let tail = "";
+  stream?.setEncoding?.("utf8");
+  stream?.on?.("data", (chunk: string) => {
+    tail = (tail + chunk).slice(-limit);
+  });
+  stream?.on?.("error", () => undefined);
+  return () => tail.trim();
+};
+
+const diagnoseChildExit = (detail: string, stderrTail: string): string => {
+  const base = `Process executor exited before returning a result (${detail})`;
+  if (!stderrTail) {
+    return `${base}. The child wrote nothing to stderr; rerun with a narrower program to isolate the crash.`;
+  }
+  const outOfMemory = OUT_OF_MEMORY_PATTERNS.some((pattern) => pattern.test(stderrTail));
+  const verdict = outOfMemory
+    ? "The child ran out of memory. Narrow the program or raise executor.memoryLimitBytes."
+    : "The child crashed. The stderr tail below carries the real cause.";
+  return `${base}. ${verdict}\n--- child stderr (tail) ---\n${stderrTail}`;
+};
+
+
 const send = (child: ChildProcess, message: any): void => {
   if (!child.connected) return;
   child.send(message, () => undefined);
@@ -84,8 +120,9 @@ export class NodeProcessRuntime {
             "--eval",
             NODE_PROCESS_CHILD_SOURCE,
           ],
-      { stdio: ["ignore", "ignore", "ignore", "ipc"] },
+      { stdio: ["ignore", "ignore", "pipe", "ipc"] },
     );
+    const childStderr = createStderrTail(child.stderr, STDERR_TAIL_CHARS);
     // Bun resolution is async, so the signal may have aborted while resolving.
     if (options.signal?.aborted) {
       return {
@@ -207,14 +244,16 @@ export class NodeProcessRuntime {
           error: `Process executor failed: ${error.message}`,
         });
       });
-      child.once("exit", (exitCode, signal) => {
+      child.once("close", (exitCode, signal) => {
         if (settled) return;
         const detail = signal ? `signal ${signal}` : `exit code ${exitCode ?? "unknown"}`;
+        const tail = childStderr();
+        const diagnosis = diagnoseChildExit(detail, tail);
         finish({
           value: undefined,
           logs: [],
           terminationReason: "runtime_error",
-          error: `Process executor exited before returning a result (${detail}); it may have exceeded its memory limit`,
+          error: diagnosis,
         });
       });
 

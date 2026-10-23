@@ -1,4 +1,7 @@
 import { execFileSync } from "node:child_process";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { BunProcessRuntime, NodeProcessRuntime } from "../src/runtime/node-process-runtime.js";
 
@@ -35,6 +38,33 @@ return { models, process: typeof process, require: typeof require };
       process: "undefined",
       require: "undefined",
     });
+  });
+
+  it("reports the child stderr tail instead of guessing a memory limit", async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "fabric-crash-"));
+    const fake = path.join(dir, "node");
+    await writeFile(
+      fake,
+      "#!/bin/sh\necho 'FATAL ERROR: Reached heap limit Allocation failed' >&2\nexit 1\n",
+      { mode: 0o755 },
+    );
+    const previous = process.env.OMP_FABRIC_NODE_BINARY;
+    process.env.OMP_FABRIC_NODE_BINARY = fake;
+    try {
+      const result = await new NodeProcessRuntime().execute(
+        "return 1;",
+        async () => undefined,
+        { timeoutMs: 10_000, memoryLimitBytes: 64 * 1024 * 1024 },
+      );
+      expect(result.terminationReason).toBe("runtime_error");
+      expect(result.error).toContain("exit code 1");
+      expect(result.error).toContain("ran out of memory");
+      expect(result.error).toContain("Reached heap limit Allocation failed");
+    } finally {
+      if (previous === undefined) delete process.env.OMP_FABRIC_NODE_BINARY;
+      else process.env.OMP_FABRIC_NODE_BINARY = previous;
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 
   it("normalizes the string shorthand for tools.search", async () => {
