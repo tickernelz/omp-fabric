@@ -12,7 +12,7 @@ description: >-
 One type-checked TS program in a fresh executor (isolated QuickJS by default). Only the `return` value reaches the model; `print()`/`console.log` go to the activity panel. `payloads` is not a tool.
 
 ## `omp` core tools (full code mode only)
-`omp.<tool>(arg)` — single arg: bare string (primary field) or options object, or a two-arg `(primary, options)` merge for the string-primary tools (`read`/`bash`/`ls`/`grep`/`find`): `omp.read('index.ts', { limit: 120 })` becomes `{ path: 'index.ts', limit: 120 }`, the positional string winning the primary field on conflict; a non-object second arg on those is still a type error. Positional tuple calls are accepted for `read` (`path, offset, limit`), `grep` (`pattern, path, skip`), `find` (`pattern, path, limit`), `write` (`path, content`), and `edit` (`path, oldText, newText`).
+`omp.<tool>(arg)` — single arg: bare string (primary field) or options object, or a two-arg `(primary, options)` merge for the string-primary tools (`read`/`bash`/`ls`/`grep`/`find`): `omp.read('index.ts', { limit: 120 })` becomes `{ path: 'index.ts', limit: 120 }`, the positional string winning the primary field on conflict; a non-object second arg on `bash`/`ls` is still a type error. Positional tuple calls are accepted for `read` (`path, offset, limit`), `grep` (`pattern, path, skip`), `find` (`pattern, path, limit`), `write` (`path, content`), and `edit` (`path, oldText, newText`).
 
 | Tool | Form | Returns |
 |------|------|---------|

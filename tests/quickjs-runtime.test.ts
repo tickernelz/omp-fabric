@@ -260,6 +260,26 @@ return "ok";
     expect(seen).toEqual(["mcp.paperclip_local_browser.act"]);
   });
 
+  it("leaves an ambiguous MCP name untouched instead of guessing between candidates", async () => {
+    const seen: string[] = [];
+    const result = await new QuickJsRuntime().execute(
+      `await mcp.docs.searchFiles({ q: "a" }); return "ok";`,
+      async (ref) => {
+        seen.push(ref);
+        return { ok: true };
+      },
+      {
+        ...options,
+        proxyNames: {
+          mcp: { docs: ["search_files", "search-files"] },
+          extensions: [],
+        },
+      },
+    );
+    expect(result.error).toBeUndefined();
+    expect(seen).toEqual(["mcp.docs.searchFiles"]);
+  });
+
   it("routes stable Fabric providers through first-class proxies", async () => {
     const calls: Array<{ ref: string; args: Record<string, unknown> }> = [];
     const result = await new QuickJsRuntime().execute(

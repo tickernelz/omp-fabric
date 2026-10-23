@@ -1,5 +1,31 @@
 # Changelog
 
+## 1.26.7
+
+### Fixed
+
+- 1.26.6 added `read` to the positional tuple list in the shipped skill while the same sentence still said a non-object second argument on those tools is a type error, so the paragraph contradicted itself about `omp.read('/x', 10)`. The claim now names `bash`/`ls`, which is what the gate actually enforces.
+
+### Changed
+
+- The MCP name resolver has a test for the case where two registered tools normalize to the same key. It must leave the requested name alone and let the host reject it rather than pick one, so a genuine typo is never redirected to a different tool.
+
+## 1.26.6
+
+### Added
+
+- `omp.read` accepts the positional form `omp.read(path, offset, limit)` as well as `omp.read(path, { offset, limit })` and the object form. Only the object form type-checked before, so a program written the other way was rejected before it ran. In a 48-hour window of production `fabric_exec` transcripts the gate rejected 217 programs, and `Expected N-N arguments` accounted for 73 of the individual diagnostics. The positional table in `src/speculation/guest-args.ts` gained the same entry, because that copy drives speculative results and without it `omp.read(p, 10, 40)` would have predicted `{ path }` for a call that later ran with an offset. A non-numeric second argument still fails the gate.
+
+### Fixed
+
+- A child process that exited without returning a result reported `it may have exceeded its memory limit` regardless of why it died. The message was inferred from the exit code or signal alone while the child's stderr was discarded, so every crash was described as a memory problem; for the Bun executor the sentence could not even be true, since Bun ignores the V8 heap flag. stderr is now piped, the last 4000 characters are kept, and the diagnosis names out-of-memory only when the child said so, otherwise returning the tail that carries the real cause. The handler moved from `exit` to `close` so the stream has drained before the tail is read. In the same 48-hour window 18 runs ended through that message.
+- An MCP tool reached through a spelling the model copied rather than the registered name now resolves. `mcp.<server>.<tool>` accepts a case- and punctuation-insensitive match when exactly one candidate exists, and `extensions.mcp__<server>_<tool>` routes to the MCP proxy, splitting the server name at its longest prefix so nested names (`paperclip`, `paperclip_local_browser`) resolve correctly. An ambiguous or unknown name is left untouched and still fails, so a typo is never silently redirected to a different tool. 99 `Unknown Fabric action` failures appeared in the window, 30 of them under `extensions.mcp__*`.
+
+### Changed
+
+- The `fabric_exec` description and the shipped skill now list the core tools that actually resolve from guest code: `read`, `bash`, `edit`, `write`, `grep`, `find`, `ls`, and `wait`. The description had advertised `lsp`, `ast_grep`, `ast_edit`, `github`, and `debug`, which the guest proxy will return a function for but which fail with `Unknown Fabric action` when called.
+- The prompt guidance keeps its six-entry, 2200-character budget. The payload entry now also covers the largest single source of rejected programs, so a multi-line shell or Python body belongs in `payloads` or in a file written by `omp.write`, not inside a template literal.
+
 ## 1.26.5
 
 ### Fixed
