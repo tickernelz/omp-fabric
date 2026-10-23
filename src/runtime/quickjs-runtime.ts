@@ -641,18 +641,47 @@ const __lazyNamespace = (names, resolve, local = {}) => new Proxy(local, {
 });
 const __providerProxy = (provider, local = {}, names = []) =>
   __lazyNamespace(names, (property) => (args = {}) => __call(provider + "." + property, args), local);
+const __isAlnum = (char) => /[A-Za-z0-9]/.test(char);
+const __mcpServerEnd = (rest, server) => {
+  let i = 0;
+  let j = 0;
+  while (j < server.length) {
+    const expected = server[j];
+    if (__isAlnum(expected)) {
+      if (rest[i] === undefined || rest[i].toLowerCase() !== expected.toLowerCase()) return -1;
+      i += 1;
+      j += 1;
+      continue;
+    }
+    if (rest[i] === undefined || __isAlnum(rest[i])) return -1;
+    i += 1;
+    while (j < server.length && !__isAlnum(server[j])) j += 1;
+  }
+  if (rest[i] === undefined || __isAlnum(rest[i])) return -1;
+  while (i < rest.length && !__isAlnum(rest[i])) i += 1;
+  return i;
+};
 const __mcpAlias = (name) => {
   if (name.indexOf("mcp__") !== 0) return undefined;
   const rest = name.slice(5);
+  const servers = Object.keys(__mcpServerTools);
   let best;
-  for (const server of Object.keys(__mcpServerTools)) {
-    const prefix = server + "_";
-    if (rest.indexOf(prefix) !== 0) continue;
-    if (best === undefined || server.length > best.length) best = server;
+  let bestEnd = -1;
+  let tied = false;
+  for (const server of servers) {
+    const end = __mcpServerEnd(rest, server);
+    if (end < 1) continue;
+    if (best === undefined || server.length > best.length) {
+      best = server;
+      bestEnd = end;
+      tied = false;
+      continue;
+    }
+    if (server.length === best.length) tied = true;
   }
-  if (best === undefined) return undefined;
+  if (best === undefined || tied) return undefined;
   const available = __mcpServerTools[best] || [];
-  return { server: best, tool: __resolveToolName(available, rest.slice(best.length + 1)) };
+  return { server: best, tool: __resolveToolName(available, rest.slice(bestEnd)) };
 };
 const __extensionBase = __providerProxy("extensions", {}, __nameList(__proxyNames.extensions));
 globalThis.extensions = new Proxy(__extensionBase, {

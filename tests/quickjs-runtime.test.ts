@@ -280,6 +280,52 @@ return "ok";
     expect(seen).toEqual(["mcp.docs.searchFiles"]);
   });
 
+  it("matches an mcp__ server name when separators are spelled differently", async () => {
+    const seen: string[] = [];
+    const result = await new QuickJsRuntime().execute(
+      `
+await extensions.mcp__codebase_memory_mcp_list_projects({});
+await extensions["mcp__codebase-memory-mcp_listProjects"]({});
+return "ok";
+`,
+      async (ref) => {
+        seen.push(ref);
+        return { ok: true };
+      },
+      {
+        ...options,
+        proxyNames: {
+          mcp: { "codebase-memory-mcp": ["list_projects", "search_code"] },
+          extensions: [],
+        },
+      },
+    );
+    expect(result.error).toBeUndefined();
+    expect(seen).toEqual([
+      "mcp.codebase-memory-mcp.list_projects",
+      "mcp.codebase-memory-mcp.list_projects",
+    ]);
+  });
+
+  it("refuses to split an mcp__ name between two equally long servers", async () => {
+    const seen: string[] = [];
+    await new QuickJsRuntime().execute(
+      `await extensions["mcp__a-b_do"](); return "ok";`,
+      async (ref) => {
+        seen.push(ref);
+        return { ok: true };
+      },
+      {
+        ...options,
+        proxyNames: {
+          mcp: { "a-b": ["do"], a_b: ["do"] },
+          extensions: [],
+        },
+      },
+    );
+    expect(seen).toEqual(["extensions.mcp__a-b_do"]);
+  });
+
   it("routes stable Fabric providers through first-class proxies", async () => {
     const calls: Array<{ ref: string; args: Record<string, unknown> }> = [];
     const result = await new QuickJsRuntime().execute(

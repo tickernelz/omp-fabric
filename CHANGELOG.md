@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.26.8
+
+### Fixed
+
+- The `mcp__<server>_<tool>` alias added in 1.26.6 split the name on an exact `<server>_` prefix, so it resolved only when the caller spelled a hyphenated server name with its hyphens. A model writing `mcp__codebase_memory_mcp_list_projects` for the `codebase-memory-mcp` server got `Unknown Fabric action`, which is the same failure the alias was added to remove. The server part now matches with any separator spelling, and the tool part still goes through the case- and punctuation-insensitive resolver.
+- Two servers that match a name at equal length are treated as ambiguous and the name passes through unchanged. Without that, `a-b` and `a_b` would have let the first registered server win and a call meant for the other would have gone to it. A test pins the unresolved outcome, and removing the guard makes it route to `mcp.a-b.do`, which is the failure it prevents.
+
 ## 1.26.7
 
 ### Fixed
