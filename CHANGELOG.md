@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.26.10
+
+### Notes
+
+- Host pins move from 18.12.5 to 18.13.1 (dependencies pi-agent-core, pi-ai, pi-utils; dev omptype, pi-coding-agent, pi-natives, pi-tui); the declared peer floor stays >=18.4.4. Nothing fabric imports changed: all 59 names across the 22 host subpaths still resolve against the running 18.13.1 host. The 18.13.0 breaking changes to `snapshotJobs` and `buildJobResult` do not reach fabric, which calls neither. `bun run check` green at 257 files / 3330 tests, `certify:context` PASS with the same `hostApi.rootExports` observations, and no extension timeout in the sessions that ran on 18.13.1.
+
 ## 1.26.9
 
 ### Fixed
