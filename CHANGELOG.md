@@ -10,7 +10,7 @@
 
 - Host pins move from 18.13.1 to 18.14.1 (dependencies pi-agent-core, pi-ai, pi-utils; dev omptype, pi-coding-agent, pi-natives, pi-tui); the declared peer floor stays >=18.4.4. All 59 names fabric imports resolve against the running 18.14.1 host. The 18.14.0 breaking changes (custom tool loaders taking `cwd`, the WebMCP rewrite) do not reach fabric: `customToolToDefinition(tool, sourcePath?)` is unchanged and fabric uses no WebMCP helper.
 - `tests/codemap-budget-wall.test.ts` builds 1,500 files instead of 300. The 18.14.1 natives index the old fixture in about 230 ms, well under the 400 ms budget, so it never reached the truncation it exists to test; the larger fixture takes about 1.3 s unbudgeted and truncates at the budget.
-- OMP 18.13.1 and later refuse to run their JavaScript entry under Bun older than 1.4.4. `bun run` puts `node_modules/.bin/omp` (the dev host's `cli.js`) first on `PATH`, so the resident-host tests fail on an older system Bun even though the compiled `omp` binary ships its own Bun 1.4.4. Development needs Bun >= 1.4.4; CI already installs the latest release.
+- OMP 18.13.3 and later refuse to run their JavaScript entry under Bun older than 1.4.4 (`engines.bun` moved from `>=1.3.14` to `>=1.4.4` in 18.13.3; that is the source of `MIN_BUN_VERSION`). `bun run` puts `node_modules/.bin/omp` (the dev host's `cli.js`) first on `PATH`, so the resident-host tests fail on an older system Bun even though the compiled `omp` binary ships its own Bun 1.4.4. Development needs Bun >= 1.4.4; CI already installs the latest release.
 
 ## 1.26.10
 
