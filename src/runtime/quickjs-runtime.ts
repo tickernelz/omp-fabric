@@ -145,7 +145,12 @@ globalThis.tools = new Proxy(__toolsBase, {
         );
       };
     }
-    return target[property];
+    if (name in target || name === "toJSON") return target[property];
+    return () => {
+      throw new Error(
+        "tools." + name + " is not a Fabric action. tools is discovery + generic calls only (providers/catalog/list/search/describe/call/models). Find a capability with tools.search('" + name + "') and call it through its ref, e.g. tools.call({ ref, args }); a host tool absent from tools.providers() (such as web_search or ask) is not reachable inside fabric_exec, so call it directly as its own tool."
+      );
+    };
   },
   set() { return true; },
   deleteProperty() { return true; },

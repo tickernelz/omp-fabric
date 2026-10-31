@@ -467,4 +467,35 @@ describe("tools discovery proxy", () => {
     expect(value.err).toContain("tools.read is not available");
     expect(value.err).toContain("omp.read");
   });
+
+  it("rejects a host tool name that is not a Fabric action with a search and direct-call hint", async () => {
+    const hostCall = vi.fn(async (ref: string) => {
+      throw new Error("Unexpected call: " + ref);
+    });
+    const result = await new QuickJsRuntime().execute(
+      'return await tools.web_search({ query: "openwrt" });',
+      hostCall,
+      options,
+    );
+
+    expect(hostCall).not.toHaveBeenCalled();
+    expect(result.error).toContain("tools.web_search is not a Fabric action");
+    expect(result.error).toContain("tools.search('web_search')");
+    expect(result.error).toContain("call it directly");
+    expect(result.error).not.toContain("is not a function");
+  });
+
+  it("keeps serializing and inspecting the tools object working", async () => {
+    const result = await new QuickJsRuntime().execute(
+      'return { keys: Object.keys(tools).sort(), json: JSON.stringify(tools), str: typeof String(tools) };',
+      vi.fn(),
+      options,
+    );
+
+    expect(result.error).toBeUndefined();
+    const value = result.value as { keys: string[]; json: string; str: string };
+    expect(value.keys).toContain("search");
+    expect(value.json).toBe("{}");
+    expect(value.str).toBe("string");
+  });
 });

@@ -11,7 +11,7 @@ describe("codemap budget is honoured on wall time", () => {
   it("returns a truncated map instead of throwing or overrunning", async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-budget-wall-"));
     roots.push(root);
-    for (let dir = 0; dir < 20; dir++) {
+    for (let dir = 0; dir < 100; dir++) {
       const sub = path.join(root, `pkg${dir}`);
       fs.mkdirSync(sub, { recursive: true });
       for (let file = 0; file < 15; file++) {

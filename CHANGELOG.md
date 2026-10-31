@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.26.11
+
+### Fixed
+
+- `tools.<name>` for a name that is not one of the discovery methods now fails with a hint instead of QuickJS's bare `tools.web_search is not a function`. The message says `tools` is discovery plus generic calls, points to `tools.search('<name>')` and `tools.call({ ref, args })`, and says a host tool absent from `tools.providers()` (such as `web_search` or `ask`) has to be called directly as its own tool. The guest type checker suppresses property-miss errors by design, so this runtime message is the only place the model learns the fix.
+
+### Notes
+
+- Host pins move from 18.13.1 to 18.14.1 (dependencies pi-agent-core, pi-ai, pi-utils; dev omptype, pi-coding-agent, pi-natives, pi-tui); the declared peer floor stays >=18.4.4. All 59 names fabric imports resolve against the running 18.14.1 host. The 18.14.0 breaking changes (custom tool loaders taking `cwd`, the WebMCP rewrite) do not reach fabric: `customToolToDefinition(tool, sourcePath?)` is unchanged and fabric uses no WebMCP helper.
+- `tests/codemap-budget-wall.test.ts` builds 1,500 files instead of 300. The 18.14.1 natives index the old fixture in about 230 ms, well under the 400 ms budget, so it never reached the truncation it exists to test; the larger fixture takes about 1.3 s unbudgeted and truncates at the budget.
+- OMP 18.13.1 and later refuse to run their JavaScript entry under Bun older than 1.4.4. `bun run` puts `node_modules/.bin/omp` (the dev host's `cli.js`) first on `PATH`, so the resident-host tests fail on an older system Bun even though the compiled `omp` binary ships its own Bun 1.4.4. Development needs Bun >= 1.4.4; CI already installs the latest release.
+
 ## 1.26.10
 
 ### Notes
