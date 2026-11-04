@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { writeJsonAtomic } from "../core/atomic-write.js";
+import { ompChildToolName } from "../core/omp-tools.js";
 import {
   DEFAULT_FABRIC_CONFIG,
   MAX_AGENT_TIMEOUT_MS,
@@ -1522,7 +1523,12 @@ export class AgentManager {
     const tools = [
       ...(request.tools ?? this.config.defaultTools),
       ...(request.addTools ?? []),
-    ].filter((tool) => tool !== "fabric_exec");
+    ]
+      .filter((tool) => tool !== "fabric_exec")
+      // A child omp is given host tool names: its own `find` is a semantic search
+      // fabric does not serve, and it has no `ls`, so both would abort it at startup.
+      .map((tool) => (runner === "omp" ? ompChildToolName(tool) : tool))
+      .filter((tool): tool is string => tool !== undefined);
     const extensions = request.recursive === true
       ? true
       : (request.extensions ?? this.config.extensions);
