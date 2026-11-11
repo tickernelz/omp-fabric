@@ -1,5 +1,23 @@
 # Changelog
 
+## 1.26.12
+
+### Fixed
+
+- A child omp launched with `find` or `ls` in its tool list aborted at startup. `omp --mode rpc --tools=ls` exits with "Unknown tool in --tools: ls", and #10 reports `--tools=find` aborting with "Built-in tool unavailable in this session: find"; the 18.18.8 host starts with `--tools=find` under `--no-extensions`, so that abort depends on the session. Fabric now launches an OMP child with host tool names: `find` goes out as `glob` and `ls` is left out. This is the change proposed in #10 by UnderCooled.
+- The rename alone made `omp.find` unusable inside such a child. The child's nested allowlist is written in the same names, and the provider compared the guest name `find` against an allowlist that now held `glob`, so every `omp.find` was refused as outside the child's tool allowlist. The provider compares the host name of a core tool. A launch-probe test pins `--tools read,glob` together with an allowlist of `read,glob` for a request of `read,find,ls`, and a provider test pins that `read,glob` lists `read` and `find`; each fails with the fix reverted.
+- Host 18.18 puts the bash renderer's `ShellTrace` in `details.trace`, and its history repeats the command output as text. A 200000 character command returned 406976 characters, 206940 of them in `details`, and `echo hi` carried 1403 characters of trace. Under a nested result budget the whole result then collapsed to a preview and the artifact note was lost. `normalizeResult` drops `details.trace`, as it already drops the write tool's `codePreviewBeforeWrite`. The new test and the existing artifact-note test both fail with the strip reverted.
+
+### Changed
+
+- On 18.18 `AgentRegistry.global()` returns `AgentRegistryApi`, and a registry ref holds an `AgentSessionHandle` that has no `asyncJobManager`, `getAgentId` or `settings`; those exist on the local `AgentSession` only. `liveAgentSession` reads them as optional members, so a handle from a thread bridge yields no job scope and no task-depth setting instead of a TypeError. `OmpSessionIdentity.getAgentRegistry` and `OmpJobScope.manager` now use the host's `AgentRegistryApi` and `AsyncJobManagerApi`. With the pins moved and no source change, `tsc` reported four errors.
+
+### Notes
+
+- Host pins move from 18.14.1 to 18.18.8 (dependencies pi-agent-core, pi-ai, pi-utils; dev omptype, pi-coding-agent, pi-natives, pi-tui); the declared peer floor stays >=18.4.4. Of the 32 `@oh-my-pi/*` specifiers in `src`, `scripts` and `tests`, 30 resolve in the packed 18.18.8 export maps; `omptype/typebox` and `pi-natives` come from the installed pins. The 18.18.2 breaking changes (`SessionStorage.hasAssistantTurn`, `logoutCredential`) do not reach fabric, which references neither.
+- Typecheck, build, dead-code lint and the full suite pass on ubuntu and windows (run 42959837454 at 36532e1). Windows shard 2 timed out in `lcm-yielding` and `lcm-scheduler` on the first run of the host bump (30 s limit, 36.9 s and 44.7 s) and passed on rerun; the cause is not diagnosed.
+- `docs/certification.md` names 18.18.8 as the pinned host. At that host the package root exports `SessionManager` and `buildSessionContext` and none of `prepareCompaction`, `shouldCompact` or `buildContextEntries`, and compaction and the legacy shim resolve `prepareCompaction`, `shouldCompact` and `estimateTokens`.
+
 ## 1.26.11
 
 ### Fixed
