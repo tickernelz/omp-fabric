@@ -236,7 +236,7 @@ describe("additive child tool selection", () => {
       transport: "process",
       addTools: ["web_search"],
     })) as LaunchSurface;
-    expect(result.tools).toEqual([...DEFAULT_FABRIC_CONFIG.agents.defaultTools, "web_search"]);
+    expect(result.tools).toEqual(["read", "bash", "edit", "write", "grep", "glob", "web_search"]);
   }, 30_000);
 
   it("appends to an explicit tool list without duplicates", async () => {

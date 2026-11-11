@@ -51,6 +51,8 @@ For OMP children, selecting `cwd` neither grants nor requires project trust. Fab
 
 Extension-enabled OMP children inherit the parent’s full-code mode, including ordinary non-recursive leaves. They retain `fabric_exec` as the outer tool, and their optional `tools` allowlist also constrains nested OMP and captured-tool calls. `extensions: false` explicitly opts out; Claude/Veda and parents outside full-code mode keep their existing tool surfaces. Recursive children additionally receive the delegated `agent` risk. A launch-policy change requires `/reload` and newly launched children; it does not hot-swap an already running worker’s tools.
 
+OMP children are launched with host tool names. Fabric passes `find` as `glob` and leaves out `ls`, which the host has no built-in for, so a child started with `tools: ["find"]` runs with `--tools glob`. The nested allowlist reads `glob` as `find`, so `omp.find` stays available to that child.
+
 ### Durable participant residency
 
 `agents.spawn()` and `agents.create()` accept `residency: "session" | "durable"`. The default is `session`. It keeps the usual lifecycle: the current OMP host owns the participant and stops or suspends it when the host shuts down. The model chooses `durable` during execution. Users do not configure it as a setting.
