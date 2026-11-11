@@ -1077,6 +1077,21 @@ describe("OmpToolsProvider result fidelity", () => {
     );
   });
 
+  it("leaves the host shell trace out of a bash result", async () => {
+    await withFixtures(
+      () => {},
+      async (registry) => {
+        const result = (await registry.invoke("omp.bash", { command: "seq 1 2000" }, baseContext)) as {
+          output: string;
+          details: Record<string, unknown>;
+        };
+        expect(result.output).toContain("2000");
+        expect(result.details).not.toHaveProperty("trace");
+        expect(JSON.stringify(result).length).toBeLessThan(result.output.length * 1.5);
+      },
+    );
+  });
+
   it("marks bash output the host budget elided and leaves complete output unmarked", async () => {
     await withFixtures(
       () => {},

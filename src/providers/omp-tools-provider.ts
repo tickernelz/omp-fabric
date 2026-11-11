@@ -990,6 +990,10 @@ const normalizeResult = (
       }
     }
   }
+  if (isOmpShellToolName(name) && details && typeof details === "object" && !Array.isArray(details)) {
+    const { trace: _trace, ...publicDetails } = details as Record<string, unknown>;
+    details = Object.keys(publicDetails).length > 0 ? publicDetails : undefined;
+  }
   if (name === "write" && details && typeof details === "object" && !Array.isArray(details)) {
     const { codePreviewBeforeWrite: _before, ...publicDetails } = details as Record<string, unknown>;
     details = Object.keys(publicDetails).length > 0 ? publicDetails : undefined;
