@@ -1,10 +1,16 @@
-import { AgentRegistry } from "@oh-my-pi/pi-coding-agent";
-import type { AsyncJobManager } from "@oh-my-pi/pi-coding-agent/async";
+import { AgentRegistry, type AgentSession } from "@oh-my-pi/pi-coding-agent";
+import type { AsyncJobManagerApi } from "@oh-my-pi/pi-coding-agent/async";
 import { isSettingsInitialized, Settings } from "@oh-my-pi/pi-coding-agent/config/settings";
+import type { AgentSessionHandle } from "@oh-my-pi/pi-coding-agent/session/agent-session-handle";
 import { cfgAsyncEnabled } from "@oh-my-pi/pi-coding-agent/tools/settings";
 
+export type LiveAgentSession = AgentSessionHandle
+  & Partial<Pick<AgentSession, "asyncJobManager" | "getAgentId" | "settings">>;
+
+export const liveAgentSession = (session: AgentSessionHandle): LiveAgentSession => session as LiveAgentSession;
+
 interface JobOwner {
-  manager: AsyncJobManager;
+  manager: AsyncJobManagerApi;
   agentId: string;
 }
 
@@ -12,15 +18,16 @@ const liveOwner = (sessionId: string | null): JobOwner | undefined => {
   if (!sessionId) return undefined;
   for (const ref of AgentRegistry.global().list()) {
     if (ref.session?.sessionManager.getSessionId() !== sessionId) continue;
-    const manager = ref.session.asyncJobManager;
-    const agentId = ref.session.getAgentId() ?? ref.id;
+    const session = liveAgentSession(ref.session);
+    const manager = session.asyncJobManager;
+    const agentId = session.getAgentId?.() ?? ref.id;
     return manager ? { manager, agentId } : undefined;
   }
   return undefined;
 };
 
 export interface OmpJobScope {
-  manager: AsyncJobManager;
+  manager: AsyncJobManagerApi;
   agentId: () => string | null;
 }
 

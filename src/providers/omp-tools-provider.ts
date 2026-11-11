@@ -10,6 +10,7 @@ import { ReadTool } from "@oh-my-pi/pi-coding-agent/tools/read";
 import { WaitTool } from "@oh-my-pi/pi-coding-agent/tools/wait";
 import { piEscapeRegexLiteral, piJoinPath } from "@oh-my-pi/pi-ai/providers/cursor-pi-args";
 import { AgentRegistry, Settings, type ToolSession } from "@oh-my-pi/pi-coding-agent";
+import type { AgentRegistryApi } from "@oh-my-pi/pi-coding-agent/registry/agent-registry";
 import { cfgTaskMaxRecursionDepth } from "@oh-my-pi/pi-coding-agent/task/settings";
 import {
   createFindToolDefinition,
@@ -51,7 +52,7 @@ import { createPreviewWriteToolDefinition } from "./write-preview.js";
 
 import { readChildToolAllowlist } from "../core/child-tool-allowlist.js";
 import { createBashArtifactRoot } from "../storage/retention.js";
-import { type OmpJobScope, ompJobScope, shellBackgroundSettings } from "./omp-session-scope.js";
+import { liveAgentSession, type OmpJobScope, ompJobScope, shellBackgroundSettings } from "./omp-session-scope.js";
 
 const MAX_RENDERER_ARGUMENT_CHARS = 200_000;
 const GUEST_READ_LINE_LIMIT = 100_000;
@@ -62,7 +63,7 @@ export interface OmpSessionIdentity {
   getSessionFile?: () => string | null;
   modelRegistry?: NonNullable<ToolSession["modelRegistry"]>;
   getActiveModelString?: () => string | undefined;
-  getAgentRegistry?: () => AgentRegistry | undefined;
+  getAgentRegistry?: () => AgentRegistryApi | undefined;
   getAgentId?: () => string | null;
   getTaskDepth?: () => number;
   getTaskMaxRecursionDepth?: () => number | undefined;
@@ -89,7 +90,8 @@ export const hostAgentIdentity = (
     getAgentId: () => context.agent?.id ?? null,
     getTaskDepth: () => context.agent?.depth ?? 0,
     getTaskMaxRecursionDepth: () => {
-      const settings = liveHost()?.session.settings;
+      const session = liveHost()?.session;
+      const settings = session ? liveAgentSession(session).settings : undefined;
       return settings ? cfgTaskMaxRecursionDepth.get(settings) : undefined;
     },
   };
