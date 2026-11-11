@@ -735,6 +735,33 @@ describe("AgentManager", async () => {
     });
   });
 
+  it("launches a child omp with host tool names and carries the same names in its allowlist", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-manager-"));
+    roots.push(root);
+    const fakePi = path.resolve("tests/fixtures/fake-omp-launch-probe.mjs");
+    fs.chmodSync(fakePi, 0o755);
+    const manager = new AgentManager(process.cwd(), DEFAULT_FABRIC_CONFIG.agents, {
+      workerPath: path.resolve("src/worker.ts"),
+      ompBinary: fakePi,
+      runRoot: root,
+      fullCodeMode: false,
+    });
+    managers.push(manager);
+
+    const result = await manager.run({
+      task: "REPORT_LAUNCH_SURFACE",
+      transport: "process",
+      tools: ["read", "find", "ls"],
+      extensions: false,
+      timeoutMs: 5_000,
+    });
+    expect(result.status).toBe("completed");
+    expect(JSON.parse(result.text)).toMatchObject({
+      tools: ["read", "glob"],
+      toolAllowlistEnv: ["read", "glob"],
+    });
+  });
+
   it("validates structured output through the real Fabric worker", async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-manager-"));
     roots.push(root);

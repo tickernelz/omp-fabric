@@ -23,6 +23,7 @@ import { tryExecuteGitWorktreeAdd } from "../agents/bash-worktree-add.js";
 import { runAbortable, throwIfAborted } from "../async-settlement.js";
 import { CapturedToolCatalog } from "../capture/catalog.js";
 import {
+  hostToolName,
   isOmpShellToolName,
   ompCoreToolDenied,
   OMP_CORE_TOOL_NAMES,
@@ -1122,7 +1123,7 @@ export class OmpToolsProvider implements FabricProvider {
 
   #denialSource(name: string): string | undefined {
     if (!OMP_GUEST_TOOL_NAME_SET.has(name)) return undefined;
-    if (this.#allowedTools && !this.#allowedTools.has(name)) return "this child's tool allowlist";
+    if (this.#allowedTools && !this.#allowedTools.has(hostToolName(name))) return "this child's tool allowlist";
     return ompCoreToolDenied(name, this.#hostActiveTools?.())
       ? "OMP's active tool selection"
       : undefined;

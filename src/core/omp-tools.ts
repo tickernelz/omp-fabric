@@ -30,23 +30,13 @@ const HOST_TOOL_FOR_CORE: ReadonlyMap<OmpCoreToolName, string> = new Map([["find
 
 export const hostToolForCore = (name: OmpCoreToolName): string => HOST_TOOL_FOR_CORE.get(name) ?? name;
 
-/**
- * The `--tools` entry a child omp accepts for a core tool, or none. A child is
- * given host tool names, so `find` becomes `glob`; `ls` has no built-in of its
- * own, and passing it aborts the child at startup with "Built-in tool
- * unavailable in this session".
- */
-const CHILD_TOOL_FOR_CORE: ReadonlyMap<OmpCoreToolName, string> = new Map([
-	["read", "read"],
-	["bash", "bash"],
-	["edit", "edit"],
-	["write", "write"],
-	["grep", "grep"],
-	["find", "glob"],
-]);
+const CORE_TOOLS_WITHOUT_HOST_BUILTIN: ReadonlySet<string> = new Set(["ls"]);
+
+export const hostToolName = (name: string): string =>
+  OMP_CORE_TOOL_NAME_SET.has(name) ? hostToolForCore(name as OmpCoreToolName) : name;
 
 export const ompChildToolName = (name: string): string | undefined =>
-	OMP_CORE_TOOL_NAME_SET.has(name) ? CHILD_TOOL_FOR_CORE.get(name as OmpCoreToolName) : name;
+  CORE_TOOLS_WITHOUT_HOST_BUILTIN.has(name) ? undefined : hostToolName(name);
 
 /** The host tools fabric replaces, and so the ones it owns while full code mode is on. */
 export const FABRIC_OWNED_HOST_TOOLS: ReadonlySet<string> = new Set(OMP_CORE_TOOL_NAMES.map(hostToolForCore));
@@ -56,7 +46,7 @@ export const ompCoreToolDenied = (
   name: string,
   hostActiveTools: ReadonlySet<string> | undefined,
 ): boolean => Boolean(hostActiveTools?.size)
-  && !hostActiveTools!.has(OMP_CORE_TOOL_NAME_SET.has(name) ? hostToolForCore(name as OmpCoreToolName) : name);
+  && !hostActiveTools!.has(hostToolName(name));
 
 export const deniedOmpCoreTools = (
   hostActiveTools: ReadonlySet<string> | undefined,
