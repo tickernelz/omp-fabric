@@ -115,6 +115,14 @@ describe("child optional tool allowlist", () => {
     }
   });
 
+  it("reads a child's host tool names as the core tools they stand for", async () => {
+    vi.stubEnv("OMP_FABRIC_TOOL_ALLOWLIST", '["read", "glob"]');
+    const provider = await OmpToolsProvider.create(process.cwd());
+    expect((await provider.list({}, context)).map((entry) => entry.name)).toEqual(["read", "find"]);
+    expect(await provider.describe("find", context)).toBeDefined();
+    expect(await provider.describe("grep", context)).toBeUndefined();
+  });
+
   it("intersects the child allowlist with the host selection", async () => {
     vi.stubEnv("OMP_FABRIC_TOOL_ALLOWLIST", '["read", "bash"]');
     const provider = await OmpToolsProvider.create(

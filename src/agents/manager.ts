@@ -1525,8 +1525,6 @@ export class AgentManager {
       ...(request.addTools ?? []),
     ]
       .filter((tool) => tool !== "fabric_exec")
-      // A child omp is given host tool names: its own `find` is a semantic search
-      // fabric does not serve, and it has no `ls`, so both would abort it at startup.
       .map((tool) => (runner === "omp" ? ompChildToolName(tool) : tool))
       .filter((tool): tool is string => tool !== undefined);
     const extensions = request.recursive === true
