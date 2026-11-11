@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.26.13
+
+### Fixed
+
+- The `fabric_exec` guidance and the `fabric-exec` skill said `omp.wait()` rejects when no job is running. The host resolves it instead, as the 18.12.5 entry recorded: a headless `omp -p` run on 18.18.8 returned `{ ok: true, output: "Nothing to wait for: ...", details: { op: "wait", jobs: [] } }` for both 1.26.11 and 1.26.12. Both texts now say it resolves at once with a `Nothing to wait for` result. The tests that assert the host contract already matched the resolving behavior; only the prose was stale.
+
 ## 1.26.12
 
 ### Fixed
