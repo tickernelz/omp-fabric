@@ -23,7 +23,7 @@ export const FABRIC_SYNC_FACTORY_SOURCE = String.raw`((nodeCrypto) => {
     return parts;
   };
   const operations = {
-    random: ({ length }) => nodeCrypto.randomBytes(length).toString("hex"),
+    random: ({ length }) => nodeCrypto.randomBytes(Math.min(Math.max(Math.trunc(Number(length)) || 0, 0), 65536)).toString("hex"),
     uuid: () => nodeCrypto.randomUUID(),
     hashName: ({ algorithm }) => canonicalHash(algorithm),
     digest: ({ algorithm, data }) =>

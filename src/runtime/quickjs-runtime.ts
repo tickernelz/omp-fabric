@@ -1216,14 +1216,12 @@ globalThis.clearTimeout = (id) => { __timerCallbacks.delete(id); };
 globalThis.clearInterval = (id) => { __timerCallbacks.delete(id); };
 const __fabricSync = globalThis.__fabricSync;
 delete globalThis.__fabricSync;
-const __webGlobalsSource = globalThis.__fabricWebGlobalsSource;
-delete globalThis.__fabricWebGlobalsSource;
 const __evaluate = eval;
 let __webGlobalValues;
 for (const name of ["TextEncoder", "TextDecoder", "atob", "btoa", "URL", "URLSearchParams", "crypto"]) {
   Object.defineProperty(globalThis, name, {
     get() {
-      __webGlobalValues ??= __evaluate(__webGlobalsSource)(__fabricSync);
+      __webGlobalValues ??= __evaluate(__fabricSync("source", ""))(__fabricSync);
       return __webGlobalValues[name];
     },
     set(value) {
@@ -1481,14 +1479,15 @@ export class QuickJsRuntime {
 
       const syncFunction = context.newFunction(
         "__fabricSync",
-        (operationHandle: any, argsHandle: any) =>
-          context.newString(fabricSyncCall(context.getString(operationHandle), context.getString(argsHandle))),
+        (operationHandle: any, argsHandle: any) => {
+          const operation = context.getString(operationHandle);
+          return context.newString(
+            operation === "source" ? GUEST_WEB_GLOBALS_SOURCE : fabricSyncCall(operation, context.getString(argsHandle)),
+          );
+        },
       );
       context.setProp(context.global, "__fabricSync", syncFunction);
       syncFunction.dispose();
-      const webGlobalsSource = context.newString(GUEST_WEB_GLOBALS_SOURCE);
-      context.setProp(context.global, "__fabricWebGlobalsSource", webGlobalsSource);
-      webGlobalsSource.dispose();
 
       const printFunction = context.newFunction("print", (...handles: any[]) => {
         if (logsTruncated) return;

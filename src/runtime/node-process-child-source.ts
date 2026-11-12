@@ -6,6 +6,7 @@ import vm from "node:vm";
 
 let fabricSyncCall;
 const fabricSync = (operation, argsJson) => {
+  if (operation === "source") return ${JSON.stringify(GUEST_WEB_GLOBALS_SOURCE)};
   fabricSyncCall ??= (${FABRIC_SYNC_FACTORY_SOURCE})(process.getBuiltinModule("node:crypto"));
   return fabricSyncCall(operation, argsJson);
 };
@@ -68,7 +69,6 @@ const run = async (message) => {
   const sandbox = {
     __fabricHostCall: hostCall,
     __fabricSync: fabricSync,
-    __fabricWebGlobalsSource: ${JSON.stringify(GUEST_WEB_GLOBALS_SOURCE)},
     __fabricTokenBudget: message.tokenBudget ?? Number.POSITIVE_INFINITY,
     print,
     payloads: jsonCompatible(message.payloads),

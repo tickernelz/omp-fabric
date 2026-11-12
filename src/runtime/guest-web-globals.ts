@@ -12,9 +12,15 @@ export const GUEST_WEB_GLOBALS_SOURCE = String.raw`(__fabricSync) => {
   };
   const __hexByte = Array.from({ length: 256 }, (_, value) => (value < 16 ? "0" : "") + value.toString(16));
   const __toHex = (bytes) => {
-    const parts = new Array(bytes.length);
-    for (let index = 0; index < bytes.length; index++) parts[index] = __hexByte[bytes[index]];
-    return parts.join("");
+    const chunks = [];
+    const parts = [];
+    for (let start = 0; start < bytes.length; start += 8192) {
+      const end = Math.min(start + 8192, bytes.length);
+      parts.length = end - start;
+      for (let index = start; index < end; index++) parts[index - start] = __hexByte[bytes[index]];
+      chunks.push(parts.join(""));
+    }
+    return chunks.join("");
   };
   const __fromHex = (hex) => {
     const bytes = new Uint8Array(hex.length / 2);
