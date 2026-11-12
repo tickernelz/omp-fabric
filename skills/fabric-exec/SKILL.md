@@ -64,7 +64,7 @@ All calls return promises. Fields ending in `?` are optional; `unknown` marks pr
 
 | Call | Resolves to |
 |------|-------------|
-| `memory.recall(args?)` | `{total,hits:MemoryRecallHit[],next:{ref:"memory.recall",args}|null,coverage:MemoryCoverage,error?}` |
+| `memory.recall(args?)` or `memory.recall(query)` | `{total,hits:MemoryRecallHit[],next:{ref:"memory.recall",args}|null,coverage:MemoryCoverage,error?}` |
 | `memory.expand(args)` | `{session?,sourceHash?,branches?,lineageFingerprint?,entryCount?,entries:ExpandedSessionEntry[],next?:{ref:"memory.expand",args}|null,error?}` |
 | `memory.walk(args, visitor)` | `{visited,stopped,error?}`; guest-local paging and full-entry reassembly over `memory.expand` |
 | `memory.sessions(args?)` | `{scope?,branches?,sessions?:SessionInfo[],error?}`; slice `result.sessions ?? []`, not the wrapper |
@@ -112,6 +112,9 @@ The guest TypeScript declarations contain the complete argument and return contr
 
 ## `tools` — discovery & generic calls
 Refs are namespaced (`omp.grep`, `extensions.<tool>`, `mcp.<server>.<tool>`, `schema.<action>`, `components.<action>`); bare names are rejected. `tools.providers()`→`[{name,description}]` · `tools.catalog({provider?,limit?})`→current provider/action head tree (navigation metadata, not session evidence) · `tools.search({query,limit?})`→`FabricAction[]`(`ref,name,description,inputSchema,risk`) · `tools.describe({ref})`→full `FabricAction` (read `inputSchema` first) · `tools.call({ref,args?})` · `tools.list({provider?,namespace?,query?,limit?})` · `tools.models()`→OMP `[{provider,id,name,key}]`; `agents.models({runner:"claude"})`→Claude Code runtime models with canonical `claude/<value>` keys. Use `tools.call()` for refs discovered or computed at runtime, or names that cannot use property access—not as the default for known actions. Calling a core-tool name on `tools` (e.g. `tools.read(...)`) throws with a hint to use `omp.read(...)`.
+
+## Guest globals
+Both executors (QuickJS and the Node process) provide `TextEncoder` and `TextDecoder` (UTF-8 only), `atob`, `btoa`, `URL`, `URLSearchParams`, and `crypto` with `randomUUID()`, `getRandomValues()`, `subtle.digest` (SHA-1, SHA-256, SHA-384, SHA-512) and HMAC through `subtle.importKey("raw", ...)`, `subtle.sign` and `subtle.verify`. Other `crypto.subtle` methods reject with `NotSupportedError`; run those algorithms through `omp.bash` with `openssl`. Bytes reach the host as hex, so at the default 256 MB `executor.memoryLimitBytes` digest, HMAC and `TextDecoder` inputs stop at about 32 MB; hash larger data or files with `omp.bash` (`sha256sum`). There is no `process`, `require`, `Buffer`, `fs`, `fetch` or `structuredClone`: read an environment variable with `omp.bash({ cmd: "printenv NAME" })` and files with `omp.read`.
 
 ## Error recovery: read, describe, retry
 Read the line-numbered error → `await tools.describe({ref})` for the schema → match `inputSchema`, rerun (don't guess). Common mistakes: bare ref (`grep`→`omp.grep`); a non-object second arg on `bash`/`ls` (`(primary, optionsObject)` already merges on the string-primary tools; positional tuples exist only for `read`/`grep`/`find`/`write`/`edit`, and `read` accepts a numeric `offset`/`limit`).

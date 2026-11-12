@@ -184,6 +184,20 @@ return {
     expect(result.value).toEqual([{ ref: "extensions.fovea_focus" }]);
   });
 
+  it("normalizes the string shorthand for memory.recall", async () => {
+    const result = await new QuickJsRuntime().execute(
+      'return memory.recall("timeout");',
+      async (ref, args) => {
+        expect(ref).toBe("memory.recall");
+        expect(args).toEqual({ query: "timeout" });
+        return { total: 0 };
+      },
+      options,
+    );
+    expect(result.error).toBeUndefined();
+    expect(result.value).toEqual({ total: 0 });
+  });
+
   it("maps every documented omp.read argument shape to the host path/offset/limit", async () => {
     const seen: unknown[] = [];
     const result = await new QuickJsRuntime().execute(

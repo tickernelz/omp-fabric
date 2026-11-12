@@ -9,6 +9,8 @@ const PAYLOAD_CALL_PATTERN = /\bomp\.(?:edit|write)\s*\(/;
 const UNQUOTED_PATH_HEAD =
   /\bomp\.(?:read|ls|write|edit)\(\s*(?:https?:\/\/|\/(?![/*])|\.\/|\.\.\/|~\/|[A-Za-z]:[\\/])/;
 const PROMISE_ALL_PATTERN = /\bPromise\.all\s*\(/;
+const TEMPLATE_CALL_PATTERN = /\bomp\.(bash|write|edit)\(\s*(?:\{[^`]{0,80}?)?`/g;
+const SHELL_EXPANSION_PATTERN = /^(?:[#!]|[A-Za-z_]\w*(?::|%|#|\/|\^|,|\[))/;
 const TUPLE_ARITY_PATTERN = /Tuple type .* of length '[0-9]+' has no element at index '[0-9]+'/;
 const MISSING_NAME_PATTERN = /^Cannot find name '([^']+)'/;
 const UNKNOWN_PROPERTY_PATTERN = /'([^']+)' does not exist in type '([^']+)'/;
@@ -112,6 +114,65 @@ const hasLiteralPayloadInterpolation = (
   });
 };
 
+const codeOffset = (code: string, line: number, column: number): number => {
+  const lines = code.split("\n");
+  let offset = 0;
+  for (let index = 0; index < line - 1 && index < lines.length; index += 1) offset += lines[index]!.length + 1;
+  return offset + Math.max(0, column - 1);
+};
+
+const codePosition = (code: string, offset: number): string => {
+  const before = code.slice(0, offset).split("\n");
+  return `line ${before.length}:${before[before.length - 1]!.length + 1}`;
+};
+
+const substitutionEnd = (code: string, start: number): number => {
+  let depth = 0;
+  for (let index = start; index < code.length; index += 1) {
+    const char = code[index];
+    if (char === "{") depth += 1;
+    else if (char === "}") {
+      depth -= 1;
+      if (depth === 0) return index;
+    }
+  }
+  return code.length;
+};
+
+const brokenTemplateHint = (code: string, errors: FabricTypeError[]): string | undefined => {
+  const first = errors.find((error) => error.line > 0 && SYNTAX_ERROR_PATTERN.test(error.message));
+  if (!first) return undefined;
+  const errorOffset = codeOffset(code, first.line, first.column);
+  let opening: RegExpExecArray | undefined;
+  for (const match of code.matchAll(TEMPLATE_CALL_PATTERN)) {
+    if (match.index + match[0].length > errorOffset) break;
+    opening = match;
+  }
+  if (!opening) return undefined;
+  const tool = opening[1];
+  let index = opening.index + opening[0].length;
+  while (index <= errorOffset && index < code.length) {
+    const char = code[index];
+    if (char === "\\") {
+      index += 2;
+      continue;
+    }
+    if (char === "`") {
+      return `Recovery hint: the template literal passed to omp.${tool} ends at the backtick on ${codePosition(code, index)}, so the rest of the text is parsed as TypeScript. Move the text to a top-level \`payloads\` entry and reference \`payloads.key\`, or escape the backtick as \\\`.`;
+    }
+    if (code.startsWith("${", index)) {
+      const end = substitutionEnd(code, index + 1);
+      if (SHELL_EXPANSION_PATTERN.test(code.slice(index + 2, end))) {
+        return `Recovery hint: \`${code.slice(index, Math.min(end + 1, index + 40))}\` on ${codePosition(code, index)} is shell parameter expansion, but inside a template literal \`\${\` starts a TypeScript expression. Escape it as \\\${, or move the script to a top-level \`payloads\` entry and reference \`payloads.key\`.`;
+      }
+      index = end + 1;
+      continue;
+    }
+    index += 1;
+  }
+  return undefined;
+};
+
 export const typeErrorRecoveryHint = (
   code: string,
   errors: FabricTypeError[],
@@ -144,6 +205,8 @@ export const typeErrorRecoveryHint = (
   ) {
     return "Recovery hint: quote filesystem paths and URLs as strings, e.g. `omp.read('/x')` or `omp.read({ path: '/x' })`. Unquoted paths are parsed as regex, division, or extra arguments.";
   }
+  const templateHint = brokenTemplateHint(code, errors);
+  if (templateHint) return templateHint;
   if (!PAYLOAD_CALL_PATTERN.test(code)) return undefined;
   if (!errors.some((error) => SYNTAX_ERROR_PATTERN.test(error.message))) {
     return undefined;

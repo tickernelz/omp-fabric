@@ -1,6 +1,15 @@
+import { FABRIC_SYNC_FACTORY_SOURCE } from "./guest-host-sync.js";
+import { GUEST_WEB_GLOBALS_SOURCE } from "./guest-web-globals.js";
 import { OMP_GUEST_ENTRYPOINT } from "./type-checker.js";
 export const NODE_PROCESS_CHILD_SOURCE = String.raw`
 import vm from "node:vm";
+
+let fabricSyncCall;
+const fabricSync = (operation, argsJson) => {
+  if (operation === "source") return ${JSON.stringify(GUEST_WEB_GLOBALS_SOURCE)};
+  fabricSyncCall ??= (${FABRIC_SYNC_FACTORY_SOURCE})(process.getBuiltinModule("node:crypto"));
+  return fabricSyncCall(operation, argsJson);
+};
 
 const pending = new Map();
 let nextCallId = 0;
@@ -59,6 +68,7 @@ const run = async (message) => {
   };
   const sandbox = {
     __fabricHostCall: hostCall,
+    __fabricSync: fabricSync,
     __fabricTokenBudget: message.tokenBudget ?? Number.POSITIVE_INFINITY,
     print,
     payloads: jsonCompatible(message.payloads),

@@ -108,7 +108,7 @@ return { listed, keys: Object.keys(mcp), hasServers: "servers" in mcp, hasVidwat
     });
   });
 
-  it("keeps memory.walk enumerable on a provider proxy with no descriptor names", async () => {
+  it("keeps the guest-local memory helpers enumerable on a provider proxy with no descriptor names", async () => {
     const hostCall = vi.fn(async () => undefined);
     const result = await new QuickJsRuntime().execute(
       `return { memory: Object.keys(memory), state: Object.keys(state) };`,
@@ -117,7 +117,7 @@ return { listed, keys: Object.keys(mcp), hasServers: "servers" in mcp, hasVidwat
     );
 
     expect(result.error).toBeUndefined();
-    expect(result.value).toEqual({ memory: ["walk"], state: [] });
+    expect(result.value).toEqual({ memory: ["walk", "recall"], state: [] });
     expect(hostCall).not.toHaveBeenCalled();
   });
 

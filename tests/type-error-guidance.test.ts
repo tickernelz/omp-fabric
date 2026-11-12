@@ -10,6 +10,24 @@ import {
 const typeError = (message: string, line = 1, column = 1) => ({ line, column, message });
 
 describe("typeErrorRecoveryHint", () => {
+  it("names the backtick that ends an omp.bash template literal early", () => {
+    const code = "const r = await omp.bash({ cmd: `git commit -m 'fix `parser` crash'` });\nreturn r.output;";
+    const checked = typeCheckFabricCode(code, GUEST_TYPE_DECLARATIONS);
+    expect(checked.errors.length).toBeGreaterThan(0);
+    expect(typeErrorRecoveryHint(code, checked.errors)).toBe(
+      "Recovery hint: the template literal passed to omp.bash ends at the backtick on line 1:53, so the rest of the text is parsed as TypeScript. Move the text to a top-level `payloads` entry and reference `payloads.key`, or escape the backtick as \\`.",
+    );
+  });
+
+  it("names shell parameter expansion inside an omp.bash template literal and skips real interpolations", () => {
+    const code = "const dir = '/tmp';\nawait omp.bash({ cmd: `ls ${dir}; echo ${sid:0:2}` });";
+    const checked = typeCheckFabricCode(code, GUEST_TYPE_DECLARATIONS);
+    expect(checked.errors.length).toBeGreaterThan(0);
+    expect(typeErrorRecoveryHint(code, checked.errors)).toContain(
+      "`${sid:0:2}` on line 2:40 is shell parameter expansion",
+    );
+  });
+
   it("treats omp.bash cwd as a supported option since #71", () => {
     const checked = typeCheckFabricCode('await omp.bash({ command: "ls", cwd: "/tmp" });', GUEST_TYPE_DECLARATIONS);
     expect(checked.errors).toHaveLength(0);

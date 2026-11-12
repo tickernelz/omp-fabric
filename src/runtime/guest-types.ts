@@ -1002,6 +1002,7 @@ interface FabricMemorySessionInfo {
   lineageFingerprint: string | null;
 }
 interface FabricMemoryApi {
+  recall(query: string): Promise<FabricMemoryRecallResult>;
   recall(args?: FabricMemoryRecallArgs): Promise<FabricMemoryRecallResult>;
   expand(args: FabricMemoryExpandArgs): Promise<FabricMemoryExpandResult>;
   walk(
@@ -1583,6 +1584,84 @@ declare function setTimeout(handler: (...args: any[]) => void, timeout?: number)
 declare function clearTimeout(handle: number): void;
 declare function setInterval(handler: (...args: any[]) => void, timeout?: number): number;
 declare function clearInterval(handle: number): void;
+type FabricBufferSource = ArrayBuffer | ArrayBufferView;
+declare class TextEncoder {
+  readonly encoding: "utf-8";
+  encode(input?: string): Uint8Array;
+  encodeInto(source: string, destination: Uint8Array): { read: number; written: number };
+}
+declare class TextDecoder {
+  constructor(label?: string, options?: { fatal?: boolean; ignoreBOM?: boolean });
+  readonly encoding: "utf-8";
+  readonly fatal: boolean;
+  readonly ignoreBOM: boolean;
+  decode(input?: FabricBufferSource): string;
+}
+declare function atob(data: string): string;
+declare function btoa(data: string): string;
+declare class URLSearchParams {
+  constructor(init?: string | URLSearchParams | Record<string, string> | Iterable<readonly [string, string]>);
+  readonly size: number;
+  append(name: string, value: string): void;
+  delete(name: string, value?: string): void;
+  get(name: string): string | null;
+  getAll(name: string): string[];
+  has(name: string, value?: string): boolean;
+  set(name: string, value: string): void;
+  sort(): void;
+  forEach(callback: (value: string, name: string, parent: URLSearchParams) => void, thisArg?: unknown): void;
+  keys(): IterableIterator<string>;
+  values(): IterableIterator<string>;
+  entries(): IterableIterator<[string, string]>;
+  [Symbol.iterator](): IterableIterator<[string, string]>;
+  toString(): string;
+}
+declare class URL {
+  constructor(url: string | URL, base?: string | URL);
+  static canParse(url: string | URL, base?: string | URL): boolean;
+  href: string;
+  readonly origin: string;
+  protocol: string;
+  username: string;
+  password: string;
+  host: string;
+  hostname: string;
+  port: string;
+  pathname: string;
+  search: string;
+  readonly searchParams: URLSearchParams;
+  hash: string;
+  toString(): string;
+  toJSON(): string;
+}
+type FabricDigestAlgorithm = "SHA-1" | "SHA-256" | "SHA-384" | "SHA-512";
+type FabricHmacAlgorithm = "HMAC" | { name: "HMAC" };
+type FabricKeyUsage = "sign" | "verify";
+interface FabricCryptoKey {
+  readonly type: "secret";
+  readonly extractable: boolean;
+  readonly algorithm: { readonly name: "HMAC"; readonly hash: { readonly name: FabricDigestAlgorithm }; readonly length: number };
+  readonly usages: readonly FabricKeyUsage[];
+}
+interface FabricSubtleCrypto {
+  digest(algorithm: FabricDigestAlgorithm | { name: FabricDigestAlgorithm }, data: FabricBufferSource): Promise<ArrayBuffer>;
+  importKey(
+    format: "raw",
+    keyData: FabricBufferSource,
+    algorithm: { name: "HMAC"; hash: FabricDigestAlgorithm | { name: FabricDigestAlgorithm } },
+    extractable: boolean,
+    keyUsages: readonly FabricKeyUsage[],
+  ): Promise<FabricCryptoKey>;
+  sign(algorithm: FabricHmacAlgorithm, key: FabricCryptoKey, data: FabricBufferSource): Promise<ArrayBuffer>;
+  verify(algorithm: FabricHmacAlgorithm, key: FabricCryptoKey, signature: FabricBufferSource, data: FabricBufferSource): Promise<boolean>;
+}
+type FabricIntegerArray = Int8Array | Uint8Array | Uint8ClampedArray | Int16Array | Uint16Array | Int32Array | Uint32Array | BigInt64Array | BigUint64Array;
+interface FabricCryptoApi {
+  readonly subtle: FabricSubtleCrypto;
+  randomUUID(): string;
+  getRandomValues<T extends FabricIntegerArray>(array: T): T;
+}
+declare const crypto: FabricCryptoApi;
 `;
 
 const FULL_CODE_GLOBAL_DECLARATIONS = [
