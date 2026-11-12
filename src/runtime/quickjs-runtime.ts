@@ -4,6 +4,8 @@ import ts from "typescript";
 import { runAbortable, settleWithin } from "../async-settlement.js";
 import { ompBashExitMetadata } from "../core/omp-bash-error.js";
 import { createGuestStackMap, remapGuestErrorText } from "./guest-stack-map.js";
+import { fabricSyncCall } from "./guest-host-sync.js";
+import { GUEST_WEB_GLOBALS_SOURCE } from "./guest-web-globals.js";
 import { OMP_GUEST_ENTRYPOINT, transpileFabricCodeWithSourceMap } from "./type-checker.js";
 
 export type FabricSandboxTerminationReason =
@@ -700,7 +702,10 @@ globalThis.extensions = new Proxy(__extensionBase, {
     return target[property];
   },
 });
-globalThis.memory = __providerProxy("memory", { walk: __memoryWalk });
+globalThis.memory = __providerProxy("memory", {
+  walk: __memoryWalk,
+  recall: (args = {}) => __call("memory.recall", typeof args === "string" ? { query: args } : args),
+});
 globalThis.state = __providerProxy("state");
 globalThis.schema = __providerProxy("schema");
 globalThis.components = __providerProxy("components");
@@ -1209,6 +1214,25 @@ globalThis.setInterval = (callback, ms = 0) => {
 };
 globalThis.clearTimeout = (id) => { __timerCallbacks.delete(id); };
 globalThis.clearInterval = (id) => { __timerCallbacks.delete(id); };
+const __fabricSync = globalThis.__fabricSync;
+delete globalThis.__fabricSync;
+const __webGlobalsSource = globalThis.__fabricWebGlobalsSource;
+delete globalThis.__fabricWebGlobalsSource;
+const __evaluate = eval;
+let __webGlobalValues;
+for (const name of ["TextEncoder", "TextDecoder", "atob", "btoa", "URL", "URLSearchParams", "crypto"]) {
+  Object.defineProperty(globalThis, name, {
+    get() {
+      __webGlobalValues ??= __evaluate(__webGlobalsSource)(__fabricSync);
+      return __webGlobalValues[name];
+    },
+    set(value) {
+      Object.defineProperty(globalThis, name, { value, writable: true, enumerable: false, configurable: true });
+    },
+    enumerable: false,
+    configurable: true,
+  });
+}
 })();
 `;
 
@@ -1454,6 +1478,17 @@ export class QuickJsRuntime {
       );
       context.setProp(context.global, "__fabricHostCall", hostFunction);
       hostFunction.dispose();
+
+      const syncFunction = context.newFunction(
+        "__fabricSync",
+        (operationHandle: any, argsHandle: any) =>
+          context.newString(fabricSyncCall(context.getString(operationHandle), context.getString(argsHandle))),
+      );
+      context.setProp(context.global, "__fabricSync", syncFunction);
+      syncFunction.dispose();
+      const webGlobalsSource = context.newString(GUEST_WEB_GLOBALS_SOURCE);
+      context.setProp(context.global, "__fabricWebGlobalsSource", webGlobalsSource);
+      webGlobalsSource.dispose();
 
       const printFunction = context.newFunction("print", (...handles: any[]) => {
         if (logsTruncated) return;

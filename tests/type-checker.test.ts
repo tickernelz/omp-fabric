@@ -22,6 +22,43 @@ describe("Fabric guest type checker", () => {
     expect(result.javascript).not.toContain("path: string");
   });
 
+  it("lets a guest-declared helper omit or add trailing arguments but keeps omp arity", () => {
+    const helpers = typeCheckFabricCode(
+      [
+        "const sh = async (cmd, timeout) => (await omp.bash({ cmd, timeout: timeout ?? 60 })).output;",
+        "const api = { request(method, path, body) { return [method, path, body]; } };",
+        "function pick(a, b) { return a ?? b; }",
+        'return [await sh("ls"), api.request("GET", "/x"), pick(1, 2, 3)];',
+      ].join("\n"),
+      GUEST_TYPE_DECLARATIONS,
+    );
+    expect(helpers.errors).toEqual([]);
+
+    const core = typeCheckFabricCode('return omp.read("a", 1, 2, 3);', GUEST_TYPE_DECLARATIONS);
+    expect(core.errors.map((error) => error.message)).toEqual([
+      expect.stringMatching(/^Expected 1-3 arguments, but got 4\.$/),
+    ]);
+  });
+
+  it("points Node globals at fabric equivalents instead of @types/node", () => {
+    const result = typeCheckFabricCode(
+      "return [process.env.HOME, require('fs'), Buffer.from('x'), fs.readFileSync('x')];",
+      GUEST_TYPE_DECLARATIONS,
+    );
+    const messages = result.errors.map((error) => error.message);
+    expect(messages).toEqual([
+      expect.stringContaining("Cannot find name 'process'. fabric_exec has no Node globals; read an environment variable with omp.bash"),
+      expect.stringContaining("Cannot find name 'require'. fabric_exec cannot load modules"),
+      expect.stringContaining("Cannot find name 'Buffer'. fabric_exec has no Buffer; use TextEncoder"),
+      expect.stringContaining("Cannot find name 'fs'. fabric_exec has no file system module"),
+    ]);
+    expect(messages.join("\n")).not.toContain("@types/node");
+  });
+
+  it("accepts a bare query string for memory.recall", () => {
+    expect(typeCheckFabricCode('return memory.recall("timeout");', GUEST_TYPE_DECLARATIONS).errors).toEqual([]);
+  });
+
   it("accepts a grep match limit and rejects an unknown grep option", () => {
     const accepted = typeCheckFabricCode(
       'const hits = await omp.grep({ pattern: "TODO", path: "src", skip: 2, limit: 5 });\nreturn hits.length;',

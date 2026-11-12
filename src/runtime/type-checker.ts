@@ -39,6 +39,74 @@ const TYPE_CORRECTNESS_CODES = new Set<number>([
   7006, 7008, 7019, 7031, 7032, 7033, 7034,
 ]);
 
+const ARITY_CODES = new Set<number>([2554, 2555]);
+
+const NODE_TYPES_CODES = new Set<number>([2580, 2591]);
+
+const NODE_GLOBAL_HINTS: Readonly<Record<string, string>> = {
+  process: "fabric_exec has no Node globals; read an environment variable with omp.bash({ cmd: \"printenv NAME\" }).",
+  Buffer: "fabric_exec has no Buffer; use TextEncoder, TextDecoder, atob, btoa or Uint8Array.",
+  require: "fabric_exec cannot load modules; use omp.read, omp.write and omp.bash for files and commands, and crypto.subtle for hashes.",
+  fs: "fabric_exec has no file system module; use omp.read, omp.write and omp.find.",
+};
+
+const NODE_RUNTIME_HINT = "fabric_exec has no Node runtime; use the omp.* tools.";
+
+const diagnosticMessage = (diagnostic: ts.Diagnostic): string => {
+  const message = ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n");
+  if (diagnostic.code !== 2304 && !NODE_TYPES_CODES.has(diagnostic.code)) return message;
+  const name = /^Cannot find name '([^']+)'/.exec(message)?.[1];
+  if (name === undefined) return message;
+  const hint = Object.prototype.hasOwnProperty.call(NODE_GLOBAL_HINTS, name)
+    ? NODE_GLOBAL_HINTS[name]
+    : NODE_TYPES_CODES.has(diagnostic.code) ? NODE_RUNTIME_HINT : undefined;
+  return hint === undefined ? message : `Cannot find name '${name}'. ${hint}`;
+};
+
+const enclosingCall = (
+  sourceFile: ts.SourceFile,
+  start: number,
+  end: number,
+  argumentCount: number,
+): ts.CallExpression | ts.NewExpression | undefined => {
+  let found: ts.CallExpression | ts.NewExpression | undefined;
+  const visit = (node: ts.Node): void => {
+    if (node.getStart(sourceFile) > start || node.end < end) return;
+    if (
+      (ts.isCallExpression(node) || ts.isNewExpression(node)) &&
+      (node.arguments?.length ?? 0) === argumentCount
+    ) {
+      found = node;
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  return found;
+};
+
+const callsGuestDeclaredFunction = (
+  program: ts.Program,
+  sourceFile: ts.SourceFile,
+  diagnostic: ts.Diagnostic,
+): boolean => {
+  if (diagnostic.start === undefined) return false;
+  const got = /but got (\d+)/.exec(ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n"))?.[1];
+  if (got === undefined) return false;
+  const call = enclosingCall(
+    sourceFile,
+    diagnostic.start,
+    diagnostic.start + (diagnostic.length ?? 0),
+    Number(got),
+  );
+  if (!call) return false;
+  const callee = ts.isPropertyAccessExpression(call.expression) ? call.expression.name : call.expression;
+  const checker = program.getTypeChecker();
+  let symbol = checker.getSymbolAtLocation(callee);
+  if (symbol && symbol.flags & ts.SymbolFlags.Alias) symbol = checker.getAliasedSymbol(symbol);
+  const declarations = symbol?.declarations ?? [];
+  return declarations.length > 0 && declarations.every((declaration) => declaration.getSourceFile() === sourceFile);
+};
+
 let nextCheckerId = 0;
 
 export const normalizeTypeScriptPath = (fileName: string): string =>
@@ -132,10 +200,12 @@ class FabricTypeChecker {
       ...program.getSyntacticDiagnostics(this.#sourceFile),
       ...program
         .getSemanticDiagnostics(this.#sourceFile)
-        .filter((diagnostic) => !TYPE_CORRECTNESS_CODES.has(diagnostic.code)),
+        .filter((diagnostic) =>
+          !TYPE_CORRECTNESS_CODES.has(diagnostic.code) &&
+          !(ARITY_CODES.has(diagnostic.code) && callsGuestDeclaredFunction(program, this.#sourceFile, diagnostic))),
     ];
     const errors = diagnostics.map((diagnostic) => {
-      const message = ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n");
+      const message = diagnosticMessage(diagnostic);
       if (!diagnostic.file || diagnostic.start === undefined) {
         return { line: 0, column: 0, message };
       }
