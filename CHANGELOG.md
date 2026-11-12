@@ -1,5 +1,23 @@
 # Changelog
 
+## 1.26.14
+
+### Added
+
+- Both executors (QuickJS and the Node process) give guest code `TextEncoder`, `TextDecoder` (UTF-8 only), `atob`, `btoa`, `URL`, `URLSearchParams` and a `crypto` subset: `randomUUID()`, `getRandomValues()`, `subtle.digest` (SHA-1, SHA-256, SHA-384, SHA-512) and HMAC through `subtle.importKey("raw", ...)`, `subtle.sign` and `subtle.verify`. The globals compile on first use and call a synchronous host bridge that runs Node's URL parser, UTF-8 codec and `node:crypto` on the bytes the guest passes; the bridge keeps no key between calls and reads no host file, environment variable or network. Other `crypto.subtle` methods reject with `NotSupportedError`. At the default 256 MB `executor.memoryLimitBytes`, digest, HMAC and `TextDecoder` inputs stop at about 32 MB. The guest declarations and the `fabric-exec` skill describe the same surface.
+
+### Changed
+
+- An arity error (TS2554, TS2555) on a call to a function the guest program declares itself no longer rejects the program; the call runs and the function sees the arguments it got. Arity errors on host calls such as `omp.read` still reject.
+- `Cannot find name` for `process`, `Buffer`, `fs` and `require`, and the Node type-definition errors (TS2580, TS2591), now name the `omp.*` call or web global that does the job, for example `omp.bash({ cmd: "printenv NAME" })` for an environment variable.
+- A template literal passed to `omp.bash`, `omp.write` or `omp.edit` that ends early at an inner backtick, or that holds a shell `${VAR}` expansion, gets a recovery hint naming the line and column and pointing to `payloads`.
+
+### Notes
+
+- Replaying the 407 programs the type checker rejected in session logs from 9 to 11 November: 391 still reject on 1.26.13 and 315 on this release. Rejections that carry a recovery hint rise from 67 to 108.
+- Cost for code that uses no web global: a `return 1` program changes by +0.00 to +0.07 ms median on QuickJS and +0.08 to +0.40 ms on the Node process (five interleaved rounds). An 8 MB SHA-256 digest on QuickJS takes 492 ms after chunked hex encoding, down from 1196 ms in the first draft of the bridge.
+- Reviewed in ZHA-5739 at 00ebe589; CI run 43133823675 passed typecheck, build, dead-code lint and the full suite on ubuntu and windows at 830a0ec.
+
 ## 1.26.13
 
 ### Fixed
