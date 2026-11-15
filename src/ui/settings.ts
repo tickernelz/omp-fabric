@@ -60,12 +60,7 @@ const TOOL_DISPLAY_MODES = ["full", "compact"] as const;
 const RESULT_FORMATS = ["auto", "yaml", "json", "text"] as const;
 const EXECUTOR_RUNTIMES = ["quickjs", "node-process", "bun-process"] as const;
 const SCHEMA_MODES = ["off", "audit", "enforce"] as const;
-const COMPACTION_ENGINES = ["lcm", "omp"] as const;
 const COMPACTION_THRESHOLD_SETTING_ID = "compaction.threshold";
-const SECONDS_SETTING_IDS: ReadonlySet<string> = new Set([
-  "compaction.lcmModelTimeoutSeconds",
-  "compaction.lcmMaintenanceRunSeconds",
-]);
 const COMPACTION_DEFAULT_THRESHOLD_LABEL = "OMP default";
 const COMPACTION_PERCENT_OPTION_LABEL = "Custom percent…";
 const COMPACTION_TOKENS_OPTION_LABEL = "Custom tokens…";
@@ -73,14 +68,6 @@ const COMPACTION_PERCENT_MIN = Math.round(MIN_COMPACTION_RATIO_THRESHOLD * 100);
 const COMPACTION_PERCENT_MAX = Math.round(MAX_COMPACTION_RATIO_THRESHOLD * 100);
 const clampCompactionPercentThreshold = (value: number): number =>
   Math.round(clampCompactionRatioThreshold(value / 100) * 100);
-const COMPACTION_TARGET_RATIOS = Array.from(
-  { length: 13 },
-  (_, index) => String((25 + index * 5) / 100),
-);
-const COMPACTION_SOFT_RATIOS = [
-  "0",
-  ...Array.from({ length: 18 }, (_, index) => String((10 + index * 5) / 100)),
-];
 const COMPACTION_HARD_RATIOS = [
   "0",
   ...Array.from({ length: 16 }, (_, index) => String((20 + index * 5) / 100)),
@@ -435,7 +422,6 @@ export const coerceValue = (id: string, value: string, config: FabricConfig): un
   // prewalk.enabled is enabled by default and omitted from normalized
   // configs unless false, so its control still needs an explicit boolean type.
   if (typeof current === "boolean" || id === "prewalk.enabled") return value === "true";
-  if (SECONDS_SETTING_IDS.has(id)) return parseFormattedNumericValue(value) / 1_000;
   if (typeof current === "number") return parseFormattedNumericValue(value);
   // The model picker stores the canonical "provider/id" string, or "Inherit"
   // for no override; persist an empty string so normalizeFabricConfig drops it.
@@ -445,8 +431,7 @@ export const coerceValue = (id: string, value: string, config: FabricConfig): un
     id === "prewalk.model" ||
     id === "agents.model" ||
     id === "agents.claude.model" ||
-    id === "agents.veda.model" ||
-    id === "compaction.summaryModel"
+    id === "agents.veda.model"
   ) {
     return value === INHERIT_VALUE || value === PREWALK_MODEL_UNSET_LABEL ? "" : value;
   }
@@ -500,7 +485,9 @@ const summaryFor = (id: string, config: FabricConfig): string => {
     case "ui":
       return config.ui.widget;
     case "compaction":
-      return config.compaction.engine;
+      return config.compaction.hardThresholdRatio > 0
+        ? `${Math.round(config.compaction.hardThresholdRatio * 100)}%`
+        : COMPACTION_DEFAULT_THRESHOLD_LABEL;
     case "retention":
       return `${formatRetention(config.retention.orphanedTempRunMs)} · ${formatRetention(config.retention.oneShotRunMs)} · ${formatRetention(config.retention.actorRunArchiveMs)} · ${formatRetention(config.retention.outputArtifactMs)}/${formatBytes(config.retention.outputArtifactMaxBytes)}`;
     case "mesh":
@@ -549,9 +536,6 @@ const setting = (
   return item;
 };
 
-const formatSeconds = (value: number): string => `${value}s`;
-const formatChars = (value: number): string => value >= 1_000 ? `${Math.round(value / 1_000)}k` : String(value);
-const formatLimit = (value: number): string => value === 0 ? "no limit" : String(value);
 
 const numericSubmenu = (
   theme: Theme,
@@ -1654,7 +1638,7 @@ export const buildFabricSettingsItems = (
             config.prewalk.compactOnReturn ? "true" : "false",
             {
               description:
-                "After an in-place continuation settles, compact the session with the configured compaction engine just before Main's boundary model is restored, so Main re-ingests a compacted transcript rather than the executor's full scratch work.",
+                "After an in-place continuation settles, compact the session just before Main's boundary model is restored, so Main re-ingests a compacted transcript rather than the executor's full scratch work.",
               values: BOOLEANS,
             },
           ),
@@ -2160,11 +2144,11 @@ export const buildFabricSettingsItems = (
       ),
     }),
     setting("compaction", "Compaction", summaryFor("compaction", config), {
-      description: "Compaction engine used at session compaction boundaries.",
+      description: "When Fabric asks OMP to compact the session.",
       submenu: sectionSubmenu(
         theme,
         "Compaction",
-        "Choose LCM context compaction or OMP core model-driven compaction.",
+        "Choose the context usage at which Fabric asks OMP to compact the session.",
         [
           ...(options.activeModelKey
             ? [setting(
@@ -2178,193 +2162,6 @@ export const buildFabricSettingsItems = (
                 },
               )]
             : []),
-          setting("compaction.engine", "Engine", config.compaction.engine, {
-            description:
-              "LCM assembles durable hierarchical context; OMP delegates compaction to OMP core.",
-            values: COMPACTION_ENGINES,
-          }),
-          setting(
-            "compaction.summaryModel",
-            "Summary model",
-            config.compaction.summaryModel || INHERIT_VALUE,
-            {
-              description:
-                "Model that writes LCM leaf and condensed summaries. Inherit uses the active session model, so a reasoning model summarizes transcripts at its own price.",
-              submenu: modelPickerSubmenu(theme, options.modelSource, {
-                headerText:
-                  "Model that writes LCM leaf and condensed summaries. Pick Inherit to use the active session model.",
-                inheritName: "Use the active session model",
-              }),
-            },
-          ),
-          setting("compaction.lcmModelSummaries", "Model summaries", String(config.compaction.lcmModelSummaries), {
-            description:
-              "Summarize with the model. Turn this off to write deterministic excerpts only, which spends nothing and loses summary quality.",
-            values: BOOLEANS,
-          }),
-          setting(
-            "compaction.lcmModelTimeoutSeconds",
-            "Model timeout",
-            formatSeconds(config.compaction.lcmModelTimeoutSeconds),
-            {
-              description:
-                "Deadline for one summary call. A call that overruns it is abandoned and its node keeps a deterministic excerpt until a later pass upgrades it.",
-              submenu: numericSubmenu(
-                theme,
-                [30, 60, 120, 300, 600, 900],
-                formatSeconds,
-                "Model timeout",
-                "Deadline for one summary call.",
-              ),
-            },
-          ),
-          setting(
-            "compaction.lcmMaintenancePasses",
-            "Maintenance passes",
-            String(config.compaction.lcmMaintenancePasses),
-            {
-              description:
-                "Leaf and condensation passes one maintenance run may make. More passes cover a fast-moving session sooner and spend more.",
-              submenu: numericSubmenu(theme, [1, 2, 4, 8, 16, 32, 64], String, "Maintenance passes", "Passes per maintenance run."),
-            },
-          ),
-          setting(
-            "compaction.lcmMaintenanceConcurrency",
-            "Maintenance concurrency",
-            String(config.compaction.lcmMaintenanceConcurrency),
-            {
-              description:
-                "Summary calls a maintenance run may keep in flight. Spend per run scales with this number, and the daily and session call caps still bound what a run may issue.",
-              submenu: numericSubmenu(theme, [1, 2, 3, 4, 5, 6, 7, 8], String, "Maintenance concurrency", "Summary calls in flight at once."),
-            },
-          ),
-          setting(
-            "compaction.lcmMaintenanceRunSeconds",
-            "Maintenance run time",
-            formatSeconds(config.compaction.lcmMaintenanceRunSeconds),
-            {
-              description:
-                "Wall-time budget for one maintenance run. The deadline stops new summary dispatch and lets calls already in flight finish.",
-              submenu: numericSubmenu(
-                theme,
-                [30, 60, 120, 300, 600],
-                formatSeconds,
-                "Maintenance run time",
-                "Wall-time budget for one maintenance run.",
-              ),
-            },
-          ),
-          setting(
-            "compaction.lcmMaxLeafEntries",
-            "Leaf entries",
-            String(config.compaction.lcmMaxLeafEntries),
-            {
-              description:
-                "Upper bound on raw entries folded into one leaf. The prompt budget below stops a leaf short when its entries are large.",
-              submenu: numericSubmenu(theme, [8, 16, 32, 64, 128], String, "Leaf entries", "Entries per leaf."),
-            },
-          ),
-          setting(
-            "compaction.lcmMaxCondenseChildren",
-            "Condense fan-in",
-            String(config.compaction.lcmMaxCondenseChildren),
-            {
-              description: "Ready nodes folded into one condensed parent.",
-              submenu: numericSubmenu(theme, [2, 4, 8, 16, 32], String, "Condense fan-in", "Children per condensed node."),
-            },
-          ),
-          setting(
-            "compaction.lcmMaxInputChars",
-            "Prompt budget",
-            formatChars(config.compaction.lcmMaxInputChars),
-            {
-              description: "Characters of evidence one summary prompt may carry.",
-              submenu: numericSubmenu(
-                theme,
-                [48_000, 100_000, 200_000, 400_000, 800_000],
-                formatChars,
-                "Prompt budget",
-                "Characters per summary prompt.",
-              ),
-            },
-          ),
-          setting(
-            "compaction.lcmMaxOutputTokens",
-            "Summary tokens",
-            String(config.compaction.lcmMaxOutputTokens),
-            {
-              description: "Output tokens one summary call may produce.",
-              submenu: numericSubmenu(theme, [1_024, 2_048, 4_096, 8_192, 16_384], String, "Summary tokens", "Output tokens per summary."),
-            },
-          ),
-          setting(
-            "compaction.lcmMaxOutputChars",
-            "Summary characters",
-            formatChars(config.compaction.lcmMaxOutputChars),
-            {
-              description: "Stored length of one summary, which also bounds a deterministic excerpt.",
-              submenu: numericSubmenu(
-                theme,
-                [4_096, 8_192, 16_384, 32_768, 65_536],
-                formatChars,
-                "Summary characters",
-                "Stored characters per summary.",
-              ),
-            },
-          ),
-          setting(
-            "compaction.lcmMaxDailyModelCalls",
-            "Daily call limit",
-            formatLimit(config.compaction.lcmMaxDailyModelCalls),
-            {
-              description: "Summary calls this project may make per day. No limit unless you set one.",
-              submenu: numericSubmenu(theme, [0, 64, 256, 512, 2_048], formatLimit, "Daily call limit", "Summary calls per project per day."),
-            },
-          ),
-          setting(
-            "compaction.lcmMaxSessionModelCalls",
-            "Session call limit",
-            formatLimit(config.compaction.lcmMaxSessionModelCalls),
-            {
-              description: "Summary calls one session may make per day. No limit unless you set one.",
-              submenu: numericSubmenu(theme, [0, 32, 128, 256, 1_024], formatLimit, "Session call limit", "Summary calls per session per day."),
-            },
-          ),
-          setting(
-            "compaction.lcmMaxDailyModelSeconds",
-            "Daily model seconds",
-            formatLimit(config.compaction.lcmMaxDailyModelSeconds),
-            {
-              description: "Model wall time this project may spend per day. No limit unless you set one.",
-              submenu: numericSubmenu(
-                theme,
-                [0, 900, 3_600, 7_200, 86_400],
-                formatLimit,
-                "Daily model seconds",
-                "Model wall time per project per day.",
-              ),
-            },
-          ),
-          setting(
-            "compaction.targetContextRatio",
-            "Max occupancy",
-            String(config.compaction.targetContextRatio),
-            {
-              description:
-                "Hard post-compaction occupancy ceiling used by LCM context assembly.",
-              values: COMPACTION_TARGET_RATIOS,
-            },
-          ),
-          setting(
-            "compaction.softThresholdRatio",
-            "Maintenance occupancy",
-            String(config.compaction.softThresholdRatio),
-            {
-              description:
-                "Occupancy floor that forces an LCM maintenance pass even when the branch has no full leaf of uncovered material. Maintenance also runs on its own backlog, and persistence is never gated. 0 forces a pass on every sync.",
-              values: COMPACTION_SOFT_RATIOS,
-            },
-          ),
           setting(
             "compaction.hardThresholdRatio",
             "Forced compaction occupancy",

@@ -123,37 +123,10 @@ Fabric includes a live activity surface in OMP:
 
 - A compact widget above the chat (like `pi-supervisor`) whose header follows the current phase while its rows show active/completed agents, active actors, and their recent nested tool or code-change activity.
 - `/fabric` (or `/fabric dashboard`): opens the **Activity** and **Topology** views. The user-facing OMP session appears as **Main**. You can queue or steer participants and inspect the project topology.
-- `/fabric lcm`: opens the LCM ledger dashboard with health checks and one-key repairs, the summary node graph, branch coverage, and maintenance jobs.
 - `/fabric settings`: mirrors OMP's `/settings` and writes changes to `fabric.json`. TUI hosts get the searchable settings component; RPC hosts get the same nested sections, value/input/model pickers, list editors, and project/global save scopes through native dialog primitives.
 - `Tool display` (`compact` by default, or `full`) is configured under `/fabric settings` → **UI**; compact elevates the declared display intent, hides the outer TypeScript, and applies to the current transcript immediately. OMP's tool-expand keybinding (`ctrl+o` by default) expands a compact card to the full transcript.
 
 See the [interface & commands reference](docs/interface.md) for every view, keybinding, and slash command.
-
-## Measured against OMP without Fabric
-
-A paused session with 40 prior tool turns, about 190 KB on disk, resumed three times per arm on fabric 1.25.6 with `claude-opus-5-5`. Both arms get the same fixture, prompt, and host config. A run passes only when `verify.mjs` exits zero and the forbidden files stay untouched. Measured 2026-09-28:
-
-| | Baseline | Fabric | Delta |
-| --- | ---: | ---: | ---: |
-| Task success | 3/3 | 3/3 | equal |
-| Tokens | 1,182,067 | 630,932 | **-47%** |
-| Tool calls | 6 | 9 | +3 |
-| Wall time | 44.3 s | 72.7 s | +64% |
-| Cost | $3.6159 | $1.0158 | **-72%** |
-
-Per-run tokens were 394,130 / 394,110 / 393,827 for the baseline and 226,541 / 224,805 / 179,586 with Fabric. Each fabric run compacted the history to a 6,538-byte LCM summary before resuming, and five of its nine tool calls were memory recalls of that summary. Wall time rose because compaction runs before the resume. The smaller fixture this table replaces stays in git history.
-
-```sh
-OMP_FABRIC_REAL_RESUME=1 \
-OMP_FABRIC_BENCH_MODEL=<model> \
-OMP_FABRIC_BENCH_PROVIDER=<provider> \
-OMP_FABRIC_BENCH_KEY_ENV=YOUR_KEY_VARIABLE \
-OMP_FABRIC_BENCH_REPEATS=3 \
-OMP_FABRIC_BENCH_MAX_USD=50 \
-bun run benchmark:real-resume
-```
-
-The command bills your provider and stops at `OMP_FABRIC_BENCH_MAX_USD`. Without those variables it reports `SKIP` and spends nothing.
 
 ## Reference
 

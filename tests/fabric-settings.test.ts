@@ -308,44 +308,26 @@ describe("FabricSettingsComponent", () => {
     expect(filtered).not.toContain("No matching settings");
   });
 
-  it("exposes the compaction engine", () => {
+  it("exposes the compaction thresholds", () => {
     const config = structuredClone(DEFAULT_FABRIC_CONFIG);
-    config.compaction.targetContextRatio = 0.5;
     const items = buildFabricSettingsItems(theme, config, () => {}, {
       keepVisibleCandidates: ["fabric_exec"],
       modelSource: fakeModelSource,
       activeModelKey: "anthropic/claude-sonnet-4-5",
     });
     const compaction = items.find((item) => item.id === "compaction");
-    expect(compaction?.currentValue).toBe("lcm");
-    const rows = compaction!.submenu!("", () => {}).render(80);
-    const lines = rows.join("\n");
+    expect(compaction?.currentValue).toBe("OMP default");
+    const lines = compaction!.submenu!("", () => {}).render(80).join("\n");
     expect(lines).toContain("Threshold");
     expect(lines).toContain("OMP default");
     expect(lines).toContain("anthropic/claude-sonnet-4-5");
-    expect(lines).toContain("Engine");
-    expect(lines).toContain("lcm");
-    const section = compaction!.submenu!("", () => {}) as any;
-    const target = (section.items as Array<{ id: string; label: string; currentValue: string; values?: readonly string[] }>).find(
-      (item: { id: string }) => item.id === "compaction.targetContextRatio",
-    );
-    expect(target?.label).toBe("Max occupancy");
-    expect(target?.currentValue).toBe("0.5");
-    expect(target?.values).toEqual(
-      Array.from({ length: 13 }, (_, index) => String((25 + index * 5) / 100)),
-    );
-    const ratios = (section.items as Array<{ id: string; label: string; currentValue: string; values?: readonly string[] }>);
-    const soft = ratios.find((item) => item.id === "compaction.softThresholdRatio");
-    expect(soft?.label).toBe("Maintenance occupancy");
-    expect(soft?.currentValue).toBe("0.55");
-    expect(soft?.values).toEqual([
-      "0",
-      ...Array.from({ length: 18 }, (_, index) => String((10 + index * 5) / 100)),
-    ]);
-    const hard = ratios.find((item) => item.id === "compaction.hardThresholdRatio");
+    expect(lines).not.toContain("Engine");
+    const section = compaction!.submenu!("", () => {}) as unknown as SectionProbe;
+    const hard = section.items.find((item) => item.id === "compaction.hardThresholdRatio");
     expect(hard?.label).toBe("Forced compaction occupancy");
     expect(hard?.currentValue).toBe("0");
     expect(hard?.values?.[0]).toBe("0");
+    expect(section.items.map((item) => item.id).sort()).toEqual(["compaction.hardThresholdRatio", "compaction.threshold"]);
   });
 
   it("persists the active model's compaction threshold as a custom percent", () => {
@@ -484,38 +466,19 @@ describe("FabricSettingsComponent", () => {
     expect(lines).toContain("256 MB");
   });
 
-  it("keeps every reconciled maintenance occupancy selectable in its own picker", () => {
+  it("keeps every normalized forced occupancy selectable in its own picker", () => {
     for (const hardThresholdRatio of [0, 0.2, 0.25, 0.5, 0.7, 0.95, 0.98]) {
-      const config = normalizeFabricConfig({
-        compaction: { softThresholdRatio: 0.95, hardThresholdRatio },
-      });
+      const config = normalizeFabricConfig({ compaction: { hardThresholdRatio } });
       const items = buildFabricSettingsItems(theme, config, () => {}, {
         keepVisibleCandidates: ["fabric_exec"],
         modelSource: fakeModelSource,
         activeModelKey: "anthropic/claude-sonnet-4-5",
       });
-      const compaction = items.find((item) => item.id === "compaction");
-      const section = compaction!.submenu!("", () => {}) as unknown as SectionProbe;
-      const soft = section.items.find((item) => item.id === "compaction.softThresholdRatio");
-
-      expect(soft?.values).toContain(soft?.currentValue);
-      expect(soft?.currentValue).toBe(String(config.compaction.softThresholdRatio));
+      const section = items.find((item) => item.id === "compaction")!.submenu!("", () => {}) as unknown as SectionProbe;
+      const hard = section.items.find((item) => item.id === "compaction.hardThresholdRatio");
+      expect(hard?.values).toContain(hard?.currentValue);
+      expect(hard?.currentValue).toBe(String(config.compaction.hardThresholdRatio));
     }
-  });
-
-  it("offers an explicit off entry for the maintenance occupancy", () => {
-    const config = normalizeFabricConfig({ compaction: { softThresholdRatio: 0 } });
-    const items = buildFabricSettingsItems(theme, config, () => {}, {
-      keepVisibleCandidates: ["fabric_exec"],
-      modelSource: fakeModelSource,
-      activeModelKey: "anthropic/claude-sonnet-4-5",
-    });
-    const compaction = items.find((item) => item.id === "compaction");
-    const section = compaction!.submenu!("", () => {}) as unknown as SectionProbe;
-    const soft = section.items.find((item) => item.id === "compaction.softThresholdRatio");
-
-    expect(soft?.currentValue).toBe("0");
-    expect(soft?.values).toContain("0");
   });
 
   it("presents the Tool display row in the UI settings section", () => {
@@ -839,77 +802,13 @@ describe("FabricSettingsComponent", () => {
   });
 
 
-  it("exposes every LCM compaction key in the settings panel", () => {
-    const items = buildItems();
-    const compaction = items.find((item) => item.id === "compaction")!;
-    const section = compaction.submenu!("", () => {}) as unknown as SectionProbe;
+  it("exposes every compaction key in the settings panel", () => {
+    const section = buildItems().find((item) => item.id === "compaction")!.submenu!("", () => {}) as unknown as SectionProbe;
     const ids = new Set(section.items.map((item) => item.id));
-    const lcmKeys = Object.keys(DEFAULT_FABRIC_CONFIG.compaction)
+    const keys = Object.keys(DEFAULT_FABRIC_CONFIG.compaction)
       .filter((key) => key !== "thresholds" && key !== "tokenThresholds")
       .map((key) => `compaction.${key}`);
-    expect(lcmKeys.filter((key) => !ids.has(key))).toEqual([]);
-  });
-
-  it("offers the model timeout as seconds and defaults to two minutes", () => {
-    const section = buildItems().find((item) => item.id === "compaction")!
-      .submenu!("", () => {}) as unknown as SectionProbe;
-    const timeout = section.items.find((item) => item.id === "compaction.lcmModelTimeoutSeconds")!;
-    expect(DEFAULT_FABRIC_CONFIG.compaction.lcmModelTimeoutSeconds).toBe(120);
-    expect(timeout.currentValue).toBe("120s");
-    expect(section.items.find((item) => item.id === "compaction.lcmMaxDailyModelCalls")?.currentValue).toBe("no limit");
-  });
-
-  it("persists seconds rows as seconds", () => {
-    for (const id of ["compaction.lcmModelTimeoutSeconds", "compaction.lcmMaintenanceRunSeconds"]) {
-      const applied: Array<[string, unknown]> = [];
-      const section = buildFabricSettingsItems(theme, DEFAULT_FABRIC_CONFIG, (key, value) => applied.push([key, value]), {
-        keepVisibleCandidates: ["fabric_exec"],
-        modelSource: fakeModelSource,
-        activeModelKey: "anthropic/claude-sonnet-4-5",
-      }).find((item) => item.id === "compaction")!.submenu!("", () => {}) as unknown as SectionProbe;
-      const list = section.settingsList;
-      expect(list.selectItem(id)).toBe(true);
-      list.handleInput("\r");
-      list.handleInput("\x1b[B");
-      list.handleInput("\r");
-      const [key, value] = applied.at(-1)!;
-      expect(key).toBe(id);
-      const persisted = normalizeFabricConfig({ compaction: { [id.split(".")[1]!]: value } }).compaction;
-      expect(persisted[id.split(".")[1] as "lcmModelTimeoutSeconds" | "lcmMaintenanceRunSeconds"]).toBe(
-        Number.parseInt(list.getSelectedItem()!.currentValue, 10),
-      );
-    }
-  });
-
-  it("picks the LCM summary model from the available OMP models", () => {
-    const items = buildItems();
-    const compaction = items.find((item) => item.id === "compaction")!;
-    const section = compaction.submenu!("", () => {}) as unknown as SectionProbe;
-    const summary = section.items.find((item) => item.id === "compaction.summaryModel")!;
-    expect(summary.currentValue).toBe("Inherit");
-    expect(summary.values).toBeUndefined();
-
-    const list = section.settingsList;
-    expect(list.selectItem("compaction.summaryModel")).toBe(true);
-    list.handleInput("\r");
-    const picker = list.render(100).join("\n");
-    expect(picker).toContain("claude-sonnet-4-5");
-    list.handleInput("\x1b[B");
-    list.handleInput("\r");
-    expect(list.getSelectedItem()?.currentValue).not.toBe("Inherit");
-  });
-
-  it("clears the LCM summary model when the picker inherits", () => {
-    const persisted: Array<[string, unknown]> = [];
-    const items = buildFabricSettingsItems(theme, DEFAULT_FABRIC_CONFIG, (id, value) => {
-      persisted.push([id, value]);
-    }, { keepVisibleCandidates: ["fabric_exec"], modelSource: fakeModelSource, activeModelKey: "anthropic/claude-sonnet-4-5" });
-    const section = items.find((item) => item.id === "compaction")!
-      .submenu!("", () => {}) as unknown as SectionProbe;
-    section.applyChange("compaction.summaryModel", "anthropic/claude-sonnet-4-5");
-    expect(persisted.at(-1)).toEqual(["compaction.summaryModel", "anthropic/claude-sonnet-4-5"]);
-    section.applyChange("compaction.summaryModel", "Inherit");
-    expect(persisted.at(-1)).toEqual(["compaction.summaryModel", ""]);
+    expect(keys.filter((key) => !ids.has(key))).toEqual([]);
   });
 
   it("surfaces the default model in the Agents section as Inherit by default", () => {

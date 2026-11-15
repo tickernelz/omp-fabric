@@ -21,12 +21,6 @@ export type AgentToolResultMessage = Extract<
   { role: "toolResult" }
 >;
 
-/** Deterministic Fabric compaction applied to the inherited handoff trajectory. */
-export interface HandoffCompactionRequest {
-  instructions?: string;
-  preserve?: string[];
-}
-
 export interface AgentSessionSeed {
   sourceSessionId: string;
   sourceSessionFile?: string;
@@ -70,8 +64,6 @@ export interface AgentRunRequest {
   sessionSeed?: AgentSessionSeed;
   /** Source/executor reasoning channels for trajectory thinking transfer. */
   thinkingTransfer?: ThinkingTransferInput | undefined;
-  /** Compact the inherited trajectory with Fabric's deterministic compactor before the executor resumes. */
-  handoffCompact?: HandoffCompactionRequest;
 }
 
 export interface AgentUsage {

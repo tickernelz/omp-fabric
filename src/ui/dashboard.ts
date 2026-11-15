@@ -1116,11 +1116,7 @@ export class FabricDashboard implements Component, Focusable {
     ].filter((value): value is string => Boolean(value));
     const help = [
       ["Navigate", "Topology: arrows/h/l move spatially · j/k ordered selection · tab next · enter inspect · esc back"],
-      ["Views", "1 Activity · 2 unified Topology · /fabric lcm for the ledger"],
-      [
-        "LCM",
-        "↑↓/jk node · g/G first/last node · [ ] page 200 nodes · enter inspect node · in a node: ↑↓/jk source · enter open/close the stored raw entry · esc back",
-      ],
+      ["Views", "1 Activity · 2 unified Topology"],
       ...(this.onConversation ? [["Chat", "Shift+C opens the selected participant conversation · Esc returns to Main"]] : []),
       ["Topology", "Main branches into Participants (sessions, agents, actors) and Mesh (namespaced topics and hierarchical state); traffic travels on decaying edges"],
       ["Motion", "r replay/live · space pause/play · ←/→ step · +/- speed · H history · M reduced motion"],

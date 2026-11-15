@@ -1,7 +1,7 @@
 import type { ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 import {
   compactionRequestBoundsError,
-  encodeCompactionRequest,
+  composeCompactionInstructions,
 } from "../compaction/instructions.js";
 
 // A pending-intent controller for the host OMP session's context compaction.
@@ -54,18 +54,12 @@ interface CompactContextUsage {
   remainingTokens: number | null;
 }
 
-interface CompactSettings {
-  engine: string;
-  targetContextRatio: number;
-}
-
 export interface CompactOutcomeStore {
   load(sessionId: string): CompactLastCommit | undefined;
   save(sessionId: string, outcome: CompactLastCommit): void;
 }
 
 export interface CompactControllerOptions {
-  settings?: () => CompactSettings;
   outcomes?: CompactOutcomeStore;
 }
 
@@ -73,8 +67,6 @@ export interface CompactStatus {
   pending?: CompactPendingIntent;
   last?: CompactLastCommit;
   context?: CompactContextUsage;
-  engine?: string;
-  targetContextRatio?: number;
   model?: string;
   sessionId?: string;
 }
@@ -173,7 +165,6 @@ export class CompactController {
     };
     const boundsError = compactionRequestBoundsError(request);
     if (boundsError) throw new Error(boundsError.message);
-    if (preserve !== undefined) encodeCompactionRequest(request);
     const pending: CompactPendingIntent = {
       requestedBy: isString(intent.requestedBy) ? intent.requestedBy! : DEFAULT_REQUESTED_BY,
       requestedAt: Date.now(),
@@ -216,7 +207,6 @@ export class CompactController {
   }
 
   status(context?: ExtensionContext): CompactStatus {
-    const settings = this.#options.settings?.();
     const last = this.#settledOutcome(context);
     const model = context?.model;
     const sessionId = sessionIdOf(context);
@@ -224,9 +214,6 @@ export class CompactController {
       ...(this.#pending ? { pending: this.#pending } : {}),
       ...(last ? { last } : {}),
       context: readCompactContextUsage(context),
-      ...(settings
-        ? { engine: settings.engine, targetContextRatio: settings.targetContextRatio }
-        : {}),
       ...(model ? { model: `${model.provider}/${model.id}` } : {}),
       ...(sessionId !== undefined ? { sessionId } : {}),
     };
@@ -238,12 +225,10 @@ export class CompactController {
     if (!pending) return;
 
     const requestedBy = pending.requestedBy;
-    const instructions = pending.preserve
-      ? encodeCompactionRequest({
-          ...(pending.instructions !== undefined ? { instructions: pending.instructions } : {}),
-          preserve: pending.preserve,
-        })
-      : pending.instructions;
+    const instructions = composeCompactionInstructions({
+      ...(pending.instructions !== undefined ? { instructions: pending.instructions } : {}),
+      ...(pending.preserve !== undefined ? { preserve: pending.preserve } : {}),
+    });
     const committing = pending;
     const clearCommittedIntent = (): void => {
       if (this.#pending === committing) this.#pending = undefined;

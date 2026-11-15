@@ -48,8 +48,6 @@ import type { FabricRuntimePaths } from "./runtime-paths.js";
 export interface FabricStateOptions {
   paths?: FabricRuntimePaths;
   runtimeLoader?: () => Promise<typeof import("./fabric-runtime-state.js")>;
-  lcmContext?: FabricRuntimeStateOptions["lcmContext"];
-  lcmRuntime?: FabricRuntimeStateOptions["lcmRuntime"];
   hostActiveTools?: FabricRuntimeStateOptions["hostActiveTools"];
 }
 
@@ -322,9 +320,6 @@ export class FabricState {
     this.#runtime?.setSchemaMode(mode, this.#config.executor.runtime);
   }
 
-  lcmStatus(): ReturnType<NonNullable<FabricStateOptions["lcmRuntime"]>> {
-    return this.#options.lcmRuntime?.();
-  }
 
   schemaStatus(context: ExtensionContext): {
     mode: FabricSchemaMode;
@@ -453,8 +448,6 @@ export class FabricState {
         prewalkDrift: this.prewalkDrift,
         sessionApprovals: this.sessionApprovals,
         ...(this.#options.paths ? { paths: this.#options.paths } : {}),
-        ...(this.#options.lcmContext ? { lcmContext: this.#options.lcmContext } : {}),
-        ...(this.#options.lcmRuntime ? { lcmRuntime: this.#options.lcmRuntime } : {}),
         ...(this.#options.hostActiveTools ? { hostActiveTools: this.#options.hostActiveTools } : {}),
       },
     );

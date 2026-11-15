@@ -49,7 +49,6 @@ import {
   AgentManager,
   validateAgentCwdRequest,
 } from "../agents/manager.js";
-import { checkedHandoffCompaction } from "../agents/handoff.js";
 import type {
   AgentHandleInfo,
   AgentRunRecord,
@@ -774,7 +773,6 @@ export class AgentsProvider implements FabricProvider {
   ): Promise<Record<string, unknown>> {
     const model = typeof args.model === "string" ? args.model.trim() : "";
     if (!model) throw new Error("agents.handoff requires an explicit OMP target model");
-    checkedHandoffCompaction(args.compact);
     if (!context.deferHandoff) {
       throw new Error(
         "agents.handoff must be scheduled from inside fabric_exec and completed at its outer result boundary",
@@ -817,8 +815,6 @@ export class AgentsProvider implements FabricProvider {
     request.runner = "omp";
     request.sessionSeed = sessionSeed;
     const targetModel = request.model ?? model;
-    const handoffCompaction = checkedHandoffCompaction(args.compact);
-    if (handoffCompaction) request.handoffCompact = handoffCompaction;
     request.thinkingTransfer = resolveThinkingTransfer(
       context.extensionContext,
       targetModel,

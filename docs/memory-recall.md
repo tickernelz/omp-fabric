@@ -441,15 +441,11 @@ while (chunk.next !== null && chunk.next !== undefined) {
 ```
 
 The default aggregate text budget is 20,000 characters and `maxChars` can
-request a smaller chunk. An `lcm.summary:` address expands the node's
-constituents under the same contract and the same default budget, spent across
-the page; its `next` carries `entryOffset` with `textOffset`, so a constituent
-that outruns the budget resumes before the page advances. Indices, stable entry
-IDs, operation addresses, an inclusive `entryRange`, and `before`/`after` select
-constituents there exactly as they select session entries, and `entryCount`
-counts the whole descent, not the page. Out-of-range indices, ranges,
-and continuation offsets return `index_out_of_bounds` or
-`text_offset_out_of_bounds` on both routes; neither clamps. Valid
+request a smaller chunk. Indices, stable entry IDs, operation addresses, an
+inclusive `entryRange`, and `before`/`after` select session entries, and
+`entryCount` counts the whole selection, not the page. Out-of-range indices,
+ranges, and continuation offsets return `index_out_of_bounds` or
+`text_offset_out_of_bounds`; neither clamps. Valid
 typed operation and branch-fact payloads stay available as bounded structured
 fields. Oversized structured payloads set `structuredTruncated` and stay out of
 the envelope.
@@ -482,8 +478,7 @@ With no selector, `memory.walk` obtains an integrity-bound session range and
 visits the whole normalized session. With a selector, it visits only that
 selection and optional context. Start it from an original selection, not a
 continuation with a nonzero `textOffset`, because every callback receives a
-complete entry. On every expansion route, including `lcm.summary:`
-constituents, the helper follows all expansion pages, validates continuity, and
+complete entry. On every expansion route, the helper follows all expansion pages, validates continuity, and
 reassembles each `textRange` fully before invoking the visitor. It awaits async
 visitors and nested tool calls, and returns `{visited, stopped}`.
 A provider error is returned as `walk.error`. Functions remain inside the guest

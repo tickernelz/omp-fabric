@@ -350,8 +350,7 @@ what a quarantine is allowed to do. The report carries the verdict
 (`clean`, `costly`, or `no-evidence`), both window scores, and the
 per-ref divergence counts.
 
-The certification harness exits nonzero on any failed check, mirroring
-`certify:context`: determinism (double-run hash equality), exact metric math
+The certification harness exits nonzero on any failed check: determinism (double-run hash equality), exact metric math
 on fixed corpora, the full ratchet loop with convergence, the compile loop
 with a gate-rejected round and a converged second pass, surface-apply
 purity, synthetic session-JSONL ingestion, and audit-derived value
