@@ -6,6 +6,7 @@ import {
   type ExtensionRunner,
 } from "@oh-my-pi/pi-coding-agent";
 import { Settings } from "@oh-my-pi/pi-coding-agent/config/settings";
+import { SINGLE_FILE_MATCHES } from "@oh-my-pi/pi-coding-agent/tools/grep";
 import { cfgToolsArtifactMaxBytes } from "@oh-my-pi/pi-coding-agent/tools/settings";
 import { describe, expect, it, vi } from "vitest";
 import { FabricExecutionTraceRecorder } from "../src/audit/trace.js";
@@ -780,7 +781,7 @@ describe("OmpToolsProvider result fidelity", () => {
           tool: "grep",
           partial: true,
           reasons: ["matchLimit"],
-          perFileMatchLimit: 200,
+          perFileMatchLimit: SINGLE_FILE_MATCHES,
         });
 
         const wide = String(
