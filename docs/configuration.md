@@ -311,7 +311,7 @@ In orchestration-only mode:
 A guest core-tool call returns the whole result, or it says that it did not. When the host cut a payload, the returned string ends with one extra line:
 
 ```text
-[[omp-fabric:truncated]] {"reasons":["matchLimit"],"perFileMatchLimit":200}
+[[omp-fabric:truncated]] {"reasons":["matchLimit"],"perFileMatchLimit":50}
 ```
 
 The marker is the last line, it is emitted only for a partial result, and a complete result is byte-identical to the file or command output. Programs that parse a whole file therefore keep working, and a program that must detect a cut branches on the marker.
