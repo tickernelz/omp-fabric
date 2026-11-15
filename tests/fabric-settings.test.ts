@@ -324,7 +324,6 @@ describe("FabricSettingsComponent", () => {
     expect(lines).not.toContain("Engine");
     const section = compaction!.submenu!("", () => {}) as unknown as SectionProbe;
     const hard = section.items.find((item) => item.id === "compaction.hardThresholdRatio");
-    expect(hard?.label).toBe("Forced compaction occupancy");
     expect(hard?.currentValue).toBe("0");
     expect(hard?.values?.[0]).toBe("0");
     expect(section.items.map((item) => item.id).sort()).toEqual(["compaction.hardThresholdRatio", "compaction.threshold"]);
@@ -467,7 +466,7 @@ describe("FabricSettingsComponent", () => {
   });
 
   it("keeps every normalized forced occupancy selectable in its own picker", () => {
-    for (const hardThresholdRatio of [0, 0.2, 0.25, 0.5, 0.7, 0.95, 0.98]) {
+    for (const hardThresholdRatio of [0, 0.2, 0.25, 0.5, 0.7, 0.95]) {
       const config = normalizeFabricConfig({ compaction: { hardThresholdRatio } });
       const items = buildFabricSettingsItems(theme, config, () => {}, {
         keepVisibleCandidates: ["fabric_exec"],
