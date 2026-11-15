@@ -106,7 +106,10 @@ return { scheduled, after };
       description: "demo",
       async list() { return [descriptor]; },
       async describe(name) { return name === "call" ? descriptor : undefined; },
-      async invoke(_name, args) { return { echoed: args.value }; },
+      async invoke(_name, args) {
+        if (args.value === "bad") throw new Error("rejected call");
+        return { echoed: args.value };
+      },
     });
     const config = structuredClone(DEFAULT_FABRIC_CONFIG);
     config.fullCodeMode = false;
@@ -130,6 +133,13 @@ return { scheduled, after };
       '{"echoed":"second"}',
     ]);
     expect(JSON.stringify(failed.trace)).not.toContain("read-before-failure");
+
+    const parallel = await run(
+      'await Promise.all([tools.call("demo.call", { value: "kept-in-parallel" }), tools.call("demo.call", { value: "bad" })]);',
+      "journal-parallel",
+    );
+    expect(parallel.success).toBe(false);
+    expect(parallel.completedOutputs?.map((entry) => entry.preview)).toEqual(['{"echoed":"kept-in-parallel"}']);
 
     const succeeded = await run('return await tools.call("demo.call", { value: "fine" });', "journal-ok");
     expect(succeeded.success).toBe(true);
