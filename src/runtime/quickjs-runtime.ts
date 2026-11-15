@@ -127,8 +127,11 @@ const __toolsBase = {
     "fabric.$search",
     typeof args === "string" ? { query: args } : args,
   ),
-  describe: (args) => __call("fabric.$describe", args),
-  call: (args) => __call("fabric.$call", args),
+  describe: (args) => __call("fabric.$describe", typeof args === "string" ? { ref: args } : args),
+  call: (args, callArgs) => __call(
+    "fabric.$call",
+    typeof args === "string" ? { ref: args, ...(callArgs === undefined ? {} : { args: callArgs }) } : args,
+  ),
   progress: (args) => __call("fabric.$progress", args),
   models: () => __call("fabric.$models", {}),
 };
