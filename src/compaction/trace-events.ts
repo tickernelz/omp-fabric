@@ -4,7 +4,7 @@ import {
   type FabricTraceJsonValue,
 } from "../audit/trace.js";
 
-export type FabricProjectionSource = "trace" | "legacy";
+type FabricProjectionSource = "trace" | "legacy";
 
 interface FabricProjectionOperation {
   sequence: number;

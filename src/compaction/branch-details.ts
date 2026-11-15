@@ -3,13 +3,13 @@ import type {
   FabricTraceJsonValue,
 } from "../audit/trace.js";
 
-export const FABRIC_BRANCH_SUMMARY_KIND = "omp-fabric.branch-summary" as const;
+const FABRIC_BRANCH_SUMMARY_KIND = "omp-fabric.branch-summary" as const;
 const FABRIC_BRANCH_SUMMARY_VERSION_V1 = 1 as const;
-export const FABRIC_BRANCH_SUMMARY_VERSION = 2 as const;
-export const FABRIC_BRANCH_SUMMARY_MAX_BYTES = 128 * 1024;
-export const FABRIC_BRANCH_SUMMARY_MAX_FACTS = 256;
-export const FABRIC_BRANCH_RUN_NAME_MAX_BYTES = 256;
-export const FABRIC_BRANCH_RUN_DESCRIPTION_MAX_BYTES = 1024;
+const FABRIC_BRANCH_SUMMARY_VERSION = 2 as const;
+const FABRIC_BRANCH_SUMMARY_MAX_BYTES = 128 * 1024;
+const FABRIC_BRANCH_SUMMARY_MAX_FACTS = 256;
+const FABRIC_BRANCH_RUN_NAME_MAX_BYTES = 256;
+const FABRIC_BRANCH_RUN_DESCRIPTION_MAX_BYTES = 1024;
 
 interface BranchFactBase {
   entryId: string;
@@ -35,7 +35,7 @@ interface FabricBranchPhaseFactV1 extends BranchFactBase {
   phase: string;
 }
 
-export interface FabricBranchOperationFactV1 extends BranchFactBase {
+interface FabricBranchOperationFactV1 extends BranchFactBase {
   kind: "operation";
   ref: string;
   provider?: string;
@@ -237,7 +237,7 @@ const validEnvelope = (
   return serializedBytes(value) <= FABRIC_BRANCH_SUMMARY_MAX_BYTES;
 };
 
-export const readFabricBranchSummaryDetailsV1 = (
+const readFabricBranchSummaryDetailsV1 = (
   value: unknown,
 ): FabricBranchSummaryDetailsV1 | undefined => {
   try {
@@ -250,7 +250,7 @@ export const readFabricBranchSummaryDetailsV1 = (
   }
 };
 
-export const readFabricBranchSummaryDetailsV2 = (
+const readFabricBranchSummaryDetailsV2 = (
   value: unknown,
 ): FabricBranchSummaryDetailsV2 | undefined => {
   try {
