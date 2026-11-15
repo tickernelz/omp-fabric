@@ -148,4 +148,12 @@ describe("CompactProvider", () => {
     }, context)).rejects.toThrow(/unpaired UTF-16 surrogate/);
     expect(controller.status().pending).toBeUndefined();
   });
+
+  it("rejects a request whose composed instructions exceed the aggregate byte bound", async () => {
+    const { provider, controller } = setup();
+    await expect(provider.invoke("request", {
+      preserve: Array.from({ length: MAX_PRESERVE_ITEMS }, () => "x".repeat(1100)),
+    }, context)).rejects.toThrow(/exceed 16384 UTF-8 bytes/);
+    expect(controller.status().pending).toBeUndefined();
+  });
 });

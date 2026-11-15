@@ -130,7 +130,11 @@ const __toolsBase = {
   describe: (args) => __call("fabric.$describe", typeof args === "string" ? { ref: args } : args),
   call: (args, callArgs) => __call(
     "fabric.$call",
-    typeof args === "string" ? { ref: args, ...(callArgs === undefined ? {} : { args: callArgs }) } : args,
+    typeof args === "string"
+      ? { ref: args, ...(callArgs === undefined ? {} : { args: callArgs }) }
+      : callArgs === undefined || args === null || typeof args !== "object" || args.args !== undefined
+        ? args
+        : { ...args, args: callArgs },
   ),
   progress: (args) => __call("fabric.$progress", args),
   models: () => __call("fabric.$models", {}),
