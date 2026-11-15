@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.27.1
+
+### Added
+
+- A `fabric_exec` program that fails after some nested calls finished now gets the output of the last six completed calls in its error text, after the refs line. Each output keeps its first 450 and last 250 characters with a count of what was cut; `omp.bash` style results show their `output` and structured results show JSON. The journal sits in the host bridge, so QuickJS and the Node process executor share it. The line before the outputs reads `(outputs of the last calls follow)` where it used to read `(outputs not returned)`. The durable trace and the persisted execution details do not carry outputs, a program that succeeds is unchanged, and the `agents.handoff` deferral stub is not recorded.
+
+### Notes
+
+- Origin: 397 of 987 failed results in three days of Wardmote transcripts (487 sessions, 38,495 `fabric_exec` calls) ended with `Completed before the outer failure (outputs not returned)`, so a program that read files and then failed on an edit lost what it read. The 1.27.0 notes left this open.
+- Not measured: the per-call cost of keeping the journal in programs that succeed (a bounded excerpt per nested call), and the effect on agent behavior. The first check after release is the same count of `outputs not returned` lines in new sessions.
+- Review gate: two read-only reviewers passed the commit with no hard findings. Fixed from their soft findings: a throwing getter could have failed a call that succeeded, the handoff stub was recorded as an output, the failure line claimed the latest outputs next to a summary of the first eight calls, and a failing parallel program had no test.
+- CI run 43680154757 passed typecheck, build, dead-code lint and the full suite on ubuntu and windows at 8c7d5936.
+
 ## 1.27.0
 
 ### Removed (breaking)
