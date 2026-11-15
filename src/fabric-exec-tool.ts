@@ -915,7 +915,7 @@ export const createFabricExecTool = (
         );
       }
       const fullFormattedValue = formatFabricValue(result.value, selectedResultFormat);
-      const failureProgress = formatFailureProgress(result.trace);
+      const failureProgress = formatFailureProgress(result.trace, result.completedOutputs);
       const fullSections = [...result.logs];
       if (fullFormattedValue.text) fullSections.push(fullFormattedValue.text);
       if (result.error) fullSections.push(`Runtime error: ${result.error}`);

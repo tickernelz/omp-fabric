@@ -1,4 +1,5 @@
 import type { Usage } from "@oh-my-pi/pi-ai";
+import { CompletedOutputJournal, type CompletedOutput } from "./completed-outputs.js";
 import type { ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 import {
   FabricExecutionTraceRecorder,
@@ -130,6 +131,7 @@ export interface FabricExecutionResult {
   error?: string;
   handoffRequest?: Record<string, unknown>;
   usage?: Usage;
+  completedOutputs?: CompletedOutput[];
 }
 
 interface FabricExecutionPartial {
@@ -609,6 +611,16 @@ export class FabricExecutionService {
         return value;
       }
     };
+    const completedOutputs = new CompletedOutputJournal();
+    const journaled = async (
+      ref: string,
+      args: Record<string, unknown>,
+      callContext: typeof baseContext & { signal: AbortSignal },
+    ): Promise<unknown> => {
+      const value = await invokeAction(ref, args, callContext);
+      completedOutputs.record(ref, args, value);
+      return value;
+    };
     let sandboxResult: FabricSandboxResult;
     try {
       const runtimeKind = this.config.executor.runtime;
@@ -752,7 +764,7 @@ export class FabricExecutionService {
                   ? (args.args as Record<string, unknown>)
                   : {};
               const targetRef = requiredToolsRef("call", args);
-              return invokeAction(targetRef, callArgs, callContext);
+              return journaled(targetRef, callArgs, callContext);
             }
             case "fabric.$progress":
               return traceAttempt(
@@ -849,7 +861,7 @@ export class FabricExecutionService {
               return undefined;
             }
             default:
-              return invokeAction(ref, args, callContext);
+              return journaled(ref, args, callContext);
           }
         },
         {
@@ -889,6 +901,9 @@ export class FabricExecutionService {
       elapsedMs: performance.now() - startedAt,
       ...(sandboxResult.error ? { error: sandboxResult.error } : {}),
       ...(handoffRequest ? { handoffRequest } : {}),
+      ...(!succeeded && completedOutputs.entries().length > 0
+        ? { completedOutputs: completedOutputs.entries() }
+        : {}),
       ...(classifierUsages.length > 0
         ? { usage: aggregateUsage(classifierUsages) }
         : {}),
