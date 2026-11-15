@@ -32,6 +32,7 @@ import {
 import {
   formatUnknownActionMessage,
   repairActionName,
+  levenshtein,
 } from "./action-repair.js";
 import {
   applyActiveActionName,
@@ -355,6 +356,48 @@ const declaredPropertyNames = (schema: Record<string, unknown>): string[] => {
   return properties ? Object.keys(properties) : [];
 };
 
+const MAX_GUIDE_PROPERTIES = 24;
+
+const nearestPropertyName = (name: string, candidates: readonly string[]): string | undefined => {
+  const lower = name.toLowerCase();
+  let best: { name: string; score: number } | undefined;
+  for (const candidate of candidates) {
+    const other = candidate.toLowerCase();
+    const shorter = Math.min(lower.length, other.length);
+    const contained = shorter >= 3 && (lower.includes(other) || other.includes(lower));
+    const distance = levenshtein(lower, other);
+    if (!contained && distance > 2) continue;
+    const score = contained ? 0 : distance;
+    if (!best || score < best.score) best = { name: candidate, score };
+  }
+  return best?.name;
+};
+
+const argumentGuide = (schema: Record<string, unknown>, value: Record<string, unknown>): string => {
+  const properties = (schema as { properties?: Record<string, unknown> }).properties;
+  if ((schema as { type?: unknown }).type !== "object" || !properties) return "";
+  const names = Object.keys(properties);
+  if (names.length === 0) return "";
+  const rawRequired = (schema as { required?: unknown }).required;
+  const required = new Set(Array.isArray(rawRequired) ? rawRequired.filter((name): name is string => typeof name === "string") : []);
+  const missing = [...required].filter((name) => !(name in value));
+  const unknown = Object.keys(value).filter((key) => !(key in properties));
+  if (missing.length === 0 && unknown.length === 0) return "";
+  const unfilled = names.filter((name) => !(name in value));
+  const ordered = [...names.filter((name) => required.has(name)), ...names.filter((name) => !required.has(name))];
+  const shown = ordered.slice(0, MAX_GUIDE_PROPERTIES).map((name) => (required.has(name) ? `${name} (required)` : name));
+  const hidden = ordered.length - shown.length;
+  const parts = [`Accepted parameters: ${shown.join(", ")}${hidden > 0 ? `, +${hidden} more` : ""}.`];
+  if (unknown.length > 0) {
+    const described = unknown.slice(0, 8).map((key) => {
+      const near = nearestPropertyName(key, unfilled);
+      return near ? `${key} (closest: ${near})` : key;
+    });
+    parts.push(`Not in the schema: ${described.join(", ")}.`);
+  }
+  return ` ${parts.join(" ")}`;
+};
+
 const repairCatalogInput = (
   ref: string,
   schema: Record<string, unknown>,
@@ -400,7 +443,9 @@ const validateCatalogArgs = (
   const second = applyActiveArgRepairs(ref, first, schema);
   const stillInvalid = validationMessage(schema, second);
   if (stillInvalid) compiler?.recordInvocationError();
-  return stillInvalid ? { args: second, invalid: stillInvalid } : { args: second };
+  return stillInvalid
+    ? { args: second, invalid: `${stillInvalid}${argumentGuide(schema, second)}` }
+    : { args: second };
 };
 
 export class ActionRegistry {

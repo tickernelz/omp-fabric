@@ -92,7 +92,7 @@ const camelTokens = (name: string): string[] =>
 const singularActionForm = (form: string): string =>
   form.length > 3 && form.endsWith("s") ? form.slice(0, -1) : form;
 
-const levenshtein = (left: string, right: string): number => {
+export const levenshtein = (left: string, right: string): number => {
   if (left === right) return 0;
   if (left.length === 0) return right.length;
   if (right.length === 0) return left.length;
