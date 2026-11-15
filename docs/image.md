@@ -21,7 +21,7 @@ Written files stay on disk, and the image is attached to the `fabric_exec` resul
 | `image.edit` | `(prompt, images, options?)` or `({ prompt, images, ...options })` | the same shape, with the edited images |
 | `image.models` | `()` | the resolved chain with dialect and credential state, no network call |
 
-`options` accepts `model` (try this entry first), `aspectRatio`, `size` (`1024x1024`, `1536x1024`, `1024x1536`), `count` (images API only, capped at 4), and `saveTo` (file path for a single image).
+`options` accepts `model` (try this entry first), `aspectRatio`, `size` (a `WxH` string; gpt-image takes `1024x1024`, `1536x1024` or `1024x1536`), `count` (images API only, capped at 10 for Muse and 4 for every other model), and `saveTo` (file path for a single image). `outputFormat`, `reasoningStrength` and `toolEnablement` reach Muse alone; see [Muse](#muse).
 
 `aspectRatio` and `size` reach the backend only where the wire has a field for them. The `images` dialect sends `size`/`aspect_ratio`, `gemini` sends `imageConfig`, and `responses` maps the ratio onto the image tool's `size` (`1:1` becomes `1024x1024`, `16:9` becomes `1536x1024`). The hosted image tool accepts three pixel sizes only, so a `16:9` request is approximated to `1536x1024`, which is 3:2: `requestedSize` reports the resolved pixel size, never the ratio you asked for. The `chat` dialect has neither field, so a successful call through it reports `ignored: ["aspectRatio", "size"]` and never implies the request was honoured. An unrecognised ratio on `responses` is reported the same way. `count` is honoured by the `images` dialect alone, so asking for more than one image anywhere else reports `count`, and a `saveTo` that cannot apply because several images came back reports `saveTo`.
 
@@ -49,7 +49,27 @@ Each model speaks one wire shape. The dialect comes from the model's `api` unles
 
 Dialect is per model, not per provider: one gateway can serve image bytes through a chat endpoint under one key and through the images API under another. `google-generative-ai` authenticates with `x-goog-api-key`; every other dialect uses a bearer token. A `gpt-image` model omits `response_format`, because those models reject it.
 
-Every dialect carries reference images in its own shape: `input_references` for a JSON gateway, multipart `image` parts for `openai`, `image`/`images` for xAI, `image_url` parts for chat, `input_image` for responses, and `inlineData` for gemini. A backend that refuses the reference answers with its own error, which lands in `failures` and the chain continues.
+Every dialect carries reference images in its own shape: `input_references` for a JSON gateway, multipart `image` parts for `openai`, `image`/`images` for xAI, `images[].image_url` for Muse, `image_url` parts for chat, `input_image` for responses, and `inlineData` for gemini. A backend that refuses the reference answers with its own error, which lands in `failures` and the chain continues.
+
+## Muse
+
+A model whose id starts with `muse-image` (`muse-image-1.0`, or a nested id such as `meta/muse-image-1.0`) speaks the `images` dialect on any `api` except `google-generative-ai`, and gets a request built for the Muse images API. The body carries only fields Muse accepts: `model`, `prompt`, `n`, `response_format`, `size`, `output_format`, `reasoning_strength`, `tool_enablement`, and `images` on an edit. Muse answers `400 unknown parameter` to `aspect_ratio`, `input_references` and `count`, so none of them is sent.
+
+- **Ratio.** Muse reads `size` as a ratio and renders at its own resolution. `aspectRatio` becomes a `WxH` size whose longer side is 1024: `16:9` sends `1024x576`, `9:16` sends `576x1024`. A `size` you pass goes through as given. A ratio that does not parse as `W:H` is not sent and is reported in `ignored`. `sizeHonoured: false` appears only when the returned ratio differs from the requested one by more than 1 percent, so `1792x1024` answered with a 2016x1152 image counts as honoured.
+- **Count.** `count` goes out as `n`, up to 10.
+- **Edit and compose.** `image.edit` posts JSON to `/images/edits` with one `{ image_url: "data:..." }` entry per source image. Two or more sources compose them into one scene.
+- **Muse-only options.** `outputFormat` (`png`, `jpeg`, `webp`; Muse defaults to `webp`) becomes `output_format`. `reasoningStrength` (`low` or `high`) becomes `reasoning_strength`. `toolEnablement` takes `imageSearch`, `webSearch` and `shell` booleans and becomes `tool_enablement` with `enable_image_search`, `enable_web_search` and `enable_shell`; a switch set to `false` turns that built-in tool off. Any other model drops these three options and lists them in `ignored`.
+
+```ts
+const made = await image.generate("a watercolor fox in snow", {
+  model: "sub2api-muse/muse-image-1.0",
+  aspectRatio: "16:9",
+  count: 2,
+  outputFormat: "png",
+  reasoningStrength: "low",
+  toolEnablement: { webSearch: false, shell: false },
+});
+```
 
 ## Priority chain
 
@@ -70,13 +90,14 @@ A selector keeps every slash after the provider, so `xai-hm/antigravity/gemini-3
 
 ## Measured on one workstation
 
-Three models were probed against live gateways while this provider was built. Numbers come from those runs, not from vendor documentation.
+Four models were probed against live gateways: the first three while this provider was built, Muse on 15 November 2026 through sub2api 0.2.30. Numbers come from those runs, not from vendor documentation.
 
 | Entry | Dialect | Result |
 | --- | --- | --- |
 | `xai-hm/antigravity/gemini-3.1-flash-image` | `images` | 3 of 3 calls returned a JPEG, 412 KB to 541 KB |
 | `sub2api-agy/gemini-3.1-flash-image` | `chat` | 3 of 3 calls returned a JPEG through a data URL, 464 KB to 698 KB |
 | `xai-hm/cx/gpt-6.1-sol` | `responses` | 1 of 3 calls returned a PNG, about 1 MB; the rest reported `status=failed` |
+| `sub2api-muse/muse-image-1.0` | `images` | `aspectRatio: "16:9"`, `count: 2`, `outputFormat: "png"` returned two 2048x1152 PNGs in 10.0 s; a one-image edit returned a 2096x1184 WebP in 11.2 s; a two-image compose at `2:1` returned a 2240x1120 WebP in 15.8 s |
 
 A `responses` entry needs a retry budget, because the hosted tool fails without an error body on some calls. An `images` entry is the steadier default when one is available.
 

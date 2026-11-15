@@ -1416,18 +1416,29 @@ interface FabricImageResult {
   ignored?: string[];
   failures?: FabricImageAttempt[];
 }
+interface FabricImageMuseToolEnablement {
+  imageSearch?: boolean;
+  webSearch?: boolean;
+  shell?: boolean;
+}
 interface FabricImageGenerateOptions {
   model?: string;
   aspectRatio?: string;
-  size?: "1024x1024" | "1536x1024" | "1024x1536";
+  size?: string;
   count?: number;
   saveTo?: string;
+  outputFormat?: "png" | "jpeg" | "webp";
+  reasoningStrength?: "low" | "high";
+  toolEnablement?: FabricImageMuseToolEnablement;
 }
 interface FabricImageEditOptions {
   model?: string;
   aspectRatio?: string;
-  size?: "1024x1024" | "1536x1024" | "1024x1536";
+  size?: string;
   saveTo?: string;
+  outputFormat?: "png" | "jpeg" | "webp";
+  reasoningStrength?: "low" | "high";
+  toolEnablement?: FabricImageMuseToolEnablement;
 }
 interface FabricImageModelEntry {
   selector: string;
