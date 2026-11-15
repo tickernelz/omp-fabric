@@ -9,7 +9,6 @@ const primaryEntryPoints = [
   "src/residency/launcher.ts",
   "src/residency/omp-entry.ts",
   "src/residency/actor-client.ts",
-  "src/compaction/hook.ts",
   "src/core/action-registry.ts",
   "src/entropy/index.ts",
   "src/memory/digest.ts",
@@ -24,7 +23,6 @@ const primaryEntryPoints = [
 // after the installed package is replaced, while preserving lazy evaluation.
 const lazyEntryPoints = [
   "src/agents/claude-cli.ts",
-  "src/compaction/lcm-runtime.ts",
   "src/agents/compact-control.ts",
   "src/agents/veda-cli.ts",
   "src/fabric-runtime-state.ts",
@@ -36,8 +34,6 @@ const lazyEntryPoints = [
   "src/runtime/type-checker.ts",
   "src/speculation/scanner.ts",
   "src/ui/dashboard.ts",
-  "src/ui/lcm-dashboard.ts",
-  "src/ui/lcm-panel.ts",
   "src/ui/conversation.ts",
   "src/ui/conversation-targets.ts",
   "src/ui/conversation-chrome.ts",
@@ -57,7 +53,6 @@ const result = await build({
   chunkNames: "chunks/[name]-[hash]",
   bundle: true,
   packages: "external",
-  external: ["bun:sqlite"],
   platform: "node",
   format: "esm",
   target: "node24",

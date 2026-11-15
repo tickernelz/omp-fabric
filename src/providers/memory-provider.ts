@@ -55,13 +55,6 @@ import {
   type SearchResult,
 } from "../memory/search.js";
 import type { MemoryQueryMatch, MemoryQueryMode } from "../memory/tokenize.js";
-import {
-  LcmMemoryAdapter,
-  parseLcmRawAddress,
-  type LcmBranchBinding,
-  type LcmMemoryLedger,
-  type LcmSummaryReader,
-} from "../memory/lcm-adapter.js";
 import { actionArgNormalizer, type ArgNormalizationSpec } from "./arg-normalization.js";
 
 const EXPAND_DEFAULT_MAX_CHARS = 20_000;
@@ -338,20 +331,6 @@ const recallSessionOutputSchema = {
   ],
 };
 
-const lcmRecallOutputSchema: Record<string, unknown> = {
-  type: "object",
-  properties: {
-    kind: { type: "string", enum: ["lcm.raw", "lcm.summary"] },
-    sessionId: { type: "string" },
-    score: { type: "number" },
-    snippet: { type: "string" },
-    truncated: { type: "boolean" },
-    source: { type: "object" },
-    follow: callOutputSchema("memory.expand"),
-  },
-  required: ["kind", "sessionId", "score", "snippet", "truncated", "source", "follow"],
-};
-
 const recallOutputSchema: Record<string, unknown> = {
   type: "object",
   description: "Bounded ranked memory hits with uniform follow and pagination calls.",
@@ -360,7 +339,7 @@ const recallOutputSchema: Record<string, unknown> = {
     hits: {
       type: "array",
       description: "Call tools.call(hit.follow) to expand an entry or resolve a cold session.",
-      items: { oneOf: [recallEntryOutputSchema, recallSessionOutputSchema, lcmRecallOutputSchema] },
+      items: { oneOf: [recallEntryOutputSchema, recallSessionOutputSchema] },
     },
     next: {
       oneOf: [callOutputSchema("memory.recall"), { type: "null" }],
@@ -380,10 +359,6 @@ const expandOutputSchema: Record<string, unknown> = {
     sourceHash: { type: "string" },
     branches: { type: "string", enum: ["active", "all"] },
     lineageFingerprint: { type: ["string", "null"] },
-    node: {
-      type: "object",
-      description: "The expanded LCM summary node itself: its own text, kind, sourceHash, children, and sources.",
-    },
     total: { type: "number" },
     entryCount: { type: "number" },
     entries: {
@@ -483,7 +458,7 @@ const descriptors: FabricActionDescriptor[] = [
   {
     name: "recall",
     description:
-      "Search session memory as bounded snippets. An empty query browses entries newest first; a literal or phrase query ranks by relevance, then recency. Literal queries accept any matching term by default; queryMatch all narrows to co-located terms. role:'user' finds the user's requests; since/until bound entry time in epoch ms. When the LCM ledger is active, recall reads it together with its summaries and skips tool bookkeeping entries (role custom) unless role:'custom' is given; entryRange, ref, provider, action, outcome, or tool switch recall to the session-file engine. Call tools.call(hit.follow) for either an exact entry or a cold-session candidate, and tools.call(next) to continue.",
+      "Search session memory as bounded snippets. An empty query browses entries newest first; a literal or phrase query ranks by relevance, then recency. Literal queries accept any matching term by default; queryMatch all narrows to co-located terms. role:'user' finds the user's requests; since/until bound entry time in epoch ms. Call tools.call(hit.follow) for either an exact entry or a cold-session candidate, and tools.call(next) to continue.",
     inputSchema: {
       type: "object",
       properties: {
@@ -595,11 +570,11 @@ const descriptors: FabricActionDescriptor[] = [
   {
     name: "expand",
     description:
-      "Read exact normalized session entries and nearby context as bounded lossless chunks. An lcm.raw: address reads that ledger entry; before/after add its neighbouring entries from the session file. An lcm.summary: address returns the entries that summary was built from, each addressed for further expansion. A bare session id or file path with indices, entryIds, entryRange, or operationAddresses reads absolute entry indices. Call tools.call(next) to continue, or use guest-side memory.walk(args, visitor) to traverse complete reassembled entries.",
+      "Read exact normalized session entries and nearby context as bounded lossless chunks. A bare session id or file path with indices, entryIds, entryRange, or operationAddresses reads absolute entry indices. Call tools.call(next) to continue, or use guest-side memory.walk(args, visitor) to traverse complete reassembled entries.",
     inputSchema: {
       type: "object",
       properties: {
-        session: { type: "string", description: "Exact session file path, unambiguous session id, or an lcm.raw:/lcm.summary: address." },
+        session: { type: "string", description: "Exact session file path or unambiguous session id." },
         expectedSourceHash: {
           type: "string",
           description: "SHA-256 from a prior pointer; stale sources are refused.",
@@ -732,11 +707,6 @@ export const normalizeMemoryArgs = actionArgNormalizer(
   MEMORY_ARG_NORMALIZATION,
 );
 
-const SESSION_ENGINE_RECALL_KEYS = ["entryRange", "ref", "provider", "action", "outcome", "tool"] as const;
-
-const isLcmAddress = (session: unknown): boolean =>
-  typeof session === "string" && (session.startsWith("lcm.raw:") || session.startsWith("lcm.summary:"));
-
 export interface MemoryProviderContext {
   agentDir: string;
   cwd: string;
@@ -744,13 +714,6 @@ export interface MemoryProviderContext {
   sessionId?: string;
   sessionFile?: string;
   getLiveBranch?: () => LiveSessionBranch;
-  lcm?: {
-    ledger: LcmMemoryLedger;
-    summaries: LcmSummaryReader;
-    projectKey?: string;
-    getCurrentSessionId?: () => string | undefined;
-    branchForSession?: (sessionId: string) => LcmBranchBinding | undefined;
-  };
 }
 
 const parseBranches = (value: unknown, action: string): MemoryBranches => {
@@ -888,123 +851,9 @@ export class MemoryProvider implements FabricProvider {
     "Cross-session memory: a search engine over every OMP session timeline on this machine";
 
   private recallContinuation: RecallContinuationCache | undefined;
-  private lcmAdapter: { source: object; adapter: LcmMemoryAdapter } | undefined;
   private readonly expansionSnapshots = new Map<string, ExpansionSnapshot>();
 
   constructor(private readonly context: MemoryProviderContext) {}
-
-  private lcmMemoryAdapter(source: NonNullable<MemoryProviderContext["lcm"]>): LcmMemoryAdapter {
-    if (this.lcmAdapter?.source !== source) {
-      this.lcmAdapter = { source, adapter: new LcmMemoryAdapter(source) };
-    }
-    return this.lcmAdapter.adapter;
-  }
-
-  private cachedRecallContinuation(
-    key: string,
-    observations: SourceObservation[] | null,
-  ): RecallContinuationCache | undefined {
-    const cached = this.recallContinuation;
-    if (!cached || cached.key !== key) return undefined;
-    if (
-      !observations ||
-      Date.now() - cached.touchedAt > CONTINUATION_CACHE_TTL_MS ||
-      !sameSourceObservations(cached.observations, observations)
-    ) {
-      this.recallContinuation = undefined;
-      return undefined;
-    }
-    cached.touchedAt = Date.now();
-    return cached;
-  }
-
-  private rememberRecallContinuation(cached: RecallContinuationCache): void {
-    this.recallContinuation = cached;
-  }
-
-  private forgetRecallContinuation(cached: RecallContinuationCache): void {
-    if (this.recallContinuation === cached) this.recallContinuation = undefined;
-  }
-
-  private cachedExpansionSnapshot(
-    file: string,
-    branches: MemoryBranches,
-    observation: SourceObservation | null,
-  ): ExpansionSnapshot | undefined {
-    const key = expansionSnapshotKey(file, branches);
-    const cached = this.expansionSnapshots.get(key);
-    if (!cached) return undefined;
-    if (
-      !observation ||
-      Date.now() - cached.touchedAt > CONTINUATION_CACHE_TTL_MS ||
-      !sameSourceObservation(cached.observation, observation)
-    ) {
-      this.expansionSnapshots.delete(key);
-      return undefined;
-    }
-    cached.touchedAt = Date.now();
-    this.expansionSnapshots.delete(key);
-    this.expansionSnapshots.set(key, cached);
-    return cached;
-  }
-
-  private rememberExpansionSnapshot(snapshot: ExpansionSnapshot): void {
-    const key = expansionSnapshotKey(snapshot.file, snapshot.branches);
-    this.expansionSnapshots.delete(key);
-    this.expansionSnapshots.set(key, snapshot);
-    while (this.expansionSnapshots.size > EXPANSION_SNAPSHOT_LIMIT) {
-      const oldest = this.expansionSnapshots.keys().next().value;
-      if (oldest === undefined) break;
-      this.expansionSnapshots.delete(oldest);
-    }
-  }
-
-  private rememberExpansionSelection(
-    snapshot: ExpansionSnapshot,
-    keys: readonly string[],
-    selection: ResolvedExpansionSelection,
-  ): void {
-    for (const key of new Set(keys)) {
-      snapshot.selections.delete(key);
-      snapshot.selections.set(key, selection);
-    }
-    while (snapshot.selections.size > EXPANSION_SELECTION_LIMIT) {
-      const oldest = snapshot.selections.keys().next().value;
-      if (oldest === undefined) break;
-      snapshot.selections.delete(oldest);
-    }
-  }
-
-  private forgetExpansionSnapshot(snapshot: ExpansionSnapshot): void {
-    const key = expansionSnapshotKey(snapshot.file, snapshot.branches);
-    if (this.expansionSnapshots.get(key) === snapshot) this.expansionSnapshots.delete(key);
-  }
-
-  async list(
-    request: FabricProviderListRequest,
-    _context: FabricInvocationContext,
-  ): Promise<FabricActionDescriptor[]> {
-    const query = request.query?.toLowerCase();
-    return query
-      ? descriptors.filter((descriptor) =>
-          `${descriptor.name} ${descriptor.description}`.toLowerCase().includes(query),
-        )
-      : descriptors;
-  }
-
-  async describe(
-    actionName: string,
-    _context: FabricInvocationContext,
-  ): Promise<FabricActionDescriptor | undefined> {
-    return descriptors.find((descriptor) => descriptor.name === actionName);
-  }
-
-  prepareArguments(
-    actionName: string,
-    args: Record<string, unknown>,
-  ): Record<string, unknown> {
-    return normalizeMemoryArgs(actionName, args);
-  }
 
   async invoke(
     actionName: string,
@@ -1012,15 +861,6 @@ export class MemoryProvider implements FabricProvider {
     invocationContext: FabricInvocationContext,
   ): Promise<unknown> {
     try {
-      const lcm = this.context.lcm;
-      if (lcm && actionName === "expand" && isLcmAddress(args.session)) {
-        return await this.expandLcm(this.lcmMemoryAdapter(lcm), args);
-      }
-      if (lcm && actionName === "recall" && !SESSION_ENGINE_RECALL_KEYS.some((key) => args[key] !== undefined)) {
-        const queryMode = parseQueryMode(args.queryMode, "memory.recall");
-        const queryMatch = parseQueryMatch(args.queryMatch, queryMode, "memory.recall");
-        return this.lcmMemoryAdapter(lcm).recall({ ...args, queryMode, queryMatch });
-      }
       switch (actionName) {
         case "recall":
           return await this.recall(args, invocationContext);
@@ -1056,52 +896,6 @@ export class MemoryProvider implements FabricProvider {
       }
       throw error;
     }
-  }
-
-  private async expandLcm(adapter: LcmMemoryAdapter, args: Record<string, unknown>): Promise<unknown> {
-    const single = adapter.expand(args);
-    const raw = parseLcmRawAddress(String(args.session));
-    const context = (value: unknown): number =>
-      typeof value === "number" && Number.isSafeInteger(value) && value > 0 ? Math.min(value, EXPAND_MAX_CONTEXT) : 0;
-    const before = context(args.before);
-    const after = context(args.after);
-    if (!raw || (before === 0 && after === 0) || single.error !== undefined) return single;
-    const unavailable = (message: string): Record<string, unknown> => ({
-      ...single,
-      error: { code: "context_unavailable", message },
-    });
-    let ref: ReturnType<typeof resolveSessionTarget>;
-    try {
-      ref = resolveSessionTarget(this.context.agentDir, raw.sessionId, overrideSessionDir(this.context.sessionFile));
-    } catch (error) {
-      return unavailable(`Session ${raw.sessionId} did not resolve: ${error instanceof Error ? error.message : String(error)}`);
-    }
-    if (!ref) {
-      return unavailable(`Session file for ${raw.sessionId} is unavailable; returned the single ledger entry.`);
-    }
-    const {
-      session: _session,
-      expectedSourceHash: _expectedSourceHash,
-      expectedLineageFingerprint: _expectedLineageFingerprint,
-      indices: _indices,
-      entryIds: _entryIds,
-      operationAddresses: _operationAddresses,
-      entryRange: _entryRange,
-      entryOffset: _entryOffset,
-      textOffset: _textOffset,
-      ...rest
-    } = args;
-    let widened: Record<string, unknown>;
-    try {
-      widened = await this.expand({ ...rest, session: ref.file, entryIds: [raw.entryId], before, after }) as Record<string, unknown>;
-    } catch (error) {
-      return unavailable(`Context read failed: ${error instanceof Error ? error.message : String(error)}`);
-    }
-    if (widened.error !== undefined) {
-      const detail = widened.error as { message?: unknown };
-      return unavailable(`Entry ${raw.entryId} has no context in ${ref.file}: ${String(detail.message ?? "unreadable")}`);
-    }
-    return widened;
   }
 
   private async recall(

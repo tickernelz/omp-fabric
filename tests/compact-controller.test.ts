@@ -1,6 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
 import type { ExtensionContext, ExtensionRunner } from "@oh-my-pi/pi-coding-agent";
-import { decodeCompactionInstructions, FABRIC_COMPACTION_REQUEST_PREFIX } from "../src/compaction/instructions.js";
 import {
   CompactController,
   type CompactLastCommit,
@@ -114,19 +113,24 @@ describe("CompactController", () => {
     expect(status.last).toMatchObject({ status: "committed", requestedBy: "model" });
   });
 
-  it("encodes typed preserve items with instructions", async () => {
+  it("appends preserve items to the instructions as plain text", async () => {
     const capture: CompactCapture = { current: undefined };
     const controller = new CompactController();
     controller.request({ instructions: "Keep the plan", preserve: ["rare fact", "src/a.ts"] });
     expect(controller.status().pending?.preserve).toEqual(["rare fact", "src/a.ts"]);
     const commit = controller.maybeCommit(fakeContext(capture));
-    expect(capture.current?.customInstructions?.startsWith(FABRIC_COMPACTION_REQUEST_PREFIX)).toBe(true);
-    const decoded = decodeCompactionInstructions(capture.current?.customInstructions);
-    expect(decoded.ok).toBe(true);
-    if (!decoded.ok) throw new Error("expected decoded instructions");
-    expect(decoded.policy.mode).toBe("typed-v1");
-    expect(decoded.requestLines.join("\n")).toContain("rare fact");
+    expect(capture.current?.customInstructions).toBe("Keep the plan\n\nPreserve these facts in the summary:\n- rare fact\n- src/a.ts");
     capture.current!.onError(new Error("Already compacted"));
+    await commit;
+  });
+
+  it("forwards preserve items alone when no instructions are given", async () => {
+    const capture: CompactCapture = { current: undefined };
+    const controller = new CompactController();
+    controller.request({ preserve: ["only fact"] });
+    const commit = controller.maybeCommit(fakeContext(capture));
+    expect(capture.current?.customInstructions).toBe("Preserve these facts in the summary:\n- only fact");
+    capture.current!.onComplete();
     await commit;
   });
 

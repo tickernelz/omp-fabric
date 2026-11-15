@@ -4,7 +4,6 @@ import path from "node:path";
 import { renameAtomic } from "./core/atomic-write.js";
 import { normalizeModelAliases } from "./core/model-resolution.js";
 import { OMP_CORE_TOOL_NAME_SET } from "./core/omp-tools.js";
-import { MAX_LEAF_ENTRIES } from "./compaction/bounds.js";
 import {
   CURRENT_FABRIC_CONFIG_VERSION,
   migrateFabricConfigDocument,
@@ -37,7 +36,6 @@ export type FabricResultFormat = "auto" | "yaml" | "json" | "text";
 export type FabricPrewalkMode = "in-place" | "trajectory";
 export type FabricExecutorRuntime = "quickjs" | "node-process" | "bun-process";
 export type FabricConfigScope = "global" | "project";
-type FabricCompactionEngine = "lcm" | "omp";
 type FabricActorScope = "project" | "session";
 
 interface FabricExecutorConfig {
@@ -115,8 +113,6 @@ interface FabricPrewalkConfig {
   mode: FabricPrewalkMode;
   model?: string;
   alwaysRearm: boolean;
-  // Compact with the configured engine just before restoring Main's boundary
-  // model after an in-place continuation settles.
   compactOnReturn: boolean;
   // Filesystem fallback trigger: when an armed boundary ran a successful
   // omp.bash without an audited mutation, claim on stat-manifest drift so
@@ -203,26 +199,9 @@ interface FabricUiConfig {
 }
 
 interface FabricCompactionConfig {
-  engine: FabricCompactionEngine;
-  summaryModel?: string;
-  targetContextRatio: number;
-  softThresholdRatio: number;
   hardThresholdRatio: number;
   thresholds: Record<string, number>;
   tokenThresholds: Record<string, number>;
-  lcmMaxInputChars: number;
-  lcmMaxOutputTokens: number;
-  lcmMaxOutputChars: number;
-  lcmMaxLeafEntries: number;
-  lcmMaxCondenseChildren: number;
-  lcmMaintenancePasses: number;
-  lcmMaintenanceConcurrency: number;
-  lcmMaintenanceRunSeconds: number;
-  lcmModelSummaries: boolean;
-  lcmModelTimeoutSeconds: number;
-  lcmMaxDailyModelCalls: number;
-  lcmMaxSessionModelCalls: number;
-  lcmMaxDailyModelSeconds: number;
 }
 
 export const MIN_COMPACTION_TOKEN_THRESHOLD = 1_000;
@@ -242,43 +221,13 @@ export const clampCompactionRatioThreshold = (value: number): number =>
     Math.max(MIN_COMPACTION_RATIO_THRESHOLD, value),
   );
 
-const MIN_SOFT_THRESHOLD_RATIO = 0.1;
-const MAX_SOFT_THRESHOLD_RATIO = 0.95;
 const MIN_HARD_THRESHOLD_RATIO = 0.2;
 const MAX_HARD_THRESHOLD_RATIO = 0.98;
-const SOFT_BELOW_HARD_MARGIN = 0.05;
-
-const clampSoftThresholdRatio = (value: number): number =>
-  value <= 0
-    ? 0
-    : Math.min(MAX_SOFT_THRESHOLD_RATIO, Math.max(MIN_SOFT_THRESHOLD_RATIO, value));
-
-const THRESHOLD_RATIO_STEPS_PER_UNIT = 20;
-
-const roundThresholdRatio = (value: number): number =>
-  Math.round(value * THRESHOLD_RATIO_STEPS_PER_UNIT) / THRESHOLD_RATIO_STEPS_PER_UNIT;
 
 const clampHardThresholdRatio = (value: number): number =>
   value <= 0
     ? 0
     : Math.min(MAX_HARD_THRESHOLD_RATIO, Math.max(MIN_HARD_THRESHOLD_RATIO, value));
-
-const reconcileThresholdRatios = (
-  soft: number,
-  hard: number,
-): { soft: number; hard: number } => {
-  const clampedHard = clampHardThresholdRatio(hard);
-  const clampedSoft = clampSoftThresholdRatio(soft);
-  if (clampedHard > 0 && clampedSoft > 0 && clampedSoft >= clampedHard) {
-    return {
-      soft: clampSoftThresholdRatio(
-        roundThresholdRatio(clampedHard - SOFT_BELOW_HARD_MARGIN),
-      ),
-      hard: clampedHard,
-    };
-  }
-  return { soft: clampedSoft, hard: clampedHard };
-};
 
 export interface FabricRetentionConfig {
   orphanedTempRunMs: number;
@@ -587,25 +536,9 @@ export const DEFAULT_FABRIC_CONFIG: FabricConfig = {
     conversationShortcut: "ctrl+shift+a",
   },
   compaction: {
-    engine: "lcm",
-    targetContextRatio: 0.75,
-    softThresholdRatio: 0.55,
     hardThresholdRatio: 0,
     thresholds: {},
     tokenThresholds: {},
-    lcmMaxInputChars: 200_000,
-    lcmMaxOutputTokens: 4_096,
-    lcmMaxOutputChars: 16_384,
-    lcmMaxLeafEntries: 32,
-    lcmMaxCondenseChildren: 4,
-    lcmMaintenancePasses: 8,
-    lcmMaintenanceConcurrency: 3,
-    lcmMaintenanceRunSeconds: 60,
-    lcmModelSummaries: true,
-    lcmModelTimeoutSeconds: 120,
-    lcmMaxDailyModelCalls: 0,
-    lcmMaxSessionModelCalls: 0,
-    lcmMaxDailyModelSeconds: 0,
   },
   retention: {
     orphanedTempRunMs: 6 * 60 * 60 * 1_000,
@@ -816,12 +749,6 @@ const resultFormatValue = (
     ? value
     : fallback;
 
-const compactionEngineValue = (
-  value: unknown,
-  fallback: FabricCompactionEngine,
-): FabricCompactionEngine =>
-  value === "omp" || value === "lcm" ? value : fallback;
-
 const actorScopeValue = (value: unknown, fallback: FabricActorScope): FabricActorScope =>
   value === "project" || value === "session" ? value : fallback;
 
@@ -863,7 +790,6 @@ export const normalizeFabricConfig = (input: Record<string, unknown>): FabricCon
   const toolPolicy = objectValue(input.toolPolicy);
   const ui = objectValue(input.ui);
   const compaction = objectValue(input.compaction);
-  const summaryModel = stringValue(compaction.summaryModel);
   const retention = objectValue(input.retention);
   const mesh = objectValue(input.mesh);
   const memory = objectValue(input.memory);
@@ -915,10 +841,7 @@ export const normalizeFabricConfig = (input: Record<string, unknown>): FabricCon
         clampCompactionTokenThreshold(tokens as number),
       ]),
   );
-  const thresholdRatios = reconcileThresholdRatios(
-    typeof compaction.softThresholdRatio === "number" && Number.isFinite(compaction.softThresholdRatio)
-      ? compaction.softThresholdRatio
-      : DEFAULT_FABRIC_CONFIG.compaction.softThresholdRatio,
+  const hardThresholdRatio = clampHardThresholdRatio(
     typeof compaction.hardThresholdRatio === "number" && Number.isFinite(compaction.hardThresholdRatio)
       ? compaction.hardThresholdRatio
       : DEFAULT_FABRIC_CONFIG.compaction.hardThresholdRatio,
@@ -1264,31 +1187,9 @@ export const normalizeFabricConfig = (input: Record<string, unknown>): FabricCon
         : DEFAULT_FABRIC_CONFIG.ui.conversationShortcut,
     },
     compaction: {
-      engine: compactionEngineValue(compaction.engine, DEFAULT_FABRIC_CONFIG.compaction.engine),
-      ...(summaryModel !== undefined ? { summaryModel } : {}),
-      targetContextRatio: boundedFloat(
-        compaction.targetContextRatio,
-        DEFAULT_FABRIC_CONFIG.compaction.targetContextRatio,
-        0.25,
-        0.85,
-      ),
-      softThresholdRatio: thresholdRatios.soft,
-      hardThresholdRatio: thresholdRatios.hard,
+      hardThresholdRatio,
       thresholds: compactionThresholds,
       tokenThresholds: compactionTokenThresholds,
-      lcmMaxInputChars: boundedInteger(compaction.lcmMaxInputChars, DEFAULT_FABRIC_CONFIG.compaction.lcmMaxInputChars, 1_024, 1_000_000),
-      lcmMaxOutputTokens: boundedInteger(compaction.lcmMaxOutputTokens, DEFAULT_FABRIC_CONFIG.compaction.lcmMaxOutputTokens, 128, 32_768),
-      lcmMaxOutputChars: boundedInteger(compaction.lcmMaxOutputChars, DEFAULT_FABRIC_CONFIG.compaction.lcmMaxOutputChars, 1_024, 131_072),
-      lcmMaxLeafEntries: boundedInteger(compaction.lcmMaxLeafEntries, DEFAULT_FABRIC_CONFIG.compaction.lcmMaxLeafEntries, 1, MAX_LEAF_ENTRIES),
-      lcmMaxCondenseChildren: boundedInteger(compaction.lcmMaxCondenseChildren, DEFAULT_FABRIC_CONFIG.compaction.lcmMaxCondenseChildren, 2, 32),
-      lcmMaintenancePasses: boundedInteger(compaction.lcmMaintenancePasses, DEFAULT_FABRIC_CONFIG.compaction.lcmMaintenancePasses, 1, 64),
-      lcmMaintenanceConcurrency: boundedInteger(compaction.lcmMaintenanceConcurrency, DEFAULT_FABRIC_CONFIG.compaction.lcmMaintenanceConcurrency, 1, 8),
-      lcmMaintenanceRunSeconds: boundedInteger(compaction.lcmMaintenanceRunSeconds, DEFAULT_FABRIC_CONFIG.compaction.lcmMaintenanceRunSeconds, 10, 600),
-      lcmModelSummaries: booleanValue(compaction.lcmModelSummaries, DEFAULT_FABRIC_CONFIG.compaction.lcmModelSummaries),
-      lcmModelTimeoutSeconds: boundedInteger(compaction.lcmModelTimeoutSeconds, DEFAULT_FABRIC_CONFIG.compaction.lcmModelTimeoutSeconds, 10, 900),
-      lcmMaxDailyModelCalls: boundedInteger(compaction.lcmMaxDailyModelCalls, DEFAULT_FABRIC_CONFIG.compaction.lcmMaxDailyModelCalls, 0, 100_000),
-      lcmMaxSessionModelCalls: boundedInteger(compaction.lcmMaxSessionModelCalls, DEFAULT_FABRIC_CONFIG.compaction.lcmMaxSessionModelCalls, 0, 100_000),
-      lcmMaxDailyModelSeconds: boundedInteger(compaction.lcmMaxDailyModelSeconds, DEFAULT_FABRIC_CONFIG.compaction.lcmMaxDailyModelSeconds, 0, 604_800),
     },
     retention: {
       orphanedTempRunMs: boundedInteger(

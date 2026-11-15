@@ -1,6 +1,4 @@
 import type { ExtensionContext } from "@oh-my-pi/pi-coding-agent";
-import type { LcmPreview, LcmReport } from "./compaction/lcm-runtime.js";
-import type { LcmDiagnostics, LcmRepairId, LcmRepairOutcome } from "./compaction/lcm-doctor.js";
 import { resolveAgentDir } from "./core/agent-dir.js";
 import {
   resolveAvailableOmpModel,
@@ -166,54 +164,12 @@ const escapeXmlText = (value: string): string =>
   value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
 
 
-export interface LcmStatusSource {
-  report(): LcmReport;
-  coverage(): { active: number; covered: number };
-  preview(): LcmPreview;
-  coverageMap(limit?: number): Array<{ key: string; covered: boolean }>;
-  nodes(limit?: number, offset?: number): LcmDashboardNode[];
-  node(nodeId: string): {
-    node: LcmDashboardNode;
-    revisions: Array<{ revision: number; text: string; modelHash: string; createdAt: number }>;
-    ancestors: string[];
-  } | undefined;
-  source(sessionId: string, entryId: string, revision: number): { payloadJson: string; content: string; role: string; createdAt: number } | undefined;
-  diagnostics(report?: LcmReport): LcmDiagnostics;
-  repair(id: LcmRepairId): Promise<LcmRepairOutcome>;
-  jobs(limit?: number): LcmDashboardJob[];
-}
-
-export interface LcmDashboardJob {
-  jobId: string;
-  nodeId: string;
-  state: string;
-  attempts: number;
-  error?: string;
-  nextRetryAt: number;
-  updatedAt: number;
-}
-
-export interface LcmDashboardNode {
-  nodeId: string;
-  sessionId: string;
-  kind: "leaf" | "condensed";
-  depth: number;
-  state: string;
-  modelHash: string;
-  text?: string;
-  children: string[];
-  sources: Array<{ sessionId: string; entryId: string; revision: number; payloadHash: string }>;
-  createdAt: number;
-}
-
 export interface FabricRuntimeStateOptions {
   activity?: FabricActivityStore;
   prewalk?: PrewalkController;
   prewalkDrift?: PrewalkDriftTracker;
   sessionApprovals?: FabricSessionApprovals;
   paths?: FabricRuntimePaths;
-  lcmContext?: () => MemoryProviderContext["lcm"];
-  lcmRuntime?: () => LcmStatusSource | undefined;
   hostActiveTools?: FabricHostToolAuthority;
 }
 
@@ -253,8 +209,6 @@ export class FabricRuntimeState {
   readonly prewalk: PrewalkController;
   readonly prewalkDrift: PrewalkDriftTracker;
   readonly sessionApprovals: FabricSessionApprovals;
-  readonly #lcmContext: FabricRuntimeStateOptions["lcmContext"];
-  readonly #lcmRuntime: FabricRuntimeStateOptions["lcmRuntime"];
   readonly #hostActiveTools: FabricRuntimeStateOptions["hostActiveTools"];
   readonly #paths: FabricRuntimePaths | undefined;
   #widgetDismissedAt = 0;
@@ -269,14 +223,8 @@ export class FabricRuntimeState {
     this.prewalk = options.prewalk ?? new PrewalkController();
     this.prewalkDrift = options.prewalkDrift ?? new PrewalkDriftTracker();
     this.sessionApprovals = options.sessionApprovals ?? new FabricSessionApprovals();
-    this.#lcmContext = options.lcmContext;
-    this.#lcmRuntime = options.lcmRuntime;
     this.#hostActiveTools = options.hostActiveTools;
     this.#paths = options.paths;
-  }
-
-  lcmStatus(): LcmStatusSource | undefined {
-    return this.#lcmRuntime?.();
   }
 
   get initialized(): boolean {
@@ -709,11 +657,6 @@ export class FabricRuntimeState {
       onRequest: (intent) => void this.#publishCompactEvent("requested", intent),
       onCommit: (info) => void this.#publishCompactEvent(info.status, info),
     }, {
-      settings: () => ({
-        engine: this.#config?.compaction.engine ?? DEFAULT_FABRIC_CONFIG.compaction.engine,
-        targetContextRatio: this.#config?.compaction.targetContextRatio
-          ?? DEFAULT_FABRIC_CONFIG.compaction.targetContextRatio,
-      }),
       outcomes: fileCompactOutcomeStore(),
     });
     await installBuiltin(createProviderComponent({
@@ -1065,7 +1008,6 @@ export class FabricRuntimeState {
     }));
     if (this.#config.memory.enabled) {
       const sessionFile = context.sessionManager.getSessionFile();
-      const lcmContext = this.#lcmContext?.();
       const memoryContext: MemoryProviderContext = {
         agentDir: resolveAgentDir(),
         cwd: context.cwd,
@@ -1076,7 +1018,6 @@ export class FabricRuntimeState {
           entries: context.sessionManager.getBranch(),
           leafId: context.sessionManager.getLeafId(),
         }),
-        ...(lcmContext ? { lcm: lcmContext } : {}),
       };
       await installBuiltin(createProviderComponent({
         provider: "memory",

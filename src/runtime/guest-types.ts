@@ -917,16 +917,7 @@ interface FabricMemoryRecallSessionHit {
   matchedStructuralEntries: number;
   follow: FabricMemoryCall<"memory.recall", FabricMemoryRecallArgs>;
 }
-interface FabricLcmMemoryHit {
-  kind: "lcm.raw" | "lcm.summary";
-  sessionId: string;
-  score: number;
-  snippet: string;
-  truncated: boolean;
-  source: { kind: "raw" | "summary"; projectKey: string; sessionId: string; entryId?: string; revision?: number; contentHash?: string; nodeId?: string; sourceHash: string };
-  follow: FabricMemoryCall<"memory.expand", FabricMemoryExpandArgs>;
-}
-type FabricMemoryRecallHit = FabricMemoryRecallEntryHit | FabricMemoryRecallSessionHit | FabricLcmMemoryHit;
+type FabricMemoryRecallHit = FabricMemoryRecallEntryHit | FabricMemoryRecallSessionHit;
 interface FabricMemoryError {
   code: string;
   message: string;
@@ -1198,8 +1189,6 @@ interface FabricCompactStatus {
   pending?: FabricCompactPendingIntent;
   last?: FabricCompactLastCommit;
   context?: FabricCompactContextUsage;
-  engine?: string;
-  targetContextRatio?: number;
   model?: string;
   sessionId?: string;
 }

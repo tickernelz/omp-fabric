@@ -13,14 +13,12 @@ import {
   normalizeFabricConfig,
   saveFabricConfig,
 } from "../src/config.js";
-import { DEFAULT_MAINTENANCE_CONCURRENCY } from "../src/compaction/lcm-maintenance.js";
 import {
   configureOutputArtifactRetention,
   outputArtifactRetention,
 } from "../src/output-budget.js";
 
 const temporaryDirectories: string[] = [];
-const originalCompactionEngineEnv = process.env.OMP_FABRIC_COMPACTION_ENGINE;
 
 const temporaryDirectory = (): string => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-config-"));
@@ -31,11 +29,6 @@ const temporaryDirectory = (): string => {
 afterEach(() => {
   for (const directory of temporaryDirectories.splice(0)) {
     fs.rmSync(directory, { recursive: true, force: true });
-  }
-  if (originalCompactionEngineEnv === undefined) {
-    delete process.env.OMP_FABRIC_COMPACTION_ENGINE;
-  } else {
-    process.env.OMP_FABRIC_COMPACTION_ENGINE = originalCompactionEngineEnv;
   }
 });
 
@@ -620,77 +613,23 @@ describe("Fabric configuration", () => {
     }
   });
 
-  it("defaults the maintenance occupancy below a disabled forced threshold", () => {
-    const config = normalizeFabricConfig({});
-    expect(config.compaction.softThresholdRatio).toBe(0.55);
-    expect(config.compaction.hardThresholdRatio).toBe(0);
+  it("leaves the forced compaction ratio off by default", () => {
+    expect(normalizeFabricConfig({}).compaction).toEqual({ hardThresholdRatio: 0, thresholds: {}, tokenThresholds: {} });
   });
 
-  it("turns both threshold ratios off at zero", () => {
-    const soft = normalizeFabricConfig({ compaction: { softThresholdRatio: 0 } }).compaction;
-    expect(soft.softThresholdRatio).toBe(0);
-    expect(normalizeFabricConfig({ compaction: { softThresholdRatio: -1 } }).compaction.softThresholdRatio).toBe(0);
-    const both = normalizeFabricConfig({ compaction: { softThresholdRatio: 0, hardThresholdRatio: 0.6 } }).compaction;
-    expect(both.softThresholdRatio).toBe(0);
-    expect(both.hardThresholdRatio).toBe(0.6);
-  });
-
-  it("clamps both threshold ratios into their own ranges", () => {
-    expect(normalizeFabricConfig({ compaction: { softThresholdRatio: 0.01 } }).compaction.softThresholdRatio).toBe(0.1);
-    expect(normalizeFabricConfig({ compaction: { softThresholdRatio: 9 } }).compaction.softThresholdRatio).toBe(0.95);
+  it("turns the forced compaction ratio off at zero and clamps it into range", () => {
+    expect(normalizeFabricConfig({ compaction: { hardThresholdRatio: 0 } }).compaction.hardThresholdRatio).toBe(0);
     expect(normalizeFabricConfig({ compaction: { hardThresholdRatio: -1 } }).compaction.hardThresholdRatio).toBe(0);
+    expect(normalizeFabricConfig({ compaction: { hardThresholdRatio: 0.6 } }).compaction.hardThresholdRatio).toBe(0.6);
     expect(normalizeFabricConfig({ compaction: { hardThresholdRatio: 0.05 } }).compaction.hardThresholdRatio).toBe(0.2);
     expect(normalizeFabricConfig({ compaction: { hardThresholdRatio: 1 } }).compaction.hardThresholdRatio).toBe(0.98);
   });
 
-  it("lowers the soft ratio below an enabled hard ratio", () => {
-    const collided = normalizeFabricConfig({ compaction: { softThresholdRatio: 0.9, hardThresholdRatio: 0.7 } }).compaction;
-    expect(collided.hardThresholdRatio).toBe(0.7);
-    expect(collided.softThresholdRatio).toBe(0.65);
-    expect(collided.softThresholdRatio).toBeLessThan(collided.hardThresholdRatio);
-    const floored = normalizeFabricConfig({ compaction: { softThresholdRatio: 0.5, hardThresholdRatio: 0.2 } }).compaction;
-    expect(floored.softThresholdRatio).toBe(0.15);
-    expect(floored.softThresholdRatio).toBeLessThan(floored.hardThresholdRatio);
-    for (const hard of [0.2, 0.25, 0.5, 0.7, 0.95, 0.98]) {
-      const derived = normalizeFabricConfig({
-        compaction: { softThresholdRatio: 0.95, hardThresholdRatio: hard },
-      }).compaction;
-      expect(String(derived.softThresholdRatio)).toBe(String(Math.round(derived.softThresholdRatio * 20) / 20));
-      expect(derived.softThresholdRatio).toBeLessThan(derived.hardThresholdRatio);
-    }
-    const untouched = normalizeFabricConfig({ compaction: { softThresholdRatio: 0.4, hardThresholdRatio: 0.8 } }).compaction;
-    expect(untouched.softThresholdRatio).toBe(0.4);
-  });
-
-  it("bounds the maintenance run time to 10-600 seconds", () => {
-    expect(normalizeFabricConfig({}).compaction.lcmMaintenanceRunSeconds).toBe(60);
-    expect(normalizeFabricConfig({ compaction: { lcmMaintenanceRunSeconds: 0 } }).compaction.lcmMaintenanceRunSeconds).toBe(10);
-    expect(normalizeFabricConfig({ compaction: { lcmMaintenanceRunSeconds: 9999 } }).compaction.lcmMaintenanceRunSeconds).toBe(600);
-    expect(normalizeFabricConfig({ compaction: { lcmMaintenanceRunSeconds: 300 } }).compaction.lcmMaintenanceRunSeconds).toBe(300);
-  });
-
-  it("carries maintenance concurrency through a normalize round trip and clamps it", () => {
-    expect(DEFAULT_FABRIC_CONFIG.compaction.lcmMaintenanceConcurrency).toBe(DEFAULT_MAINTENANCE_CONCURRENCY);
-    expect(normalizeFabricConfig({}).compaction.lcmMaintenanceConcurrency).toBe(DEFAULT_MAINTENANCE_CONCURRENCY);
-    expect(normalizeFabricConfig({ compaction: { lcmMaintenanceConcurrency: 5 } }).compaction.lcmMaintenanceConcurrency).toBe(5);
-    expect(normalizeFabricConfig({ compaction: { lcmMaintenanceConcurrency: 0 } }).compaction.lcmMaintenanceConcurrency).toBe(1);
-    expect(normalizeFabricConfig({ compaction: { lcmMaintenanceConcurrency: 99 } }).compaction.lcmMaintenanceConcurrency).toBe(8);
-    expect(normalizeFabricConfig({ compaction: { lcmMaxLeafEntries: 16 } }).compaction.lcmMaintenanceConcurrency).toBe(DEFAULT_MAINTENANCE_CONCURRENCY);
-
-    const root = temporaryDirectory();
-    const cwd = path.join(root, "project");
-    const agentDir = path.join(root, "agent");
-    fs.mkdirSync(path.join(cwd, ".omp"), { recursive: true });
-    fs.mkdirSync(agentDir, { recursive: true });
-    const location = { cwd, agentDir, projectTrusted: true };
-    saveFabricConfig({ ...location, scope: "global" }, { compaction: { lcmMaintenanceConcurrency: 4 } });
-    expect(loadFabricConfig(location).compaction.lcmMaintenanceConcurrency).toBe(4);
-  });
-
-  it("does not set a compaction engine environment override", () => {
-    const config = normalizeFabricConfig({ compaction: { engine: "fabric" } });
-    expect(config.compaction.engine).toBe("lcm");
-    expect(process.env.OMP_FABRIC_COMPACTION_ENGINE).toBeUndefined();
+  it("drops retired compaction keys instead of carrying them", () => {
+    const config = normalizeFabricConfig({
+      compaction: { engine: "lcm", summaryModel: "a/b", targetContextRatio: 0.5, softThresholdRatio: 0.4, lcmMaxLeafEntries: 8, hardThresholdRatio: 0.7 },
+    });
+    expect(config.compaction).toEqual({ hardThresholdRatio: 0.7, thresholds: {}, tokenThresholds: {} });
   });
 
   it("loads trusted commands only from trusted Fabric configuration", () => {
@@ -744,7 +683,7 @@ describe("Fabric configuration", () => {
 
     expect(result).toEqual({ scope: "global", path: path.join(agentDir, "fabric.json") });
     expect(JSON.parse(fs.readFileSync(path.join(agentDir, "fabric.json"), "utf8"))).toEqual({
-      configVersion: 5,
+      configVersion: 6,
       agents: { maxConcurrent: 8 },
       fullCodeMode: false,
     });
@@ -781,7 +720,7 @@ describe("Fabric configuration", () => {
 
     expect(result).toEqual({ scope: "project", path: path.join(cwd, ".omp", "fabric.json") });
     expect(JSON.parse(fs.readFileSync(path.join(cwd, ".omp", "fabric.json"), "utf8"))).toEqual({
-      configVersion: 5,
+      configVersion: 6,
       agents: { transport: "localterm", maxConcurrent: 8 },
       fullCodeMode: false,
     });
@@ -808,7 +747,7 @@ describe("Fabric configuration", () => {
 
     expect(result).toEqual({ scope: "global", path: path.join(agentDir, "fabric.json") });
     expect(JSON.parse(fs.readFileSync(path.join(agentDir, "fabric.json"), "utf8"))).toEqual({
-      configVersion: 5,
+      configVersion: 6,
       executor: { timeoutMs: 45_000 },
     });
     expect(JSON.parse(fs.readFileSync(projectPath, "utf8"))).toEqual({ fullCodeMode: false });
@@ -821,7 +760,7 @@ describe("Fabric configuration", () => {
     fs.mkdirSync(path.join(cwd, ".omp"), { recursive: true });
     fs.mkdirSync(agentDir, { recursive: true });
     const globalPath = path.join(agentDir, "fabric.json");
-    const future = { configVersion: 5, futureSection: { enabled: true } };
+    const future = { configVersion: 7, futureSection: { enabled: true } };
     fs.writeFileSync(globalPath, JSON.stringify(future));
 
     // Load path: forward-compatible docs are accepted as-is and never rewritten.
@@ -854,7 +793,7 @@ describe("Fabric configuration", () => {
     expect(result.path).toBe(path.join(agentDir, "fabric.json"));
     expect(fs.existsSync(path.join(cwd, ".omp", "fabric.json"))).toBe(false);
     const saved = JSON.parse(fs.readFileSync(path.join(agentDir, "fabric.json"), "utf8"));
-    expect(saved).toEqual({ configVersion: 5, executor: { timeoutMs: 30_000 } });
+    expect(saved).toEqual({ configVersion: 6, executor: { timeoutMs: 30_000 } });
   });
 
   it("rejects explicit project saves for untrusted projects", () => {

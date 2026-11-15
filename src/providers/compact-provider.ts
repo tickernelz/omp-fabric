@@ -2,7 +2,6 @@ import { Type } from "@oh-my-pi/pi-coding-agent/extensibility/legacy-typebox";
 import { validateJsonSchemaValue } from "@oh-my-pi/pi-ai/utils/schema";
 import {
   compactionRequestBoundsError,
-  encodeCompactionRequest,
   MAX_COMPACTION_INSTRUCTIONS_CHARS,
   MAX_PRESERVE_ITEM_CHARS,
   MAX_PRESERVE_ITEMS,
@@ -35,7 +34,7 @@ const requestSchema = Type.Object({
     Type.String({ maxLength: MAX_PRESERVE_ITEM_CHARS }),
     {
       maxItems: MAX_PRESERVE_ITEMS,
-      description: "Explicit bounded facts to preserve, encoded as a typed Fabric compaction request",
+      description: "Explicit bounded facts to preserve, appended to the compaction instructions",
     },
   )),
   requestedBy: Type.Optional(Type.String({
@@ -66,12 +65,6 @@ const checkedRequestArguments = (args: Record<string, unknown>): CompactRequestA
     ...(input.preserve !== undefined ? { preserve: input.preserve } : {}),
   });
   if (boundsError) throw new Error(`Invalid compact.request arguments: ${boundsError.message}`);
-  if (input.preserve !== undefined) {
-    encodeCompactionRequest({
-      ...(input.instructions !== undefined ? { instructions: input.instructions } : {}),
-      preserve: input.preserve,
-    });
-  }
   return input;
 };
 
@@ -94,7 +87,7 @@ const descriptors: FabricActionDescriptor[] = [
   {
     name: "status",
     description:
-      "Read context occupancy (context.tokens/percent/contextWindow, context.known=false when the host has not measured yet), the configured engine and targetContextRatio, the pending compaction intent, and the last settled outcome (status committed | skipped | cancelled | failed, with tokensBefore/estimatedTokensAfter)",
+      "Read context occupancy (context.tokens/percent/contextWindow, context.known=false when the host has not measured yet), the pending compaction intent, and the last settled outcome (status committed | skipped | cancelled | failed, with tokensBefore/estimatedTokensAfter)",
     inputSchema: emptySchema,
     risk: "read",
   },

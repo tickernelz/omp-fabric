@@ -661,7 +661,6 @@ export class AgentManager {
             agentCwd,
             path.join(runDirectory, "handoff-session"),
             request.thinkingTransfer,
-            request.handoffCompact,
           )
         : request.sessionFile;
       const adapter = await this.#resolveTransport(request.transport ?? this.config.transport);

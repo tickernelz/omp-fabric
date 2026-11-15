@@ -1,4 +1,4 @@
-export const CURRENT_FABRIC_CONFIG_VERSION = 5;
+export const CURRENT_FABRIC_CONFIG_VERSION = 6;
 
 export interface FabricConfigMigrationResult {
   document: Record<string, unknown>;
@@ -32,6 +32,13 @@ const mergeObjects = (
   }
   return merged;
 };
+
+const RETIRED_COMPACTION_KEYS: ReadonlySet<string> = new Set([
+  "engine",
+  "summaryModel",
+  "targetContextRatio",
+  "softThresholdRatio",
+]);
 
 const migrations: readonly FabricConfigMigration[] = [
   {
@@ -116,6 +123,21 @@ const migrations: readonly FabricConfigMigration[] = [
       if (isObject(compaction) && compaction.engine === "fabric") {
         migrated.compaction = { ...compaction, engine: "lcm" };
       }
+      return migrated;
+    },
+  },
+  {
+    from: 5,
+    to: 6,
+    migrate(document) {
+      const migrated = { ...document };
+      const compaction = migrated.compaction;
+      if (!isObject(compaction)) return migrated;
+      const retained = Object.fromEntries(
+        Object.entries(compaction).filter(([key]) => !RETIRED_COMPACTION_KEYS.has(key) && !key.startsWith("lcm")),
+      );
+      if (Object.keys(retained).length === 0) delete migrated.compaction;
+      else migrated.compaction = retained;
       return migrated;
     },
   },
