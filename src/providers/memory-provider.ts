@@ -855,6 +855,112 @@ export class MemoryProvider implements FabricProvider {
 
   constructor(private readonly context: MemoryProviderContext) {}
 
+  private cachedRecallContinuation(
+    key: string,
+    observations: SourceObservation[] | null,
+  ): RecallContinuationCache | undefined {
+    const cached = this.recallContinuation;
+    if (!cached || cached.key !== key) return undefined;
+    if (
+      !observations ||
+      Date.now() - cached.touchedAt > CONTINUATION_CACHE_TTL_MS ||
+      !sameSourceObservations(cached.observations, observations)
+    ) {
+      this.recallContinuation = undefined;
+      return undefined;
+    }
+    cached.touchedAt = Date.now();
+    return cached;
+  }
+
+  private rememberRecallContinuation(cached: RecallContinuationCache): void {
+    this.recallContinuation = cached;
+  }
+
+  private forgetRecallContinuation(cached: RecallContinuationCache): void {
+    if (this.recallContinuation === cached) this.recallContinuation = undefined;
+  }
+
+  private cachedExpansionSnapshot(
+    file: string,
+    branches: MemoryBranches,
+    observation: SourceObservation | null,
+  ): ExpansionSnapshot | undefined {
+    const key = expansionSnapshotKey(file, branches);
+    const cached = this.expansionSnapshots.get(key);
+    if (!cached) return undefined;
+    if (
+      !observation ||
+      Date.now() - cached.touchedAt > CONTINUATION_CACHE_TTL_MS ||
+      !sameSourceObservation(cached.observation, observation)
+    ) {
+      this.expansionSnapshots.delete(key);
+      return undefined;
+    }
+    cached.touchedAt = Date.now();
+    this.expansionSnapshots.delete(key);
+    this.expansionSnapshots.set(key, cached);
+    return cached;
+  }
+
+  private rememberExpansionSnapshot(snapshot: ExpansionSnapshot): void {
+    const key = expansionSnapshotKey(snapshot.file, snapshot.branches);
+    this.expansionSnapshots.delete(key);
+    this.expansionSnapshots.set(key, snapshot);
+    while (this.expansionSnapshots.size > EXPANSION_SNAPSHOT_LIMIT) {
+      const oldest = this.expansionSnapshots.keys().next().value;
+      if (oldest === undefined) break;
+      this.expansionSnapshots.delete(oldest);
+    }
+  }
+
+  private rememberExpansionSelection(
+    snapshot: ExpansionSnapshot,
+    keys: readonly string[],
+    selection: ResolvedExpansionSelection,
+  ): void {
+    for (const key of new Set(keys)) {
+      snapshot.selections.delete(key);
+      snapshot.selections.set(key, selection);
+    }
+    while (snapshot.selections.size > EXPANSION_SELECTION_LIMIT) {
+      const oldest = snapshot.selections.keys().next().value;
+      if (oldest === undefined) break;
+      snapshot.selections.delete(oldest);
+    }
+  }
+
+  private forgetExpansionSnapshot(snapshot: ExpansionSnapshot): void {
+    const key = expansionSnapshotKey(snapshot.file, snapshot.branches);
+    if (this.expansionSnapshots.get(key) === snapshot) this.expansionSnapshots.delete(key);
+  }
+
+  async list(
+    request: FabricProviderListRequest,
+    _context: FabricInvocationContext,
+  ): Promise<FabricActionDescriptor[]> {
+    const query = request.query?.toLowerCase();
+    return query
+      ? descriptors.filter((descriptor) =>
+          `${descriptor.name} ${descriptor.description}`.toLowerCase().includes(query),
+        )
+      : descriptors;
+  }
+
+  async describe(
+    actionName: string,
+    _context: FabricInvocationContext,
+  ): Promise<FabricActionDescriptor | undefined> {
+    return descriptors.find((descriptor) => descriptor.name === actionName);
+  }
+
+  prepareArguments(
+    actionName: string,
+    args: Record<string, unknown>,
+  ): Record<string, unknown> {
+    return normalizeMemoryArgs(actionName, args);
+  }
+
   async invoke(
     actionName: string,
     args: Record<string, unknown>,
