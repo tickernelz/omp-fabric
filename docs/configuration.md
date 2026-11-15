@@ -161,7 +161,9 @@ where absent values do not participate. Orchestration programs (`agents.run` / `
     "conversationShortcut": "ctrl+shift+a"
   },
   "compaction": {
-    "engine": "lcm"
+    "hardThresholdRatio": 0,
+    "thresholds": {},
+    "tokenThresholds": {}
   },
   "retention": {
     "orphanedTempRunMs": 21600000,
@@ -220,7 +222,7 @@ Unknown definitions stay visible as waiting. They do not fail the Fabric runtime
 
 `prewalk.detectShellWrites` defaults to `true`. When armed, a `fabric_exec` boundary that ran a successful `omp.bash` without an audited `omp.edit` / `omp.write` / `schema.commit` claims the handoff if file size or mtime stats drifted from the arm-time baseline. This routes shell heredocs and formatter binaries to the executor as well. The report's `trigger.files` lists the bounded drifted paths. Set it to `false` to accept audited mutations only.
 
-`prewalk.compactOnReturn` defaults to `true`. When an in-place continuation settles, Fabric requests a compaction with the configured `compaction.engine` and commits it while the executor is still the active model. Main's restored model receives the compacted transcript. Set this option to `false` when Main must receive the complete transcript.
+`prewalk.compactOnReturn` defaults to `true`. When an in-place continuation settles, Fabric requests a compaction and commits it while the executor is still the active model. Main's restored model receives the compacted transcript. Set this option to `false` when Main must receive the complete transcript.
 
 Each in-place handoff captures Main's active model at the boundary and restores it when the continuation settles. OMP's public `setModel` extension API also updates OMP's default model setting, so the restore returns the configured default to Main's model as well. A session that ends mid-continuation keeps the executor selection persisted until the next settle.
 
@@ -245,7 +247,7 @@ Each in-place handoff captures Main's active model at the boundary and restores 
 
 `executor.resultFormat` sets the default for `fabric_exec` return values. Find it under `/fabric settings` → **Executor**. `"auto"` keeps strings as text and renders structured values as syntax-highlighted YAML. `"yaml"`, `"json"`, and `"text"` each force their named behavior. A call-level `resultFormat` parameter overrides the configured default.
 
-Configure compaction under `/fabric settings` → **Compaction**. Select `"lcm"` for durable hierarchical context or `"omp"` to hand compaction to OMP core.
+Configure compaction thresholds under `/fabric settings` → **Compaction**.
 
 ## Code modes
 
@@ -561,9 +563,15 @@ Three path overrides carry no default value and stay file-only as well: `memory.
 
 ## Compaction
 
-The LCM compaction engine is on by default. It keeps OMP's bounded `keepRecentTokens` continuity tail and assembles durable summary nodes. `compaction.targetContextRatio` sets a hard occupancy ceiling. Set `compaction.engine` to `"omp"` to use OMP's native compaction. See [compaction](compaction.md) for invariants, loss guarantees, sections, and limits.
+OMP owns compaction. Fabric registers no compaction hook, so OMP summarizes the session at every compaction boundary. Fabric only decides when to ask for one:
 
-Two occupancy ratios decide when work happens. `compaction.softThresholdRatio` (default `0.55`, clamped to 0.10-0.95) is the occupancy floor that forces a maintenance pass; below it maintenance still runs on its own backlog, once the active branch carries `compaction.lcmMaxLeafEntries` uncovered entries or a claimable job is waiting, and a turn always appends every entry to the ledger, so the store stays lossless whatever the ratio is. `compaction.lcmMaxDailyModelCalls`, `compaction.lcmMaxSessionModelCalls` and `compaction.lcmMaxDailyModelSeconds` bound what that costs: an exhausted budget schedules no pass at all. `compaction.lcmMaintenanceConcurrency` (default `3`, clamped to 1-8) is how many summary calls one maintenance run keeps in flight, editable under **Compaction → Maintenance concurrency**. Raising it clears a backlog in fewer turns and multiplies the spend rate by the same factor; the budget keys above stay the ceiling. `compaction.lcmMaintenanceRunSeconds` (default `60`, clamped to 10-600) is the wall-time budget of one maintenance run, editable under **Compaction → Maintenance run time**. The deadline stops new summary dispatch and lets calls already in flight finish. Maintenance is scheduled after every turn, including each turn inside a long agent run, so a run that spans many tool rounds keeps writing summaries while it works; a turn that lands while a run is in flight starts no second run. A claim reserves one call for itself and one for every live sibling lease, so admitted calls stay inside the daily and session call caps, and a lease counts against the cap until 60 seconds after it lapses, the moment the sweep hands its slot back. `compaction.hardThresholdRatio` (default `0`, meaning disabled, otherwise clamped to 0.20-0.98) is the occupancy at which Fabric compacts a model that has no entry of its own in `compaction.thresholds` or `compaction.tokenThresholds`; leaving it at `0` keeps the blocking trigger with the host. Per-model entries always win over it. When an enabled hard ratio is not above the soft one, the soft ratio is lowered to `hard - 0.05` and re-clamped, so maintenance always has a window before the blocking trigger.
+- `compaction.thresholds` maps a `provider/model` key to a context ratio, clamped to 0.25-0.95. Fabric requests a compaction after a turn once usage reaches the ratio.
+- `compaction.tokenThresholds` maps a `provider/model` key to an exact token count, clamped to 1,000-100,000,000. A token entry wins over a ratio entry for the same model.
+- `compaction.hardThresholdRatio` (default `0`, meaning disabled, otherwise clamped to 0.20-0.98) is the occupancy at which Fabric compacts a model that has no entry of its own. Leaving it at `0` keeps the trigger with the host.
+
+The `compact` provider records one pending request and commits it between turns. Its `instructions` go to OMP unchanged, and `preserve` items are appended to them as a bulleted list under `Preserve these facts in the summary:`.
+
+A configuration file written by an earlier release may still carry `compaction.engine`, `compaction.summaryModel`, `compaction.targetContextRatio`, `compaction.softThresholdRatio`, or a `compaction.lcm*` key. Loading it drops those keys and rewrites the file at configuration version 6.
 
 ## Catalog repairs
 

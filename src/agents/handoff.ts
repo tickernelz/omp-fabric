@@ -7,17 +7,9 @@ import {
   type SessionEntry,
   type SessionMessageEntry,
 } from "@oh-my-pi/pi-coding-agent";
-import { rawContextTokens } from "../compaction/hook.js";
-import { emergencyReduce } from "../compaction/lcm-model.js";
-import { canonicalLcmPayload } from "../storage/lcm-identity.js";
-import {
-  compactionRequestBoundsError,
-  encodeCompactionRequest,
-} from "../compaction/instructions.js";
 import type {
   AgentSessionSeed,
   AgentToolResultMessage,
-  HandoffCompactionRequest,
 } from "./types.js";
 import {
   buildThinkingDigest,
@@ -51,49 +43,6 @@ type NativeAssistantEntry = SessionMessageEntry & {
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
-
-interface HandoffCompactionOutcome {
-  applied: boolean;
-  reason?: string;
-  sections?: string[];
-  tokensBefore?: number;
-  firstKeptEntryId?: string;
-}
-
-// Validate the model-facing agents.handoff `compact` option against the same
-// bounds as compact.request. Called both when the request is scheduled (inside
-// the guest) and when the boundary runner replays it.
-export const checkedHandoffCompaction = (
-  value: unknown,
-): HandoffCompactionRequest | undefined => {
-  if (value === undefined || value === false) return undefined;
-  const input = value === true ? {} : value;
-  if (!isRecord(input)) {
-    throw new Error(
-      "Invalid agents.handoff compact arguments: compact must be true or an object with instructions/preserve",
-    );
-  }
-  if (input.instructions !== undefined && typeof input.instructions !== "string") {
-    throw new Error("Invalid agents.handoff compact arguments: instructions must be a string");
-  }
-  if (
-    input.preserve !== undefined &&
-    (!Array.isArray(input.preserve) || input.preserve.some((item) => typeof item !== "string"))
-  ) {
-    throw new Error(
-      "Invalid agents.handoff compact arguments: preserve must be an array of strings",
-    );
-  }
-  const request: HandoffCompactionRequest = {
-    ...(typeof input.instructions === "string" ? { instructions: input.instructions } : {}),
-    ...(input.preserve !== undefined ? { preserve: input.preserve as string[] } : {}),
-  };
-  const boundsError = compactionRequestBoundsError(request);
-  if (boundsError) {
-    throw new Error(`Invalid agents.handoff compact arguments: ${boundsError.message}`);
-  }
-  return request;
-};
 
 const isToolCall = (value: unknown): value is {
   type: "toolCall";
@@ -264,7 +213,6 @@ export const writeHandoffSession = async (
   cwd: string,
   directory: string,
   transfer?: ThinkingTransferInput,
-  compaction?: HandoffCompactionRequest,
 ): Promise<string> => {
   fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
   const policy = transfer ? thinkingTransferPolicy(transfer) : "preserved";
@@ -288,53 +236,6 @@ export const writeHandoffSession = async (
     report = translated.report;
     session = await materializeBranch({ ...seed, sourceBranch: translated.entries }, cwd, directory);
   }
-  // Append the compaction entry before settings sync and the outer tool result
-  // so the executor's context opens with the deterministic summary, followed
-  // by the kept tail, then the boundary artifacts appended afterwards. The
-  // file retains the full raw branch, mirroring OMP's append-only compaction.
-  let compactionOutcome: HandoffCompactionOutcome | undefined;
-  if (compaction) {
-    const branchEntries = session.getBranch();
-    const tokensBefore = rawContextTokens(branchEntries);
-    const firstKeptEntryId = [...branchEntries].reverse().find((entry) =>
-      entry.type === "message" && entry.message.role === "user"
-    )?.id ?? "";
-    if (branchEntries.length === 0) {
-      compactionOutcome = { applied: false, reason: "lcm: nothing to compact" };
-    } else {
-      const customInstructions = compaction.preserve
-        ? encodeCompactionRequest({
-            ...(compaction.instructions !== undefined ? { instructions: compaction.instructions } : {}),
-            preserve: compaction.preserve,
-          })
-        : compaction.instructions;
-      const keptIndex = firstKeptEntryId
-        ? branchEntries.findIndex((entry) => entry.id === firstKeptEntryId)
-        : branchEntries.length;
-      const summarizedEntries = branchEntries.slice(0, Math.max(0, keptIndex));
-      const payloadEntries = summarizedEntries.map((entry) => {
-        if (entry.type !== "message" || entry.message.role !== "assistant" || !Array.isArray(entry.message.content)) return entry;
-        const content = entry.message.content.filter((part) =>
-          typeof part !== "object" || part === null || !("type" in part) ||
-          (part.type !== "text" && part.type !== "thinking")
-        );
-        return content.length === entry.message.content.length
-          ? entry
-          : { ...entry, message: { ...entry.message, content } };
-      });
-      const payload = [customInstructions, ...payloadEntries.map((entry) => canonicalLcmPayload(entry))]
-        .filter((value): value is string => value !== undefined)
-        .join("\n");
-      const sourceSessionId = session.getSessionId();
-      const summary = emergencyReduce(payload, 4096);
-      const details = {
-        compactor: "lcm", source: "handoff", firstKeptEntryId, sourceSessionId,
-        sourceRange: { first: summarizedEntries[0]?.id ?? "", last: summarizedEntries.at(-1)?.id ?? "", count: summarizedEntries.length },
-      };
-      session.appendCompaction(summary, undefined, firstKeptEntryId, tokensBefore, { details, fromExtension: true });
-      compactionOutcome = { applied: true, sections: ["[LCM Handoff]"], tokensBefore, firstKeptEntryId };
-    }
-  }
   synchronizeSourceSettings(session, seed);
   session.appendMessage(seed.outerToolResult);
   if (digest) {
@@ -346,18 +247,6 @@ export const writeHandoffSession = async (
   session.appendCustomEntry("omp-fabric-handoff", {
     sourceSessionId: seed.sourceSessionId,
     boundary: "fabric_exec_end",
-    ...(compactionOutcome
-      ? {
-          compaction: compactionOutcome.applied
-            ? {
-                applied: true,
-                sections: compactionOutcome.sections,
-                tokensBefore: compactionOutcome.tokensBefore,
-                firstKeptEntryId: compactionOutcome.firstKeptEntryId,
-              }
-            : { applied: false, reason: compactionOutcome.reason },
-        }
-      : {}),
     ...(transfer && report
       ? {
           thinkingTransfer: {

@@ -1,9 +1,4 @@
 import { FABRIC_ACTOR_HOST_EVENTS } from "../actors/types.js";
-import {
-  MAX_COMPACTION_INSTRUCTIONS_CHARS,
-  MAX_PRESERVE_ITEM_CHARS,
-  MAX_PRESERVE_ITEMS,
-} from "../compaction/instructions.js";
 import { FABRIC_LIFECYCLE_EVENTS } from "../lifecycle/types.js";
 import type { FabricActionDescriptor } from "../protocol.js";
 
@@ -103,31 +98,6 @@ const spawnSchema = {
   properties: { ...runProperties, residency: residencySchema },
 };
 
-const handoffCompactionSchema = {
-  anyOf: [
-    { type: "boolean" },
-    {
-      type: "object",
-      properties: {
-        instructions: {
-          type: "string",
-          maxLength: MAX_COMPACTION_INSTRUCTIONS_CHARS,
-          description: "Custom compaction instructions for the inherited trajectory",
-        },
-        preserve: {
-          type: "array",
-          items: { type: "string", maxLength: MAX_PRESERVE_ITEM_CHARS },
-          maxItems: MAX_PRESERVE_ITEMS,
-          description: "Explicit bounded facts the trajectory summary must preserve",
-        },
-      },
-      additionalProperties: false,
-    },
-  ],
-  description:
-    "Compact the inherited trajectory with Fabric's deterministic compactor before the executor resumes it. `true` applies the default summary; an object customizes instructions and bounded preserve facts. Omitted keeps the full raw trajectory.",
-};
-
 const handoffSchema = {
   type: "object",
   properties: {
@@ -147,7 +117,6 @@ const handoffSchema = {
     extensions: runProperties.extensions,
     recursive: runProperties.recursive,
     schema: runProperties.schema,
-    compact: handoffCompactionSchema,
   },
   required: ["model"],
   additionalProperties: false,

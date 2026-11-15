@@ -56,7 +56,6 @@ const memoryStore = (): CompactOutcomeStore & { rows: Map<string, CompactLastCom
   };
 };
 
-const settings = () => ({ engine: "lcm", targetContextRatio: 0.75 });
 
 const invocation = (extensionContext: ExtensionContext): FabricInvocationContext => ({
   cwd: process.cwd(),
@@ -69,8 +68,8 @@ const invocation = (extensionContext: ExtensionContext): FabricInvocationContext
 });
 
 describe("compact.status occupancy visibility", () => {
-  it("reports the context window, live occupancy, engine, target ratio and model", () => {
-    const controller = new CompactController({}, { settings });
+  it("reports the context window, live occupancy and model", () => {
+    const controller = new CompactController({});
     const status = controller.status(host({
       usage: [{ tokens: 96_000, contextWindow: 200_000, percent: 48 }],
       contextWindow: 200_000,
@@ -82,14 +81,12 @@ describe("compact.status occupancy visibility", () => {
       percent: 48,
       remainingTokens: 104_000,
     });
-    expect(status.engine).toBe("lcm");
-    expect(status.targetContextRatio).toBe(0.75);
     expect(status.model).toBe("sub2api-claude/claude-opus-5");
     expect(status.sessionId).toBe("session-under-test");
   });
 
   it("represents unmeasured usage as known:false with null tokens, never zero", () => {
-    const controller = new CompactController({}, { settings });
+    const controller = new CompactController({});
     const status = controller.status(host({ contextWindow: 200_000 }));
     expect(status.context?.known).toBe(false);
     expect(status.context?.tokens).toBeNull();
@@ -136,7 +133,7 @@ describe("compact.status occupancy visibility", () => {
 describe("compact request outcome observability", () => {
   it("records tokens before/after and settles as committed when context shrank", async () => {
     const store = memoryStore();
-    const controller = new CompactController({}, { settings, outcomes: store });
+    const controller = new CompactController({}, { outcomes: store });
     const context = host({
       usage: [
         { tokens: 180_000, contextWindow: 200_000, percent: 90 },
@@ -154,7 +151,7 @@ describe("compact request outcome observability", () => {
 
   it("settles as skipped when the compaction freed nothing, instead of silently dropping it", async () => {
     const store = memoryStore();
-    const controller = new CompactController({}, { settings, outcomes: store });
+    const controller = new CompactController({}, { outcomes: store });
     const context = host({
       usage: [{ tokens: 12_000, contextWindow: 200_000, percent: 6 }],
     });
@@ -170,11 +167,11 @@ describe("compact request outcome observability", () => {
   it("makes a settled outcome readable by a later controller over the same session", async () => {
     const store = memoryStore();
     const context = host({ usage: [{ tokens: 12_000, contextWindow: 200_000, percent: 6 }] });
-    const first = new CompactController({}, { settings, outcomes: store });
+    const first = new CompactController({}, { outcomes: store });
     first.request({ reason: "ask" });
     await first.maybeCommit(context);
 
-    const later = new CompactController({}, { settings, outcomes: store });
+    const later = new CompactController({}, { outcomes: store });
     const last = later.status(context).last;
     expect(last?.status).toBe("skipped");
     expect(last?.persisted).toBe(true);
@@ -255,9 +252,9 @@ describe("fileCompactOutcomeStore", () => {
 });
 
 describe("CompactProvider status surface", () => {
-  it("returns occupancy, engine and the settled outcome through compact.status", async () => {
+  it("returns occupancy and the settled outcome through compact.status", async () => {
     const store = memoryStore();
-    const controller = new CompactController({}, { settings, outcomes: store });
+    const controller = new CompactController({}, { outcomes: store });
     const provider = new CompactProvider(controller);
     const context = host({
       usage: [
@@ -268,13 +265,9 @@ describe("CompactProvider status surface", () => {
     });
     const before = (await provider.invoke("status", {}, invocation(context))) as {
       context?: { known: boolean; percent: number | null };
-      engine?: string;
-      targetContextRatio?: number;
     };
     expect(before.context?.known).toBe(true);
     expect(before.context?.percent).toBe(85);
-    expect(before.engine).toBe("lcm");
-    expect(before.targetContextRatio).toBe(0.75);
 
     await provider.invoke("request", { reason: "over target" }, invocation(context));
     await controller.maybeCommit(context);
@@ -286,11 +279,10 @@ describe("CompactProvider status surface", () => {
     expect(after.last?.estimatedTokensAfter).toBe(30_000);
   });
 
-  it("reports unknown occupancy without a settings source rather than fabricating numbers", async () => {
+  it("reports unknown occupancy rather than fabricating numbers", async () => {
     const provider = new CompactProvider(new CompactController());
     const result = (await provider.invoke("status", {}, invocation({} as ExtensionContext))) as {
       context?: { known: boolean; tokens: number | null };
-      engine?: string;
     };
     expect(result.context).toEqual({
       known: false,
@@ -299,6 +291,5 @@ describe("CompactProvider status surface", () => {
       percent: null,
       remainingTokens: null,
     });
-    expect(result.engine).toBeUndefined();
   });
 });

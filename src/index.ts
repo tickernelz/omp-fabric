@@ -47,10 +47,6 @@ import {
   type FabricToolCaptureConfig,
   loadFabricConfigForScope,
 } from "./config.js";
-import { registerCompactionHook } from "./compaction/hook.js";
-import type { LcmRuntime } from "./compaction/lcm-runtime.js";
-import { createLcmRuntimeLoader } from "./compaction/lcm-loader.js";
-import { canonicalProjectIdentity } from "./storage/lcm-identity.js";
 import { compactAtConfiguredThreshold } from "./compaction/threshold.js";
 import {
   createToolOwnershipReassertion,
@@ -180,8 +176,6 @@ export default async function ompFabric(omp: ExtensionAPI): Promise<void> {
   const proxyContract = new ProxyContractLedger();
   const state = new FabricState(omp, capturedTools, {
     paths: FABRIC_RUNTIME_PATHS,
-    lcmContext: () => lcmRuntime?.memoryContext(),
-    lcmRuntime: () => lcmRuntime,
     hostActiveTools: () => toolOwnership.hostActiveTools(),
   });
   const directToolApproval = new FabricDirectToolApproval(
@@ -190,10 +184,6 @@ export default async function ompFabric(omp: ExtensionAPI): Promise<void> {
     state.sessionApprovals,
   );
   const pendingHandoffs = new Map<string, PendingFabricHandoff>();
-  let lcmRuntime: LcmRuntime | undefined;
-  const lcmLoader = createLcmRuntimeLoader();
-  let lcmCwd: string | undefined;
-  let lcmProjectKey: string | undefined;
   const toolOwnership = new FabricToolOwnership(omp);
   const conversationShortcut = globalConversationShortcut();
   const fabricUi = new FabricUiController(state, codePreviewSettings, {
@@ -558,67 +548,7 @@ export default async function ompFabric(omp: ExtensionAPI): Promise<void> {
       });
     }
 
-    const prepareLcmRuntime = async (): Promise<void> => {
-    const recordedCwd = context.sessionManager.getRecordedCwd?.() || context.cwd;
-    const projectKey = canonicalProjectIdentity({ liveCwd: recordedCwd }).key;
-    if (lcmRuntime && (lcmCwd !== context.cwd || lcmProjectKey !== projectKey || state.config.compaction.engine !== "lcm")) {
-      await lcmRuntime.shutdown();
-      lcmRuntime = undefined;
-      lcmCwd = undefined;
-      lcmProjectKey = undefined;
-    }
-    if (state.config.compaction.engine === "lcm" && !lcmRuntime) {
-      const LcmRuntimeClass = await lcmLoader.load(context);
-      if (LcmRuntimeClass) lcmRuntime = new LcmRuntimeClass(context, () => ({
-        ...(state.config.compaction.summaryModel ? { summaryModel: state.config.compaction.summaryModel } : {}),
-        maxLeafEntries: state.config.compaction.lcmMaxLeafEntries,
-        maxCondenseChildren: state.config.compaction.lcmMaxCondenseChildren,
-        maxMaintenancePasses: state.config.compaction.lcmMaintenancePasses,
-        maintenanceConcurrency: state.config.compaction.lcmMaintenanceConcurrency,
-        maintenanceRunSeconds: state.config.compaction.lcmMaintenanceRunSeconds,
-        modelSummaries: state.config.compaction.lcmModelSummaries,
-        modelTimeoutSeconds: state.config.compaction.lcmModelTimeoutSeconds,
-        maxDailyModelCalls: state.config.compaction.lcmMaxDailyModelCalls,
-        maxSessionModelCalls: state.config.compaction.lcmMaxSessionModelCalls,
-        maxDailyModelSeconds: state.config.compaction.lcmMaxDailyModelSeconds,
-        lcmMaxInputChars: state.config.compaction.lcmMaxInputChars,
-        lcmMaxOutputTokens: state.config.compaction.lcmMaxOutputTokens,
-        lcmMaxOutputChars: state.config.compaction.lcmMaxOutputChars,
-        softThresholdRatio: state.config.compaction.softThresholdRatio,
-      }));
-      lcmCwd = lcmRuntime ? context.cwd : undefined;
-      lcmProjectKey = lcmRuntime?.projectKey;
-    }
-    };
-    try {
-      await prepareLcmRuntime();
-    } catch (error) {
-      console.warn(
-        `[omp-fabric] LCM runtime unavailable: ${error instanceof Error ? error.message : String(error)}`,
-      );
-    }
     if (state.shouldEagerlyActivate(context)) await state.ensure(context);
-
-    const warmupEpoch = entropyLifecycleEpoch;
-    const warmupCurrent = (): boolean => warmupEpoch === entropyLifecycleEpoch;
-    void (async () => {
-      await new Promise<void>((resolve) => setImmediate(resolve));
-      if (!warmupCurrent()) return;
-      const runtime = lcmRuntime;
-      if (state.config.compaction.engine !== "lcm" || !runtime?.owner) return;
-      await runtime.open();
-      if (!warmupCurrent()) return;
-      await runtime.reconcileSelectedSession();
-      if (!warmupCurrent()) return;
-      await runtime.syncAndSchedule().catch(() => {});
-      if (!warmupCurrent()) return;
-      runtime.sweepLedgers();
-    })().catch((error) => {
-      if (!warmupCurrent()) return;
-      console.warn(
-        `[omp-fabric] LCM ledger warmup failed: ${error instanceof Error ? error.message : String(error)}`,
-      );
-    });
   });
 
   // Branch changes move the leaf: emitted echoes and spent reminder budget
@@ -652,7 +582,6 @@ export default async function ompFabric(omp: ExtensionAPI): Promise<void> {
     // the program never executed (type errors, aborts).
     if (state.initialized) state.resetSpeculation();
     if (state.initialized) await state.publishHostLifecycle("omp.turn_end", event);
-    if (lcmRuntime?.ready) void lcmRuntime.syncAndSchedule().catch(() => {});
     // A turn with new action evidence only enqueues the background compiler;
     // the hook returns without scanning session files or waiting on a lock.
     if (entropyEvidenceThisTurn) {
@@ -663,7 +592,6 @@ export default async function ompFabric(omp: ExtensionAPI): Promise<void> {
 
   omp.on("agent_end", async (event, context) => {
     if (event.willContinue === true) return;
-    if (lcmRuntime?.ready) await lcmRuntime.syncAndSchedule();
     const config = state.bootstrapped ? state.config : undefined;
     if (!state.initialized || !config) {
       if (config) await compactAtConfiguredThreshold(context, config);
@@ -746,11 +674,6 @@ export default async function ompFabric(omp: ExtensionAPI): Promise<void> {
     return changed ? { content } : undefined;
   });
 
-  omp.on("message_end", (_event, _context) => {
-    lcmRuntime?.markDirty();
-    if (lcmRuntime?.ready) lcmRuntime.syncEntries();
-  });
-
   omp.on("message_end", (event) => {
     if (event.message.role !== "toolResult") return;
     const message = event.message as AgentToolResultMessage & { usage?: Usage };
@@ -801,28 +724,8 @@ export default async function ompFabric(omp: ExtensionAPI): Promise<void> {
   });
 
   omp.on("session_compact", async (event, context) => {
-    if (lcmRuntime?.ready) await lcmRuntime.syncAndSchedule();
     if (!state.initialized) return;
     await state.publishHostLifecycle("omp.session_compact", event);
-  });
-
-  // Deterministic, LLM-free compaction is registered unconditionally and is
-  // active by default. The documented "omp" escape hatch returns early so
-  // OMP's own summarization proceeds normally.
-  registerCompactionHook(omp, {
-    getEngine: () =>
-      lcmLoader.unavailable || !lcmRuntime?.ready
-        ? "omp"
-        : state.cwd
-          ? state.config.compaction.engine
-          : DEFAULT_FABRIC_CONFIG.compaction.engine,
-    getTargetContextRatio: () =>
-      state.cwd
-        ? state.config.compaction.targetContextRatio
-        : DEFAULT_FABRIC_CONFIG.compaction.targetContextRatio,
-    lcm: {
-      compact: (input) => lcmRuntime?.compact(input),
-    },
   });
 
   omp.on("context", (event, context) => {
@@ -1005,10 +908,6 @@ export default async function ompFabric(omp: ExtensionAPI): Promise<void> {
     directToolApproval.clear();
     toolDisplay.clear();
     try {
-      await lcmRuntime?.shutdown();
-      lcmRuntime = undefined;
-      lcmCwd = undefined;
-      lcmProjectKey = undefined;
       await state.shutdown();
     } finally {
       uninstallHaltOnEscape();

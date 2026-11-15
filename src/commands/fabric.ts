@@ -9,7 +9,6 @@ import { armFabricPrewalkSession } from "../prewalk/arm.js";
 import { truncateMiddle } from "../util.js";
 import type { FabricUiController } from "../ui/controller.js";
 import { FABRIC_CONVERSATION_SHORTCUT } from "../ui/conversation-shortcut.js";
-import { lcmStatusLine } from "../compaction/lcm-status.js";
 import { safeText } from "../ui/format.js";
 import {
   FABRIC_PEER_AWAIT_SETTLE_EVENT,
@@ -301,7 +300,6 @@ export function registerFabricCommand(omp: ExtensionAPI, deps: FabricCommandDeps
       const subcommands = [
         "status",
         "dashboard",
-        "lcm",
         "chat",
         "settings",
         "schema",
@@ -555,10 +553,6 @@ export function registerFabricCommand(omp: ExtensionAPI, deps: FabricCommandDeps
       }
       if (command === "dashboard" || command === "ui") {
         await fabricUi.openDashboard(context);
-        return;
-      }
-      if (command === "lcm") {
-        await fabricUi.openLcmDashboard(context);
         return;
       }
       if (command === "providers") {
@@ -1146,7 +1140,7 @@ export function registerFabricCommand(omp: ExtensionAPI, deps: FabricCommandDeps
       }
       if (command !== "status") {
         context.ui.notify(
-          "Usage: /fabric [status|dashboard|lcm|chat [id-or-name]|prewalk [task]|prewalk --off|--disable|--enable|reload|providers|agents|actors|global|import <name> [as <new>]|export <id> [--overwrite]|messages <id>|clear-messages <id>|events <id> [event...]|log <id>|export-log <id>|attach <id>|stop <id>|remove <id>|kill <id>|repairs|entropy]",
+          "Usage: /fabric [status|dashboard|chat [id-or-name]|prewalk [task]|prewalk --off|--disable|--enable|reload|providers|agents|actors|global|import <name> [as <new>]|export <id> [--overwrite]|messages <id>|clear-messages <id>|events <id> [event...]|log <id>|export-log <id>|attach <id>|stop <id>|remove <id>|kill <id>|repairs|entropy]",
           "warning",
         );
         return;
@@ -1178,12 +1172,6 @@ export function registerFabricCommand(omp: ExtensionAPI, deps: FabricCommandDeps
             ? `captured tools: ${capturedTools.size} · model visibility: ${config.capture.hideFromModel ? "hidden" : "visible"}`
             : "captured tools: disabled (native registry preserved)",
           `actors: ${state.actors.list().length} · mesh: ${config.mesh.enabled ? state.mesh.root : "disabled"}`,
-          (() => {
-            if (config.compaction.engine !== "lcm") return `compaction: ${config.compaction.engine}`;
-            const lcm = state.lcmStatus();
-            if (!lcm) return "compaction: lcm · ledger not open yet";
-            return lcmStatusLine(lcm.report());
-          })(),
           `MCP: ${config.mcp.enabled ? "enabled" : "disabled"}`,
           `UI: ${config.ui.enabled ? `${config.ui.widget} widget above chat` : "disabled"}`,
         ].join("\n"),

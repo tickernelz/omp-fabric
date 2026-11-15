@@ -11,7 +11,6 @@ const stable = [
   "protocol.js",
   "worker.js",
   "residency/host.js",
-  "compaction/hook.js",
   "core/action-registry.js",
   "entropy/index.js",
   "memory/digest.js",
