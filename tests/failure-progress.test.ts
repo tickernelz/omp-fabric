@@ -58,6 +58,17 @@ describe("formatFailureProgress", () => {
     expect(formatted).not.toContain("npm test");
   });
 
+  it("appends the latest cut outputs when the program kept them", () => {
+    const formatted = formatFailureProgress(
+      trace("failed", [{ type: "call", sequence: 0, ref: "omp.read", args: { path: "src/input.ts" }, outcome: "succeeded" }]),
+      [{ ref: "omp.read", target: "src/input.ts", chars: 21, preview: "kept source text 42" }],
+    );
+    expect(formatted).toContain("(latest outputs below)");
+    expect(formatted).toContain("[1] omp.read src/input.ts (21 chars)\nkept source text 42");
+    expect(formatted).not.toContain("outputs not returned");
+    expect(formatFailureProgress(trace("succeeded", []), [{ ref: "x", chars: 1, preview: "x" }])).toBeUndefined();
+  });
+
   it("stays absent for successful runs or failures with no completed calls", () => {
     expect(formatFailureProgress(trace("succeeded", []))).toBeUndefined();
     expect(formatFailureProgress(trace("failed", [{

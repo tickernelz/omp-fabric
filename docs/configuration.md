@@ -320,6 +320,10 @@ The marker is the last line, it is emitted only for a partial result, and a comp
 
 A file the host cannot decode as text is an error, not content: `omp.read` throws with a message beginning `omp.read returned no text content:` and names the `:raw` selector that does work.
 
+### Failed programs
+
+When a program fails after some nested calls finished, the error text lists the completed calls and then the output of the last six of them. Each output is cut to its first 450 and last 250 characters with a count of what was dropped, so a program that read a file and then failed on an edit does not lose what it read. Call again only for the part that was cut. These outputs reach the model in the tool result text only. The durable trace and the persisted execution details never carry them, and a program that succeeds is unchanged.
+
 ## Captured extension tools
 
 Fabric intercepts OMP's `ExtensionRunner.getAllRegisteredTools()` registry chokepoint when capture is enabled. This captures tools that other extensions register at startup or later through the OMP extension API. OMP built-in, SDK, and MCP tools are never added to Fabric's captured-extension catalog.

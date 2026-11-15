@@ -93,6 +93,49 @@ return { scheduled, after };
     });
   });
 
+  it("hands back the output of completed calls when the program fails afterwards", async () => {
+    const registry = new ActionRegistry();
+    const descriptor = {
+      name: "call",
+      description: "demo call",
+      inputSchema: { type: "object", properties: { value: { type: "string" } }, additionalProperties: false },
+      risk: "read" as const,
+    };
+    registry.register({
+      name: "demo",
+      description: "demo",
+      async list() { return [descriptor]; },
+      async describe(name) { return name === "call" ? descriptor : undefined; },
+      async invoke(_name, args) { return { echoed: args.value }; },
+    });
+    const config = structuredClone(DEFAULT_FABRIC_CONFIG);
+    config.fullCodeMode = false;
+    config.approvals.read = "allow";
+    const service = new FabricExecutionService(registry, config);
+    const run = (code: string, id: string) => service.execute({
+      code,
+      signal: undefined,
+      parentToolCallId: id,
+      context: { cwd: process.cwd(), hasUI: false } as ExtensionContext,
+      onPartial() {},
+    });
+
+    const failed = await run(
+      'await tools.call("demo.call", { value: "read-before-failure" }); await tools.call("demo.call", { value: "second" }); throw new Error("edit anchor not found");',
+      "journal-failed",
+    );
+    expect(failed.success).toBe(false);
+    expect(failed.completedOutputs?.map((entry) => entry.preview)).toEqual([
+      '{"echoed":"read-before-failure"}',
+      '{"echoed":"second"}',
+    ]);
+    expect(JSON.stringify(failed.trace)).not.toContain("read-before-failure");
+
+    const succeeded = await run('return await tools.call("demo.call", { value: "fine" });', "journal-ok");
+    expect(succeeded.success).toBe(true);
+    expect(succeeded.completedOutputs).toBeUndefined();
+  });
+
   it("tells the program when tools.list stopped at its limit", async () => {
     const registry = new ActionRegistry();
     const descriptors = Array.from({ length: 7 }, (_, index) => ({
