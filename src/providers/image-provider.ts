@@ -482,7 +482,7 @@ export const museSizeForRatio = (aspectRatio: string): string | undefined => {
   return `${Math.max(1, Math.round((MUSE_LONG_SIDE * width) / height))}x${MUSE_LONG_SIDE}`;
 };
 
-export const resolveMuseSize = (aspectRatio?: string, size?: string): string | undefined => {
+const resolveMuseSize = (aspectRatio?: string, size?: string): string | undefined => {
   if (size !== undefined) return size;
   return aspectRatio === undefined ? undefined : museSizeForRatio(aspectRatio);
 };
