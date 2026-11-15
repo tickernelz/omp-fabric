@@ -1,6 +1,7 @@
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { validateJsonSchemaValue } from "@oh-my-pi/pi-ai/utils/schema";
 import { afterEach, describe, expect, it } from "vitest";
 import { DEFAULT_FABRIC_CONFIG, normalizeFabricConfig } from "../src/config.js";
 import {
@@ -11,6 +12,7 @@ import {
   parseImagesApiPayload,
   parseResponsesPayload,
   imageDimensions,
+  museSizeForRatio,
   parseSsePayload,
   resolveImageSize,
   splitModelSelector,
@@ -712,6 +714,220 @@ describe("image provider failure paths", () => {
     expect(result.ok).toBe(true);
     expect(calls[0]?.url).toBe("https://chatgpt.test/backend-api/codex/responses");
     expect(calls[0]?.body.stream).toBe(true);
+  });
+});
+
+const MUSE_GENERATE_FIELDS = [
+  "model",
+  "prompt",
+  "n",
+  "size",
+  "output_format",
+  "reasoning_strength",
+  "tool_enablement",
+  "response_format",
+];
+
+const recordingFetch = (calls: Recorded[], payload: () => unknown) =>
+  (async (input: string, init?: RequestInit) => {
+    calls.push({ url: String(input), body: JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown> });
+    return jsonResponse(payload());
+  }) as unknown as typeof fetch;
+
+describe("Muse images API", () => {
+  const museModels = [model("sub2api-muse", "muse-image-1.0", "openai-responses", "http://muse.test/v1")];
+  const museProvider = async (calls: Recorded[], payload: () => unknown = () => imagesPayload(PNG.toString("base64"))) => {
+    const dir = await tempDir();
+    return new ImageProvider(() => configOf({ models: ["sub2api-muse/muse-image-1.0"], outputDir: dir }), {
+      fetchImpl: recordingFetch(calls, payload),
+    });
+  };
+
+  it("sends aspectRatio as a WxH size and never as aspect_ratio", async () => {
+    const calls: Recorded[] = [];
+    const provider = await museProvider(calls);
+
+    const result = (await provider.invoke(
+      "generate",
+      { prompt: "x", aspectRatio: "16:9" },
+      contextOf(museModels, []),
+    )) as { ok: boolean; requestedSize?: string; ignored?: string[] };
+
+    expect(result.ok).toBe(true);
+    expect(calls[0]?.url).toBe("http://muse.test/v1/images/generations");
+    expect(calls[0]?.body.size).toBe("1024x576");
+    expect(calls[0]?.body).not.toHaveProperty("aspect_ratio");
+    expect(Object.keys(calls[0]?.body ?? {}).every((key) => MUSE_GENERATE_FIELDS.includes(key))).toBe(true);
+    expect(result.requestedSize).toBe("1024x576");
+    expect(result.ignored).toBeUndefined();
+  });
+
+  it("maps portrait, square and decimal ratios and rejects what is not a ratio", () => {
+    expect(museSizeForRatio("9:16")).toBe("576x1024");
+    expect(museSizeForRatio("1:1")).toBe("1024x1024");
+    expect(museSizeForRatio("1.91:1")).toBe("1024x536");
+    expect(museSizeForRatio("auto")).toBeUndefined();
+    expect(museSizeForRatio("0:1")).toBeUndefined();
+  });
+
+  it("reports an aspectRatio Muse cannot represent as ignored and sends no size", async () => {
+    const calls: Recorded[] = [];
+    const provider = await museProvider(calls);
+
+    const result = (await provider.invoke(
+      "generate",
+      { prompt: "x", aspectRatio: "wide" },
+      contextOf(museModels, []),
+    )) as { ignored?: string[] };
+
+    expect(calls[0]?.body).not.toHaveProperty("size");
+    expect(result.ignored).toEqual(["aspectRatio"]);
+  });
+
+  it("asks Muse for up to 10 images while other models stay capped at 4", async () => {
+    const calls: Recorded[] = [];
+    const provider = await museProvider(calls);
+    await provider.invoke("generate", { prompt: "x", count: 25 }, contextOf(museModels, []));
+    expect(calls[0]?.body.n).toBe(10);
+
+    const otherCalls: Recorded[] = [];
+    const others = [model("gw", "flux-pro", "openai-images")];
+    const otherDir = await tempDir();
+    const other = new ImageProvider(() => configOf({ models: ["gw/flux-pro"], outputDir: otherDir }), {
+      fetchImpl: recordingFetch(otherCalls, () => imagesPayload(PNG.toString("base64"))),
+    });
+    await other.invoke("generate", { prompt: "x", count: 25 }, contextOf(others, []));
+    expect(otherCalls[0]?.body.n).toBe(4);
+  });
+
+  it("forwards outputFormat, reasoningStrength and toolEnablement in Muse field names", async () => {
+    const calls: Recorded[] = [];
+    const provider = await museProvider(calls);
+
+    await provider.invoke(
+      "generate",
+      {
+        prompt: "x",
+        size: "1792x1024",
+        outputFormat: "png",
+        reasoningStrength: "low",
+        toolEnablement: { webSearch: false, shell: false },
+      },
+      contextOf(museModels, []),
+    );
+
+    expect(calls[0]?.body).toMatchObject({
+      size: "1792x1024",
+      output_format: "png",
+      reasoning_strength: "low",
+      tool_enablement: { enable_web_search: false, enable_shell: false },
+    });
+  });
+
+  it("keeps Muse-only fields away from other models and lists them as ignored", async () => {
+    const calls: Recorded[] = [];
+    const others = [model("gw", "flux-pro", "openai-images")];
+    const dir = await tempDir();
+    const provider = new ImageProvider(() => configOf({ models: ["gw/flux-pro"], outputDir: dir }), {
+      fetchImpl: recordingFetch(calls, () => imagesPayload(PNG.toString("base64"))),
+    });
+
+    const result = (await provider.invoke(
+      "generate",
+      { prompt: "x", aspectRatio: "16:9", outputFormat: "png", reasoningStrength: "low", toolEnablement: { shell: false } },
+      contextOf(others, []),
+    )) as { ignored?: string[] };
+
+    expect(calls[0]?.body.aspect_ratio).toBe("16:9");
+    expect(calls[0]?.body).not.toHaveProperty("output_format");
+    expect(calls[0]?.body).not.toHaveProperty("reasoning_strength");
+    expect(calls[0]?.body).not.toHaveProperty("tool_enablement");
+    expect(result.ignored).toEqual(["outputFormat", "reasoningStrength", "toolEnablement"]);
+  });
+
+  it("edits and composes through /images/edits with images[].image_url", async () => {
+    const calls: Recorded[] = [];
+    const provider = await museProvider(calls);
+    const source = `data:image/png;base64,${PNG.toString("base64")}`;
+
+    await provider.invoke("edit", { prompt: "x", images: [source, source] }, contextOf(museModels, []));
+
+    expect(calls[0]?.url).toBe("http://muse.test/v1/images/edits");
+    expect(calls[0]?.body.images).toEqual([{ image_url: source }, { image_url: source }]);
+    expect(calls[0]?.body).not.toHaveProperty("input_references");
+    expect(calls[0]?.body).not.toHaveProperty("image");
+    expect(
+      Object.keys(calls[0]?.body ?? {}).every((key) => [...MUSE_GENERATE_FIELDS, "images"].includes(key)),
+    ).toBe(true);
+  });
+
+  it("counts a Muse image as honoured when the ratio holds at a different resolution", async () => {
+    const calls: Recorded[] = [];
+    const provider = await museProvider(calls, () => imagesPayload(pngOf(2016, 1152).toString("base64")));
+
+    const result = (await provider.invoke(
+      "generate",
+      { prompt: "x", size: "1792x1024" },
+      contextOf(museModels, []),
+    )) as { requestedSize?: string; sizeHonoured?: boolean };
+
+    expect(result.requestedSize).toBe("1792x1024");
+    expect(result.sizeHonoured).toBeUndefined();
+  });
+
+  it("flags a Muse image whose ratio differs from the request", async () => {
+    const calls: Recorded[] = [];
+    const provider = await museProvider(calls, () => imagesPayload(pngOf(1600, 1600).toString("base64")));
+
+    const result = (await provider.invoke(
+      "generate",
+      { prompt: "x", aspectRatio: "16:9" },
+      contextOf(museModels, []),
+    )) as { sizeHonoured?: boolean };
+
+    expect(result.sizeHonoured).toBe(false);
+  });
+
+  it("routes a Muse model on a chat-completions provider to the images API", () => {
+    expect(inferImageDialect("openai-completions", "muse-image-1.0")).toBe("images");
+    expect(inferImageDialect("openai-completions", "meta/muse-image-1.0")).toBe("images");
+    expect(inferImageDialect("openai-completions", "muse-spark-1.3")).toBe("chat");
+  });
+
+  it("accepts any WxH size in the action schema and rejects other strings", async () => {
+    const provider = await museProvider([]);
+    const context = contextOf(museModels, []);
+    for (const name of ["generate", "edit"]) {
+      const schema = (await provider.describe(name, context))?.inputSchema as Record<string, unknown>;
+      const extra = name === "edit" ? { images: ["a.png"] } : {};
+      expect(validateJsonSchemaValue(schema, { prompt: "x", size: "1792x1024", ...extra }).success).toBe(true);
+      expect(validateJsonSchemaValue(schema, { prompt: "x", size: "1:99", ...extra }).success).toBe(false);
+      expect(
+        validateJsonSchemaValue(schema, { prompt: "x", toolEnablement: { webSearch: false }, ...extra }).success,
+      ).toBe(true);
+      expect(validateJsonSchemaValue(schema, { prompt: "x", outputFormat: "gif", ...extra }).success).toBe(false);
+    }
+  });
+});
+
+describe("xai images API edits", () => {
+  it("keeps sending image and images with aspect_ratio", async () => {
+    const calls: Recorded[] = [];
+    const models = [model("xai", "grok-imagine-image", "openai-images", "https://x.test/v1")];
+    const dir = await tempDir();
+    const provider = new ImageProvider(
+      () => configOf({ models: ["xai/grok-imagine-image"], outputDir: dir }),
+      { fetchImpl: recordingFetch(calls, () => imagesPayload(PNG.toString("base64"))) },
+    );
+    const source = `data:image/png;base64,${PNG.toString("base64")}`;
+
+    await provider.invoke("edit", { prompt: "x", aspectRatio: "16:9", images: [source, source] }, contextOf(models, []));
+
+    expect(calls[0]?.url).toBe("https://x.test/v1/images/edits");
+    expect(calls[0]?.body.image).toEqual({ type: "image_url", url: source });
+    expect(calls[0]?.body.images).toHaveLength(2);
+    expect(calls[0]?.body.aspect_ratio).toBe("16:9");
+    expect(calls[0]?.body).not.toHaveProperty("size");
   });
 });
 

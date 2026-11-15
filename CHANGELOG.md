@@ -1,5 +1,22 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- `image.generate` and `image.edit` speak the Muse images API for a `muse-image-*` model. `aspectRatio` goes out as a `WxH` `size` (`16:9` sends `1024x576`), `count` goes out as `n` up to 10, and edits post JSON to `/images/edits` with one `images[].image_url` data URL per source, so two sources compose. The request body carries only fields Muse accepts. Before this release every Muse call failed: `aspect_ratio` and `input_references` drew `400 unknown parameter`.
+- Three Muse-only options: `outputFormat` (`png`, `jpeg`, `webp`), `reasoningStrength` (`low`, `high`) and `toolEnablement` (`imageSearch`, `webSearch`, `shell` booleans, sent as `tool_enablement.enable_*`). Other models drop them and list them in `ignored`.
+
+### Changed
+
+- `size` accepts any `WxH` string. The three gpt-image sizes still work; a gateway that refuses another size answers with its own error in `failures`.
+- A Muse result reports `sizeHonoured: false` only when the returned ratio differs from the requested one by more than 1 percent, because Muse renders at its own resolution.
+- A `muse-image-*` model on a chat-completions provider infers the `images` dialect.
+
+### Notes
+
+- Live against sub2api 0.2.30 on 15 November: `aspectRatio: "16:9"` on 1.26.14 returned `400 unknown parameter aspect_ratio`; on this build `count: 2` with `outputFormat: "png"` returned two 2048x1152 PNGs in 10.0 s, a one-image edit returned a 2096x1184 WebP in 11.2 s, and a two-image compose at `2:1` returned a 2240x1120 WebP in 15.8 s. Each image cost $0.01.
+
 ## 1.26.14
 
 ### Added

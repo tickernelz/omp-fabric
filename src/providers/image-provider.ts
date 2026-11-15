@@ -17,6 +17,7 @@ interface ImageModelRef {
   gptImage: boolean;
   codex: boolean;
   xai: boolean;
+  muse: boolean;
 }
 
 interface ImageModelRegistry {
@@ -47,6 +48,52 @@ interface RequestEnv {
 
 const IMAGE_MODEL_API = /image|imagen|dall-e|flux|stable-diffusion|sdxl|seedream|kolors|wanx|cogview|recraft|ideogram|midjourney|horde|banana/i;
 
+const MUSE_IMAGE = /(^|\/)muse-image/i;
+
+const MUSE_MAX_COUNT = 10;
+
+const DEFAULT_MAX_COUNT = 4;
+
+const MUSE_OUTPUT_FORMATS = ["png", "jpeg", "webp"] as const;
+
+const MUSE_REASONING_STRENGTHS = ["low", "high"] as const;
+
+const MUSE_TOOL_SWITCHES = {
+  imageSearch: "enable_image_search",
+  webSearch: "enable_web_search",
+  shell: "enable_shell",
+} as const;
+
+const sizeProperty = {
+  type: "string",
+  pattern: "^[1-9][0-9]*x[1-9][0-9]*$",
+  description:
+    "Pixel size WxH for gateways that accept an images-API size field. gpt-image takes 1024x1024, 1536x1024 or 1024x1536; Muse (muse-image-*) keeps only the ratio and renders at its own resolution.",
+} as const;
+
+const museProperties = {
+  outputFormat: {
+    type: "string",
+    enum: [...MUSE_OUTPUT_FORMATS],
+    description: "Muse only: encoding of the returned image. Muse defaults to webp.",
+  },
+  reasoningStrength: {
+    type: "string",
+    enum: [...MUSE_REASONING_STRENGTHS],
+    description: "Muse only: low returns after one pass; high, the Muse default, refines over several passes.",
+  },
+  toolEnablement: {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      imageSearch: { type: "boolean", description: "Muse image search for visual references." },
+      webSearch: { type: "boolean", description: "Muse web search for current facts." },
+      shell: { type: "boolean", description: "Muse code execution for charts and layouts." },
+    },
+    description: "Muse only: set a switch to false to turn that built-in tool off. Omitted switches stay on.",
+  },
+} as const;
+
 const generateSchema = {
   type: "object",
   additionalProperties: false,
@@ -59,15 +106,17 @@ const generateSchema = {
     },
     aspectRatio: {
       type: "string",
-      description: "Aspect ratio forwarded as aspect_ratio or imageConfig.aspectRatio, e.g. 1:1, 16:9, 9:16.",
+      description:
+        "Aspect ratio such as 1:1, 16:9, 9:16. Forwarded as aspect_ratio or imageConfig.aspectRatio; Muse receives it as a WxH size.",
     },
-    size: {
-      type: "string",
-      enum: ["1024x1024", "1536x1024", "1024x1536"],
-      description: "Pixel size for gateways that accept an images-API size field.",
+    size: sizeProperty,
+    count: {
+      type: "number",
+      description:
+        "Images to request from one model: up to 10 for Muse, up to 4 elsewhere. Only the images API honours more than one.",
     },
-    count: { type: "number", description: "Images to request from one model; only the images API honours more than one." },
     saveTo: { type: "string", description: "Absolute or cwd-relative file path for a single image." },
+    ...museProperties,
   },
 } as const;
 
@@ -84,13 +133,13 @@ const editSchema = {
       items: { type: "string" },
     },
     model: { type: "string", description: "Optional provider/id to try first." },
-    aspectRatio: { type: "string", description: "Aspect ratio forwarded to the backend." },
-    size: {
+    aspectRatio: {
       type: "string",
-      enum: ["1024x1024", "1536x1024", "1024x1536"],
-      description: "Pixel size for gateways that accept an images-API size field.",
+      description: "Aspect ratio forwarded to the backend; Muse receives it as a WxH size.",
     },
+    size: sizeProperty,
     saveTo: { type: "string", description: "Absolute or cwd-relative file path for a single image." },
+    ...museProperties,
   },
 } as const;
 
@@ -107,7 +156,7 @@ const descriptors: FabricActionDescriptor[] = [
   {
     name: "edit",
     description:
-      "Edit existing images with a prompt. Tries each configured model in priority order and returns the first success or { ok: false, reason, failures }. Source images travel in the shape each dialect expects: input_references or image/images for the images API, image_url parts for chat, input_image for responses, inlineData for gemini.",
+      "Edit existing images with a prompt. Tries each configured model in priority order and returns the first success or { ok: false, reason, failures }. Source images travel in the shape each dialect expects: input_references or image/images for the images API, images[].image_url for Muse, image_url parts for chat, input_image for responses, inlineData for gemini.",
     inputSchema: editSchema as unknown as Record<string, unknown>,
     risk: "write",
   },
@@ -130,6 +179,7 @@ export const splitModelSelector = (selector: string): { provider: string; id: st
 export const inferImageDialect = (api: string, modelId: string): FabricImageDialect => {
   if (api === "openai-images" || api === "openrouter-images") return "images";
   if (api === "google-generative-ai") return "gemini";
+  if (MUSE_IMAGE.test(modelId)) return "images";
   if (api === "openai-responses" || api === "openai-codex-responses") {
     return IMAGE_MODEL_API.test(modelId) ? "images" : "responses";
   }
@@ -331,6 +381,9 @@ interface CallOptions {
   prompt: string;
   aspectRatio?: string | undefined;
   size?: string | undefined;
+  outputFormat?: string | undefined;
+  reasoningStrength?: string | undefined;
+  toolEnablement?: Record<string, boolean> | undefined;
   count: number;
   inputImages: InlineImage[];
   signal: AbortSignal | undefined;
@@ -417,7 +470,52 @@ export const resolveImageSize = (aspectRatio?: string, size?: string): string | 
   }
 };
 
+const MUSE_LONG_SIDE = 1024;
+
+export const museSizeForRatio = (aspectRatio: string): string | undefined => {
+  const match = /^\s*(\d+(?:\.\d+)?)\s*:\s*(\d+(?:\.\d+)?)\s*$/.exec(aspectRatio);
+  if (!match) return undefined;
+  const width = Number(match[1]);
+  const height = Number(match[2]);
+  if (!(width > 0 && height > 0)) return undefined;
+  if (width >= height) return `${MUSE_LONG_SIDE}x${Math.max(1, Math.round((MUSE_LONG_SIDE * height) / width))}`;
+  return `${Math.max(1, Math.round((MUSE_LONG_SIDE * width) / height))}x${MUSE_LONG_SIDE}`;
+};
+
+const resolveMuseSize = (aspectRatio?: string, size?: string): string | undefined => {
+  if (size !== undefined) return size;
+  return aspectRatio === undefined ? undefined : museSizeForRatio(aspectRatio);
+};
+
+const SIZE_PATTERN = /^(\d+)x(\d+)$/;
+
+const ratioHonoured = (requested: string, width: number, height: number): boolean => {
+  const match = SIZE_PATTERN.exec(requested);
+  if (!match || height === 0) return false;
+  const wanted = Number(match[1]) / Number(match[2]);
+  return Math.abs(width / height - wanted) <= wanted * 0.01;
+};
+
+const requestMuse = async (env: RequestEnv, model: ImageModelRef, options: CallOptions): Promise<InlineImage[]> => {
+  const body: Record<string, unknown> = {
+    model: model.id,
+    prompt: options.prompt,
+    n: options.count,
+    response_format: "b64_json",
+  };
+  const size = resolveMuseSize(options.aspectRatio, options.size);
+  if (size !== undefined) body.size = size;
+  if (options.outputFormat !== undefined) body.output_format = options.outputFormat;
+  if (options.reasoningStrength !== undefined) body.reasoning_strength = options.reasoningStrength;
+  if (options.toolEnablement !== undefined) body.tool_enablement = options.toolEnablement;
+  const editing = options.inputImages.length > 0;
+  if (editing) body.images = options.inputImages.map((image) => ({ image_url: dataUrl(image) }));
+  const { payload } = await postJson(env, joinUrl(env.baseUrl, editing ? "/images/edits" : "/images/generations"), body);
+  return parseImagesApiPayload(payload);
+};
+
 const requestImages = async (env: RequestEnv, model: ImageModelRef, options: CallOptions): Promise<InlineImage[]> => {
+  if (model.muse) return requestMuse(env, model, options);
   const openrouter = model.api === "openrouter-images";
   const body: Record<string, unknown> = { model: model.id, prompt: options.prompt, n: options.count };
   if (!model.gptImage) body.response_format = "b64_json";
@@ -582,8 +680,12 @@ const readSourceImage = async (source: string, cwd: string): Promise<InlineImage
 
 interface IgnoredInput {
   dialect: FabricImageDialect;
+  muse: boolean;
   aspectRatio: string | undefined;
   size: string | undefined;
+  outputFormat: string | undefined;
+  reasoningStrength: string | undefined;
+  toolEnablement: Record<string, boolean> | undefined;
   count: number;
   saveTo: string | undefined;
   returned: number;
@@ -600,10 +702,32 @@ const ignoredParams = (input: IgnoredInput): string[] => {
     resolveImageSize(input.aspectRatio, undefined) === undefined
   ) {
     ignored.push("aspectRatio");
+  } else if (
+    input.muse &&
+    input.size === undefined &&
+    input.aspectRatio !== undefined &&
+    museSizeForRatio(input.aspectRatio) === undefined
+  ) {
+    ignored.push("aspectRatio");
   }
   if (input.dialect !== "images" && input.count > 1) ignored.push("count");
+  if (!input.muse) {
+    if (input.outputFormat !== undefined) ignored.push("outputFormat");
+    if (input.reasoningStrength !== undefined) ignored.push("reasoningStrength");
+    if (input.toolEnablement !== undefined) ignored.push("toolEnablement");
+  }
   if (input.saveTo !== undefined && input.returned > 1) ignored.push("saveTo");
   return ignored;
+};
+
+const museToolEnablement = (value: unknown): Record<string, boolean> | undefined => {
+  if (!isRecord(value)) return undefined;
+  const switches: Record<string, boolean> = {};
+  for (const [name, field] of Object.entries(MUSE_TOOL_SWITCHES)) {
+    const setting = value[name];
+    if (typeof setting === "boolean") switches[field] = setting;
+  }
+  return Object.keys(switches).length > 0 ? switches : undefined;
 };
 
 const transient = (error: unknown): boolean => {
@@ -693,6 +817,7 @@ export class ImageProvider implements FabricProvider {
       gptImage: GPT_IMAGE_FAMILY.test(parsed.id),
       codex: api === "openai-codex-responses",
       xai: parsed.provider === "xai" || parsed.provider === "xai-oauth" || parsed.provider.startsWith("xai-"),
+      muse: MUSE_IMAGE.test(parsed.id),
     };
   }
 
@@ -765,12 +890,17 @@ export class ImageProvider implements FabricProvider {
     if (selectors.length === 0) {
       return { ok: false, reason: "no image models configured (image.models is empty)" };
     }
-    const count =
-      typeof args.count === "number" && Number.isFinite(args.count) && args.count > 0
-        ? Math.min(Math.floor(args.count), 4)
-        : 1;
+    const requestedCount =
+      typeof args.count === "number" && Number.isFinite(args.count) && args.count >= 1 ? Math.floor(args.count) : 1;
     const aspectRatio = typeof args.aspectRatio === "string" ? args.aspectRatio : undefined;
     const size = typeof args.size === "string" ? args.size : undefined;
+    const outputFormat = (MUSE_OUTPUT_FORMATS as readonly unknown[]).includes(args.outputFormat)
+      ? (args.outputFormat as string)
+      : undefined;
+    const reasoningStrength = (MUSE_REASONING_STRENGTHS as readonly unknown[]).includes(args.reasoningStrength)
+      ? (args.reasoningStrength as string)
+      : undefined;
+    const toolEnablement = museToolEnablement(args.toolEnablement);
     const saveTo =
       typeof args.saveTo === "string" && args.saveTo.trim().length > 0 ? args.saveTo.trim() : undefined;
     const sources =
@@ -804,6 +934,8 @@ export class ImageProvider implements FabricProvider {
         continue;
       }
       const dialect = this.dialectFor(model);
+      const muse = model.muse && dialect === "images";
+      const count = Math.min(requestedCount, muse ? MUSE_MAX_COUNT : DEFAULT_MAX_COUNT);
       let apiKey: string | undefined;
       let extraHeaders: Record<string, string> = {};
       try {
@@ -835,6 +967,9 @@ export class ImageProvider implements FabricProvider {
             prompt,
             aspectRatio,
             size,
+            outputFormat,
+            reasoningStrength,
+            toolEnablement,
             count,
             inputImages,
             signal: env.signal,
@@ -868,19 +1003,25 @@ export class ImageProvider implements FabricProvider {
           );
           const ignored = ignoredParams({
             dialect,
+            muse,
             aspectRatio,
             size,
+            outputFormat,
+            reasoningStrength,
+            toolEnablement,
             count,
             saveTo,
             returned: written.length,
           });
-          const requestedSize = resolveImageSize(aspectRatio, size);
+          const requestedSize = muse ? resolveMuseSize(aspectRatio, size) : resolveImageSize(aspectRatio, size);
           const first = written[0];
           const mismatch =
             requestedSize !== undefined &&
             first?.width !== undefined &&
             first.height !== undefined &&
-            requestedSize !== `${first.width}x${first.height}`;
+            (muse
+              ? !ratioHonoured(requestedSize, first.width, first.height)
+              : requestedSize !== `${first.width}x${first.height}`);
           return {
             ok: true,
             model: `${model.provider}/${model.id}`,
