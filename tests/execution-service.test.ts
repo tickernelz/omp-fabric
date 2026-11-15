@@ -161,6 +161,12 @@ return { scheduled, after };
     );
     expect(positional.value).toEqual({ name: "call", called: { echoed: "x" } });
 
+    const merged = await run(
+      'return await tools.call({ ref: "demo.call" }, { value: "second" });',
+      "merged-call-args",
+    );
+    expect(merged.value).toEqual({ echoed: "second" });
+
     const missing = await run(
       'try { await tools.describe({} as never); return "no error"; } catch (error) { return (error as Error).message; }',
       "missing-ref",

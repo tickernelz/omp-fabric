@@ -96,6 +96,16 @@ describe("Fabric configuration migrations", () => {
     expect(result.appliedVersions).toEqual([6]);
   });
 
+  it("drops every lcm-prefixed compaction key and leaves a version 6 section alone", () => {
+    const dropped = migrateFabricConfigDocument({ configVersion: 5, compaction: { lcmFutureKnob: 1, thresholds: { "a/b": 0.5 } } });
+    expect(dropped.document).toEqual({ configVersion: 6, compaction: { thresholds: { "a/b": 0.5 } } });
+    const current = { configVersion: 6, compaction: { hardThresholdRatio: 0.7 } };
+    const untouched = migrateFabricConfigDocument(current);
+    expect(untouched.document).toEqual(current);
+    expect(untouched.appliedVersions).toEqual([]);
+    expect(untouched.changed).toBe(false);
+  });
+
   it("removes an emptied compaction section and walks the legacy engine rename first", () => {
     const result = migrateFabricConfigDocument({ configVersion: 4, compaction: { engine: "fabric" } });
     expect(result.document).toEqual({ configVersion: 6 });
