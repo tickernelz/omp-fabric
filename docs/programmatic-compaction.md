@@ -4,9 +4,9 @@ A model, skill, or peer can **ask** the host to compact its context at a safe
 boundary. The request also works on a running agent's context.
 
 One gated channel carries the request to the host. The host selects the safe
-time. Fabric performs deterministic compaction without another model call,
-which keeps repeated results testable. Each request records a labeled
-**advisory** intent. The host later performs the **committed** context change.
+time. OMP performs the compaction with its own summarizer. Each request
+records a labeled **advisory** intent. The host later performs the
+**committed** context change.
 
 ## Advisory and committed steps
 
@@ -44,7 +44,7 @@ latest instructions.
 | The context is a cache for the store. | Compaction changes the cache through an explicit, labeled transition. `status()` records the intent and last commit outside the context, where they survive compaction. |
 | Derived views are pure functions of the log. | `CompactStatus` reads the controller's recorded intents and commits. It never reads the compacted context itself. |
 | The host enforces transition boundaries. | The model requests compaction. The host commits at `agent_end`. `maybeCommit` and the `agent_end` handler contain the boundary gate. |
-| A task boundary can carry a compaction request. | The model selects the request time and instructions. The host selects a safe commit time. OMP core keeps its token-threshold trigger. |
+| A task boundary can carry a compaction request. | The model selects the request time and instructions. The host selects a safe commit time. The optional threshold settings in [configuration](configuration.md#compaction) also request a compaction after a turn. |
 
 ## API surface
 
@@ -67,7 +67,7 @@ await compact.request({
 // Read the pending intent and the last committed/failed compaction info.
 const status = await compact.status();
 // { pending?: { reason?, instructions?, preserve?, requestedBy, requestedAt },
-//   last?:   { at, requestedBy, status: "committed"|"cancelled"|"failed",
+//   last?:   { at, requestedBy, status: "committed"|"skipped"|"cancelled"|"failed",
 //             summary?, tokensBefore?, estimatedTokensAfter?, error? } }
 
 // Clear a pending intent before the host commits it.
@@ -77,35 +77,17 @@ await compact.cancel();
 Risk classes: `request` is `write` (it mutates host session state). `status`
 and `cancel` are `read`.
 
-With only `instructions` present, Fabric forwards it as ordinary OMP
-`customInstructions`. Manual `/compact` text and programmatic requests then
-get the same Fabric rendering. When `preserve` is present, the controller
-encodes `{version: 1, instructions?, preserve}` behind an exact versioned
-prefix plus JSON. The compaction and branch hooks strictly decode that shape
-and render valid bounded values under `[Compaction Request]`. On tree
-navigation, OMP's explicit `replaceInstructions: true` mode delegates to
-OMP/default summarization. Fabric cannot execute an arbitrary replacement
-summarizer prompt, so it produces no typed Fabric branch details in that mode.
-
-The prefix is reserved. Malformed JSON or scalars, duplicate decoded protocol
-keys (including escaped aliases), unknown fields or versions, invalid types,
-unpaired UTF-16 surrogates, excessive structure, or exceeded limits return a
-structured decode error and cancel the operation. Fabric never falls back to
-prose for such a payload. A bounded structural parser performs these checks
-before canonicalization, and it never uses regex to recover protocol
-data. Fabric never renders a rejected payload. A context with UI/RPC notification support
-receives a bounded error. Ordinary manual and OMP instructions remain explicit text and
-never gain routing semantics.
+Fabric forwards the text to OMP as `customInstructions`. With only
+`instructions` present, the text goes unchanged. When `preserve` is present,
+Fabric appends the items to the instructions after a blank line, as a bulleted
+list under `Preserve these facts in the summary:`. OMP's own summarizer reads
+that text, so how closely a summary honors it depends on the model.
 
 `compact.request` validates its input with a bounded TypeBox schema before
 argument mapping. Instructions cap at 8192 characters and 8192 UTF-8 bytes.
 `preserve` accepts at most 16 items, and each item caps at 2048 characters and
-2048 UTF-8 bytes. The complete encoded prefix-plus-JSON request must fit
-within 16 KiB. The decoder checks aggregate source bytes before structural
-parsing, then validates duplicate keys, scalars, and surrogate pairing while
-parsing. It checks the preserve count before iterating or canonicalizing
-items. Ordinary manual and OMP instructions remain bounded explicit text and
-never become typed protocol input.
+2048 UTF-8 bytes. The composed text must fit within 16 KiB of UTF-8. Unpaired
+UTF-16 surrogates in either field are rejected.
 
 #### Commit semantics
 
@@ -196,9 +178,9 @@ safety needs no configuration.
 
 | File | Role |
 | --- | --- |
-| `src/core/compact-controller.ts` | Pending-intent controller with `request`, `cancel`, `status`, and `maybeCommit`. Uses a single replaceable slot, typed preserve encoding, an in-flight guard, and a quiet clear on cancelled or already-compacted outcomes. |
+| `src/core/compact-controller.ts` | Pending-intent controller with `request`, `cancel`, `status`, and `maybeCommit`. Uses a single replaceable slot, plain-text preserve composition, an in-flight guard, and a quiet clear on cancelled or already-compacted outcomes. |
 | `src/providers/compact-provider.ts` | Fabric provider that exposes a bounded TypeBox-validated `request` (write, including optional `preserve: string[]`), `status` (read), and `cancel` (read). Registered always, with activity audit. |
-| `src/fabric-state.ts` | Constructs the controller with mesh-publish hooks, registers the provider, and resets on re-init or shutdown. |
+| `src/fabric-runtime-state.ts` | Constructs the controller with mesh-publish hooks, registers the provider, and resets on re-init or shutdown. |
 | `src/index.ts` | Invokes `state.compact.maybeCommit(context)` in the existing `agent_end` handler. |
 | `src/agents/types.ts` | Extends `AgentSteerEntry["type"]` with `"compact"` and adds the optional `instructions` field. |
 | `src/agents/manager.ts` | `compact(id, instructions?)` appends a compact entry through the steer channel and rejects Claude-runner children. |

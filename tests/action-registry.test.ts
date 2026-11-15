@@ -490,7 +490,7 @@ describe("ActionRegistry", () => {
     const message = (missing as Error).message;
     expect(message).toContain("/issueId: ");
     expect(message).toContain("Accepted parameters: issueId (required), status (required), title.");
-    expect(message).toContain("Not in the schema: parentIssueId (closest: issueId).");
+    expect(message).toContain("Not declared: parentIssueId (closest: issueId).");
 
     const mistyped = await registry
       .invoke("guide.child", { issueId: 5, status: "todo" }, invocation)

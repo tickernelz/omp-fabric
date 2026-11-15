@@ -380,20 +380,22 @@ const argumentGuide = (schema: Record<string, unknown>, value: Record<string, un
   if (names.length === 0) return "";
   const rawRequired = (schema as { required?: unknown }).required;
   const required = new Set(Array.isArray(rawRequired) ? rawRequired.filter((name): name is string => typeof name === "string") : []);
-  const missing = [...required].filter((name) => !(name in value));
-  const unknown = Object.keys(value).filter((key) => !(key in properties));
+  const declared = (key: string): boolean => Object.hasOwn(properties, key);
+  const missing = [...required].filter((name) => !Object.hasOwn(value, name));
+  const unknown = Object.keys(value).filter((key) => !declared(key));
   if (missing.length === 0 && unknown.length === 0) return "";
-  const unfilled = names.filter((name) => !(name in value));
+  const unfilled = names.filter((name) => !Object.hasOwn(value, name));
   const ordered = [...names.filter((name) => required.has(name)), ...names.filter((name) => !required.has(name))];
   const shown = ordered.slice(0, MAX_GUIDE_PROPERTIES).map((name) => (required.has(name) ? `${name} (required)` : name));
   const hidden = ordered.length - shown.length;
   const parts = [`Accepted parameters: ${shown.join(", ")}${hidden > 0 ? `, +${hidden} more` : ""}.`];
   if (unknown.length > 0) {
     const described = unknown.slice(0, 8).map((key) => {
+      const shownKey = key.length > 64 ? `${key.slice(0, 63)}…` : key;
       const near = nearestPropertyName(key, unfilled);
-      return near ? `${key} (closest: ${near})` : key;
+      return near ? `${shownKey} (closest: ${near})` : shownKey;
     });
-    parts.push(`Not in the schema: ${described.join(", ")}.`);
+    parts.push(`Not declared: ${described.join(", ")}.`);
   }
   return ` ${parts.join(" ")}`;
 };

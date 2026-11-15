@@ -7,6 +7,7 @@ const MAX_COMPACTION_INSTRUCTIONS_BYTES = 8 * 1024;
 export const MAX_PRESERVE_ITEMS = 16;
 export const MAX_PRESERVE_ITEM_CHARS = 2 * 1024;
 const MAX_PRESERVE_ITEM_BYTES = 2 * 1024;
+const MAX_COMPOSED_INSTRUCTION_BYTES = 16 * 1024;
 
 export interface CompactionRequest {
   instructions?: string;
@@ -60,12 +61,14 @@ export const compactionRequestBoundsError = (
       }
     }
   }
+  const composed = renderCompactionRequest(request);
+  if (composed !== undefined && utf8Bytes(composed) > MAX_COMPOSED_INSTRUCTION_BYTES) {
+    return { message: `compaction instructions plus preserve items exceed ${MAX_COMPOSED_INSTRUCTION_BYTES} UTF-8 bytes` };
+  }
   return undefined;
 };
 
-export const composeCompactionInstructions = (request: CompactionRequest): string | undefined => {
-  const boundsError = compactionRequestBoundsError(request);
-  if (boundsError) throw new Error(boundsError.message);
+const renderCompactionRequest = (request: CompactionRequest): string | undefined => {
   const preserve = request.preserve && request.preserve.length > 0
     ? `Preserve these facts in the summary:\n${request.preserve.map((item) => `- ${item}`).join("\n")}`
     : undefined;
@@ -73,4 +76,10 @@ export const composeCompactionInstructions = (request: CompactionRequest): strin
     (part): part is string => part !== undefined && part.length > 0,
   );
   return parts.length > 0 ? parts.join("\n\n") : undefined;
+};
+
+export const composeCompactionInstructions = (request: CompactionRequest): string | undefined => {
+  const boundsError = compactionRequestBoundsError(request);
+  if (boundsError) throw new Error(boundsError.message);
+  return renderCompactionRequest(request);
 };
