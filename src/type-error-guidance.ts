@@ -43,6 +43,11 @@ const SHELL_OPTION_NOTES: Readonly<Record<string, string>> = {
     "OMP 18.4.4 removed the bash tool's per-call `env`. Commands inherit the configured shell environment, so set variables inline (`FOO=1 command`) or `export` them inside the command string.",
 };
 
+const READ_OPTION_NOTES: Readonly<Record<string, string>> = {
+  raw:
+    "`omp.read` has no `raw` option. Select the unprocessed text with the `:raw` path suffix, for example omp.read(path + ':raw').",
+};
+
 const isCoreToolName = (name: string): name is (typeof CORE_TOOL_NAMES)[number] =>
   (CORE_TOOL_NAMES as readonly string[]).includes(name);
 
@@ -91,6 +96,10 @@ const unknownPropertyHint = (
   if (tool === "bash") {
     const shellNote = SHELL_OPTION_NOTES[property];
     if (shellNote !== undefined) return `Recovery hint: ${shellNote}`;
+  }
+  if (tool === "read") {
+    const readNote = READ_OPTION_NOTES[property];
+    if (readNote !== undefined) return `Recovery hint: ${readNote}`;
   }
   const envelopeNote = FABRIC_EXEC_ARGUMENT_NOTES[property];
   if (envelopeNote !== undefined) {
@@ -158,6 +167,8 @@ const brokenTemplateHint = (code: string, errors: FabricTypeError[]): string | u
       continue;
     }
     if (char === "`") {
+      const following = code.slice(index + 1).match(/\S/)?.[0];
+      if (following === undefined || ",)}];:+.?".includes(following)) return undefined;
       return `Recovery hint: the template literal passed to omp.${tool} ends at the backtick on ${codePosition(code, index)}, so the rest of the text is parsed as TypeScript. Move the text to a top-level \`payloads\` entry and reference \`payloads.key\`, or escape the backtick as \\\`.`;
     }
     if (code.startsWith("${", index)) {
