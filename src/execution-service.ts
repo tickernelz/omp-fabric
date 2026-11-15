@@ -158,6 +158,12 @@ export interface FabricExecutionOptions {
   onPartial(snapshot: FabricExecutionPartial): void;
 }
 
+const requiredToolsRef = (method: "describe" | "call", args: Record<string, unknown>): string => {
+  const ref = args.ref;
+  if (typeof ref === "string" && ref.trim() !== "") return ref;
+  throw new Error(`tools.${method} needs the action ref, for example tools.${method}("omp.read") or tools.${method}({ ref: "omp.read" }); got ${ref === undefined ? "no ref" : typeof ref}`);
+};
+
 export class FabricExecutionService {
   #runtime: QuickJsRuntime | NodeProcessRuntime | undefined;
   #runtimeKind: FabricConfig["executor"]["runtime"] | undefined;
@@ -733,7 +739,7 @@ export class FabricExecutionService {
                 args,
                 runtimeSignal,
                 async (setStage) => {
-                  const targetRef = String(args.ref ?? "");
+                  const targetRef = requiredToolsRef("describe", args);
                   setStage("guard");
                   guardFullCodeRef(targetRef);
                   setStage("resolve");
@@ -745,7 +751,7 @@ export class FabricExecutionService {
                 typeof args.args === "object" && args.args !== null && !Array.isArray(args.args)
                   ? (args.args as Record<string, unknown>)
                   : {};
-              const targetRef = String(args.ref ?? "");
+              const targetRef = requiredToolsRef("call", args);
               return invokeAction(targetRef, callArgs, callContext);
             }
             case "fabric.$progress":
