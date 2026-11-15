@@ -22,6 +22,14 @@ describe("Fabric guest type checker", () => {
     expect(result.javascript).not.toContain("path: string");
   });
 
+  it("does not reject arithmetic over values the program only knows at runtime", () => {
+    const result = typeCheckFabricCode(
+      'const data = JSON.parse(await omp.read("stats.json"));\nconst ranked = Object.entries(data.toolCounts).sort((a, b) => b[1] - a[1]);\nreturn ranked.length;',
+      GUEST_TYPE_DECLARATIONS,
+    );
+    expect(result.errors).toEqual([]);
+  });
+
   it("lets a guest-declared helper omit or add trailing arguments but keeps omp arity", () => {
     const helpers = typeCheckFabricCode(
       [
