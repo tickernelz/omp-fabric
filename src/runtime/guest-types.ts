@@ -354,8 +354,8 @@ interface FabricToolsApi {
   list(args?: { provider?: string; namespace?: string; query?: string; limit?: number }): Promise<FabricAction[]>;
   search(query: string): Promise<FabricAction[]>;
   search(args: { query: string; limit?: number }): Promise<FabricAction[]>;
-  describe(args: { ref: string }): Promise<FabricAction>;
-  call(args: { ref: string; args?: Record<string, unknown> }): Promise<unknown>;
+  describe(ref: string | { ref: string }): Promise<FabricAction>;
+  call(ref: string | { ref: string; args?: Record<string, unknown> }, args?: Record<string, unknown>): Promise<unknown>;
   progress(args: { message: string }): Promise<void>;
   models(): Promise<FabricModelInfo[]>;
 }

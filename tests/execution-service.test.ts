@@ -128,6 +128,47 @@ return { scheduled, after };
     expect(complete.logs.join("\n")).not.toContain("tools.list returned");
   });
 
+  it("takes the action ref as the first positional argument of tools.describe and tools.call", async () => {
+    const registry = new ActionRegistry();
+    const descriptor = {
+      name: "call",
+      description: "demo call",
+      inputSchema: { type: "object", properties: { value: { type: "string" } }, additionalProperties: false },
+      risk: "read" as const,
+    };
+    registry.register({
+      name: "demo",
+      description: "demo",
+      async list() { return [descriptor]; },
+      async describe(name) { return name === "call" ? descriptor : undefined; },
+      async invoke(_name, args) { return { echoed: args.value }; },
+    });
+    const config = structuredClone(DEFAULT_FABRIC_CONFIG);
+    config.fullCodeMode = false;
+    config.approvals.read = "allow";
+    const service = new FabricExecutionService(registry, config);
+    const run = (code: string, id: string) => service.execute({
+      code,
+      signal: undefined,
+      parentToolCallId: id,
+      context: { cwd: process.cwd(), hasUI: false } as ExtensionContext,
+      onPartial() {},
+    });
+
+    const positional = await run(
+      'const described = await tools.describe("demo.call"); const called = await tools.call("demo.call", { value: "x" }); return { name: described.name, called };',
+      "positional-ref",
+    );
+    expect(positional.value).toEqual({ name: "call", called: { echoed: "x" } });
+
+    const missing = await run(
+      'try { await tools.describe({} as never); return "no error"; } catch (error) { return (error as Error).message; }',
+      "missing-ref",
+    );
+    expect(String(missing.value)).toContain('tools.describe needs the action ref');
+    expect(String(missing.value)).toContain("got no ref");
+  });
+
   it("applies the same deferred boundary through generic tools.call", async () => {
     const registry = new ActionRegistry();
     const descriptor = {
