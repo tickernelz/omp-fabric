@@ -34,7 +34,7 @@ const compilerOptions: ts.CompilerOptions = {
 
 const TYPE_CORRECTNESS_CODES = new Set<number>([
   2339, 2551,
-  2322, 2345, 2367,
+  2322, 2345, 2362, 2363, 2365, 2367,
   2531, 2532, 18047, 18048,
   7006, 7008, 7019, 7031, 7032, 7033, 7034,
 ]);

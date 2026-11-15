@@ -28,6 +28,26 @@ describe("typeErrorRecoveryHint", () => {
     );
   });
 
+  it("points an omp.read raw option at the :raw path selector", () => {
+    const code = 'return await omp.read({ path: "/tmp/a.json", raw: true });';
+    const checked = typeCheckFabricCode(code, GUEST_TYPE_DECLARATIONS);
+    expect(checked.errors.length).toBeGreaterThan(0);
+    expect(typeErrorRecoveryHint(code, checked.errors)).toContain(":raw");
+  });
+
+  it("does not blame a path template that closed correctly when a later brace is missing", () => {
+    const code = [
+      "const W = '/tmp';",
+      "await omp.edit({path: `${W}/a.ts`, edits: [",
+      "  {old: 'a', new: 'b'},",
+      "]);",
+      "return 1;",
+    ].join("\n");
+    const checked = typeCheckFabricCode(code, GUEST_TYPE_DECLARATIONS);
+    expect(checked.errors.length).toBeGreaterThan(0);
+    expect(typeErrorRecoveryHint(code, checked.errors) ?? "").not.toContain("ends at the backtick");
+  });
+
   it("treats omp.bash cwd as a supported option since #71", () => {
     const checked = typeCheckFabricCode('await omp.bash({ command: "ls", cwd: "/tmp" });', GUEST_TYPE_DECLARATIONS);
     expect(checked.errors).toHaveLength(0);
