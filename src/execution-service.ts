@@ -618,7 +618,7 @@ export class FabricExecutionService {
       callContext: typeof baseContext & { signal: AbortSignal },
     ): Promise<unknown> => {
       const value = await invokeAction(ref, args, callContext);
-      completedOutputs.record(ref, args, value);
+      if (ref !== "agents.handoff") completedOutputs.record(ref, args, value);
       return value;
     };
     let sandboxResult: FabricSandboxResult;

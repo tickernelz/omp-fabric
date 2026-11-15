@@ -63,7 +63,7 @@ describe("formatFailureProgress", () => {
       trace("failed", [{ type: "call", sequence: 0, ref: "omp.read", args: { path: "src/input.ts" }, outcome: "succeeded" }]),
       [{ ref: "omp.read", target: "src/input.ts", chars: 21, preview: "kept source text 42" }],
     );
-    expect(formatted).toContain("(latest outputs below)");
+    expect(formatted).toContain("(outputs of the last calls follow)");
     expect(formatted).toContain("[1] omp.read src/input.ts (21 chars)\nkept source text 42");
     expect(formatted).not.toContain("outputs not returned");
     expect(formatFailureProgress(trace("succeeded", []), [{ ref: "x", chars: 1, preview: "x" }])).toBeUndefined();

@@ -37,7 +37,7 @@ export const formatFailureProgress = (
       : operation.ref;
   });
   const omitted = completed.length - summaries.length;
-  const returned = outputs.length > 0 ? "latest outputs below" : "outputs not returned";
+  const returned = outputs.length > 0 ? "outputs of the last calls follow" : "outputs not returned";
   return [
     `Completed before the outer failure (${returned}): ${summaries.join("; ")}${
       omitted > 0 ? `; +${omitted} more` : ""

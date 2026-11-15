@@ -11,19 +11,19 @@ const TAIL_CHARS = 250;
 const TARGET_CHARS = 100;
 
 const outputText = (value: unknown): string | undefined => {
-  if (typeof value === "string") return value;
-  if (value === null || value === undefined) return undefined;
-  if (typeof value === "object") {
-    const record = value as Record<string, unknown>;
-    if (typeof record.output === "string") return record.output;
-    if (typeof record.text === "string") return record.text;
-    try {
+  try {
+    if (typeof value === "string") return value;
+    if (value === null || value === undefined) return undefined;
+    if (typeof value === "object") {
+      const record = value as Record<string, unknown>;
+      if (typeof record.output === "string") return record.output;
+      if (typeof record.text === "string") return record.text;
       return JSON.stringify(value);
-    } catch {
-      return undefined;
     }
+    return String(value);
+  } catch {
+    return undefined;
   }
-  return String(value);
 };
 
 const targetOf = (args: Record<string, unknown>): string | undefined => {
