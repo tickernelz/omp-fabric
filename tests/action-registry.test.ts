@@ -461,6 +461,44 @@ describe("ActionRegistry", () => {
     expect(audits).toMatchObject([{ resultTruncated: true, resultChars: 102 }]);
   });
 
+  it("names the accepted parameters and the closest declared name when required arguments are missing", async () => {
+    const registry = new ActionRegistry();
+    const schema = {
+      type: "object",
+      properties: { issueId: { type: "string" }, status: { type: "string" }, title: { type: "string" } },
+      required: ["issueId", "status"],
+    };
+    registry.register({
+      name: "guide",
+      description: "guide provider",
+      async list() {
+        return [{ name: "child", description: "create child", inputSchema: schema, risk: "read" as const }];
+      },
+      async describe(name) {
+        return name === "child" ? (await this.list({}, context))[0] : undefined;
+      },
+      async invoke() {
+        return null;
+      },
+    });
+    const invocation = { ...context, approve: vi.fn(async () => {}), audits: [], maxResultChars: 10_000 };
+
+    const missing = await registry
+      .invoke("guide.child", { parentIssueId: "ZHA-1", title: "t" }, invocation)
+      .catch((error: Error) => error);
+    expect(missing).toBeInstanceOf(Error);
+    const message = (missing as Error).message;
+    expect(message).toContain("/issueId: ");
+    expect(message).toContain("Accepted parameters: issueId (required), status (required), title.");
+    expect(message).toContain("Not in the schema: parentIssueId (closest: issueId).");
+
+    const mistyped = await registry
+      .invoke("guide.child", { issueId: 5, status: "todo" }, invocation)
+      .catch((error: Error) => error);
+    expect((mistyped as Error).message).toContain("Invalid arguments for guide.child");
+    expect((mistyped as Error).message).not.toContain("Accepted parameters");
+  });
+
   it("validates arguments before approval or execution", async () => {
     const registry = new ActionRegistry();
     registry.register(provider());
