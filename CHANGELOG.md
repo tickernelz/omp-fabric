@@ -1,5 +1,34 @@
 # Changelog
 
+## 1.27.0
+
+### Removed (breaking)
+
+- The LCM compaction engine and everything built on it. OMP owns compaction again: Fabric registers no `session_before_compact` or `session_before_tree` hook. Gone are the project SQLite context ledger and its summary maintenance, the `lcm.raw:` and `lcm.summary:` addresses and the LCM branch of `memory.recall` and `memory.expand`, the `/fabric lcm` dashboard, the `compaction.engine`, `summaryModel`, `targetContextRatio`, `softThresholdRatio` and `lcm*` settings with their settings rows, `fabric_exec` guest types for LCM recall hits, and the `bun:sqlite` build external.
+- The `compact` option of `agents.handoff`. It reused the LCM emergency reducer to write a compaction entry into the handoff session, and the schema now rejects it (`additionalProperties: false`).
+- `bun run certify:context` and `bun run benchmark:real-resume`, with their scripts, tests and `docs/certification.md`. Both measured the removed hook. `certify:entropy` stays.
+
+### Changed (breaking)
+
+- Configuration version 6 drops `compaction.engine`, `summaryModel`, `targetContextRatio`, `softThresholdRatio` and every `compaction.lcm*` key when it loads an older file, and removes the `compaction` section when nothing else is left. `compaction.thresholds`, `tokenThresholds` and `hardThresholdRatio` stay and still make Fabric ask the host to compact.
+- `compact.status()` no longer returns `engine` or `targetContextRatio`.
+- `compact.request` appends `preserve` items to the instructions as plain text under `Preserve these facts in the summary:` instead of a versioned JSON prefix that only the removed hook decoded. Instructions plus preserve items stay under 16 KiB of UTF-8, as the encoded form was.
+- Host pins move from 18.18.8 to 18.20.2 (dependencies pi-agent-core, pi-ai, pi-utils; dev omptype, pi-coding-agent, pi-natives, pi-tui); the declared peer floor stays >=18.4.4. Of the 34 `@oh-my-pi/*` specifiers in `src`, `scripts` and `tests`, 32 resolve in the packed 18.20.2 export maps; `omptype/typebox` and `pi-natives` come from the installed pins. 18.20.1 cut the single-file grep match cap from 200 to 50, so the truncation-marker test now reads `SINGLE_FILE_MATCHES` from the host.
+
+### Fixed
+
+- `tools.describe("omp.read")` ran as an empty action and failed with `Unknown Fabric action: ` and no name. `tools.describe` and `tools.call` now take the ref as the first argument (`tools.call("ref", args)`), `tools.call({ ref }, args)` merges the second argument, and a missing ref names the method and what it received.
+- `Invalid arguments for X: /issueId: is required` now appends the accepted parameters with the required ones marked, and the closest declared name for each key the schema lacks (`parentIssueId (closest: issueId)`). A type mismatch on a declared name keeps the short message. Echoed keys are clipped to 64 characters and argument values are never echoed.
+- The guest type check no longer rejects arithmetic over values only known at runtime (TS2362, TS2363, TS2365). `omp.read({ path, raw: true })` now points at the `:raw` path suffix, and the broken-template recovery hint no longer blames a path template that closed correctly when a later brace is missing.
+
+### Notes
+
+- Origin of the three fixes: Wardmote agent transcripts from 12 to 15 November, 487 sessions with 38,495 `fabric_exec` calls and 987 failed results. `Unknown Fabric action: ` with no name was 59 of them, `Invalid arguments` on one Wardmote create-child-issue tool was at least 155, and 14 were arithmetic type rejections.
+- Not fixed, found in the same data: 397 of the 987 failures print `Completed before the outer failure (outputs not returned)`, so a program that read files and then failed on an edit loses what it read. Returning a bounded journal of completed call outputs needs both executors to hand the journal back on failure and is left for its own release.
+- Removal size against 1.26.14: 115 files changed, 462 insertions, 19,924 deletions.
+- Review gate: one correctness reviewer (PASS, five soft findings) and one contract reviewer (FAIL on `docs/programmatic-compaction.md`, which still described the typed preserve encoding and the removed hooks). Fixed those and the soft findings that touched behavior: the lost aggregate bound on `compact.request`, the ignored second argument of `tools.call({ ref }, args)`, and `Object.hasOwn` plus key clipping in the argument guide. An earlier cut of the LCM adapter also dropped the `MemoryProvider` cache helpers, `list`, `describe` and `prepareArguments`; the first CI run caught it and the restore is in this release.
+- CI run 43677422935 passed typecheck, build, dead-code lint and the full suite on ubuntu and windows at b8842cf6.
+
 ## 1.26.14
 
 ### Added
