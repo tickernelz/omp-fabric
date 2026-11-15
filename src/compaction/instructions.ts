@@ -1,4 +1,6 @@
-import { utf8Bytes } from "./bounds.js";
+const encoder = new TextEncoder();
+
+const utf8Bytes = (text: string): number => encoder.encode(text).byteLength;
 
 export const MAX_COMPACTION_INSTRUCTIONS_CHARS = 8 * 1024;
 const MAX_COMPACTION_INSTRUCTIONS_BYTES = 8 * 1024;
