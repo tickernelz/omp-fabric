@@ -301,6 +301,20 @@ const main = async (): Promise<void> => {
   const schema = options.schemaFile
     ? fs.readFileSync(options.schemaFile, "utf8")
     : undefined;
+  // OMP treats --session as a resume request, even on an actor's first run.
+  if (options.runner === "omp" && options.actorId && options.sessionFile && !fs.existsSync(options.sessionFile)) {
+    const id = crypto.randomUUID();
+    const header = { type: "session", version: 3, id, timestamp: new Date().toISOString(), cwd: options.cwd };
+    const pending = `${options.sessionFile}.${id}.tmp`;
+    fs.writeFileSync(pending, JSON.stringify(header) + "\n", { flag: "wx", mode: 0o600 });
+    try {
+      fs.linkSync(pending, options.sessionFile);
+    } catch (error) {
+      if (!(error instanceof Error && "code" in error && error.code === "EEXIST")) throw error;
+    } finally {
+      fs.unlinkSync(pending);
+    }
+  }
   const ompArguments = ["--mode", "rpc"];
   if (options.sessionFile) ompArguments.push("--session", options.sessionFile);
   else ompArguments.push("--no-session");
