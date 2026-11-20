@@ -89,6 +89,34 @@ describe.skipIf(!hasWorker)("AgentManager real worker e2e", async () => {
     expect(result.text).toBe("root-session");
   });
 
+  it("creates an OMP actor session before spawning the runner and preserves it on resume", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-actor-session-"));
+    roots.push(root);
+    const sessionFile = path.join(root, "session.jsonl");
+    const shim = path.join(root, "resume-omp.mjs");
+    fs.writeFileSync(shim, [
+      'import fs from "node:fs";',
+      'const file = process.argv[process.argv.indexOf("--session") + 1];',
+      'const header = JSON.parse(fs.readFileSync(file, "utf8").split("\\n")[0]);',
+      'if (header.type !== "session" || !header.id || header.cwd !== process.cwd()) process.exit(1);',
+      'process.env.FAKE_OMP_BEHAVIOR = "success";',
+      `await import(${JSON.stringify(pathToFileURL(ompBinary).href)});`,
+    ].join("\n"));
+    const manager = new AgentManager(process.cwd(), DEFAULT_FABRIC_CONFIG.agents, {
+      workerPath, ompBinary: shim, runRoot: root,
+    });
+    managers.push(manager);
+    const request = { task: "resume actor", actorId: "probe", sessionFile, transport: "process" } as const;
+    const first = await manager.run(request);
+    expect(first.status, first.error).toBe("completed");
+    const entry = { type: "session_info", id: "first", parentId: null, timestamp: new Date().toISOString(), name: "first run" };
+    fs.appendFileSync(sessionFile, JSON.stringify(entry) + "\n");
+    const persisted = fs.readFileSync(sessionFile, "utf8");
+    const second = await manager.run(request);
+    expect(second.status, second.error).toBe("completed");
+    expect(fs.readFileSync(sessionFile, "utf8")).toBe(persisted);
+  });
+
   const cases: Array<{
     behavior: string;
     timeoutMs?: number;
