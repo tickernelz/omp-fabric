@@ -883,7 +883,7 @@ describe("AgentsProvider runner support", async () => {
     expect(task).toContain("inherited conversation trajectory");
     expect(task).toContain("Finish the implementation and verify it.");
     const handoffDirectory = path.join(root, "runs", result.agent.id, "handoff-session");
-    const [sessionName] = fs.readdirSync(handoffDirectory);
+    const sessionName = fs.readdirSync(handoffDirectory).find((name) => name.endsWith(".jsonl"));
     const seededSession = await SessionManager.open(path.join(handoffDirectory, sessionName!));
     const seededMessages = seededSession.buildSessionContext().messages;
     expect(JSON.stringify(seededMessages)).toContain("Implement the rare token guard 43117");
