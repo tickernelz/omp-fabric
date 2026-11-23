@@ -1,5 +1,24 @@
 # Changelog
 
+## 1.27.2
+
+### Fixed
+
+- `omp.find` without a `limit`, or with a limit above 200, failed on OMP 19.1.1 with `limit must be a number at most 200 (was 1000)`: the host find shim still defaults to 1000 while `GlobTool` now accepts 1 to 200. Fabric clamps the limit to 1..200 before the host sees it, and the truncation marker reports `resultLimit: 200` when the cap cut results. On 18.x hosts a find without a limit now returns at most 200 entries where the shim default returned up to 1000; 200 is the 19.1.1 host default.
+- Bash output spill files were named `undefined-<id>.log` on OMP 19.1.1, which calls `allocateOutputArtifact` without a tool type. They are now named `output-<id>.log`.
+- The first activation of an OMP actor exited with `Session "<path>" not found.` on OMP 19, which treats `--session <path>` as a resume request (#17). The worker now creates the session file with a version 3 header through an exclusive write before it starts OMP, and later activations resume that file. Contributed by @raiscui in #18.
+
+### Changed
+
+- Host pins move from 18.20.2 to 19.1.1 (dependencies pi-agent-core, pi-ai, pi-utils; dev omptype, pi-coding-agent, pi-natives, pi-tui); the declared peer floor stays >=18.4.4. All 35 `@oh-my-pi/*` specifiers in `src`, `scripts` and `tests` resolve against 19.1.1 except the `pi-natives-` platform prefix, which is built at runtime.
+- Four host-facing tests followed 19.1.1: bash lists no `pty` parameter in a session without UI, the artifact root is recreated lazily on the first spill, and a handoff session directory holds a `.<file>.lock.os` next to the `.jsonl`, so `agent-manager.test.ts` and `agents-provider.test.ts` open the `.jsonl` entry. The second of those failed main Test runs 45138005661 and 45138826240 on ubuntu only, where the directory listed the lock file first (#20).
+
+### Notes
+
+- Negative controls: without the clamp 2 tests in `tests/omp-tools-provider.test.ts` fail with the host error, without the name fallback 1 fails, and without the actor session write `tests/worker-e2e.test.ts` fails with `ENOENT`. Each source file was restored byte-identical.
+- Host-facing tests on 19.1.1: 14 files, 271 passed, 28 skipped. Live probe on OMP 19.1.1: `omp --mode rpc --session <missing file>` exits with `Session ... not found.`; with the header, `get_state` succeeds and a second spawn resumes the same session id.
+- CI: Test run 45136706531 at 59c1cf53 (#19), 45136860746 at 73335a4d and 45138032475 at 453848a0 (#18), 45138882609 at a5d6ebf3 (#20), all green on ubuntu and windows. Agent Hendra approved #18 and #19; #20 is a one-line test change. Main Test run 45139397107 passed at the code commit 69145fc0.
+
 ## 1.27.1
 
 ### Added
