@@ -1109,6 +1109,7 @@ describe("OmpToolsProvider result fidelity", () => {
         expect(big.output.trimEnd().endsWith("}")).toBe(true);
         expect(typeof big.details.fullOutputPath).toBe("string");
         expect(fs.readFileSync(String(big.details.fullOutputPath), "utf8")).toContain("row-40000\n");
+        expect(path.basename(String(big.details.fullOutputPath))).not.toMatch(/^undefined-/);
 
         const small = (await registry.invoke("omp.bash", { command: "echo done" }, baseContext)) as {
           output: string;
@@ -1130,11 +1131,18 @@ describe("OmpToolsProvider result fidelity", () => {
     expect(owned).toHaveLength(1);
     for (const entry of owned) fs.rmSync(path.join(parent, entry), { recursive: true, force: true });
 
-    const result = (await registry.invoke("omp.bash", { command: "echo survived" }, baseContext)) as {
+    const small = (await registry.invoke("omp.bash", { command: "echo survived" }, baseContext)) as {
       output: string;
     };
+    expect(small.output.trim()).toBe("survived");
 
-    expect(result.output.trim()).toBe("survived");
+    const big = (await registry.invoke(
+      "omp.bash",
+      { command: "seq 1 40000 | sed 's/^/row-/'" },
+      baseContext,
+    )) as { output: string; details: Record<string, unknown> };
+
+    expect(fs.readFileSync(String(big.details.fullOutputPath), "utf8")).toContain("row-40000\n");
     expect(fs.existsSync(path.join(parent, owned[0] as string))).toBe(true);
     for (const entry of owned) fs.rmSync(path.join(parent, entry), { recursive: true, force: true });
   });

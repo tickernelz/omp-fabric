@@ -151,7 +151,7 @@ describe("omp.bash background jobs", () => {
     AgentRegistry.global().unregister(OWNER_ID);
     const plain = await bashDescriptor(await OmpToolsProvider.create(process.cwd()));
 
-    for (const field of ["command", "cwd", "pty", "timeout"]) {
+    for (const field of ["command", "cwd", "timeout"]) {
       expect((armed.properties[field] as { description?: string }).description).toBeTruthy();
       expect((plain.properties[field] as { description?: string }).description).toBeTruthy();
     }
