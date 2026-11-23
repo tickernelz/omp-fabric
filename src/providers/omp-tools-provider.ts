@@ -183,11 +183,11 @@ const createNativeSession = (
     settings: Settings.isolated(settingsOverrides),
     ...(artifacts
       ? {
-          allocateOutputArtifact: async (toolType: string) => {
+          allocateOutputArtifact: async (toolType?: string) => {
             try {
               mkdirSync(artifacts.root, { recursive: true, mode: 0o700 });
               const id = randomUUID();
-              const artifactPath = path.join(artifacts.root, `${toolType}-${id}.log`);
+              const artifactPath = path.join(artifacts.root, `${toolType ?? "output"}-${id}.log`);
               writeFileSync(artifactPath, "", { mode: 0o600 });
               artifacts.paths.set(id, artifactPath);
               artifactAllocations.getStore()?.push(artifactPath);
@@ -362,6 +362,13 @@ const createGrepDefinitionWithOptions = (cwd: string): ToolDefinition<any, any> 
   };
 };
 
+const HOST_FIND_MAX_LIMIT = 200;
+
+const clampFindLimit = (value: unknown): number => {
+  const requested = typeof value === "number" && Number.isFinite(value) ? Math.floor(value) : HOST_FIND_MAX_LIMIT;
+  return Math.min(HOST_FIND_MAX_LIMIT, Math.max(1, requested));
+};
+
 const createFindDefinitionWithFilters = (cwd: string): ToolDefinition<any, any> => {
   const legacy = createFindToolDefinition(cwd);
   const tool = new GlobTool(grepSession(cwd));
@@ -370,17 +377,17 @@ const createFindDefinitionWithFilters = (cwd: string): ToolDefinition<any, any> 
     parameters: withFindFilterSchema(legacy.parameters) as ToolDefinition<any, any>["parameters"],
     execute: (toolCallId, params, signal, onUpdate, context) => {
       const record = asRecord(params) ?? {};
+      const limit = clampFindLimit(record.limit);
       if (typeof record.gitignore !== "boolean" && typeof record.hidden !== "boolean") {
-        return legacy.execute(toolCallId, params as never, signal, onUpdate as never, context as never);
+        return legacy.execute(toolCallId, { ...record, limit } as never, signal, onUpdate as never, context as never);
       }
       const pattern = typeof record.pattern === "string" ? record.pattern : undefined;
       const searchPath = typeof record.path === "string" ? record.path : undefined;
-      const limit = typeof record.limit === "number" ? record.limit : undefined;
       return tool.execute(
         toolCallId,
         {
           path: piJoinPath(searchPath ?? ".", pattern ?? "*"),
-          ...(limit === undefined ? {} : { limit }),
+          limit,
           ...(typeof record.gitignore === "boolean" ? { gitignore: record.gitignore } : {}),
           ...(typeof record.hidden === "boolean" ? { hidden: record.hidden } : {}),
         } as never,

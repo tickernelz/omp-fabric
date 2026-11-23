@@ -262,7 +262,7 @@ describe("AgentManager", async () => {
       sessionSeed: handoffSeed(),
     });
     const handoffDirectory = path.join(manager.runDirectory(handle.id)!, "handoff-session");
-    const [sessionName] = fs.readdirSync(handoffDirectory);
+    const sessionName = fs.readdirSync(handoffDirectory).find((name) => name.endsWith(".jsonl"));
     expect(sessionName).toBeDefined();
     const session = await SessionManager.open(path.join(handoffDirectory, sessionName!));
     expect(session.buildSessionContext()).toMatchObject({
