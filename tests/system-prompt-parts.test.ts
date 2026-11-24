@@ -155,6 +155,43 @@ describe("before_agent_start system prompt parts", () => {
     expect(second.at(-1)).toBe(first.at(-1));
   });
 
+  it("keeps the host's volatile segments leading their own parts so the provider cache anchor survives", async () => {
+    // Mirrors OMP's provider rule (pi-ai anthropic.ts VOLATILE_SYSTEM_SEGMENT_MARKERS):
+    // the cache breakpoint sits on the block before the first part that STARTS with
+    // one of these tags. Joining the parts into one string would hide the tags.
+    const MARKERS = ["<memories>", "<project-context>"];
+    const anchorIndex = (parts: readonly string[]): number => {
+      const index = parts.findIndex((part) => MARKERS.some((marker) => part.startsWith(marker)));
+      return index === -1 ? parts.length : index;
+    };
+    setActiveSkills(skills);
+    configure(true);
+    const handler = await registerExtension();
+    const stable = ["Core identity", SKILLS_HEADING, "Tools\n- read"];
+
+    const first = await systemPromptOf(handler, [
+      ...stable,
+      "<memories>\n- fact A",
+      "<project-context>\ncwd /a",
+    ]);
+    const second = await systemPromptOf(handler, [
+      ...stable,
+      "<memories>\n- fact B",
+      "<project-context>\ncwd /b",
+    ]);
+
+    expect(anchorIndex(first)).toBe(3);
+    expect(anchorIndex(second)).toBe(3);
+    expect(first[3]!.startsWith("<memories>")).toBe(true);
+    expect(first[4]!.startsWith("<project-context>")).toBe(true);
+    expect(second.slice(0, anchorIndex(second))).toEqual(first.slice(0, anchorIndex(first)));
+    // Fabric's own guidance rides after the volatile segments, never inside the cached head.
+    expect(first.slice(0, 3).some((part) => part.includes("OMP Fabric full code mode"))).toBe(false);
+    expect(first.at(-1)).toContain("OMP Fabric full code mode");
+    // The old joined-string form had no leading tag, so the provider found no anchor at all.
+    expect(anchorIndex([first.join("\n")])).toBe(1);
+  });
+
   it("restores the load instruction inside the part that holds the skills section", async () => {
     setActiveSkills(skills);
     configure(true);
