@@ -72,8 +72,9 @@ import {
 } from "./components/model-guidance.js";
 import {
   activeSkills,
+  hostPromptParts,
   listableSkills,
-  restoreSkillsForFullCodePrompt,
+  restoreSkillsInPromptParts,
 } from "./core/skill-prompt.js";
 import {
   formatProxyContractReminder,
@@ -771,12 +772,13 @@ export default async function ompFabric(omp: ExtensionAPI): Promise<void> {
     if (!omp.getActiveTools().includes("fabric_exec")) return;
     const skills = activeSkills();
     const captureSnapshot = state.cwd ? capturePolicy() : undefined;
-    const systemPrompt = effectiveFullCodeMode
-      ? restoreSkillsForFullCodePrompt(
-        event.systemPrompt.join("\n"),
-        listableSkills(skills),
-      )
-      : event.systemPrompt.join("\n");
+    // Keep the host's prompt parts separate and in order. Provider prompt
+    // caching places breakpoints between parts, so joining them lets one part
+    // that changes per turn (recalled memories) invalidate the stable prefix.
+    const hostParts = hostPromptParts(event.systemPrompt);
+    const systemParts = effectiveFullCodeMode
+      ? restoreSkillsInPromptParts(hostParts, listableSkills(skills))
+      : [...hostParts];
     // OMP expands the invoked skill into the user message, but wrappers may
     // delegate by name. Resolve only explicit invocation lines so full code
     // mode preserves OMP's progressive skill loading without exposing read.
@@ -841,11 +843,13 @@ export default async function ompFabric(omp: ExtensionAPI): Promise<void> {
       skillReferenceGuidance,
       suggestion ? skillSuggestionBlock(suggestion) : undefined,
     ].filter((section): section is string => Boolean(section)).join("\n\n");
+    // Guidance is its own trailing part, added only when there is some.
+    const nextSystemPrompt = guidance ? [...systemParts, guidance] : systemParts;
     if (!turnContent) return {
-      systemPrompt: [`${systemPrompt}\n\n${guidance}`],
+      systemPrompt: nextSystemPrompt,
     };
     return {
-      systemPrompt: [`${systemPrompt}\n\n${guidance}`],
+      systemPrompt: nextSystemPrompt,
       message: {
         customType: SKILL_REFERENCE_CUSTOM_TYPE,
         content: turnContent,
@@ -872,7 +876,7 @@ export default async function ompFabric(omp: ExtensionAPI): Promise<void> {
     if (names.length === 0) return;
     const mentioned = proxyContractMentionsInSkills(
       event.prompt,
-      event.systemPrompt.join("\n"),
+      hostPromptParts(event.systemPrompt).join("\n"),
       names,
     );
     const fresh = proxyContract.take(mentioned);
