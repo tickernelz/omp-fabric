@@ -116,7 +116,9 @@ describe("core override prompt guidance", () => {
         systemPrompt: ["base system"],
         prompt: "inspect source",
       }, {});
-      const prompt = (result as { systemPrompt: string[] }).systemPrompt[0]!;
+      const prompt = (result as { systemPrompt: string[] }).systemPrompt.join("\n");
+      // The host prompt stays its own untouched leading part; guidance is appended after it.
+      expect((result as { systemPrompt: string[] }).systemPrompt[0]).toBe("base system");
       expect(prompt).toContain("omp.read");
       expect(prompt).toContain("structure-aware reads");
       expect(prompt).toContain("Prefer symbol IDs when available.");
@@ -170,8 +172,8 @@ describe("core override prompt guidance", () => {
         };
         const guidedResult = await handler(guidedEvent, modelContext);
         const repeatedResult = await handler(guidedEvent, modelContext);
-        const guidedPrompt = (guidedResult as { systemPrompt: string[] }).systemPrompt[0]!;
-        expect((repeatedResult as { systemPrompt: string[] }).systemPrompt[0]).toBe(guidedPrompt);
+        const guidedPrompt = (guidedResult as { systemPrompt: string[] }).systemPrompt.join("\n");
+        expect((repeatedResult as { systemPrompt: string[] }).systemPrompt.join("\n")).toBe(guidedPrompt);
         expect(guidedPrompt).toContain("OMP Fabric full code mode");
         expect(guidedPrompt).toContain("Custom DeepSeek execution profile");
         expect(guidedPrompt).toContain("DeepSeek-specific final instruction");
@@ -191,7 +193,7 @@ describe("core override prompt guidance", () => {
         // Turn-derived skill guidance must NOT touch the system prompt: the
         // system prompt stays byte-identical to a non-skill turn so provider
         // prefix caches never cold-prefill. It rides the message channel.
-        const skillPrompt = (skillResult as { systemPrompt: string[] }).systemPrompt[0]!;
+        const skillPrompt = (skillResult as { systemPrompt: string[] }).systemPrompt.join("\n");
         expect(skillPrompt).toBe(guidedPrompt);
         expect(skillPrompt).not.toContain("The active skill");
         const skillMessage = (skillResult as { message?: { content: string } }).message;
@@ -211,7 +213,7 @@ describe("core override prompt guidance", () => {
           systemPrompt: ["base system"],
           prompt: "inspect source",
         }, {});
-        const enforcedPrompt = (enforcedResult as { systemPrompt: string[] }).systemPrompt[0]!;
+        const enforcedPrompt = (enforcedResult as { systemPrompt: string[] }).systemPrompt.join("\n");
         expect(enforcedPrompt).toContain("structure-aware reads");
         expect(enforcedPrompt).toContain("Prefer symbol IDs when available.");
         expect(enforcedPrompt).not.toContain("extensions.read");
