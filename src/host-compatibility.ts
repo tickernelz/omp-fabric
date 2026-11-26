@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, realpathSync } from "node:fs";
 import path from "node:path";
 
-export const MINIMUM_OMP_HOST_VERSION = "18.4.4";
+export const MINIMUM_OMP_HOST_VERSION = "19.2.1";
 
 const OMP_HOST_PACKAGE_NAMES: Record<string, true> = {
   "@oh-my-pi/pi-coding-agent": true,
@@ -103,5 +103,5 @@ export const ompHostCompatibilityWarning = (
   if (!version) return undefined;
   const comparison = compareVersions(version, MINIMUM_OMP_HOST_VERSION);
   if (comparison === undefined || comparison >= 0) return undefined;
-  return `OMP Fabric requires OMP >= ${MINIMUM_OMP_HOST_VERSION}; detected ${version}. Upgrade OMP: Fabric types guest tools against that release, so an older host can accept calls Fabric rejects, such as the per-call bash \`env\` it removed.`;
+  return `OMP Fabric requires OMP >= ${MINIMUM_OMP_HOST_VERSION}; detected ${version}. Upgrade OMP: Fabric draws its views as rows objects for that release's reactive TUI and types guest tools against it, so an older host cannot show them and can accept calls Fabric rejects.`;
 };
