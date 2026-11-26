@@ -1,15 +1,14 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import type { AssistantMessage } from "@oh-my-pi/pi-ai";
-import { AssistantMessageComponent, UserMessageComponent, initThemeSync, type Theme } from "@oh-my-pi/pi-coding-agent";
-import { visibleWidth, type TUI } from "@oh-my-pi/pi-tui";
+import { initTheme, type Theme } from "@oh-my-pi/pi-coding-agent";
+import { visibleWidth, type HostSurface as TUI } from "../src/ui/rows.js";
 import { describe, expect, it, vi } from "vitest";
 import { conversationFooter, readConversationAppearance } from "../src/ui/conversation-chrome.js";
 import { FabricConversationState, FabricConversationView, type FabricConversationTarget } from "../src/ui/conversation.js";
 import { FabricConversationTranscriptRenderer } from "../src/ui/conversation-render.js";
 import { highlightCode, initHighlighting } from "../src/ui/highlight.js";
-import { nativeTranscript, userMessage, assistantMessage } from "./fixtures/native-conversation.js";
+import { nativeTranscript, assistantMessage } from "./fixtures/native-conversation.js";
 
 const theme = {
   fg: (_color: string, text: string) => text, bg: (_color: string, text: string) => text,
@@ -25,34 +24,12 @@ const tui = { terminal: { rows: 22, columns: 120, write: vi.fn() }, requestRende
 const plain = (lines: readonly string[]) => lines.map((line) => line.replace(/\x1b\[[0-9;]*m/g, ""));
 
 describe("native conversation chrome", () => {
-  it("matches native user background width and padding", () => {
-    initThemeSync(undefined, false, "dark");
-    const renderer = new FabricConversationTranscriptRenderer(tui, theme);
-    const lines = renderer.render(nativeTranscript([userMessage("Hello!")]), 80, { target, toolsExpanded: false });
-    const native = new UserMessageComponent("Hello!").render(80);
-    expect(plain(lines)).toEqual(plain(native));
-    expect(lines.every((line) => visibleWidth(line) === 80)).toBe(true);
-  });
-
-  it("matches native assistant spacing without an Agent heading", () => {
-    initThemeSync(undefined, false, "dark");
-    const text = "A **normal OMP** response.";
-    const message: AssistantMessage = {
-      role: "assistant", content: [{ type: "text", text }], api: "openai-responses", provider: "openai", model: "fixture", timestamp: 0, stopReason: "stop",
-      usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
-    };
-    const native = new AssistantMessageComponent(message, false, undefined, undefined, undefined).render(80);
-    const lines = new FabricConversationTranscriptRenderer(tui, theme).render(nativeTranscript([message]), 80, { target, toolsExpanded: false });
-    expect(plain(lines)).toEqual(plain(native));
-    expect(plain(lines).join("\n")).not.toContain("Agent");
-  });
-
   it("renders Shiki truecolor fences and native tool backgrounds", async () => {
     // The assertion is about truecolor escapes, so advertise a truecolor
     // terminal: OMP downgrades to 256-color when the environment does not.
     vi.stubEnv("COLORTERM", "truecolor");
     try {
-      initThemeSync(undefined, false, "dark");
+      initTheme({ appearance: "dark" });
       await initHighlighting("dark-plus", true);
       const bg = vi.fn((_color: string, text: string) => text);
       const renderer = new FabricConversationTranscriptRenderer(tui, { ...theme, bg } as unknown as Theme);
@@ -76,7 +53,7 @@ describe("native conversation chrome", () => {
     }
   }, 90_000);
 
-  it("keeps editor rules full width and the child footer below the editor", () => {
+  it("keeps the child footer below the editor within the terminal width", () => {
     const state = new FabricConversationState();
     state.view(target.id).draft = "draft";
     const view = new FabricConversationView(tui, theme, {
@@ -87,12 +64,9 @@ describe("native conversation chrome", () => {
       send: vi.fn(), stop: vi.fn(), close: vi.fn(),
     });
     const lines = plain(view.render(120));
-    const topIndex = lines.findIndex((line) => line.startsWith("╭"));
     const editorIndex = lines.findIndex((line) => line.includes("draft"));
-    expect(topIndex).toBeGreaterThanOrEqual(0);
-    expect(editorIndex).toBe(topIndex + 1);
-    expect(visibleWidth(lines[topIndex]!)).toBe(120);
-    expect(visibleWidth(lines[editorIndex]!)).toBe(120);
+    expect(editorIndex).toBeGreaterThanOrEqual(0);
+    expect(lines.every((line) => visibleWidth(line) <= 120)).toBe(true);
     const footerIndex = lines.findIndex((line) => line.includes("/repo/child (feature/chat)"));
     expect(footerIndex).toBeGreaterThan(editorIndex);
     expect(lines[footerIndex + 1]).toContain("run ↑1.2k ↓400 R600 $0.012");

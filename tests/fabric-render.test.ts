@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import type { Theme } from "@oh-my-pi/pi-coding-agent";
 import type { CodePreviewSettings } from "../src/ui/code-preview.js";
-import { Box, visibleWidth } from "@oh-my-pi/pi-tui";
+import { visibleWidth } from "../src/ui/rows.js";
 import { describe, expect, it, vi } from "vitest";
 import { configureHighlighting, initHighlighting } from "../src/ui/highlight.js";
 import {
@@ -1664,27 +1664,22 @@ b`, theme)).toBe("");
     expect(title).not.toContain("3");
   });
 
-  it("preserves the enclosing Box background across wrapped bounded rows", () => {
-    const box = new Box(1, 0, (text) => "\x1b[42m" + text + "\x1b[49m");
-    box.addChild(renderBoundedLines(["x".repeat(40)]));
-
-    const lines = box.render(20);
-    expect(lines.every((line) => visibleWidth(line) === 20)).toBe(true);
-    expect(lines.every((line) => line.startsWith("\x1b[42m"))).toBe(true);
+  it("keeps wrapped bounded rows free of resets that would clear a host background", () => {
+    const lines = renderBoundedLines(["x".repeat(40)]).render(18);
+    expect(lines.length).toBeGreaterThan(1);
+    expect(lines.every((line) => visibleWidth(line) <= 18)).toBe(true);
     expect(lines.join("")).not.toContain("\x1b[0m");
+    expect(lines.join("")).not.toContain("\x1b[49m");
     expect(lines.join("").replace(/\x1b\[[0-9;]*m/g, "").replace(/\s+/g, ""))
       .toBe("x".repeat(40));
   });
 
-  it("keeps the enclosing Box background when a bounded row is truncated", () => {
-    const box = new Box(1, 0, (text) => "\x1b[42m" + text + "\x1b[49m");
-    box.addChild(renderBoundedLines(["x".repeat(40)], undefined, "off", 1));
-
-    const line = box.render(20)[0]!;
-    expect(line).toBe(
-      "\x1b[42m " + "x".repeat(14) + "\x1b[22;23;24;27;29;39m …+2 \x1b[49m",
-    );
-    expect(visibleWidth(line)).toBe(20);
+  it("truncates a bounded row with a reset that leaves a host background intact", () => {
+    const line = renderBoundedLines(["x".repeat(40)], undefined, "off", 1).render(18)[0]!;
+    expect(line).toBe("x".repeat(14) + "\x1b[22;23;24;27;29;39m …+2");
+    expect(line).not.toContain("\x1b[0m");
+    expect(line).not.toContain("\x1b[49m");
+    expect(visibleWidth(line)).toBe(18);
   });
 
   it("reuses bounded row layout until its width or content is invalidated", () => {

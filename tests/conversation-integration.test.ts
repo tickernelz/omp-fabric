@@ -451,7 +451,7 @@ describe("FabricUiController.openConversation", () => {
     expect(harness.custom).toHaveBeenCalledTimes(1);
     expect(harness.overlayOptions(0)).toMatchObject({
       overlay: true,
-      overlayOptions: { width: "100%", maxHeight: "100%", anchor: "top-left", margin: 0 },
+      fullscreen: true,
     });
     const options = lastOptions();
     expect(options.initialTargetId).toBeUndefined();
