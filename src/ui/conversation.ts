@@ -2,7 +2,7 @@ import type { Theme } from "@oh-my-pi/pi-coding-agent";
 import { fuzzyFilter } from "@oh-my-pi/pi-coding-agent/utils/fuzzy";
 import {
   clip,
-  EDITOR_CURSOR,
+  caretRow,
   type HostSurface,
   hostMatches,
   Input,
@@ -333,7 +333,7 @@ export class FabricConversationView  {
     let editorLines = this.mode === "conversation" && !(queue?.editingActive && queue.mode === "extension") ? this.renderEditorLines(width) : [];
     const editorBudget = Math.min(editorLines.length, Math.max(1, rows - (rows >= 6 ? 3 : 0)));
     if (editorLines.length > editorBudget) {
-      const cursor = Math.max(0, editorLines.findIndex((line) => line.includes(EDITOR_CURSOR)));
+      const cursor = Math.max(0, caretRow(editorLines));
       const start = Math.max(0, Math.min(cursor - Math.floor(editorBudget / 2), editorLines.length - editorBudget));
       editorLines = editorLines.slice(start, start + editorBudget);
     }
@@ -360,7 +360,7 @@ export class FabricConversationView  {
     remaining -= hints.length;
     const queueBudget = Math.max(0, remaining - 1);
     if (queueLines.length > queueBudget) {
-      const cursor = queueLines.findIndex((line) => line.includes(EDITOR_CURSOR));
+      const cursor = caretRow(queueLines);
       const start = Math.max(0, Math.min(cursor < 0 ? 0 : cursor - Math.floor(queueBudget / 2), queueLines.length - queueBudget));
       queueLines = queueLines.slice(start, start + queueBudget);
     }

@@ -1,7 +1,7 @@
 import type { Theme } from "@oh-my-pi/pi-coding-agent";
 import type { RawKeybindings } from "../src/ui/rows.js";
 import type { HostSurface as TUI } from "../src/ui/rows.js";
-import { EDITOR_CURSOR, visibleWidth } from "../src/ui/rows.js";
+import { EDITOR_CARET, visibleWidth } from "../src/ui/rows.js";
 import { describe, expect, it, vi } from "vitest";
 import {
   FabricConversationState,
@@ -436,9 +436,9 @@ describe("FabricConversationView", () => {
     expect(h.close).not.toHaveBeenCalled();
   });
 
-  it("propagates focus to the editor (IME cursor marker) immediately", () => {
+  it("propagates focus to the editor (visible caret) immediately", () => {
     const h = makeHarness({ initialTargetId: "a" });
-    const marker = EDITOR_CURSOR;
+    const marker = `${EDITOR_CARET} \u001b[27m`;
     expect(renderText(h.view)).toContain(marker);
     h.view.focused = false;
     expect(renderText(h.view)).not.toContain(marker);

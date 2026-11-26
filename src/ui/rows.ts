@@ -2,7 +2,7 @@
 // decoded with the reactive driver; drawing stays `render(width): string[]`
 import { decodeInput } from "@oh-my-pi/pi-tui/driver/input/decoder";
 import type { KeyEvent } from "@oh-my-pi/pi-tui";
-import { truncate, visibleWidth, wrap } from "@oh-my-pi/pi-tui/text/width";
+import { replaceTabs, truncate, visibleWidth, wrap } from "@oh-my-pi/pi-tui/text/width";
 export { truncate, visibleWidth, wrap };
 import { getKeybindings, type Keybinding, type KeybindingsManager, type Theme } from "@oh-my-pi/pi-coding-agent";
 
@@ -77,8 +77,251 @@ export function rawKeybindings(manager: KeybindingsManager): RawKeybindings {
   };
 }
 
-/** Zero-width marker so a rows editor can scroll the caret line into view. */
-export const EDITOR_CURSOR = "\u001b_omp-cursor\u0007";
+/** Opens the inverse-video cell a focused rows editor paints its caret with. */
+export const EDITOR_CARET = "\u001b[7m";
+const EDITOR_CARET_END = "\u001b[27m";
+
+function caretCell(text: string): string {
+  return `${EDITOR_CARET}${text}${EDITOR_CARET_END}`;
+}
+
+/** Index of the row holding a focused editor's caret, or -1 when none does. */
+export function caretRow(lines: readonly string[]): number {
+  return lines.findIndex((line) => line.includes(EDITOR_CARET));
+}
+
+const graphemeSegmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+
+interface Grapheme {
+  readonly at: number;
+  readonly text: string;
+  readonly width: number;
+}
+
+/** The graphemes of `text[from, to)`, with UTF-16 offsets into the whole text. */
+function graphemesOf(text: string, from = 0, to = text.length): Grapheme[] {
+  const out: Grapheme[] = [];
+  if (to <= from) return out;
+  for (const { segment, index } of graphemeSegmenter.segment(text.slice(from, to))) {
+    out.push({ at: from + index, text: segment, width: visibleWidth(segment) });
+  }
+  return out;
+}
+
+const BLANK = /^\s+$/u;
+// Controls other than LF never reach a field: they would corrupt the painted row.
+const CONTROLS = /[\u0000-\u0009\u000b-\u001f\u007f-\u009f]/g;
+
+/** Typed or pasted text as a field stores it: LF line ends, spaces for tabs, no other controls. */
+function cleanInsert(text: string, singleLine: boolean): string {
+  const clean = replaceTabs(text.replace(/\r\n?/g, "\n")).replace(CONTROLS, "");
+  return singleLine ? clean.replace(/\n/g, " ") : clean;
+}
+
+/** One visual row of wrapped editor text; offsets are UTF-16 indices into the whole text. */
+interface EditorRow {
+  readonly start: number;
+  /** End of the row's painted text. */
+  readonly textEnd: number;
+  /** Where the next row starts: blanks swallowed by a soft break lie in `[textEnd, end)`. */
+  readonly end: number;
+  /** Whether the row ends its logical line. */
+  readonly last: boolean;
+}
+
+/** Word-wrap one logical line to `width` cells, like the host editor: a word wider than a row breaks by graphemes. */
+function wrapLine(line: string, width: number): Array<Omit<EditorRow, "last">> {
+  const all = graphemesOf(line);
+  let total = 0;
+  for (const g of all) total += g.width;
+  if (total <= width) return [{ start: 0, textEnd: line.length, end: line.length }];
+  const rows: Array<Omit<EditorRow, "last">> = [];
+  let start = 0;
+  let rowWidth = 0;
+  let wordEnd = 0;
+  const close = (textEnd: number, end: number): void => {
+    rows.push({ start, textEnd, end });
+    start = end;
+    rowWidth = 0;
+    wordEnd = end;
+  };
+  for (let i = 0; i < all.length;) {
+    const blank = BLANK.test(all[i]!.text);
+    let j = i;
+    let tokenWidth = 0;
+    while (j < all.length && BLANK.test(all[j]!.text) === blank) tokenWidth += all[j++]!.width;
+    const tokenStart = all[i]!.at;
+    const tokenEnd = j < all.length ? all[j]!.at : line.length;
+    if (blank) {
+      if (rowWidth + tokenWidth <= width) rowWidth += tokenWidth;
+      // Blanks ending the line stay with its last row; others vanish into the break.
+      else if (j >= all.length) {
+        rows.push({ start, textEnd: wordEnd, end: line.length });
+        return rows;
+      } else close(wordEnd, tokenEnd);
+    } else if (rowWidth + tokenWidth <= width) {
+      rowWidth += tokenWidth;
+      wordEnd = tokenEnd;
+    } else if (tokenWidth <= width) {
+      close(wordEnd, tokenStart);
+      rowWidth = tokenWidth;
+      wordEnd = tokenEnd;
+    } else {
+      for (let k = i; k < j; k++) {
+        const g = all[k]!;
+        if (rowWidth + g.width > width && rowWidth > 0) close(k === i ? wordEnd : g.at, g.at);
+        rowWidth += g.width;
+        wordEnd = g.at + g.text.length;
+      }
+    }
+    i = j;
+  }
+  rows.push({ start, textEnd: line.length, end: line.length });
+  return rows;
+}
+
+function layoutRows(text: string, width: number): EditorRow[] {
+  const rows: EditorRow[] = [];
+  let offset = 0;
+  for (const line of text.split("\n")) {
+    const chunks = wrapLine(line, Math.max(1, width));
+    chunks.forEach((chunk, index) => {
+      rows.push({
+        start: offset + chunk.start,
+        textEnd: offset + chunk.textEnd,
+        end: offset + chunk.end,
+        last: index === chunks.length - 1,
+      });
+    });
+    offset += line.length + 1;
+  }
+  return rows;
+}
+
+/** The row holding `offset`; a soft-break boundary belongs to the next row. */
+function rowOf(rows: readonly EditorRow[], offset: number): number {
+  for (let index = 0; index < rows.length; index++) {
+    const row = rows[index]!;
+    if (offset >= row.start && (offset < row.end || (offset === row.end && row.last))) return index;
+  }
+  return Math.max(0, rows.length - 1);
+}
+
+function columnOf(text: string, row: EditorRow, offset: number): number {
+  let cells = 0;
+  for (const g of graphemesOf(text, row.start, Math.min(Math.max(offset, row.start), row.textEnd))) cells += g.width;
+  return cells;
+}
+
+function offsetAtColumn(text: string, row: EditorRow, column: number): number {
+  let cells = 0;
+  let lastStart = row.start;
+  for (const g of graphemesOf(text, row.start, row.textEnd)) {
+    if (cells + g.width > column) return g.at;
+    cells += g.width;
+    lastStart = g.at;
+  }
+  // A hard-broken row's end already belongs to the next row: stay on its last grapheme.
+  return !row.last && row.textEnd === row.end ? lastStart : row.textEnd;
+}
+
+/** `text[start, end)` with the caret painted over the grapheme at `cursor`, or after the text. */
+function withCaret(text: string, start: number, end: number, cursor: number): string {
+  const at = Math.min(Math.max(cursor, start), end);
+  const under = at < end ? graphemesOf(text, at, end)[0] : undefined;
+  if (!under) return `${text.slice(start, at)}${caretCell(" ")}`;
+  return `${text.slice(start, at)}${caretCell(under.text)}${text.slice(at + under.text.length, end)}`;
+}
+
+/** Text and a caret offset (UTF-16, always on a grapheme boundary) shared by the rows editors. */
+class EditBuffer {
+  value = "";
+  cursor = 0;
+
+  constructor(readonly singleLine: boolean) { }
+
+  insert(text: string): boolean {
+    const clean = cleanInsert(text, this.singleLine);
+    if (!clean) return false;
+    this.value = this.value.slice(0, this.cursor) + clean + this.value.slice(this.cursor);
+    this.cursor += clean.length;
+    return true;
+  }
+
+  remove(from: number, to: number): boolean {
+    if (to <= from) return false;
+    this.value = this.value.slice(0, from) + this.value.slice(to);
+    this.cursor = from;
+    return true;
+  }
+
+  lineStart(offset: number): number {
+    return offset <= 0 ? 0 : this.value.lastIndexOf("\n", offset - 1) + 1;
+  }
+
+  lineEnd(offset: number): number {
+    const end = this.value.indexOf("\n", offset);
+    return end < 0 ? this.value.length : end;
+  }
+
+  /** Start of the grapheme before `offset`. */
+  before(offset: number): number {
+    if (offset <= 0) return 0;
+    const start = this.lineStart(offset);
+    if (start === offset) return offset - 1;
+    return graphemesOf(this.value, start, offset).at(-1)?.at ?? offset - 1;
+  }
+
+  /** End of the grapheme at `offset`. */
+  after(offset: number): number {
+    if (offset >= this.value.length) return this.value.length;
+    if (this.value[offset] === "\n") return offset + 1;
+    const first = graphemesOf(this.value, offset, this.lineEnd(offset))[0];
+    return first ? offset + first.text.length : offset + 1;
+  }
+
+  wordBefore(offset: number): number {
+    const all = graphemesOf(this.value, 0, offset);
+    let index = all.length;
+    while (index > 0 && BLANK.test(all[index - 1]!.text)) index--;
+    while (index > 0 && !BLANK.test(all[index - 1]!.text)) index--;
+    return all[index]?.at ?? offset;
+  }
+
+  wordAfter(offset: number): number {
+    const all = graphemesOf(this.value, offset);
+    let index = 0;
+    while (index < all.length && BLANK.test(all[index]!.text)) index++;
+    while (index < all.length && !BLANK.test(all[index]!.text)) index++;
+    return all[index]?.at ?? this.value.length;
+  }
+}
+
+/**
+ * One editing key, matched through the host's `tui.editor.*` bindings: true when the
+ * text changed, false when only the caret moved, undefined when it is no editing key.
+ */
+function applyEditKey(buffer: EditBuffer, key: KeyEvent): boolean | undefined {
+  const at = buffer.cursor;
+  if (key.id === "backspace" || key.id === "ctrl+h" || actionIs(key, "tui.editor.deleteCharBackward")) {
+    return buffer.remove(buffer.before(at), at);
+  }
+  if (actionIs(key, "tui.editor.deleteCharForward")) return buffer.remove(at, buffer.after(at));
+  if (actionIs(key, "tui.editor.deleteWordBackward")) return buffer.remove(buffer.wordBefore(at), at);
+  if (actionIs(key, "tui.editor.deleteWordForward")) return buffer.remove(at, buffer.wordAfter(at));
+  if (actionIs(key, "tui.editor.deleteToLineStart")) return buffer.remove(buffer.lineStart(at), at);
+  if (actionIs(key, "tui.editor.deleteToLineEnd")) return buffer.remove(at, buffer.lineEnd(at));
+  let to: number | undefined;
+  if (actionIs(key, "tui.editor.cursorLeft")) to = buffer.before(at);
+  else if (actionIs(key, "tui.editor.cursorRight")) to = buffer.after(at);
+  else if (actionIs(key, "tui.editor.cursorWordLeft")) to = buffer.wordBefore(at);
+  else if (actionIs(key, "tui.editor.cursorWordRight")) to = buffer.wordAfter(at);
+  else if (actionIs(key, "tui.editor.cursorLineStart")) to = buffer.lineStart(at);
+  else if (actionIs(key, "tui.editor.cursorLineEnd")) to = buffer.lineEnd(at);
+  if (to === undefined) return undefined;
+  buffer.cursor = to;
+  return false;
+}
 
 export class PromptEditor implements RowsView {
   focused = false;
@@ -87,65 +330,88 @@ export class PromptEditor implements RowsView {
   onSubmit?: (text: string) => void;
 
   invalidate(): void { }
-  #value = "";
-  #cursor = 0;
+  readonly #buffer = new EditBuffer(false);
+  /** Row width of the last render: up/down walk these wrapped rows. */
+  #rowWidth = Number.POSITIVE_INFINITY;
+  /** Column a run of up/down moves aims for. */
+  #goalColumn: number | undefined;
 
   getText(): string {
-    return this.#value;
+    return this.#buffer.value;
   }
 
   setText(text: string): void {
-    if (text === this.#value && this.#cursor === text.length) return;
-    this.#value = text;
-    this.#cursor = text.length;
+    if (text === this.#buffer.value && this.#buffer.cursor === text.length) return;
+    this.#buffer.value = text;
+    this.#buffer.cursor = text.length;
+    this.#goalColumn = undefined;
     this.onChange?.(text);
   }
 
   handleInput(data: string): void {
     let changed = false;
-    for (const key of keyPresses(data)) {
-      if (key.id === "backspace" || key.id === "ctrl+h") {
-        if (this.#cursor === 0) continue;
-        this.#value = this.#value.slice(0, this.#cursor - 1) + this.#value.slice(this.#cursor);
-        this.#cursor -= 1;
-        changed = true;
+    for (const event of decodeInput(data)) {
+      if (event.type === "paste") {
+        this.#goalColumn = undefined;
+        if (this.#buffer.insert(event.paste.text)) changed = true;
         continue;
       }
-      if (key.id === "left") {
-        this.#cursor = Math.max(0, this.#cursor - 1);
+      if (event.type !== "key" || event.key.kind === "release") continue;
+      const key = event.key;
+      if (actionIs(key, "tui.editor.cursorUp")) {
+        this.#moveVertically(-1);
         continue;
       }
-      if (key.id === "right") {
-        this.#cursor = Math.min(this.#value.length, this.#cursor + 1);
+      if (actionIs(key, "tui.editor.cursorDown")) {
+        this.#moveVertically(1);
         continue;
       }
+      this.#goalColumn = undefined;
       if (key.id === "shift+enter") {
-        this.#value = this.#value.slice(0, this.#cursor) + "\n" + this.#value.slice(this.#cursor);
-        this.#cursor += 1;
-        changed = true;
+        if (this.#buffer.insert("\n")) changed = true;
         continue;
       }
       if (key.id === "enter") {
-        if (changed) this.onChange?.(this.#value);
+        if (changed) this.onChange?.(this.#buffer.value);
         changed = false;
-        this.onSubmit?.(this.#value);
+        this.onSubmit?.(this.#buffer.value);
         continue;
       }
       if (key.id === "escape") continue;
+      const edited = applyEditKey(this.#buffer, key);
+      if (edited !== undefined) {
+        if (edited) changed = true;
+        continue;
+      }
       const text = key.id === "space" ? " " : key.text;
-      if (!text) continue;
-      this.#value = this.#value.slice(0, this.#cursor) + text + this.#value.slice(this.#cursor);
-      this.#cursor += text.length;
-      changed = true;
+      if (text && this.#buffer.insert(text)) changed = true;
     }
-    if (changed) this.onChange?.(this.#value);
+    if (changed) this.onChange?.(this.#buffer.value);
   }
 
   render(width: number): readonly string[] {
+    // One cell stays free so a caret after a row's last character still fits.
+    this.#rowWidth = Math.max(1, width - 1);
+    const value = this.#buffer.value;
+    const rows = layoutRows(value, this.#rowWidth);
     // Only the focused editor owns the caret; an unfocused one must not claim it.
-    const caret = this.focused ? EDITOR_CURSOR : "";
-    const text = this.#value.slice(0, this.#cursor) + caret + this.#value.slice(this.#cursor);
-    return text.split("\n").map((line) => clip(line, Math.max(0, width), ""));
+    const caret = this.focused ? rowOf(rows, this.#buffer.cursor) : -1;
+    return rows.map((row, index) => {
+      const line = index === caret
+        ? withCaret(value, row.start, row.textEnd, this.#buffer.cursor)
+        : value.slice(row.start, row.textEnd);
+      return clip(line, Math.max(0, width), "");
+    });
+  }
+
+  #moveVertically(delta: number): void {
+    const value = this.#buffer.value;
+    const rows = layoutRows(value, this.#rowWidth);
+    const from = rowOf(rows, this.#buffer.cursor);
+    const target = rows[from + delta];
+    if (!target) return;
+    this.#goalColumn ??= columnOf(value, rows[from]!, this.#buffer.cursor);
+    this.#buffer.cursor = offsetAtColumn(value, target, this.#goalColumn);
   }
 }
 
@@ -218,37 +484,69 @@ export class Input implements RowsView {
   onSubmit?: (value: string) => void;
   invalidate(): void {}
   onEscape?: () => void;
-  #value = "";
+  readonly #buffer = new EditBuffer(true);
+  /** First visible cell while the value is wider than the field. */
+  #scroll = 0;
 
   getValue(): string {
-    return this.#value;
+    return this.#buffer.value;
   }
 
   setValue(value: string): void {
-    this.#value = value;
+    this.#buffer.value = value;
+    this.#buffer.cursor = value.length;
   }
 
   handleInput(data: string): void {
-    for (const key of keyPresses(data)) {
+    for (const event of decodeInput(data)) {
+      if (event.type === "paste") {
+        this.#buffer.insert(event.paste.text);
+        continue;
+      }
+      if (event.type !== "key" || event.key.kind === "release") continue;
+      const key = event.key;
       if (key.id === "enter") {
-        this.onSubmit?.(this.#value);
+        this.onSubmit?.(this.#buffer.value);
         continue;
       }
       if (key.id === "escape" || key.id === "ctrl+c") {
         this.onEscape?.();
         continue;
       }
-      if (key.id === "backspace" || key.id === "ctrl+h") {
-        this.#value = this.#value.slice(0, -1);
-        continue;
-      }
-      if (key.text && key.id !== "space") this.#value += key.text;
-      else if (key.id === "space") this.#value += " ";
+      if (applyEditKey(this.#buffer, key) !== undefined) continue;
+      const text = key.id === "space" ? " " : key.text;
+      if (text) this.#buffer.insert(text);
     }
   }
 
   render(width: number): readonly string[] {
-    return [truncate(this.#value, Math.max(0, width), "")];
+    const value = this.#buffer.value;
+    if (!this.focused || width <= 0) return [truncate(value, Math.max(0, width), "")];
+    const cursor = this.#buffer.cursor;
+    const all = graphemesOf(value);
+    let total = 1;
+    let caretColumn = 0;
+    let caretWidth = 1;
+    for (const g of all) {
+      if (g.at < cursor) caretColumn += g.width;
+      else if (g.at === cursor) caretWidth = Math.max(1, g.width);
+      total += g.width;
+    }
+    // A window as wide as the field that always holds the caret.
+    this.#scroll = Math.min(this.#scroll, Math.max(0, total - width));
+    if (caretColumn < this.#scroll) this.#scroll = caretColumn;
+    if (caretColumn + caretWidth > this.#scroll + width) this.#scroll = caretColumn + caretWidth - width;
+    let column = 0;
+    let line = "";
+    for (const g of all) {
+      const start = column;
+      column += g.width;
+      if (start < this.#scroll) continue;
+      if (column > this.#scroll + width) break;
+      line += g.at === cursor ? caretCell(g.text) : g.text;
+    }
+    if (cursor >= value.length) line += caretCell(" ");
+    return [truncate(line, width, "")];
   }
 }
 
