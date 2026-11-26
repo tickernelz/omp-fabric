@@ -1,6 +1,7 @@
-import type { KeybindingsManager, Theme } from "@oh-my-pi/pi-coding-agent";
-import type { TUI } from "@oh-my-pi/pi-tui";
-import { visibleWidth } from "@oh-my-pi/pi-tui";
+import type { Theme } from "@oh-my-pi/pi-coding-agent";
+import type { RawKeybindings } from "../src/ui/rows.js";
+import type { HostSurface as TUI } from "../src/ui/rows.js";
+import { visibleWidth } from "../src/ui/rows.js";
 import { describe, expect, it, vi } from "vitest";
 import {
   FabricConversationState,
@@ -9,9 +10,9 @@ import {
   type FabricConversationOptions,
   type FabricConversationTarget,
 } from "../src/ui/conversation.js";
-import { initThemeSync } from "@oh-my-pi/pi-coding-agent";
+import { initTheme } from "@oh-my-pi/pi-coding-agent";
 import { nativeTranscript, userMessage, assistantMessage } from "./fixtures/native-conversation.js";
-initThemeSync(undefined, false, "dark");
+initTheme();
 
 const theme = {
   fg: (_color: string, text: string) => text,
@@ -98,7 +99,7 @@ interface Harness {
   loadNewer: ReturnType<typeof vi.fn>;
   loadLatest: ReturnType<typeof vi.fn>;
   tui: TUI;
-  keybindings: Pick<KeybindingsManager, "matches" | "getKeys">;
+  keybindings: RawKeybindings;
 }
 
 interface HarnessOverrides {

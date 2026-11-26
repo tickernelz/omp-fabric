@@ -1,6 +1,6 @@
 import type { Theme } from "@oh-my-pi/pi-coding-agent";
 import type { CodePreviewSettings } from "../src/ui/code-preview.js";
-import { visibleWidth } from "@oh-my-pi/pi-tui";
+import { visibleWidth } from "../src/ui/rows.js";
 import { TRUNCATION_MARKER } from "../src/core/truncation-marker.js";
 import { nestedCallTitle } from "../src/ui/fabric-render.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";

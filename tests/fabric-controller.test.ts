@@ -1,5 +1,5 @@
 import type { ExtensionContext, Theme } from "@oh-my-pi/pi-coding-agent";
-import type { TUI } from "@oh-my-pi/pi-tui";
+import type { HostSurface as TUI } from "../src/ui/rows.js";
 import { describe, expect, it, vi } from "vitest";
 import type { FabricActivityRun } from "../src/activity/types.js";
 import type { FabricState } from "../src/fabric-state.js";
