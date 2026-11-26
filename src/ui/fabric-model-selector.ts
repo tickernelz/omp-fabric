@@ -1,14 +1,7 @@
 import type { Theme } from "@oh-my-pi/pi-coding-agent";
-import {
-  Container,
-  type Focusable,
-  fuzzyFilter,
-  getKeybindings,
-  Input,
-  Spacer,
-  Text,
-} from "@oh-my-pi/pi-tui";
+import { fuzzyFilter } from "@oh-my-pi/pi-coding-agent/utils/fuzzy";
 import { INHERIT_VALUE, modelKey, sortByLastUsed, type ModelLike, type ModelSource } from "./model-picker.js";
+import { actionIs, Container, Input, keyPresses, Spacer, Text } from "./rows.js";
 
 /** A single pickable row in the Fabric model selector. */
 interface ModelEntry {
@@ -55,7 +48,7 @@ export interface FabricModelSelectorOptions {
  * used first); search filters by fuzzy match and re-sorts by recency, matching
  * pi-model-sort's patched /model behavior.
  */
-export class FabricModelSelector extends Container implements Focusable {
+export class FabricModelSelector extends Container {
   private readonly theme: Theme;
   private readonly allEntries: ModelEntry[];
   private filteredEntries: ModelEntry[];
@@ -122,21 +115,22 @@ export class FabricModelSelector extends Container implements Focusable {
   }
 
   handleInput(keyData: string): void {
-    const kb = getKeybindings();
-    if (kb.matches(keyData, "tui.select.up")) {
+    const presses = keyPresses(keyData);
+    const key = presses.length === 1 ? presses[0] : undefined;
+    if (key && actionIs(key, "tui.select.up")) {
       if (this.filteredEntries.length === 0) return;
       this.selectedIndex =
         this.selectedIndex === 0 ? this.filteredEntries.length - 1 : this.selectedIndex - 1;
       this.updateList();
-    } else if (kb.matches(keyData, "tui.select.down")) {
+    } else if (key && actionIs(key, "tui.select.down")) {
       if (this.filteredEntries.length === 0) return;
       this.selectedIndex =
         this.selectedIndex === this.filteredEntries.length - 1 ? 0 : this.selectedIndex + 1;
       this.updateList();
-    } else if (kb.matches(keyData, "tui.select.confirm")) {
+    } else if (key && actionIs(key, "tui.select.confirm")) {
       const entry = this.filteredEntries[this.selectedIndex];
       if (entry) this.handleSelect(entry);
-    } else if (kb.matches(keyData, "tui.select.cancel")) {
+    } else if (key && actionIs(key, "tui.select.cancel")) {
       this.onCancelCallback();
     } else {
       this.searchInput.handleInput(keyData);

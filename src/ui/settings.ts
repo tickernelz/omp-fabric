@@ -3,9 +3,9 @@ import { DynamicBorder } from "./dynamic-border.js";
 import {
   Container,
   type Component,
+  emphasis,
   Input,
-  Key,
-  matchesKey,
+  keyIs,
   SelectList,
   type SelectItem,
   type SelectListLayoutOptions,
@@ -15,7 +15,7 @@ import {
   type SettingsListTheme,
   Spacer,
   Text,
-} from "@oh-my-pi/pi-tui";
+} from "./rows.js";
 import { ompSymbolTheme } from "./symbol-theme.js";
 import { FabricModelSelector } from "./fabric-model-selector.js";
 import {
@@ -141,7 +141,7 @@ export const ALIASED_CONFIG_KEYS: Readonly<Record<string, string>> = {
   "compaction.tokenThresholds": COMPACTION_THRESHOLD_SETTING_ID,
   "image.models": "image.models.1",
 };
-const SAVE_SCOPE_SHORTCUT = Key.ctrl("g");
+const SAVE_SCOPE_SHORTCUT = "ctrl+g";
 
 const unique = (values: readonly string[]): string[] => [...new Set(values)];
 
@@ -670,7 +670,7 @@ class IntegerInputSubmenu extends Container {
     onCancel: () => void,
   ) {
     super();
-    this.addChild(new Text(theme.bold(theme.fg("accent", title)), 0, 0));
+    this.addChild(new Text(emphasis(theme, theme.fg("accent", title)), 0, 0));
     this.addChild(new Spacer(1));
     this.addChild(new Text(theme.fg("muted", description), 0, 0));
     this.addChild(new Spacer(1));
@@ -729,7 +729,7 @@ class StringInputSubmenu extends Container {
   ) {
     super();
     this.validate = validate;
-    this.addChild(new Text(theme.bold(theme.fg("accent", title)), 0, 0));
+    this.addChild(new Text(emphasis(theme, theme.fg("accent", title)), 0, 0));
     this.addChild(new Spacer(1));
     this.addChild(new Text(theme.fg("muted", description), 0, 0));
     this.addChild(new Spacer(1));
@@ -789,7 +789,7 @@ class SelectSubmenu extends Container {
   ) {
     super();
     this.options = options;
-    this.addChild(new Text(theme.bold(theme.fg("accent", title)), 0, 0));
+    this.addChild(new Text(emphasis(theme, theme.fg("accent", title)), 0, 0));
     if (description) {
       this.addChild(new Spacer(1));
       this.addChild(new Text(theme.fg("muted", description), 0, 0));
@@ -1005,7 +1005,7 @@ class SectionSubmenu extends Container {
         this.listContainer.addChild(this.settingsList);
       });
     };
-    this.addChild(new Text(theme.bold(theme.fg("accent", title)), 0, 0));
+    this.addChild(new Text(emphasis(theme, theme.fg("accent", title)), 0, 0));
     if (description) {
       this.addChild(new Spacer(1));
       this.addChild(new Text(theme.fg("muted", description), 0, 0));
@@ -1088,7 +1088,7 @@ export class FabricSettingsComponent extends Container {
   }
 
   handleInput(data: string): void {
-    if (matchesKey(data, SAVE_SCOPE_SHORTCUT)) {
+    if (keyIs(data, SAVE_SCOPE_SHORTCUT)) {
       if (!this.projectScopeAvailable) return;
       this.saveScope = this.saveScope === "project" ? "global" : "project";
       this.updateSaveScopeText();
