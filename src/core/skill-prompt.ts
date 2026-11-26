@@ -40,3 +40,32 @@ export const restoreSkillsForFullCodePrompt = (
   const insertAt = heading + OMP_SKILL_SECTION_HEADING.length;
   return `${systemPrompt.slice(0, insertAt)}${section}\n${systemPrompt.slice(insertAt)}`;
 };
+
+/**
+ * Older hosts pass the system prompt as one string instead of as parts.
+ */
+export const hostPromptParts = (prompt: string | readonly string[]): readonly string[] =>
+  typeof prompt === "string" ? [prompt] : prompt;
+
+/**
+ * Restores the skills section inside the one prompt part that carries it and
+ * leaves every other part untouched and in order. The part holding the
+ * `<skills>` section wins, then the part holding the skills heading. With no
+ * such part, the restored section is appended as an extra part.
+ */
+export const restoreSkillsInPromptParts = (
+  parts: readonly string[],
+  skills: readonly Skill[],
+): string[] => {
+  const marked = parts.findIndex((part) => part.includes(OMP_SKILL_SECTION_MARKER));
+  const index = marked >= 0
+    ? marked
+    : parts.findIndex((part) => part.includes(OMP_SKILL_SECTION_HEADING));
+  if (index >= 0) {
+    return parts.map((part, i) =>
+      i === index ? restoreSkillsForFullCodePrompt(part, skills) : part
+    );
+  }
+  const section = formatSkillsSection(skills, FABRIC_OMP_SKILL_LOAD_INSTRUCTION);
+  return section ? [...parts, section] : [...parts];
+};
