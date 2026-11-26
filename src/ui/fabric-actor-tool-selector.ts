@@ -1,5 +1,5 @@
 import type { Theme } from "@oh-my-pi/pi-coding-agent";
-import { Container, type Focusable, getKeybindings, Spacer, Text } from "@oh-my-pi/pi-tui";
+import { Container, hostMatches, Spacer, Text } from "./rows.js";
 
 const ACTOR_TOOL_ORDER = ["read", "grep", "find", "ls", "bash", "edit", "write"] as const;
 
@@ -21,7 +21,7 @@ export interface FabricActorToolSelectorOptions {
   headerText?: string;
 }
 
-export class FabricActorToolSelector extends Container implements Focusable {
+export class FabricActorToolSelector extends Container {
   private readonly theme: Theme;
   private readonly onSelectCallback: (tools: string[]) => void;
   private readonly onCancelCallback: () => void;
@@ -50,12 +50,11 @@ export class FabricActorToolSelector extends Container implements Focusable {
   }
 
   handleInput(keyData: string): void {
-    const kb = getKeybindings();
-    if (kb.matches(keyData, "tui.select.up")) {
+    if (hostMatches(keyData, "tui.select.up")) {
       this.selectedIndex =
         this.selectedIndex === 0 ? ACTOR_TOOL_ORDER.length - 1 : this.selectedIndex - 1;
       this.updateList();
-    } else if (kb.matches(keyData, "tui.select.down")) {
+    } else if (hostMatches(keyData, "tui.select.down")) {
       this.selectedIndex =
         this.selectedIndex === ACTOR_TOOL_ORDER.length - 1 ? 0 : this.selectedIndex + 1;
       this.updateList();
@@ -66,13 +65,13 @@ export class FabricActorToolSelector extends Container implements Focusable {
         else this.enabled.add(tool);
         this.updateList();
       }
-    } else if (kb.matches(keyData, "tui.select.confirm")) {
+    } else if (hostMatches(keyData, "tui.select.confirm")) {
       const selected = ACTOR_TOOL_ORDER.filter((tool) => this.enabled.has(tool));
       const custom = [...this.enabled].filter(
         (tool) => !ACTOR_TOOL_ORDER.includes(tool as (typeof ACTOR_TOOL_ORDER)[number]),
       );
       this.onSelectCallback([...selected, ...custom]);
-    } else if (kb.matches(keyData, "tui.select.cancel")) {
+    } else if (hostMatches(keyData, "tui.select.cancel")) {
       this.onCancelCallback();
     }
   }

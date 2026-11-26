@@ -1,15 +1,13 @@
 import type { Theme } from "@oh-my-pi/pi-coding-agent";
-import { Ellipsis } from "@oh-my-pi/pi-tui";
 import {
   Container,
-  type Focusable,
   SelectList,
   type SelectItem,
   type SelectListLayoutOptions,
   type SelectListTheme,
   Spacer,
   Text,
-} from "@oh-my-pi/pi-tui";
+} from "./rows.js";
 import type { FabricActorDeliveryPolicy } from "../actors/delivery-policy.js";
 
 const LAYOUT: SelectListLayoutOptions = {
@@ -27,7 +25,7 @@ const POLICIES: Array<FabricActorDeliveryPolicy & { value: string; label: string
 ];
 
 const selectListTheme = (theme: Theme): SelectListTheme => ({
-  symbols: (theme as Theme & { symbols: import("@oh-my-pi/pi-tui").SymbolTheme }).symbols,
+  symbols: theme.symbols,
   selectedPrefix: (text) => theme.fg("accent", text),
   selectedText: (text) => theme.fg("accent", text),
   description: (text) => theme.fg("muted", text),
@@ -43,7 +41,7 @@ export interface FabricActorDeliverySelectorOptions {
   headerText?: string;
 }
 
-export class FabricActorDeliverySelector extends Container implements Focusable {
+export class FabricActorDeliverySelector extends Container {
   private readonly selectList: SelectList;
   focused = false;
 

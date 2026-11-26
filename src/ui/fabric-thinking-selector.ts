@@ -1,15 +1,13 @@
 import type { Theme } from "@oh-my-pi/pi-coding-agent";
-import { Ellipsis } from "@oh-my-pi/pi-tui";
 import {
   Container,
-  type Focusable,
   SelectList,
   type SelectItem,
   type SelectListLayoutOptions,
   type SelectListTheme,
   Spacer,
   Text,
-} from "@oh-my-pi/pi-tui";
+} from "./rows.js";
 import { INHERIT_VALUE } from "./model-picker.js";
 import { THINKING_LEVELS, thinkingLabel } from "../thinking.js";
 
@@ -19,7 +17,7 @@ const LAYOUT: SelectListLayoutOptions = {
 };
 
 const selectListTheme = (theme: Theme): SelectListTheme => ({
-  symbols: (theme as Theme & { symbols: import("@oh-my-pi/pi-tui").SymbolTheme }).symbols,
+  symbols: theme.symbols,
   selectedPrefix: (text) => theme.fg("accent", text),
   selectedText: (text) => theme.fg("accent", text),
   description: (text) => theme.fg("muted", text),
@@ -41,10 +39,10 @@ export interface FabricThinkingSelectorOptions {
  * A compact picker for an actor's thinking (reasoning effort) level. Pins an
  * "Inherit" row on top (use the Fabric default) followed by the seven OMP
  * thinking levels in order. The current value is marked with a trailing check.
- * Mirrors the look of FabricModelSelector but uses pi-tui's SelectList since
+ * Mirrors the look of FabricModelSelector but uses a plain rows SelectList since
  * the level set is small and fixed (no fuzzy search needed).
  */
-export class FabricThinkingSelector extends Container implements Focusable {
+export class FabricThinkingSelector extends Container {
   private readonly selectList: SelectList;
   private readonly onSelectCallback: (value: string) => void;
   focused = false;

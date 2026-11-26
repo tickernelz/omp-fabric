@@ -1,5 +1,5 @@
 import type { Theme } from "@oh-my-pi/pi-coding-agent";
-import { Container, type Focusable, getKeybindings, Spacer, Text } from "@oh-my-pi/pi-tui";
+import { Container, hostMatches, Spacer, Text } from "./rows.js";
 import { FABRIC_ACTOR_HOST_EVENTS } from "../actors/types.js";
 import type { FabricActorHostEvent } from "../actors/types.js";
 
@@ -67,7 +67,7 @@ export interface FabricHostEventSelectorOptions {
  * supported host events are shown with a [x]/[ ] checkbox; space toggles the
  * row under the cursor, Enter applies the selection, and Esc cancels.
  */
-export class FabricHostEventSelector extends Container implements Focusable {
+export class FabricHostEventSelector extends Container {
   private readonly theme: Theme;
   private readonly onSelectCallback: (events: FabricActorHostEvent[]) => void;
   private readonly onCancelCallback: () => void;
@@ -99,12 +99,11 @@ export class FabricHostEventSelector extends Container implements Focusable {
   }
 
   handleInput(keyData: string): void {
-    const kb = getKeybindings();
-    if (kb.matches(keyData, "tui.select.up")) {
+    if (hostMatches(keyData, "tui.select.up")) {
       this.selectedIndex =
         this.selectedIndex === 0 ? HOST_EVENT_ORDER.length - 1 : this.selectedIndex - 1;
       this.updateList();
-    } else if (kb.matches(keyData, "tui.select.down")) {
+    } else if (hostMatches(keyData, "tui.select.down")) {
       this.selectedIndex =
         this.selectedIndex === HOST_EVENT_ORDER.length - 1 ? 0 : this.selectedIndex + 1;
       this.updateList();
@@ -115,9 +114,9 @@ export class FabricHostEventSelector extends Container implements Focusable {
         else this.enabled.add(event);
         this.updateList();
       }
-    } else if (kb.matches(keyData, "tui.select.confirm")) {
+    } else if (hostMatches(keyData, "tui.select.confirm")) {
       this.onSelectCallback(HOST_EVENT_ORDER.filter((event) => this.enabled.has(event)));
-    } else if (kb.matches(keyData, "tui.select.cancel")) {
+    } else if (hostMatches(keyData, "tui.select.cancel")) {
       this.onCancelCallback();
     }
   }

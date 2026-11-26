@@ -167,6 +167,10 @@ export class Container implements RowsView {
     this.children.length = 0;
   }
 
+  invalidate(): void {
+    for (const child of this.children) child.invalidate?.();
+  }
+
   render(width: number): readonly string[] {
     const lines: string[] = [];
     for (const child of this.children) lines.push(...child.render(width));

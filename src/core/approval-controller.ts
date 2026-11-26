@@ -6,7 +6,7 @@ import {
   Spacer,
   Text,
   type SelectItem,
-} from "@oh-my-pi/pi-tui";
+} from "../ui/rows.js";
 import { FabricTraceSafeError } from "../audit/trace.js";
 
 type ThemeColorApplicator = (name: string, text: string) => string;
@@ -15,7 +15,6 @@ const selectListThemeFor = (theme: unknown) => {
   const apply = (name: string, text: string): string =>
     (theme as { fg: ThemeColorApplicator }).fg(name, text);
   return {
-    symbols: (theme as { symbols: import("@oh-my-pi/pi-tui").SymbolTheme }).symbols,
     selectedPrefix: (text: string) => apply("accent", text),
     selectedText: (text: string) => apply("accent", text),
     description: (text: string) => apply("muted", text),
