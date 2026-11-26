@@ -52,6 +52,68 @@ export function keysFor(action: Keybinding): string[] {
   return [...getKeybindings().keysFor(action)];
 }
 
+export function hostMatches(data: string, action: Keybinding): boolean {
+  const presses = keyPresses(data);
+  const key = presses.length === 1 ? presses[0] : undefined;
+  return key ? getKeybindings().matches(key, action) : false;
+}
+
+/** Zero-width marker so a rows editor can scroll the caret line into view. */
+export const EDITOR_CURSOR = "\u001b_omp-cursor\u0007";
+
+export class PromptEditor implements RowsView {
+  focused = false;
+  onChange?: (text: string) => void;
+
+  invalidate(): void { }
+  #value = "";
+  #cursor = 0;
+
+  getText(): string {
+    return this.#value;
+  }
+
+  setText(text: string): void {
+    if (text === this.#value && this.#cursor === text.length) return;
+    this.#value = text;
+    this.#cursor = text.length;
+    this.onChange?.(text);
+  }
+
+  handleInput(data: string): void {
+    let changed = false;
+    for (const key of keyPresses(data)) {
+      if (key.id === "backspace" || key.id === "ctrl+h") {
+        if (this.#cursor === 0) continue;
+        this.#value = this.#value.slice(0, this.#cursor - 1) + this.#value.slice(this.#cursor);
+        this.#cursor -= 1;
+        changed = true;
+        continue;
+      }
+      if (key.id === "left") {
+        this.#cursor = Math.max(0, this.#cursor - 1);
+        continue;
+      }
+      if (key.id === "right") {
+        this.#cursor = Math.min(this.#value.length, this.#cursor + 1);
+        continue;
+      }
+      if (key.id === "enter" || key.id === "escape") continue;
+      const text = key.id === "space" ? " " : key.text;
+      if (!text) continue;
+      this.#value = this.#value.slice(0, this.#cursor) + text + this.#value.slice(this.#cursor);
+      this.#cursor += text.length;
+      changed = true;
+    }
+    if (changed) this.onChange?.(this.#value);
+  }
+
+  render(width: number): readonly string[] {
+    const line = this.#value.slice(0, this.#cursor) + EDITOR_CURSOR + this.#value.slice(this.#cursor);
+    return [clip(line, Math.max(0, width), "")];
+  }
+}
+
 export class Text implements RowsView {
   #text: string;
   readonly #paddingX: number;
@@ -115,6 +177,7 @@ export class Container implements RowsView {
 export class Input implements RowsView {
   focused = false;
   onSubmit?: (value: string) => void;
+  invalidate(): void {}
   onEscape?: () => void;
   #value = "";
 
