@@ -1,80 +1,69 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import type { AssistantMessage } from "@oh-my-pi/pi-ai";
-import { AssistantMessageComponent, UserMessageComponent, initThemeSync, type Theme } from "@oh-my-pi/pi-coding-agent";
-import { visibleWidth, type TUI } from "@oh-my-pi/pi-tui";
+import { initTheme, type ExtensionUiHost } from "@oh-my-pi/pi-coding-agent";
+import { jsx } from "@oh-my-pi/pi-tui";
+import { renderBlock } from "@oh-my-pi/pi-tui/term/render";
+import { visibleWidth } from "@oh-my-pi/pi-tui/text/width";
+import { currentTheme } from "@oh-my-pi/pi-tui/theme/runtime";
 import { describe, expect, it, vi } from "vitest";
+import { AssistantMessageBlock, nativeTestTheme, UserMessage } from "./helpers/native-transcript.js";
 import { conversationFooter, readConversationAppearance } from "../src/ui/conversation-chrome.js";
 import { FabricConversationState, FabricConversationView, type FabricConversationTarget } from "../src/ui/conversation.js";
 import { FabricConversationTranscriptRenderer } from "../src/ui/conversation-render.js";
-import { highlightCode, initHighlighting } from "../src/ui/highlight.js";
+import type { FabricTheme } from "../src/ui/render-types.js";
 import { nativeTranscript, userMessage, assistantMessage } from "./fixtures/native-conversation.js";
 
 const theme = {
   fg: (_color: string, text: string) => text, bg: (_color: string, text: string) => text,
-  bold: (text: string) => text, italic: (text: string) => text,
+  bold: (text: string) => text,
+  style: (_tokens: string, text: string) => text, italic: (text: string) => text,
   underline: (text: string) => text, strikethrough: (text: string) => text,
-} as unknown as Theme;
+} as unknown as FabricTheme;
 const target: FabricConversationTarget = {
   id: "child", name: "chat-test", kind: "actor", status: "idle", cwd: "/repo/child", branch: "feature/chat",
   model: "openai/child-model", thinking: "low", canSteer: true, canFollowUp: true, canStop: true,
   usage: { input: 1200, output: 400, cacheRead: 600, cacheWrite: 0, cost: 0.012 }, contextWindow: 128000,
 };
-const tui = { terminal: { rows: 22, columns: 120, write: vi.fn() }, requestRender: vi.fn() } as unknown as TUI;
+const tui = {
+  requestRender: vi.fn(),
+  size: () => ({ rows: 22, columns: 120 }),
+} as unknown as ExtensionUiHost;
 const plain = (lines: readonly string[]) => lines.map((line) => line.replace(/\x1b\[[0-9;]*m/g, ""));
 
 describe("native conversation chrome", () => {
   it("matches native user background width and padding", () => {
-    initThemeSync(undefined, false, "dark");
-    const renderer = new FabricConversationTranscriptRenderer(tui, theme);
+    initTheme({ appearance: "dark" });
+    const renderer = new FabricConversationTranscriptRenderer(tui, nativeTestTheme());
     const lines = renderer.render(nativeTranscript([userMessage("Hello!")]), 80, { target, toolsExpanded: false });
-    const native = new UserMessageComponent("Hello!").render(80);
+    const native = renderBlock(jsx(UserMessage, { model: { text: "Hello!", promptZones: false } }) as never, 80, { theme: currentTheme() }).rows;
     expect(plain(lines)).toEqual(plain(native));
     expect(lines.every((line) => visibleWidth(line) === 80)).toBe(true);
   });
 
   it("matches native assistant spacing without an Agent heading", () => {
-    initThemeSync(undefined, false, "dark");
+    initTheme({ appearance: "dark" });
     const text = "A **normal OMP** response.";
-    const message: AssistantMessage = {
-      role: "assistant", content: [{ type: "text", text }], api: "openai-responses", provider: "openai", model: "fixture", timestamp: 0, stopReason: "stop",
-      usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
-    };
-    const native = new AssistantMessageComponent(message, false, undefined, undefined, undefined).render(80);
-    const lines = new FabricConversationTranscriptRenderer(tui, theme).render(nativeTranscript([message]), 80, { target, toolsExpanded: false });
+    const message = assistantMessage(text);
+    const native = renderBlock(jsx(AssistantMessageBlock, { model: { message } }) as never, 80, { theme: currentTheme() as never }).rows;
+    const lines = new FabricConversationTranscriptRenderer(tui, nativeTestTheme()).render(nativeTranscript([message]), 80, { target, toolsExpanded: false });
     expect(plain(lines)).toEqual(plain(native));
     expect(plain(lines).join("\n")).not.toContain("Agent");
   });
 
-  it("renders Shiki truecolor fences and native tool backgrounds", async () => {
-    // The assertion is about truecolor escapes, so advertise a truecolor
-    // terminal: OMP downgrades to 256-color when the environment does not.
-    vi.stubEnv("COLORTERM", "truecolor");
-    try {
-      initThemeSync(undefined, false, "dark");
-      await initHighlighting("dark-plus", true);
-      const bg = vi.fn((_color: string, text: string) => text);
-      const renderer = new FabricConversationTranscriptRenderer(tui, { ...theme, bg } as unknown as Theme);
-      // Constructing the renderer re-resolves the preview theme, which restarts
-      // Shiki. Wait on the highlighter itself so a slow or failed grammar load
-      // reports as an unready highlighter rather than an unhighlighted frame.
-      await vi.waitFor(() => {
-        expect(highlightCode("const result = 42;\n", "typescript")).not.toBeNull();
-      }, { timeout: 60_000 });
-      const lines = renderer.render(nativeTranscript([
-        assistantMessage("```typescript\nconst result = 42;\n```"),
-        { ...assistantMessage("", 3), content: [{ type: "toolCall", id: "tool", name: "read", arguments: { path: "src/example.ts" } }] },
-        { role: "toolResult", toolCallId: "tool", toolName: "read", content: [{ type: "text", text: "const result = 42;" }], isError: false, timestamp: 4 },
-      ]), 80, { target, toolsExpanded: true, codeBlockIndent: "    " });
-      expect(lines.join("\n")).toContain("\x1b[38;2;");
-      expect(lines.some((line) => line.includes("\x1b[48;"))).toBe(true);
-      expect(lines.every((line) => visibleWidth(line) <= 80)).toBe(true);
-      expect(plain(lines).find((line) => line.includes("const result"))).toBe("const result = 42;");
-    } finally {
-      vi.unstubAllEnvs();
-    }
-  }, 90_000);
+  it("renders truecolor assistant fences and native tool backgrounds", () => {
+    initTheme({ appearance: "dark", capabilities: { truecolor: true, colors: 16_777_216, dark: true } });
+    const renderer = new FabricConversationTranscriptRenderer(tui, nativeTestTheme());
+    const lines = renderer.render(nativeTranscript([
+      assistantMessage("```typescript\nconst result = 42;\n```"),
+      { ...assistantMessage("", 3), content: [{ type: "toolCall", id: "tool", name: "read", arguments: { path: "src/example.ts" } }] },
+      { role: "toolResult", toolCallId: "tool", toolName: "read", content: [{ type: "text", text: "const result = 42;" }], isError: false, timestamp: 4 },
+    ]), 80, { target, toolsExpanded: true, codeBlockIndent: "    " });
+    const code = lines.find((line) => plain([line])[0]?.trimEnd() === "const result = 42;");
+    expect(code).toContain("\x1b[38;2;");
+    expect(lines.filter((line) => line.includes("\x1b[48;") && plain([line])[0]?.trim() === "const result = 42;")).toHaveLength(1);
+    expect(lines.every((line) => visibleWidth(line) <= 80)).toBe(true);
+  });
 
   it("keeps editor rules full width and the child footer below the editor", () => {
     const state = new FabricConversationState();
@@ -104,7 +93,7 @@ describe("native conversation chrome", () => {
   it("keeps the draft cursor visible in a one-row terminal", () => {
     const state = new FabricConversationState();
     state.view(target.id).draft = "visible draft";
-    const view = new FabricConversationView({ ...tui, terminal: { rows: 1, columns: 40, write: vi.fn() } } as unknown as TUI, theme, {
+    const view = new FabricConversationView({ ...tui, size: () => ({ rows: 1, columns: 40 }) } as unknown as ExtensionUiHost, theme, {
       state, targets: () => [target], transcript: () => nativeTranscript(),
       loadOlder: () => false, loadNewer: () => false, loadLatest: () => false,
       send: vi.fn(), stop: vi.fn(), close: vi.fn(),

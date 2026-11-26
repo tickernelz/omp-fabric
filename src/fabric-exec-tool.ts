@@ -1,6 +1,6 @@
-import type { Theme, ToolDefinition, ToolRenderResultOptions } from "@oh-my-pi/pi-coding-agent";
+import type { ExtensionTheme, ToolDefinition, ToolRenderResultOptions } from "@oh-my-pi/pi-coding-agent";
 import type { TSchema } from "@oh-my-pi/pi-coding-agent/extensibility/legacy-typebox";
-import { Container, Text, type Component } from "@oh-my-pi/pi-tui";
+import type { FabricRows } from "./ui/render-types.js";
 
 type FabricToolDefinition = ToolDefinition<any, any> & {
   promptGuidelines?: readonly string[];
@@ -146,7 +146,7 @@ const toolDisplayMode = (state: FabricState): FabricToolDisplayMode =>
   state.bootstrapped ? state.config.ui.toolDisplay : "full";
 
 const compactResultHeader = (
-  theme: Theme,
+  theme: ExtensionTheme,
   audits: FabricRenderAudit[],
   failed: boolean,
 ): string => {
@@ -172,7 +172,7 @@ const rendererStateFor = (key: unknown): FabricRendererState => {
   return created;
 };
 
-const isRenderComponent = (value: unknown): value is Component =>
+const isRenderComponent = (value: unknown): value is FabricRows =>
   value !== null && typeof value === "object" && typeof Reflect.get(value, "render") === "function";
 
 const previewContext = (
@@ -289,7 +289,7 @@ export const createFabricExecTool = (
     // OMP validates custom-tool arguments before `tool_call` and `execute`, so
     // compatibility coercions for the model-facing boundary must live in the
     // official prepareArguments hook rather than execute-time fallbacks.
-    renderCall(params: FabricExecParams, options: ToolRenderResultOptions, theme: Theme) {
+    renderCall(params: FabricExecParams, options: ToolRenderResultOptions, theme: ExtensionTheme) {
       const rendererState = rendererStateFor(params);
       const context = previewContext(options, state, params, rendererState);
       observeOmpTheme(theme);
@@ -333,33 +333,34 @@ export const createFabricExecTool = (
         // Session-wide memo keyed by the program string: the same hint serves
         // the live card, the activity feed, and compaction intent.
         const title = display?.name?.trim() || fabricExecTitleHintCached(code);
-        const header = new Container();
-        header.addChild(renderBoundedLines(
-          [theme.fg("toolTitle", theme.bold(safeTerminalText(title || "Fabric")))],
-          theme,
-          codePreviewSettings.diffIntensity,
-          1,
-        ));
+        const headerRows = [
+          renderBoundedLines(
+            [theme.fg("toolTitle", theme.style("strong", safeTerminalText(title || "Fabric")))],
+            theme,
+            codePreviewSettings.diffIntensity,
+            1,
+          ),
+        ];
         if (display?.description) {
-          header.addChild(renderBoundedLines(
+          headerRows.push(renderBoundedLines(
             [theme.fg("dim", safeTerminalText(display.description))],
             theme,
             codePreviewSettings.diffIntensity,
             wrapRowLimitFor(false),
           ));
         }
+        const header: FabricRows = { render: (width) => headerRows.flatMap((row) => row.render(width)) };
         if (!writePreview) return header;
-        const composite = new Container();
-        composite.addChild(header);
-        composite.addChild(new Text("\n", 0, 0));
-        composite.addChild(writePreview);
+        const composite: FabricRows = {
+          render: (width) => [...header.render(width), "", ...writePreview.render(width)],
+        };
         return composite;
       }
 
       const lines = safeTerminalText(code).split("\n");
       const runDisplay = normalizeRunDisplay(params.display);
       const displayName = runDisplay?.name ? safeTerminalText(runDisplay.name) : "";
-      const title = `${theme.fg("toolTitle", theme.bold("fabric"))}${
+      const title = `${theme.fg("toolTitle", theme.style("strong", "fabric"))}${
         displayName ? ` ${theme.fg("accent", displayName)}` : ""
       } ${theme.fg("dim", `TypeScript · ${countLabel(lines.length, "line")}`)}`;
       // Match the compact header: the declared objective sits between the
@@ -385,11 +386,7 @@ export const createFabricExecTool = (
           hidden > 0
             ? `\n${theme.fg("dim", `… ${countLabel(hidden, "line")} hidden · `)}${expandHint(theme)}`
             : "";
-        return [...new Text(
-          `${title}${description ? `\n${description}` : ""}${preview ? `\n${preview}` : ""}${hiddenHint}`,
-          0,
-          0,
-        ).render(width)];
+        return [`${title}${description ? `\n${description}` : ""}${preview ? `\n${preview}` : ""}${hiddenHint}`];
       };
       const codePreview = new HiddenRowBorrowingComponent(
         baseLimit,
@@ -398,10 +395,9 @@ export const createFabricExecTool = (
         rowBalance,
       );
       if (!writePreview) return codePreview;
-      const composite = new Container();
-      composite.addChild(codePreview);
-      composite.addChild(new Text("\n", 0, 0));
-      composite.addChild(writePreview);
+      const composite: FabricRows = {
+        render: (width) => [...codePreview.render(width), "", ...writePreview.render(width)],
+      };
       return composite;
     },
     renderResult(result, options, theme, params?: FabricExecParams) {
@@ -422,7 +418,7 @@ export const createFabricExecTool = (
         context.invalidate,
       );
       const rowBalance = rendererState.fabricResultRowBalance ??= {};
-      const trackRows = (component: Component): Component =>
+      const trackRows = (component: FabricRows): FabricRows =>
         observeResultRows(
           inheritComponentBackground(component),
           rowBalance,
@@ -513,7 +509,7 @@ export const createFabricExecTool = (
         if (audits.length === 0) {
           const label = compact ? "Running…" : progress ?? "Running Fabric program…";
           return trackRows(
-            new Text(theme.fg("warning", `◆ ${safeTerminalText(label)}`), 0, 0),
+            { render: () => [theme.fg("warning", `◆ ${safeTerminalText(label)}`)] },
           );
         }
         if (audits.length === 1) {
@@ -643,29 +639,24 @@ export const createFabricExecTool = (
 
       if (audits.length === 0) {
         if (failed && details.error) {
+          const error = details.error;
           return trackRows(
-            new Text(
-              theme.fg("error", `✗ ${safeTerminalText(details.error)}`),
-              0,
-              0,
-            ),
+            { render: () => [theme.fg("error", `✗ ${safeTerminalText(error)}`)] },
           );
         }
         if (!output) {
-          return trackRows(new Text(
+          return trackRows({ render: () => [
             compact
               ? theme.fg(failed ? "error" : "success", failed ? "✗ Failed" : "✓ Evaluated")
               : theme.fg("dim", "✓ Fabric"),
-            0,
-            0,
-          ));
+          ] });
         }
         const lines = safeTerminalText(output).split(nl);
         const limit = expanded ? Math.min(lines.length, 200) : 12;
         const shown = lines.slice(0, limit);
         const displayName = normalizeRunDisplay(params?.display)?.name;
         const title = displayName
-          ? theme.fg("toolTitle", theme.bold(safeTerminalText(displayName)))
+          ? theme.fg("toolTitle", theme.style("strong", safeTerminalText(displayName)))
           : compact
             ? theme.fg(failed ? "error" : "success", failed ? "✗ Failed" : "✓ Evaluated")
             : "";
@@ -705,7 +696,7 @@ export const createFabricExecTool = (
           if (audit.error) {
             text += nl + theme.fg("error", safeTerminalText(audit.error));
           }
-          return trackRows(new Text(text, 0, 0));
+          return trackRows({ render: () => [text] });
         }
         if (previewLines[0]) {
           text += ` ${previewLines[0]}`;

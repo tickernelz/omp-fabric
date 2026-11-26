@@ -1,4 +1,4 @@
-import type { SymbolTheme } from "@oh-my-pi/pi-tui";
+import type { SymbolSet } from "@oh-my-pi/pi-tui/theme/contract";
 
 const box = {
   topLeft: "╭",
@@ -14,11 +14,10 @@ const box = {
   cross: "┼",
 };
 
-export const ompSymbolTheme: SymbolTheme = {
-  cursor: "›",
-  inputCursor: "│",
-  boxRound: box,
-  boxSharp: {
+export const ompSymbolTheme: SymbolSet = {
+  preset: "unicode",
+  box,
+  sharp: {
     topLeft: "┌",
     topRight: "┐",
     bottomLeft: "└",
@@ -31,9 +30,10 @@ export const ompSymbolTheme: SymbolTheme = {
     teeRight: "├",
     cross: "┼",
   },
-  table: box,
-  quoteBorder: "│",
-  hrChar: "─",
-  colorSwatch: "■",
+  symbol: () => "",
+  icon: () => "",
+  langIcon: () => "",
   spinnerFrames: ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"],
+  activityFrames: [],
+  ellipsis: "…",
 };

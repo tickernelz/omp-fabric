@@ -1,28 +1,9 @@
-import type { ExtensionContext } from "@oh-my-pi/pi-coding-agent";
+import type { ExtensionContext, KeybindingsManager } from "@oh-my-pi/pi-coding-agent";
 import { DynamicBorder } from "../ui/dynamic-border.js";
-import {
-  Container,
-  SelectList,
-  Spacer,
-  Text,
-  type SelectItem,
-} from "@oh-my-pi/pi-tui";
+import type { FabricRows, FabricTheme } from "../ui/render-types.js";
+import { keyEvents } from "../ui/keys.js";
+import { truncate } from "@oh-my-pi/pi-tui/text/width";
 import { FabricTraceSafeError } from "../audit/trace.js";
-
-type ThemeColorApplicator = (name: string, text: string) => string;
-
-const selectListThemeFor = (theme: unknown) => {
-  const apply = (name: string, text: string): string =>
-    (theme as { fg: ThemeColorApplicator }).fg(name, text);
-  return {
-    symbols: (theme as { symbols: import("@oh-my-pi/pi-tui").SymbolTheme }).symbols,
-    selectedPrefix: (text: string) => apply("accent", text),
-    selectedText: (text: string) => apply("accent", text),
-    description: (text: string) => apply("muted", text),
-    scrollInfo: (text: string) => apply("muted", text),
-    noMatch: (text: string) => apply("muted", text),
-  };
-};
 import type { FabricApprovalConfig } from "../config.js";
 import type { FabricRisk } from "../protocol.js";
 import type { ResolvedFabricAction } from "./action-registry.js";
@@ -30,6 +11,14 @@ import {
   FabricAutoApprovalClassifier,
   type FabricAutoApprovalDecision,
 } from "./auto-approval-classifier.js";
+
+type InvalidatableRows = FabricRows & { invalidate?(): void };
+
+const textRow = (text: string, indent = 0): FabricRows => ({
+  render: () => [`${" ".repeat(indent)}${text}`],
+});
+
+const spacerRow = (): FabricRows => ({ render: () => [""] });
 
 const inheritedRisks = (): FabricRisk[] => {
   const allowed = new Set<FabricRisk>(["read", "write", "execute", "network", "agent"]);
@@ -43,6 +32,54 @@ type ApprovalChoice = "allow-once" | "allow-session" | "deny";
 const onceLabel = "Allow once";
 const sessionLabel = (risk: FabricRisk): string =>
   `Allow ${risk} access for this session`;
+
+interface ApprovalItem {
+  value: ApprovalChoice;
+  label: string;
+  description: string;
+}
+
+class ApprovalChoiceList implements FabricRows {
+  private selectedIndex = 0;
+
+  constructor(
+    private readonly items: ApprovalItem[],
+    private readonly theme: FabricTheme,
+    private readonly keybindings: KeybindingsManager,
+    private readonly done: (choice: ApprovalChoice) => void,
+  ) {}
+
+  render(width: number): string[] {
+    return this.items.map((item, index) => {
+      const selected = index === this.selectedIndex;
+      const marker = selected ? this.theme.fg("accent", "› ") : "  ";
+      const label = selected ? this.theme.fg("accent", item.label) : item.label;
+      return truncate(
+        `${marker}${label} ${this.theme.fg("muted", item.description)}`,
+        width,
+        "",
+      );
+    });
+  }
+
+  handleInput(data: string): void {
+    for (const event of keyEvents(data)) {
+      if (event.kind === "release") continue;
+      if (this.keybindings.matches(event, "tui.select.up")) {
+        this.selectedIndex =
+          this.selectedIndex === 0 ? this.items.length - 1 : this.selectedIndex - 1;
+      } else if (this.keybindings.matches(event, "tui.select.down")) {
+        this.selectedIndex =
+          this.selectedIndex === this.items.length - 1 ? 0 : this.selectedIndex + 1;
+      } else if (this.keybindings.matches(event, "tui.select.confirm")) {
+        const item = this.items[this.selectedIndex];
+        if (item) this.done(item.value);
+      } else if (this.keybindings.matches(event, "tui.select.cancel")) {
+        this.done("deny");
+      }
+    }
+  }
+}
 
 export class FabricSessionApprovals {
   readonly approvedRisks = new Set<FabricRisk>();
@@ -201,37 +238,35 @@ export class ApprovalController {
     escalationReason?: string,
   ): Promise<ApprovalChoice> {
     const choice = await this.context.ui.custom<ApprovalChoice>((tui, theme, _keybindings, done) => {
-      const container = new Container();
-      container.addChild(new DynamicBorder((text: string) => theme.fg("warning", text)));
-      container.addChild(new Spacer(1));
-      container.addChild(
-        new Text(theme.fg("warning", theme.bold("🛡  OMP Fabric permission request")), 1, 0),
+      const children: InvalidatableRows[] = [];
+      children.push(new DynamicBorder((text: string) => theme.fg("warning", text)));
+      children.push(spacerRow());
+      children.push(
+        textRow(theme.fg("warning", theme.style("strong", "🛡  OMP Fabric permission request")), 1),
       );
-      container.addChild(new Spacer(1));
-      container.addChild(
-        new Text(
+      children.push(spacerRow());
+      children.push(
+        textRow(
           theme.fg("text", `${action.ref} requests ${action.risk} access.`),
           1,
-          0,
         ),
       );
-      container.addChild(new Text(theme.fg("muted", action.description), 1, 0));
+      children.push(textRow(theme.fg("muted", action.description), 1));
       if (escalationReason) {
-        container.addChild(new Spacer(1));
-        container.addChild(
-          new Text(theme.fg("warning", escalationReason), 1, 0),
+        children.push(spacerRow());
+        children.push(
+          textRow(theme.fg("warning", escalationReason), 1),
         );
       }
-      container.addChild(new Spacer(1));
-      container.addChild(
-        new Text(
+      children.push(spacerRow());
+      children.push(
+        textRow(
           theme.fg("dim", "Choose whether to allow only this call or this risk class for the session."),
           1,
-          0,
         ),
       );
-      container.addChild(new Spacer(1));
-      const items: SelectItem[] = [
+      children.push(spacerRow());
+      const items: ApprovalItem[] = [
         {
           value: "allow-once",
           label: onceLabel,
@@ -248,24 +283,25 @@ export class ApprovalController {
           description: "Block the requested action",
         },
       ];
-      const list = new SelectList(items, items.length, selectListThemeFor(theme));
-      list.onSelect = (item) => done(item.value as ApprovalChoice);
-      list.onCancel = () => done("deny");
-      container.addChild(list);
-      container.addChild(new Spacer(1));
-      container.addChild(
-        new Text(theme.fg("dim", "↑↓ navigate · enter select · esc deny"), 1, 0),
+      const list = new ApprovalChoiceList(items, theme, _keybindings, done);
+      children.push(list);
+      children.push(spacerRow());
+      children.push(
+        textRow(theme.fg("dim", "↑↓ navigate · enter select · esc deny"), 1),
       );
-      container.addChild(new Spacer(1));
-      container.addChild(new DynamicBorder((text: string) => theme.fg("warning", text)));
-      return {
-        render: (width: number) => container.render(width),
-        invalidate: () => container.invalidate(),
+      children.push(spacerRow());
+      children.push(new DynamicBorder((text: string) => theme.fg("warning", text)));
+      const view: FabricRows & { invalidate?(): void } = {
+        render: (width: number) => children.flatMap((child) => [...child.render(width)]),
+        invalidate: () => {
+          for (const child of children) child.invalidate?.();
+        },
         handleInput: (data: string) => {
           list.handleInput(data);
           tui.requestRender();
         },
       };
+      return view;
     });
     return choice ?? "deny";
   }

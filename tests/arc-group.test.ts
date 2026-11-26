@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { Theme } from "@oh-my-pi/pi-coding-agent";
+import type { FabricTheme } from "../src/ui/render-types.js";
 import {
   arcItem,
   arcItemStyled,
@@ -9,7 +9,7 @@ import {
 
 const theme = {
   fg: (_color: string, text: string) => text,
-} as unknown as Theme;
+} as unknown as FabricTheme;
 
 describe("pushArcItem", () => {
   it("keeps a lone arc as the closing corner", () => {

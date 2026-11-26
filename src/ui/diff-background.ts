@@ -1,6 +1,6 @@
 // Adapted from pi-code-previews; see THIRD_PARTY_NOTICES.md.
 import type { Theme } from "@oh-my-pi/pi-coding-agent";
-import { truncateToWidth, visibleWidth } from "@oh-my-pi/pi-tui";
+import { truncate, visibleWidth } from "@oh-my-pi/pi-tui/text/width";
 import { ansi256ToRgb, observedThemeVariant } from "./highlight.js";
 
 export type DiffBackgroundIntensity = "off" | "subtle" | "medium";
@@ -144,7 +144,7 @@ export const wrapDiffAnsiToWidth = (
           rowWidth = 0;
         }
         if (segmentWidth > width && rowWidth === 0) {
-          const clipped = truncateToWidth(segment, width, "");
+          const clipped = truncate(segment, width, "");
           if (clipped) {
             row += clipped;
             rowWidth += visibleWidth(clipped);
@@ -166,13 +166,13 @@ export const wrapDiffAnsiToWidth = (
 
 const truncateWrappedRow = (row: string, rowWidth: number, width: number): string => {
   if (rowWidth <= width && TRUNCATION_SAFE_RE.test(row)) return row;
-  return truncateToWidth(row, width, "");
+  return truncate(row, width, "");
 };
 
 const truncateLastRow = (rows: string[], width: number): string[] => {
   const last = rows.at(-1) ?? "";
   if (visibleWidth(last) >= width && width > 1) {
-    rows[rows.length - 1] = truncateToWidth(last, width - 1, "") + "›";
+    rows[rows.length - 1] = truncate(last, width - 1, "") + "›";
   }
   return rows;
 };

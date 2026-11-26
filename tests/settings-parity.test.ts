@@ -1,4 +1,4 @@
-import type { Theme } from "@oh-my-pi/pi-coding-agent";
+import type { FabricTheme } from "../src/ui/render-types.js";
 import { describe, expect, it } from "vitest";
 import {
   DEFAULT_FABRIC_CONFIG,
@@ -22,7 +22,8 @@ const theme = {
   fg: (_color: string, text: string) => text,
   bg: (_color: string, text: string) => text,
   bold: (text: string) => text,
-} as unknown as Theme;
+  style: (_tokens: string, text: string) => text,
+} as unknown as FabricTheme;
 
 const ACTIVE_MODEL_KEY = "anthropic/claude-sonnet-4-5";
 

@@ -909,7 +909,7 @@ const renderDiff = (
       const safe = escapeControlChars(raw);
       const trimmed = safe.trim();
       if (trimmed === "...") return theme.fg("muted", "      --- unchanged lines hidden ---");
-      if (trimmed.startsWith("@@")) return theme.fg("accent", theme.bold(safe));
+      if (trimmed.startsWith("@@")) return theme.fg("accent", theme.style("strong", safe));
       if (
         trimmed.startsWith("---") ||
         trimmed.startsWith("+++") ||
@@ -1587,7 +1587,7 @@ export const coreToolTitle = (
 ): string | null => {
   observeOmpTheme(theme);
   if (!coreToolRendererEnabled(audit, options.settings) || !audit.tool) return null;
-  const title = theme.fg("toolTitle", theme.bold(audit.tool));
+  const title = theme.fg("toolTitle", theme.style("strong", audit.tool));
   const timing = options.settings.toolCallTiming
     ? formatToolCallDuration(audit.startedAt, audit.endedAt)
     : undefined;

@@ -1,4 +1,4 @@
-import { visibleWidth } from "@oh-my-pi/pi-tui";
+import { visibleWidth } from "@oh-my-pi/pi-tui/text/width";
 import { describe, expect, it } from "vitest";
 import { wrapDiffAnsiToWidth } from "../src/ui/diff-background.js";
 

@@ -1,14 +1,10 @@
-import type { Theme } from "@oh-my-pi/pi-coding-agent";
-import {
-  Container,
-  type Focusable,
-  fuzzyFilter,
-  getKeybindings,
-  Input,
-  Spacer,
-  Text,
-} from "@oh-my-pi/pi-tui";
+import { getKeybindings, type Theme } from "@oh-my-pi/pi-coding-agent";
+import { fuzzyFilter } from "@oh-my-pi/pi-coding-agent/utils/fuzzy";
+import { truncate } from "@oh-my-pi/pi-tui/text/width";
+import type { KeyEvent } from "@oh-my-pi/pi-tui";
 import { INHERIT_VALUE, modelKey, sortByLastUsed, type ModelLike, type ModelSource } from "./model-picker.js";
+import { keyEvents } from "./keys.js";
+import type { FabricRows } from "./render-types.js";
 
 /** A single pickable row in the Fabric model selector. */
 interface ModelEntry {
@@ -22,6 +18,60 @@ interface ModelEntry {
   name: string;
   /** Whether this is a real model (vs. the Inherit sentinel). */
   isModel: boolean;
+}
+
+class SearchInputRow implements FabricRows {
+  private query = "";
+  private caret = 0;
+  focused = true;
+
+  getValue(): string {
+    return this.query;
+  }
+
+  /** Apply one decoded key; returns true when the query text changed. */
+  handleKey(event: KeyEvent): boolean {
+    if (event.kind === "release") return false;
+    const length = this.query.length;
+    if (event.id === "left") {
+      this.caret = Math.max(0, this.caret - 1);
+      return false;
+    }
+    if (event.id === "right") {
+      this.caret = Math.min(length, this.caret + 1);
+      return false;
+    }
+    if (event.id === "home") {
+      this.caret = 0;
+      return false;
+    }
+    if (event.id === "end") {
+      this.caret = length;
+      return false;
+    }
+    if (event.id === "backspace") {
+      if (this.caret === 0) return false;
+      this.query = this.query.slice(0, this.caret - 1) + this.query.slice(this.caret);
+      this.caret--;
+      return true;
+    }
+    if (event.id === "delete") {
+      if (this.caret >= length) return false;
+      this.query = this.query.slice(0, this.caret) + this.query.slice(this.caret + 1);
+      return true;
+    }
+    if (event.text) {
+      this.query =
+        this.query.slice(0, this.caret) + event.text + this.query.slice(this.caret);
+      this.caret += event.text.length;
+      return true;
+    }
+    return false;
+  }
+
+  render(width: number): string[] {
+    return [truncate(`> ${this.query}`, width, "")];
+  }
 }
 
 export interface FabricModelSelectorChoice {
@@ -55,7 +105,7 @@ export interface FabricModelSelectorOptions {
  * used first); search filters by fuzzy match and re-sorts by recency, matching
  * pi-model-sort's patched /model behavior.
  */
-export class FabricModelSelector extends Container implements Focusable {
+export class FabricModelSelector implements FabricRows {
   private readonly theme: Theme;
   private readonly allEntries: ModelEntry[];
   private filteredEntries: ModelEntry[];
@@ -63,8 +113,7 @@ export class FabricModelSelector extends Container implements Focusable {
   private readonly currentKey: string | null;
   private readonly currentValue: string;
   private selectedIndex = 0;
-  private readonly searchInput: Input;
-  private readonly listContainer = new Container();
+  private readonly searchInput = new SearchInputRow();
   private readonly onSelectCallback: (value: string) => void;
   private readonly onCancelCallback: () => void;
   private readonly headerText: string;
@@ -73,7 +122,6 @@ export class FabricModelSelector extends Container implements Focusable {
   private _focused = false;
 
   constructor(options: FabricModelSelectorOptions) {
-    super();
     this.theme = options.theme;
     this.lastUsed = options.source.lastUsed;
     this.currentValue = options.currentValue;
@@ -90,26 +138,6 @@ export class FabricModelSelector extends Container implements Focusable {
     this.filteredEntries = this.allEntries;
     const current = this.allEntries.findIndex((entry) => entry.value === this.currentValue);
     this.selectedIndex = current >= 0 ? current : 0;
-
-    this.addChild(
-      new Text(
-        this.theme.fg("muted", this.headerText),
-        0,
-        0,
-      ),
-    );
-    this.addChild(new Spacer(1));
-    this.searchInput = new Input();
-    this.searchInput.focused = true;
-    this.searchInput.onSubmit = () => {
-      const entry = this.filteredEntries[this.selectedIndex];
-      if (entry) this.handleSelect(entry);
-    };
-    this.addChild(this.searchInput);
-    this.addChild(new Spacer(1));
-    this.addChild(this.listContainer);
-    this.addChild(new Spacer(1));
-    this.updateList();
   }
 
   get focused(): boolean {
@@ -123,25 +151,27 @@ export class FabricModelSelector extends Container implements Focusable {
 
   handleInput(keyData: string): void {
     const kb = getKeybindings();
-    if (kb.matches(keyData, "tui.select.up")) {
-      if (this.filteredEntries.length === 0) return;
-      this.selectedIndex =
-        this.selectedIndex === 0 ? this.filteredEntries.length - 1 : this.selectedIndex - 1;
-      this.updateList();
-    } else if (kb.matches(keyData, "tui.select.down")) {
-      if (this.filteredEntries.length === 0) return;
-      this.selectedIndex =
-        this.selectedIndex === this.filteredEntries.length - 1 ? 0 : this.selectedIndex + 1;
-      this.updateList();
-    } else if (kb.matches(keyData, "tui.select.confirm")) {
-      const entry = this.filteredEntries[this.selectedIndex];
-      if (entry) this.handleSelect(entry);
-    } else if (kb.matches(keyData, "tui.select.cancel")) {
-      this.onCancelCallback();
-    } else {
-      this.searchInput.handleInput(keyData);
-      this.filterModels(this.searchInput.getValue());
+    let queryChanged = false;
+    for (const event of keyEvents(keyData)) {
+      if (event.kind === "release") continue;
+      if (kb.matches(event, "tui.select.up")) {
+        if (this.filteredEntries.length === 0) continue;
+        this.selectedIndex =
+          this.selectedIndex === 0 ? this.filteredEntries.length - 1 : this.selectedIndex - 1;
+      } else if (kb.matches(event, "tui.select.down")) {
+        if (this.filteredEntries.length === 0) continue;
+        this.selectedIndex =
+          this.selectedIndex === this.filteredEntries.length - 1 ? 0 : this.selectedIndex + 1;
+      } else if (kb.matches(event, "tui.select.confirm")) {
+        const entry = this.filteredEntries[this.selectedIndex];
+        if (entry) this.handleSelect(entry);
+      } else if (kb.matches(event, "tui.select.cancel")) {
+        this.onCancelCallback();
+      } else if (this.searchInput.handleKey(event)) {
+        queryChanged = true;
+      }
     }
+    if (queryChanged) this.filterModels(this.searchInput.getValue());
   }
 
   rpcChoices(): FabricModelSelectorChoice[] {
@@ -205,7 +235,6 @@ export class FabricModelSelector extends Container implements Focusable {
       current >= 0
         ? current
         : Math.min(this.selectedIndex, Math.max(0, this.filteredEntries.length - 1));
-    this.updateList();
   }
 
   /** Mirrors getModelSelectorSearchText from OMP's /model selector. */
@@ -214,8 +243,13 @@ export class FabricModelSelector extends Container implements Focusable {
     return `${entry.provider} ${entry.provider}/${entry.id} ${entry.provider} ${entry.id} ${entry.name}`;
   }
 
-  private updateList(): void {
-    this.listContainer.clear();
+  render(width: number): string[] {
+    const rows = [
+      truncate(this.theme.fg("muted", this.headerText), width, ""),
+      "",
+      ...this.searchInput.render(width),
+      "",
+    ];
     const maxVisible = 10;
     const total = this.filteredEntries.length;
     const startIndex = Math.max(
@@ -233,25 +267,24 @@ export class FabricModelSelector extends Container implements Focusable {
       const line = isSelected
         ? `${this.theme.fg("accent", "\u2192 ")}${this.theme.fg("accent", entry.id)}${badge}${check}`
         : `  ${entry.id}${badge}${check}`;
-      this.listContainer.addChild(new Text(line, 0, 0));
+      rows.push(truncate(line, width, ""));
     }
     if (startIndex > 0 || endIndex < total) {
-      this.listContainer.addChild(
-        new Text(this.theme.fg("muted", `  (${this.selectedIndex + 1}/${total})`), 0, 0),
-      );
+      rows.push(truncate(this.theme.fg("muted", `  (${this.selectedIndex + 1}/${total})`), width, ""));
     }
     if (total === 0) {
-      this.listContainer.addChild(new Text(this.theme.fg("muted", "  No matching models"), 0, 0));
+      rows.push(truncate(this.theme.fg("muted", "  No matching models"), width, ""));
     } else {
       const selected = this.filteredEntries[this.selectedIndex];
-      this.listContainer.addChild(new Spacer(1));
-      this.listContainer.addChild(
-        new Text(
+      rows.push("");
+      rows.push(
+        truncate(
           this.theme.fg("muted", `  Model Name: ${selected ? selected.name : ""}`),
-          0,
-          0,
+          width,
+          "",
         ),
       );
     }
+    return rows;
   }
 }

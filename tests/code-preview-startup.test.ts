@@ -46,6 +46,7 @@ describe("code preview startup", () => {
     const theme = {
       fg: (_color: string, text: string) => text,
       bold: (text: string) => text,
+  style: (_tokens: string, text: string) => text,
     } as any;
     const context = {
       state,

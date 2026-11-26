@@ -1,4 +1,4 @@
-import { truncateToWidth, visibleWidth } from "@oh-my-pi/pi-tui";
+import { truncate, visibleWidth } from "@oh-my-pi/pi-tui/text/width";
 
 export const safeText = (value: unknown): string =>
   String(value ?? "")
@@ -61,7 +61,7 @@ export const formatClock = (timestamp: number): string =>
   new Date(timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 
 export const padToWidth = (value: string, width: number): string => {
-  const clipped = truncateToWidth(value, Math.max(0, width), "");
+  const clipped = truncate(value, Math.max(0, width), "");
   return clipped + " ".repeat(Math.max(0, width - visibleWidth(clipped)));
 };
 
@@ -77,7 +77,7 @@ export const wrapPlainText = (value: string, width: number, maxLines = 100): str
       current = candidate;
       continue;
     }
-    if (current) lines.push(truncateToWidth(current, width));
+    if (current) lines.push(truncate(current, width));
     current = word;
     while (visibleWidth(current) > width && lines.length < maxLines) {
       let chunk = "";
@@ -102,6 +102,6 @@ export const wrapPlainText = (value: string, width: number, maxLines = 100): str
     }
     if (lines.length >= maxLines) break;
   }
-  if (current && lines.length < maxLines) lines.push(truncateToWidth(current, width));
+  if (current && lines.length < maxLines) lines.push(truncate(current, width));
   return lines;
 };

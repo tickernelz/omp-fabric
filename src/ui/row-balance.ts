@@ -1,20 +1,23 @@
-import { truncateToWidth, type Component } from "@oh-my-pi/pi-tui";
+import { truncate } from "@oh-my-pi/pi-tui/text/width";
+import type { FabricRows } from "./render-types.js";
+
+type RowComponent = FabricRows & { invalidate?(): void };
 
 interface MeasuredPartialResult {
-  component: Component;
+  component: RowComponent;
   width: number;
   rows: number;
 }
 
 export interface ResultRowBalance {
   partial?: MeasuredPartialResult;
-  final?: Component;
+  final?: RowComponent;
   finalized?: boolean;
 }
 
 export type LimitRenderer = (limit: number, width: number) => string[];
 
-export class HiddenRowBorrowingComponent implements Component {
+export class HiddenRowBorrowingComponent implements FabricRows {
   #cachedWidth: number | undefined;
   #cachedDeficit: number | undefined;
   #cachedRows: string[] | undefined;
@@ -54,7 +57,7 @@ export class HiddenRowBorrowingComponent implements Component {
     // never emit a row wider than the requested width (issue #84).
     this.#cachedWidth = width;
     this.#cachedDeficit = deficit;
-    this.#cachedRows = best.map((row) => truncateToWidth(row, Math.max(1, width)));
+    this.#cachedRows = best.map((row) => truncate(row, Math.max(1, width), ""));
     return this.#cachedRows;
   }
 
@@ -66,10 +69,10 @@ export class HiddenRowBorrowingComponent implements Component {
 }
 
 export const observeResultRows = (
-  component: Component,
+  component: FabricRows,
   balance: ResultRowBalance,
   options: { expanded: boolean; isPartial: boolean },
-): Component => {
+): FabricRows => {
   if (options.isPartial) {
     balance.finalized = false;
     delete balance.final;
@@ -94,9 +97,9 @@ export const resultRowDeficit = (
   return Math.max(0, partialRows - finalRows);
 };
 
-class PartialResultObserver implements Component {
+class PartialResultObserver implements FabricRows {
   constructor(
-    private readonly component: Component,
+    private readonly component: FabricRows,
     private readonly balance: ResultRowBalance,
   ) {}
 
@@ -118,6 +121,6 @@ class PartialResultObserver implements Component {
   }
 
   invalidate(): void {
-    this.component.invalidate?.();
+    (this.component as RowComponent).invalidate?.();
   }
 }

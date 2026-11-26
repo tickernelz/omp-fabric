@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
-import type { Theme } from "@oh-my-pi/pi-coding-agent";
+import type { FabricTheme } from "../src/ui/render-types.js";
 import type { CodePreviewSettings } from "../src/ui/code-preview.js";
-import { Box, visibleWidth } from "@oh-my-pi/pi-tui";
+import { visibleWidth } from "@oh-my-pi/pi-tui/text/width";
 import { describe, expect, it, vi } from "vitest";
 import { configureHighlighting, initHighlighting } from "../src/ui/highlight.js";
 import {
@@ -39,12 +39,21 @@ import {
 const theme = {
   fg: (color: string, text: string) => `\x1b[${color}]${text}\x1b[0m`,
   bold: (text: string) => `\x1b[1m${text}\x1b[22m`,
-} as unknown as Theme;
+  style: (_tokens: string, text: string) => `\x1b[1m${text}\x1b[22m`,
+} as unknown as FabricTheme;
 
 const plainTheme = {
   fg: (_color: string, text: string) => text,
   bold: (text: string) => text,
-} as unknown as Theme;
+  style: (_tokens: string, text: string) => text,
+} as unknown as FabricTheme;
+
+// Stands in for the removed pi-tui Box: one leading space plus the enclosing background.
+const renderInBox = (component: { render(width: number): readonly string[] }, width: number): string[] =>
+  component.render(width - 2).map((line) => {
+    const padded = line + " ".repeat(Math.max(0, width - 2 - visibleWidth(line)));
+    return `\x1b[42m ${padded} \x1b[49m`;
+  });
 
 describe("TUI width bounds (#84)", () => {
   const adversarialLines = [
@@ -1248,7 +1257,7 @@ omp.write({ path: "nested.md", metadata: { content: payloads.wrong }, text: payl
     const nestedTheme = {
       ...plainTheme,
       getBgAnsi: () => nestedSuccessBackground,
-    } as unknown as Theme;
+    } as unknown as FabricTheme;
     const raw = renderFabricMulticallPartial(
       {
         audits: [{
@@ -1322,7 +1331,7 @@ omp.write({ path: "nested.md", metadata: { content: payloads.wrong }, text: payl
       getBgAnsi: (color: string) => color === "toolErrorBg"
         ? errorBackground
         : successBackground,
-    } as unknown as Theme;
+    } as unknown as FabricTheme;
     const settings = {
       tools: ["edit"],
       editDiffPreview: true,
@@ -1665,10 +1674,8 @@ b`, theme)).toBe("");
   });
 
   it("preserves the enclosing Box background across wrapped bounded rows", () => {
-    const box = new Box(1, 0, (text) => "\x1b[42m" + text + "\x1b[49m");
-    box.addChild(renderBoundedLines(["x".repeat(40)]));
+    const lines = renderInBox(renderBoundedLines(["x".repeat(40)]), 20);
 
-    const lines = box.render(20);
     expect(lines.every((line) => visibleWidth(line) === 20)).toBe(true);
     expect(lines.every((line) => line.startsWith("\x1b[42m"))).toBe(true);
     expect(lines.join("")).not.toContain("\x1b[0m");
@@ -1677,10 +1684,8 @@ b`, theme)).toBe("");
   });
 
   it("keeps the enclosing Box background when a bounded row is truncated", () => {
-    const box = new Box(1, 0, (text) => "\x1b[42m" + text + "\x1b[49m");
-    box.addChild(renderBoundedLines(["x".repeat(40)], undefined, "off", 1));
+    const line = renderInBox(renderBoundedLines(["x".repeat(40)], undefined, "off", 1), 20)[0]!;
 
-    const line = box.render(20)[0]!;
     expect(line).toBe(
       "\x1b[42m " + "x".repeat(14) + "\x1b[22;23;24;27;29;39m …+2 \x1b[49m",
     );

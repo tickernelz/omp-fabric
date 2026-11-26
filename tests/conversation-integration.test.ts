@@ -1,5 +1,5 @@
-import type { ExtensionAPI, ExtensionContext, Theme } from "@oh-my-pi/pi-coding-agent";
-import type { TUI } from "@oh-my-pi/pi-tui";
+import type { ExtensionAPI, ExtensionContext, ExtensionUiHost } from "@oh-my-pi/pi-coding-agent";
+import type { FabricTheme } from "../src/ui/render-types.js";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -63,7 +63,8 @@ const theme = {
   fg: (_c: string, t: string) => t,
   bg: (_c: string, t: string) => t,
   bold: (t: string) => t,
-} as unknown as Theme;
+  style: (_tokens: string, t: string) => t,
+} as unknown as FabricTheme;
 
 const stubActor: FabricActorInfo = {
   id: "actor-1",
@@ -194,7 +195,7 @@ const createHarness = (state: FabricState): Harness => {
   const controller = new FabricUiController(state);
   controllers.push(controller);
   const requestRender = vi.fn();
-  const tui = { requestRender } as unknown as TUI;
+  const tui = { requestRender, size: () => ({ rows: 40, columns: 120 }) } as unknown as ExtensionUiHost;
   const notify = vi.fn();
   const overlayOptionRecords: Array<Record<string, unknown> | undefined> = [];
   let closeOverlay: (() => void) | undefined;
@@ -451,7 +452,7 @@ describe("FabricUiController.openConversation", () => {
     expect(harness.custom).toHaveBeenCalledTimes(1);
     expect(harness.overlayOptions(0)).toMatchObject({
       overlay: true,
-      overlayOptions: { width: "100%", maxHeight: "100%", anchor: "top-left", margin: 0 },
+      fullscreen: true,
     });
     const options = lastOptions();
     expect(options.initialTargetId).toBeUndefined();
@@ -755,7 +756,7 @@ describe("FabricUiController.openDashboard Shift+C drill-in", () => {
     const state = stubState();
     const controller = new FabricUiController(state);
     controllers.push(controller);
-    const tui = { requestRender: vi.fn() } as unknown as TUI;
+    const tui = { requestRender: vi.fn(), size: () => ({ rows: 40, columns: 120 }) } as unknown as ExtensionUiHost;
     let dashboard: { handleInput?: (data: string) => void; dispose?: () => void } | undefined;
     const custom = vi.fn((factory: (...args: unknown[]) => unknown) => {
       return new Promise<void>((resolve) => {

@@ -4,6 +4,8 @@
 
 ### Changed
 
+- Fabric now requires OMP 19.2.1 or later and uses its new terminal UI API.
+
 - The `before_agent_start` handler no longer joins the host's system prompt parts into one string. It keeps every part as it is and in order, restores the skills section inside the one part that carries it (or appends it as an extra part when none does), and adds Fabric's guidance as a separate trailing part, only when there is any. Provider prompt caching places breakpoints between parts, so a part that changes per turn, such as recalled memories, no longer invalidates the cached prefix before it. The guidance used to be glued onto the end of the joined prompt, which made the whole prompt one part that changed whenever any piece did.
 
 ### Fixed

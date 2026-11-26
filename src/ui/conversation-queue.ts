@@ -1,11 +1,10 @@
-import type { KeybindingsManager, Theme, ThemeColor } from "@oh-my-pi/pi-coding-agent";
-import { Ellipsis,
-  Key,
-  getKeybindings,
-  matchesKey,
-  truncateToWidth,
-  type KeyId,
-} from "@oh-my-pi/pi-tui";
+import type { KeybindingsManager, Theme } from "@oh-my-pi/pi-coding-agent";
+import { getKeybindings, type KeyId } from "@oh-my-pi/pi-coding-agent";
+import { truncate } from "@oh-my-pi/pi-tui/text/width";
+import { keyEvents } from "./keys.js";
+
+const keyMatches = (data: string, key: KeyId): boolean =>
+  keyEvents(data).some((event) => event.id === key);
 
 /**
  * Target-scoped conversation queue for the focused conversation view.
@@ -180,7 +179,7 @@ export interface ConversationQueueOptions {
     /** Editor interior padding, forwarded to the inline line extractor. */
     paddingX?: number;
   };
-  keybindings?: Pick<KeybindingsManager, "matches" | "getKeys">;
+  keybindings?: Pick<KeybindingsManager, "matches" | "keysFor">;
   /** Target run state for the shared widget's stage label; default idle=false. */
   isIdle?: () => boolean;
   onNotify?: (text: string, kind: "info" | "error") => void;
@@ -599,7 +598,7 @@ export function createConversationQueue(options: ConversationQueueOptions): Conv
 
   const dequeueKeys = (): readonly string[] => {
     const manager = options.keybindings ?? getKeybindings();
-    const keys = manager.getKeys("app.message.dequeue");
+    const keys = manager.keysFor("app.message.dequeue");
     return keys.filter((key: string) => /up$/i.test(key)).map((key: string) =>
       key.endsWith("Up") ? `${key.slice(0, -2)}Down` : `${key.slice(0, -2)}down`
     );
@@ -612,12 +611,14 @@ export function createConversationQueue(options: ConversationQueueOptions): Conv
   ): boolean => {
     const manager = options.keybindings;
     if (manager) {
-      const keys = manager.getKeys(action);
+      const keys = manager.keysFor(action);
       if (keys.length === 0) return false;
-      return manager.matches(data, action);
+      return keyEvents(data).some((event) => manager.matches(event, action));
     }
     const global = getKeybindings();
-    if (global.getKeys(action).length > 0) return global.matches(data, action);
+    if (global.keysFor(action).length > 0) {
+      return keyEvents(data).some((event) => global.matches(event, action));
+    }
     return fallback(data);
   };
 
@@ -668,7 +669,7 @@ export function createConversationQueue(options: ConversationQueueOptions): Conv
     const arrow = direction === "left" ? OUTDENT_ROW_KEY : INDENT_ROW_KEY;
     const wordAlias: KeyId = direction === "left" ? "alt+b" : "alt+f";
     // Preserve the word-navigation aliases some terminals send for Option+Arrow.
-    return matchesKey(data, arrow) && !matchesKey(data, wordAlias);
+    return keyMatches(data, arrow) && !keyMatches(data, wordAlias);
   };
 
   const inlineEditorRenderer = (): ((width: number) => string[]) | undefined => {
@@ -827,14 +828,14 @@ export function createConversationQueue(options: ConversationQueueOptions): Conv
           theme,
         );
         const lines = [...widget.render(width)];
-        if (dispatched.length > 0) lines.push(theme.fg("dim", truncateToWidth("Sent rows await child delivery; they cannot be edited locally.", width, "")));
+        if (dispatched.length > 0) lines.push(theme.fg("dim", truncate("Sent rows await child delivery; they cannot be edited locally.", width, "")));
         return lines;
       }
       // Native OMP pending-messages display (ground-truth labels/colors) or
       // an older bridge without the renderer members.
       const lines: string[] = [""];
       const innerWidth = Math.max(0, width - 2);
-      const dequeueHint = (options.keybindings ?? getKeybindings()).getKeys("app.message.dequeue").join("/") || DEQUEUE_FALLBACK;
+      const dequeueHint = (options.keybindings ?? getKeybindings()).keysFor("app.message.dequeue").join("/") || DEQUEUE_FALLBACK;
       for (const row of rows) {
         const label = bridge ? bridge.laneLabel(row.lane) : NATIVE_LANE_LABEL[row.lane];
         const marker = row.selected ? "› " : row.paused ? "⏸ " : "";
@@ -843,15 +844,15 @@ export function createConversationQueue(options: ConversationQueueOptions): Conv
             : row.paused
               ? " · paused"
               : "";
-        const color: ThemeColor = row.state === "dispatched"
+        const color = row.state === "dispatched"
           ? "dim"
-          : bridge ? bridge.laneColor(row.lane) as ThemeColor : "dim";
+          : bridge ? bridge.laneColor(row.lane) : "dim";
         lines.push(
-          ` ${theme.fg(color, truncateToWidth(`${marker}${label}: ${row.text.replace(/\n/g, " ")}${note}`, innerWidth, Ellipsis.Unicode))} `,
+          ` ${theme.fg(color, truncate(`${marker}${label}: ${row.text.replace(/\n/g, " ")}${note}`, innerWidth, "…"))} `,
         );
       }
       const hint = queue.length > 0 ? `↳ ${dequeueHint} to edit queued messages` : "↳ Waiting for child delivery";
-      lines.push(` ${theme.fg("dim", truncateToWidth(hint, innerWidth, Ellipsis.Unicode))} `);
+      lines.push(` ${theme.fg("dim", truncate(hint, innerWidth, "…"))} `);
       return lines;
     },
 
@@ -859,12 +860,12 @@ export function createConversationQueue(options: ConversationQueueOptions): Conv
       if (disposed) return false;
       if (!editSession) {
         if (queue.length === 0) return false;
-        if (!options.editor?.getText().trim() && matchesKey(data, Key.enter)) {
+        if (!options.editor?.getText().trim() && keyMatches(data, "enter")) {
           const head = queue.peek();
           if (head) { queue.setPaused(head.id, false); void this.submit(head.lane); }
           return true;
         }
-        if (actionMatches(data, "app.message.dequeue", (input) => matchesKey(input, DEQUEUE_FALLBACK))) {
+        if (actionMatches(data, "app.message.dequeue", (input) => keyMatches(input, DEQUEUE_FALLBACK))) {
           return startEditing();
         }
         return false;
@@ -873,7 +874,7 @@ export function createConversationQueue(options: ConversationQueueOptions): Conv
       const editor = options.editor;
       // Navigation mirrors the extension: configured dequeue action moves to
       // the previous row, its mirrored twin moves to the next.
-      if (actionMatches(data, "app.message.dequeue", (input) => matchesKey(input, DEQUEUE_FALLBACK)) && editor) {
+      if (actionMatches(data, "app.message.dequeue", (input) => keyMatches(input, DEQUEUE_FALLBACK)) && editor) {
         const ordered = queue.snapshot();
         const index = ordered.findIndex((item) => item.id === session.selectedId);
         const target = index <= 0 ? ordered.at(-1) : ordered[index - 1];
@@ -882,7 +883,7 @@ export function createConversationQueue(options: ConversationQueueOptions): Conv
         return true;
       }
       const nextKeys = dequeueKeys();
-      if (nextKeys.length > 0 && nextKeys.some((key) => matchesKey(data, key as KeyId)) && editor) {
+      if (nextKeys.length > 0 && nextKeys.some((key) => keyMatches(data, key as KeyId)) && editor) {
         const ordered = queue.snapshot();
         const index = ordered.findIndex((item) => item.id === session.selectedId);
         const target = index === -1 || index === ordered.length - 1 ? ordered[0] : ordered[index + 1];
@@ -890,12 +891,12 @@ export function createConversationQueue(options: ConversationQueueOptions): Conv
         requestRender();
         return true;
       }
-      if (matchesKey(data, REMOVE_ROW_KEY)) {
+      if (keyMatches(data, REMOVE_ROW_KEY)) {
         session.toggleRemoved(session.selectedId);
         requestRender();
         return true;
       }
-      if (matchesKey(data, PAUSE_ROW_KEY)) {
+      if (keyMatches(data, PAUSE_ROW_KEY)) {
         session.togglePaused(session.selectedId);
         requestRender();
         return true;
@@ -910,19 +911,19 @@ export function createConversationQueue(options: ConversationQueueOptions): Conv
         requestRender();
         return true;
       }
-      if (matchesKey(data, TOGGLE_LANE_KEY)) {
+      if (keyMatches(data, TOGGLE_LANE_KEY)) {
         const current = queue.get(session.selectedId)?.lane;
         if (current) session.setLane(session.selectedId, current === "steer" ? "followUp" : "steer");
         requestRender();
         return true;
       }
       if (
-        actionMatches(data, "tui.input.submit", (input) => matchesKey(input, Key.enter))
+        actionMatches(data, "tui.input.submit", (input) => keyMatches(input, "enter"))
         || actionMatches(data, "app.message.followUp", () => false)
       ) {
         return finishEditing(true);
       }
-      if (actionMatches(data, "app.interrupt", (input) => matchesKey(input, Key.escape))) {
+      if (actionMatches(data, "app.interrupt", (input) => keyMatches(input, "escape"))) {
         return finishEditing(false);
       }
       editor?.handleInput?.(data);

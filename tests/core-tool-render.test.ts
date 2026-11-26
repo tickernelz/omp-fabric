@@ -1,6 +1,6 @@
-import type { Theme } from "@oh-my-pi/pi-coding-agent";
+import type { FabricTheme } from "../src/ui/render-types.js";
 import type { CodePreviewSettings } from "../src/ui/code-preview.js";
-import { visibleWidth } from "@oh-my-pi/pi-tui";
+import { visibleWidth } from "@oh-my-pi/pi-tui/text/width";
 import { TRUNCATION_MARKER } from "../src/core/truncation-marker.js";
 import { nestedCallTitle } from "../src/ui/fabric-render.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -52,10 +52,11 @@ const settings: CodePreviewSettings = {
 const theme = {
   fg: (_color: string, text: string) => text,
   bold: (text: string) => text,
+  style: (_tokens: string, text: string) => text,
   getFgAnsi: (color: string) =>
     color === "toolDiffAdded" ? "\x1b[38;2;80;200;120m" : "\x1b[38;2;220;90;100m",
   getBgAnsi: () => "\x1b[48;2;0;0;0m",
-} as unknown as Theme;
+} as unknown as FabricTheme;
 
 const options = (
   overrides: Partial<CoreToolRenderOptions> = {},
@@ -216,7 +217,7 @@ describe("Fabric core tool parity rendering", () => {
       ...theme,
       fg: (color: string, text: string) =>
         color === "muted" ? `<muted>${text}</muted>` : text,
-    } as unknown as Theme;
+    } as unknown as FabricTheme;
     const rendered = renderCoreToolBody(
       audit("write", {
         args: { path: "result.json", content: `{"ok":true}\n\n${notice}` },

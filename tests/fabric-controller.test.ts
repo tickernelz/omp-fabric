@@ -1,5 +1,5 @@
-import type { ExtensionContext, Theme } from "@oh-my-pi/pi-coding-agent";
-import type { TUI } from "@oh-my-pi/pi-tui";
+import type { ExtensionContext, ExtensionUiHost } from "@oh-my-pi/pi-coding-agent";
+import type { FabricTheme } from "../src/ui/render-types.js";
 import { describe, expect, it, vi } from "vitest";
 import type { FabricActivityRun } from "../src/activity/types.js";
 import type { FabricState } from "../src/fabric-state.js";
@@ -12,7 +12,8 @@ const theme = {
   fg: (_c: string, t: string) => t,
   bg: (_c: string, t: string) => t,
   bold: (t: string) => t,
-} as unknown as Theme;
+  style: (_tokens: string, t: string) => t,
+} as unknown as FabricTheme;
 
 const stubActor = {
   id: "actor-1",
@@ -85,7 +86,7 @@ describe("FabricUiController dashboard wiring", () => {
   it("passes every actor callback to the dashboard so all pickers are available", async () => {
     const state = stubState();
     const controller = new FabricUiController(state);
-    const tui = { requestRender: vi.fn() } as unknown as TUI;
+    const tui = { requestRender: vi.fn(), size: () => ({ rows: 40, columns: 120 }) } as unknown as ExtensionUiHost;
     let dashboard: FabricDashboard | undefined;
     const context = {
       mode: "tui",
@@ -125,15 +126,15 @@ describe("FabricUiController dashboard wiring", () => {
   it("routes Main dashboard messages through FabricState", async () => {
     const state = stubState();
     const controller = new FabricUiController(state);
-    const tui = { requestRender: vi.fn() } as unknown as TUI;
+    const tui = { requestRender: vi.fn(), size: () => ({ rows: 40, columns: 120 }) } as unknown as ExtensionUiHost;
     let dashboard: FabricDashboard | undefined;
     const context = {
       mode: "tui",
       modelRegistry: { getAvailable: () => [] },
       ui: {
         custom: vi.fn(async (factory: (
-          tui: TUI,
-          theme: Theme,
+          tui: ExtensionUiHost,
+          theme: FabricTheme,
           keybindings: unknown,
           done: () => void,
         ) => FabricDashboard) => {
@@ -322,14 +323,14 @@ describe("FabricUiController dashboard wiring", () => {
       onActivity = listener;
       return () => {};
     });
-    const tui = { requestRender: vi.fn() } as unknown as TUI;
+    const tui = { requestRender: vi.fn(), size: () => ({ rows: 40, columns: 120 }) } as unknown as ExtensionUiHost;
     const context = {
       mode: "tui",
       modelRegistry: { getAvailable: () => [] },
       ui: {
         custom: vi.fn(async (factory: (
-          t: TUI,
-          theme: Theme,
+          t: ExtensionUiHost,
+          theme: FabricTheme,
           keybindings: unknown,
           done: () => void,
         ) => FabricDashboard) => {

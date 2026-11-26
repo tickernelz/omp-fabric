@@ -1,6 +1,5 @@
 import path from "node:path";
-import type { ExtensionContext } from "@oh-my-pi/pi-coding-agent";
-import type { TUI } from "@oh-my-pi/pi-tui";
+import type { ExtensionContext, ExtensionUiHost } from "@oh-my-pi/pi-coding-agent";
 import type { CodePreviewSettings } from "./code-preview.js";
 import type { FabricConversationState, FabricConversationView } from "./conversation.js";
 import type { NativeConversationReader, NativeConversationSource } from "./conversation-native-reader.js";
@@ -64,8 +63,8 @@ export class FabricUiController {
   #actorUnsubscribe: (() => void) | undefined;
   #agentUnsubscribe: (() => void) | undefined;
   #scheduledRefresh: NodeJS.Timeout | undefined;
-  #widgetTui: TUI | undefined;
-  #dashboardTui: TUI | undefined;
+  #widgetTui: ExtensionUiHost | undefined;
+  #dashboardTui: ExtensionUiHost | undefined;
   #widgetMounted = false;
   #widget: FabricWidget | undefined;
   #lastRefreshErrorAt = 0;
@@ -74,7 +73,7 @@ export class FabricUiController {
   #conversationOpen = false;
   #conversationState: FabricConversationState | undefined;
   #conversationView: FabricConversationView | undefined;
-  #conversationTui: TUI | undefined;
+  #conversationTui: ExtensionUiHost | undefined;
   #closeConversation: (() => void) | undefined;
   #epoch = 0;
   #activityRevision: number | undefined;
@@ -277,7 +276,7 @@ export class FabricUiController {
         return view;
       }, {
         overlay: true,
-        overlayOptions: { width: "100%", maxHeight: "100%", anchor: "top-left", margin: 0 },
+        fullscreen: true,
       });
     } catch (error) {
       if (epoch === this.#epoch) context.ui.notify(safeText(error instanceof Error ? error.message : String(error)), "error");
@@ -501,13 +500,6 @@ export class FabricUiController {
         },
         {
           overlay: true,
-          overlayOptions: {
-            width: "94%",
-            minWidth: 40,
-            maxHeight: "90%",
-            anchor: "center",
-            margin: 1,
-          },
         },
       );
     } finally {

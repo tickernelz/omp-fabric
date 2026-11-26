@@ -1,6 +1,5 @@
 import type { Theme } from "@oh-my-pi/pi-coding-agent";
-import { Ellipsis } from "@oh-my-pi/pi-tui";
-import { truncateToWidth, visibleWidth } from "@oh-my-pi/pi-tui";
+import { truncate, visibleWidth } from "@oh-my-pi/pi-tui/text/width";
 import type { FabricActivityRun } from "../activity/types.js";
 import type { Entity, StatusFilter } from "./dashboard-model.js";
 import { colorStatus, entityTail, statusGlyph } from "./dashboard-presentation.js";
@@ -749,7 +748,7 @@ const renderCanvas = (
     if (style === "edge") return theme.fg("borderMuted", value);
     if (style === "dim") return theme.fg("dim", value);
     if (style === "muted") return theme.fg("muted", value);
-    if (style === "accent") return theme.fg("accent", theme.bold(value));
+    if (style === "accent") return theme.fg("accent", theme.style("strong", value));
     if (style === "success") return theme.fg("success", value);
     if (style === "warning") return theme.fg("warning", value);
     if (style === "error") return theme.fg("error", value);
@@ -768,12 +767,12 @@ const renderCanvas = (
       run += cell.char;
     }
     rendered += apply(style, run);
-    return truncateToWidth(rendered, width, "");
+  return truncate(rendered, width, "");
   });
 };
 const wrapInspector = (theme: Theme, label: string, value: string, width: number): string[] => {
   const clean = safeText(value);
-  const first = truncateToWidth(clean, Math.max(1, width - label.length - 1), Ellipsis.Unicode);
+  const first = truncate(clean, Math.max(1, width - label.length - 1), "…");
   return [theme.fg("muted", `${label} ${first}`)];
 };
 
@@ -790,10 +789,10 @@ const inspectorLines = (
   const border = (value: string): string => theme.fg("borderMuted", value);
   const content: string[] = [];
   if (entity) {
-    content.push(theme.fg("accent", theme.bold(truncateToWidth(safeText(entity.label), inner - 2, Ellipsis.Unicode))));
+    content.push(theme.fg("accent", theme.style("strong", truncate(safeText(entity.label), inner - 2, "…"))));
     content.push(colorStatus(theme, entity.status, `${statusGlyph(entity.status)} ${entity.kind} · ${entity.status}`));
     content.push("");
-    content.push(theme.fg("dim", truncateToWidth(safeText(entityTail(entity, snapshot.now)), inner - 2, Ellipsis.Unicode)));
+    content.push(theme.fg("dim", truncate(safeText(entityTail(entity, snapshot.now)), inner - 2, "…")));
     if (entity.kind === "agent") {
       const agentRun = snapshot.runs.find((candidate) => candidate.id === entity.value.runId) ?? run;
       const phase = agentRun?.phases.find((candidate) => candidate.id === entity.value.phaseId);
@@ -975,8 +974,8 @@ export const renderFabricTopologyPanel = ({
       animation.reducedMotion ? "reduced motion" : undefined,
       filter !== "all" ? `${entities.length}/${allEntities.length} ${filter}` : undefined,
     ].filter((value): value is string => Boolean(value)).join(" · ");
-    const graphLegend = padToWidth(theme.fg("dim", truncateToWidth(legend, graphWidth, "")), graphWidth);
-    lines[0] = truncateToWidth(
+    const graphLegend = padToWidth(theme.fg("dim", truncate(legend, graphWidth, "")), graphWidth);
+    lines[0] = truncate(
       graphLegend + (inspectorWidth > 0 ? inspector[0] ?? "" : ""),
       width,
       "",

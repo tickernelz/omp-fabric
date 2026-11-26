@@ -1,23 +1,26 @@
-import {
-  AssistantMessageComponent,
-  BashExecutionComponent,
-  BranchSummaryMessageComponent,
-  CompactionSummaryMessageComponent,
-  type MessageRenderer,
-  type Theme,
-  ToolExecutionComponent,
-  type ToolDefinition,
-  UserMessageComponent,
+import type {
+  ExtensionRender,
+  ExtensionRows,
+  ExtensionUiHost,
+  MessageRenderer,
+  ExtensionTheme,
+  ToolDefinition,
 } from "@oh-my-pi/pi-coding-agent";
-import type { Component, TUI } from "@oh-my-pi/pi-tui";
-import { wrapTextWithAnsi } from "@oh-my-pi/pi-tui";
+import "@oh-my-pi/pi-coding-agent/ui/styles/messages/assistant";
+import "@oh-my-pi/pi-coding-agent/ui/styles/messages/user";
+import { isUiNode, jsx } from "@oh-my-pi/pi-tui";
+import { renderBlock } from "@oh-my-pi/pi-tui/term/render";
+import { renderMarkdown } from "@oh-my-pi/pi-tui/text/markdown/render";
+import { truncate, visibleWidth, wrap } from "@oh-my-pi/pi-tui/text/width";
 import { terminalSafe } from "./transcript-sanitization.js";
 import type { FabricConversationTarget } from "./conversation.js";
 import { unwrapActorEnvelopeText } from "./conversation-transcript.js";
 import type { CodePreviewSettings } from "./code-preview.js";
+import { disposeToolPreviewTiming } from "./code-preview-shell.js";
 import type {
   NativeAgentMessage,
   NativeConversationTranscript,
+  NativeToolExecution,
 } from "./conversation-native-reader.js";
 
 export type {
@@ -25,7 +28,7 @@ export type {
   NativeConversationTranscript,
 } from "./conversation-native-reader.js";
 
-type FabricToolDefinitionLike = ToolDefinition<any, any> | undefined;
+type FabricToolDefinitionLike = (ToolDefinition<any, any> & { renderShell?: "default" | "self" }) | undefined;
 export type FabricGetToolDefinition = (toolName: string) => FabricToolDefinitionLike;
 
 export interface FabricConversationTranscriptRendererOptions {
@@ -45,21 +48,15 @@ export interface FabricConversationTranscriptRenderOptions {
   showImages?: boolean;
 }
 
-type UserAgentMessage = Extract<NativeAgentMessage, { role: "user" }>;
-type ToolResultAgentMessage = Extract<NativeAgentMessage, { role: "toolResult" }>;
 type BashExecutionAgentMessage = Extract<NativeAgentMessage, { role: "bashExecution" }>;
 type CustomAgentMessage = Extract<NativeAgentMessage, { role: "custom" }>;
-type CompactionSummaryAgentMessage = Extract<NativeAgentMessage, { role: "compactionSummary" }>;
-type BranchSummaryAgentMessage = Extract<NativeAgentMessage, { role: "branchSummary" }>;
 
 type Renderable = { render(width: number): readonly string[] };
 
-const stableKey = (value: unknown): string => {
-  try {
-    return JSON.stringify(value) ?? "undefined";
-  } catch {
-    return String(value);
-  }
+type ToolRenderState = {
+  name: string;
+  definition: FabricToolDefinitionLike;
+  state: Record<string, unknown>;
 };
 
 const textOf = (content: unknown): string => {
@@ -84,27 +81,33 @@ const safeRender = (component: Renderable, width: number, fallback: () => string
 
 export class FabricConversationTranscriptRenderer {
   private disposed = false;
-  private readonly toolComponents = new Map<string, ToolExecutionComponent>();
-  private readonly assistantComponents = new Map<string, AssistantMessageComponent>();
-  private readonly messageComponents = new Map<string, Renderable>();
+  private readonly tools = new Map<string, Map<string, ToolRenderState>>();
+  private readonly requestRender = (): void => {
+    if (!this.disposed) this.ui.requestRender();
+  };
 
   constructor(
-    private readonly tui: TUI,
-    private readonly theme: Theme,
+    private readonly ui: ExtensionUiHost,
+    private readonly theme: ExtensionTheme,
     private readonly rendererOptions: FabricConversationTranscriptRendererOptions = {},
   ) {}
 
   invalidate(): void {
     if (this.disposed) return;
-    this.toolComponents.clear();
-    this.assistantComponents.clear();
-    this.messageComponents.clear();
-    this.tui.requestRender();
+    this.clearTools();
+    this.ui.requestRender();
   }
 
   dispose(): void {
     this.disposed = true;
-    this.invalidate();
+    this.clearTools();
+  }
+
+  private clearTools(): void {
+    for (const calls of this.tools.values()) {
+      for (const { state } of calls.values()) disposeToolPreviewTiming(state);
+    }
+    this.tools.clear();
   }
 
   render(transcript: NativeConversationTranscript, width: number, options: FabricConversationTranscriptRenderOptions): string[] {
@@ -114,126 +117,182 @@ export class FabricConversationTranscriptRenderer {
       return [this.theme.fg("dim", "No retained transcript yet; new agent activity will appear here.")];
     }
     if (transcript.hasMore) lines.push(this.theme.fg("dim", "↑ older activity available"));
+    const tools = new Map(transcript.streaming.tools.map(tool => [tool.toolCallId, tool]));
+    for (const message of transcript.messages) {
+      if (message.role !== "toolResult") continue;
+      tools.set(message.toolCallId, {
+        ...tools.get(message.toolCallId),
+        toolCallId: message.toolCallId,
+        toolName: message.toolName,
+        status: message.isError ? "failed" : "completed",
+        result: message,
+        isError: message.isError,
+      });
+    }
     const renderedTools = new Set<string>();
-    for (const message of transcript.messages) this.renderMessage(message, width, options, lines, renderedTools);
-    if (transcript.streaming.partialAssistant) {
-      this.renderAssistant(transcript.streaming.partialAssistant, width, options, lines, renderedTools, true);
-    }
-    for (const tool of transcript.streaming.tools) {
-      if (renderedTools.has(tool.toolCallId)) continue;
+    const drawTool = (tool: NativeToolExecution): void => {
+      if (renderedTools.has(tool.toolCallId)) return;
       renderedTools.add(tool.toolCallId);
-      this.renderTool(tool.toolCallId, tool.toolName, tool.args, tool.result, tool.partial, tool.isError, width, options, lines, true);
+      lines.push(...this.renderTool(tool, width, options));
+    };
+    for (const message of transcript.messages) this.renderMessage(message, width, options, lines, tools, drawTool);
+    if (transcript.streaming.partialAssistant) {
+      this.renderAssistant(transcript.streaming.partialAssistant, width, options, lines, tools, drawTool, true);
     }
+    for (const tool of tools.values()) drawTool(tool);
     if (transcript.hasNewer) lines.push(this.theme.fg("dim", "↓ newer activity available"));
     return lines;
   }
 
-  private renderMessage(message: NativeAgentMessage, width: number, options: FabricConversationTranscriptRenderOptions, lines: string[], renderedTools: Set<string>): void {
+  private renderMessage(message: NativeAgentMessage, width: number, options: FabricConversationTranscriptRenderOptions, lines: string[], tools: ReadonlyMap<string, NativeToolExecution>, drawTool: (tool: NativeToolExecution) => void): void {
     switch (message.role) {
       case "user": {
-        const text = unwrapActorEnvelopeText(textOf(message.content)) ?? textOf(message.content);
-        if (text) this.push(lines, safeRender(new UserMessageComponent(terminalSafe(text, false)), width, () => this.fallback(text, width)));
+        const raw = textOf(message.content);
+        const text = unwrapActorEnvelopeText(raw) ?? raw;
+        if (text) lines.push(...this.nodeRows(jsx("card", {
+          role: "omp.user", tone: "user", term: { zones: false },
+          children: jsx("md", { text: terminalSafe(text, false) }),
+        }), width));
         return;
       }
       case "assistant":
-        this.renderAssistant(message, width, options, lines, renderedTools, false);
+        this.renderAssistant(message, width, options, lines, tools, drawTool, false);
         return;
       case "toolResult":
-        if (typeof message.toolCallId === "string") {
-          this.renderTool(message.toolCallId, message.toolName ?? "tool", undefined, message, undefined, message.isError, width, options, lines, false);
-        }
+        if (tools.has(message.toolCallId)) drawTool(tools.get(message.toolCallId)!);
         return;
       case "bashExecution":
-        this.renderBash(message, width, options, lines);
+        this.renderBash(message, width, lines);
         return;
       case "custom":
-        this.renderCustom(message, width, options, lines);
+        this.renderCustom(message, width, lines);
         return;
       case "compactionSummary":
-        this.renderSummary(message, width, options, lines, CompactionSummaryMessageComponent);
-        return;
       case "branchSummary":
-        this.renderSummary(message, width, options, lines, BranchSummaryMessageComponent);
+        lines.push(...this.message(message.summary, width));
         return;
       default:
         return;
     }
   }
 
-  private renderAssistant(message: Extract<NativeAgentMessage, { role: "assistant" }>, width: number, options: FabricConversationTranscriptRenderOptions, lines: string[], renderedTools: Set<string>, transient: boolean): void {
-    const key = `${message.timestamp}:${options.target.id}:${options.hideThinking === true}`;
-    let component = this.assistantComponents.get(key);
-    if (!component) {
-      component = new AssistantMessageComponent(message, options.hideThinking ?? false);
-      this.assistantComponents.set(key, component);
-    } else {
-      component.updateContent(message, { transient });
-    }
-    this.push(lines, safeRender(component, width, () => this.fallback(textOf(message.content), width)));
-    for (const block of message.content) {
-      if (block.type !== "toolCall" || renderedTools.has(block.id)) continue;
-      renderedTools.add(block.id);
-      this.renderTool(block.id, block.name, block.arguments, undefined, undefined, message.stopReason === "error", width, options, lines, transient);
-    }
-  }
-
-  private renderTool(id: string, name: string, args: unknown, result: unknown, partial: unknown, isError: boolean | undefined, width: number, options: FabricConversationTranscriptRenderOptions, lines: string[], transient: boolean): void {
-    let component = this.toolComponents.get(`${options.target.id}:${id}`);
-    if (!component) {
-      const tool = this.rendererOptions.getToolDefinition?.(name);
-      // ToolDefinition and AgentTool are the same registration shape (OMP casts
-      // between them internally); the native component consumes AgentTool.
-      component = new ToolExecutionComponent(name, args, { showImages: options.showImages ?? true }, tool as import("@oh-my-pi/pi-agent-core").AgentTool | undefined, {
-        requestRender: () => this.tui.requestRender(),
-        requestComponentRender: () => this.tui.requestRender(),
-        resetDisplay: () => undefined,
-        imageBudget: this.tui.imageBudget,
-      }, options.target.cwd ?? process.cwd(), id);
-      this.toolComponents.set(`${options.target.id}:${id}`, component);
-    }
-    component.setExpanded(options.toolsExpanded);
-    const normalizeResult = (raw: unknown): { content: Array<{ type: string; text?: string; data?: string; mimeType?: string }>; details?: unknown; isError?: boolean } => {
-      const record = (raw ?? {}) as { content?: unknown; details?: unknown; isError?: boolean };
-      return {
-        content: Array.isArray(record.content) ? record.content : [],
-        ...(record.details !== undefined ? { details: record.details } : {}),
-        ...(record.isError !== undefined ? { isError: record.isError } : {}),
-      };
+  private renderAssistant(message: Extract<NativeAgentMessage, { role: "assistant" }>, width: number, options: FabricConversationTranscriptRenderOptions, lines: string[], tools: ReadonlyMap<string, NativeToolExecution>, drawTool: (tool: NativeToolExecution) => void, transient: boolean): void {
+    let children: ReturnType<typeof jsx>[] = [];
+    const flush = (): void => {
+      if (!children.length) return;
+      lines.push(...this.nodeRows(jsx("col", { role: "omp.assistant", children }), width));
+      children = [];
     };
-    if (args !== undefined) component.updateArgs(args, id);
-    if (result !== undefined) component.updateResult(normalizeResult(result), false, id);
-    else if (partial !== undefined) component.updateResult(normalizeResult(partial), true, id);
-    if (isError) component.seal();
-    lines.push(...safeRender(component, width, () => this.fallback(name, width)));
+    for (const [index, block] of message.content.entries()) {
+      if (block.type === "toolCall") {
+        flush();
+        const tool = tools.get(block.id);
+        drawTool({
+          toolCallId: block.id,
+          toolName: block.name,
+          status: message.stopReason === "error" ? "failed" : "running",
+          ...tool,
+          args: tool?.args ?? block.arguments,
+        });
+      } else if (block.type === "text" && block.text) {
+        children.push(jsx("md", { text: terminalSafe(block.text, false), stream: transient && index === message.content.length - 1 }));
+      } else if (block.type === "thinking" && block.thinking && !options.hideThinking) {
+        children.push(jsx("section", {
+          role: "omp.thinking", term: { spaceAfter: true },
+          children: jsx("md", { text: terminalSafe(block.thinking, false) }),
+        }));
+      }
+    }
+    flush();
   }
 
-  private renderBash(message: BashExecutionAgentMessage, width: number, options: FabricConversationTranscriptRenderOptions, lines: string[]): void {
-    const component = new BashExecutionComponent(message.command, this.tui, message.excludeFromContext);
-    component.appendOutput(terminalSafe(message.output ?? "", false));
-    component.setComplete(message.exitCode, message.cancelled, { output: message.output ?? "" });
-    component.setExpanded(options.toolsExpanded);
-    this.push(lines, safeRender(component, width, () => this.fallback(message.command, width)));
+  private renderTool(tool: NativeToolExecution, width: number, options: FabricConversationTranscriptRenderOptions): string[] {
+    const { toolCallId, toolName, args, result, partial, status } = tool;
+    let calls = this.tools.get(options.target.id);
+    if (!calls) this.tools.set(options.target.id, calls = new Map());
+    let entry = calls.get(toolCallId);
+    if (!entry || entry.name !== toolName) {
+      if (entry) disposeToolPreviewTiming(entry.state);
+      entry = { name: toolName, definition: this.rendererOptions.getToolDefinition?.(toolName), state: {} };
+      calls.set(toolCallId, entry);
+    }
+    const { definition, state } = entry;
+    const isPartial = status === "running";
+    const isError = tool.isError ?? status === "failed";
+    const toolOptions = {
+      expanded: options.toolsExpanded,
+      isPartial,
+      renderContext: {
+        toolCallId, state, invalidate: this.requestRender,
+        cwd: options.target.cwd ?? process.cwd(),
+        executionStarted: tool.executionStarted ?? false,
+        argsComplete: tool.argsComplete ?? !isPartial,
+        showImages: options.showImages ?? true,
+        isError,
+      },
+    };
+    const raw = result ?? partial;
+    const output = raw && definition?.renderResult
+      ? definition.renderResult({
+          content: raw.content ?? [], details: raw.details, ...(isError ? { isError: true } : {}),
+        } as Parameters<NonNullable<typeof definition.renderResult>>[0], toolOptions, this.theme, args)
+      : definition?.renderCall?.(args, toolOptions, this.theme);
+    const shell = definition?.renderShell ?? options.codePreviewSettings?.toolCallBackground ?? "default";
+    const boxed = width > 2 && shell !== "self" && shell !== "off" && shell !== "border";
+    const inner = boxed ? width - 2 : width;
+    let rows = this.nodeRows(output, inner);
+    if (output == null) {
+      const text = textOf(raw?.content);
+      const body = text ? terminalSafe(text, false).split("\n") : [];
+      const summary = args && Object.values(args).find(value => typeof value === "string" && value.length > 0);
+      rows = this.fallback(summary ? `${toolName} ${summary}` : toolName, inner);
+      for (const line of options.toolsExpanded ? body : body.slice(0, 4)) rows.push(...wrap(line, inner));
+    }
+    if (!boxed || rows.length === 0) return rows;
+    const bg = isError ? "toolErrorBg" : isPartial ? "toolPendingBg" : "toolSuccessBg";
+    const theme = this.theme as ExtensionTheme & { bgFill?(key: string, text: string): string };
+    const fill = (line: string): string => theme.bgFill?.(bg, line) ?? theme.bg(bg, line);
+    const blank = fill(" ".repeat(width));
+    const painted = [blank];
+    for (const row of rows) {
+      for (const line of row.split("\n")) {
+        for (const part of visibleWidth(line) > inner ? wrap(line, inner) : [line]) {
+          painted.push(fill(` ${truncate(part, inner, "", true)} `));
+        }
+      }
+    }
+    painted.push(blank);
+    return painted;
   }
 
-  private renderCustom(message: CustomAgentMessage, width: number, options: FabricConversationTranscriptRenderOptions, lines: string[]): void {
+  private nodeRows(output: ExtensionRender, width: number): string[] {
+    if (typeof output === "string") return [output];
+    if (typeof output === "number" || typeof output === "boolean" || output === null || output === undefined) return [];
+    if (Array.isArray(output)) return output.flatMap((item) => this.nodeRows(item as ExtensionRender, width));
+    if (typeof output === "function") return this.nodeRows(output(), width);
+    if (isUiNode(output)) return [...renderBlock(output, width, { theme: this.theme }).rows];
+    const rows = output as ExtensionRows;
+    return [...safeRender(rows, width, () => [])];
+  }
+
+  private renderBash(message: BashExecutionAgentMessage, width: number, lines: string[]): void {
+    const text = [message.command, message.output ?? ""].filter(Boolean).join("\n");
+    lines.push(...this.message(text, width));
+  }
+
+  private renderCustom(message: CustomAgentMessage, width: number, lines: string[]): void {
     const text = textOf(message.content);
     if (!message.display || !text) return;
-    this.push(lines, safeRender(new UserMessageComponent(terminalSafe(text, false), { synthetic: true }), width, () => this.fallback(text, width)));
+    const output = this.rendererOptions.getMessageRenderer?.(message.customType)?.(message, { expanded: false }, this.theme);
+    if (output != null) lines.push(...this.nodeRows(output, width));
+    else lines.push(...this.message(text, width));
   }
 
-  private renderSummary<M extends CompactionSummaryAgentMessage | BranchSummaryAgentMessage>(message: M, width: number, options: FabricConversationTranscriptRenderOptions, lines: string[], ComponentClass: new (message: M) => Component): void {
-    const component = new ComponentClass(message);
-    if ("setExpanded" in component && typeof component.setExpanded === "function") component.setExpanded(options.toolsExpanded);
-    this.push(lines, safeRender(component, width, () => this.fallback(message.summary, width)));
-  }
-
-  private push(lines: string[], block: string[]): void {
-    // Native transcript components stack directly (each carries its own
-    // internal top/bottom padding); extra separators break exact parity.
-    lines.push(...block);
+  private message(text: string, width: number): string[] {
+    return renderMarkdown(terminalSafe(text, false), width, { theme: this.theme });
   }
 
   private fallback(text: string, width: number): string[] {
-    return terminalSafe(text, false).split("\n").flatMap((line) => wrapTextWithAnsi(line, Math.max(1, width)).map((item) => this.theme.fg("text", item)));
+    return terminalSafe(text, false).split("\n").flatMap((line) => wrap(line, Math.max(1, width)).map((item) => this.theme.fg("text", item)));
   }
 }

@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import type { Theme } from "@oh-my-pi/pi-coding-agent";
-import { truncateToWidth, visibleWidth } from "@oh-my-pi/pi-tui";
+import { truncate, visibleWidth } from "@oh-my-pi/pi-tui/text/width";
 import { highlightCode, highlightFileLines, languageFromPath } from "./highlight.js";
 import { safeText } from "./format.js";
 import type { FabricUiStateEntry } from "./types.js";
@@ -113,12 +113,12 @@ export const renderStateFilePreview = (
   const digits = String(Math.max(1, shown.length)).length;
   const output = highlighted.map((line, index) => {
     const gutter = theme.fg("dim", `${String(index + 1).padStart(digits)} │ `);
-    return truncateToWidth(gutter + line, width, "");
+    return truncate(gutter + line, width, "");
   });
   if ((preview.truncated || preview.lines.length > shown.length) && output.length < maxLines) {
     const omitted = Math.max(0, preview.lines.length - shown.length);
     const label = omitted > 0 ? `… ${omitted}+ lines omitted` : "… file truncated";
-    output.push(truncateToWidth(theme.fg("dim", label), width, ""));
+    output.push(truncate(theme.fg("dim", label), width, ""));
   }
   return output.filter((line) => visibleWidth(line) <= width);
 };

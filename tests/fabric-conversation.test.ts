@@ -1,6 +1,5 @@
-import type { KeybindingsManager, Theme } from "@oh-my-pi/pi-coding-agent";
-import type { TUI } from "@oh-my-pi/pi-tui";
-import { visibleWidth } from "@oh-my-pi/pi-tui";
+import type { KeybindingsManager, ExtensionUiHost } from "@oh-my-pi/pi-coding-agent";
+import { visibleWidth } from "@oh-my-pi/pi-tui/text/width";
 import { describe, expect, it, vi } from "vitest";
 import {
   FabricConversationState,
@@ -9,15 +8,18 @@ import {
   type FabricConversationOptions,
   type FabricConversationTarget,
 } from "../src/ui/conversation.js";
-import { initThemeSync } from "@oh-my-pi/pi-coding-agent";
+import type { FabricTheme } from "../src/ui/render-types.js";
+import { initTheme } from "@oh-my-pi/pi-coding-agent";
 import { nativeTranscript, userMessage, assistantMessage } from "./fixtures/native-conversation.js";
-initThemeSync(undefined, false, "dark");
+initTheme({ appearance: "dark" });
 
 const theme = {
   fg: (_color: string, text: string) => text,
   bg: (_color: string, text: string) => text,
   bold: (text: string) => text,
-} as unknown as Theme;
+  style: (_tokens: string, text: string) => text,
+  has: () => true,
+} as unknown as FabricTheme;
 
 const flush = async (): Promise<void> => {
   await new Promise<void>((resolve) => setTimeout(resolve, 0));
@@ -97,8 +99,8 @@ interface Harness {
   loadOlder: ReturnType<typeof vi.fn>;
   loadNewer: ReturnType<typeof vi.fn>;
   loadLatest: ReturnType<typeof vi.fn>;
-  tui: TUI;
-  keybindings: Pick<KeybindingsManager, "matches" | "getKeys">;
+  tui: ExtensionUiHost;
+  keybindings: Pick<KeybindingsManager, "matches" | "keysFor">;
 }
 
 interface HarnessOverrides {
@@ -114,11 +116,11 @@ const makeHarness = (overrides: HarnessOverrides = {}): Harness => {
   const state = new FabricConversationState();
   const tui = {
     requestRender: vi.fn(),
-    terminal: { rows: overrides.rows ?? 40, columns: 100, write: vi.fn() },
-  } as unknown as TUI;
+    size: () => ({ rows: overrides.rows ?? 40, columns: 100 }),
+  } as unknown as ExtensionUiHost;
   const keybindings: Harness["keybindings"] = overrides.keybindings ?? {
     matches: () => false,
-    getKeys: () => [],
+    keysFor: () => [],
   };
   const send = vi.fn(overrides.send ?? (async () => undefined));
   const options: FabricConversationOptions = {
@@ -296,8 +298,8 @@ describe("FabricConversationView", () => {
 
   it("pages older and newer via callbacks and follows latest on End", () => {
     const h = makeHarness({ initialTargetId: "a", keybindings: {
-      matches: (data, action) => (action === "tui.editor.pageUp" && data === "\x1b[1;5A") || (action === "tui.editor.pageDown" && data === "\x1b[1;5B"),
-      getKeys: () => [],
+      matches: (event, action) => (action === "tui.editor.pageUp" && event.id === "ctrl+up") || (action === "tui.editor.pageDown" && event.id === "ctrl+down"),
+      keysFor: () => [],
     } });
     h.view.handleInput("\x1b[1;5A");
     expect(h.loadOlder).toHaveBeenCalledWith("a");
@@ -389,12 +391,12 @@ describe("FabricConversationView", () => {
     const h = makeHarness({
       initialTargetId: "a",
       keybindings: {
-        matches: (data, binding) => binding === "app.message.followUp" && data === "\x1b\x12",
-        getKeys: (binding) => (binding === "app.message.followUp" ? ["alt+enter"] : []),
+        matches: (event, binding) => binding === "app.message.followUp" && event.id === "alt+enter",
+        keysFor: (binding) => (binding === "app.message.followUp" ? ["alt+enter"] : []),
       },
     });
     type(h.view, "queued later");
-    h.view.handleInput("\x1b\x12");
+    h.view.handleInput("\x1b\r");
     await flush();
     expect(h.send).toHaveBeenCalledWith("a", "queued later", "followUp");
   });
@@ -411,8 +413,8 @@ describe("FabricConversationView", () => {
     const h = makeHarness({
       initialTargetId: "a",
       keybindings: {
-        matches: (data, binding) => binding === "app.tools.expand" && data === "\x0f",
-        getKeys: (binding) => (binding === "app.tools.expand" ? ["ctrl+o"] : []),
+        matches: (event, binding) => binding === "app.tools.expand" && event.id === "ctrl+o",
+        keysFor: (binding) => (binding === "app.tools.expand" ? ["ctrl+o"] : []),
       },
     });
     const plain = (text: string): string => text.replace(/\x1b\[[0-9;]*m/g, "").replace(/\x1b\][^\x07]*\x07/g, "");

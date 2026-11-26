@@ -1,76 +1,50 @@
-import { getSymbolTheme, initThemeSync, type ExtensionContext, type Theme } from "@oh-my-pi/pi-coding-agent";
-import { Editor, Text, TUI, visibleWidth, type OverlayHandle, type Terminal } from "@oh-my-pi/pi-tui";
+import { initTheme, type ExtensionContext, type ExtensionUiHost } from "@oh-my-pi/pi-coding-agent";
+import { visibleWidth } from "@oh-my-pi/pi-tui/text/width";
 import { describe, expect, it, vi } from "vitest";
 import { FabricConversationState, FabricConversationView } from "../src/ui/conversation.js";
+import type { FabricTheme } from "../src/ui/render-types.js";
 import { nativeTranscript, userMessage, assistantMessage } from "./fixtures/native-conversation.js";
 import { installFabricEscapeHalt } from "../src/ui/escape-halt.js";
 
-class ProbeTerminal implements Terminal {
-  columns = 90;
-  rows = 24;
-  kittyProtocolActive = false;
-  output = "";
-  input: (data: string) => void = () => {};
-  appearance: "dark" | "light" | undefined = undefined;
-  start(onInput: (data: string) => void, _onResize: () => void, _onDisconnect?: () => void): void { this.input = onInput; }
-  stop(): void { this.input = () => {}; }
-  async drainInput(): Promise<void> {}
-  write(data: string): void { this.output += data; }
-  moveBy(): void {}
-  hideCursor(): void {}
-  showCursor(): void {}
-  clearLine(): void {}
-  clearFromCursor(): void {}
-  clearScreen(): void {}
-  setTitle(): void {}
-  setProgress(): void {}
-  kittyEnableSequence = "";
-  onAppearanceChange(_callback: (appearance: "dark" | "light", requestToken?: number) => void): void {}
-}
 const theme = {
   fg: (_color: string, text: string) => text,
   bg: (_color: string, text: string) => text,
   bold: (text: string) => text,
+  style: (_tokens: string, text: string) => text,
   italic: (text: string) => text,
   underline: (text: string) => text,
   strikethrough: (text: string) => text,
+  has: () => true,
+  palette: (_slot: number, text: string) => text,
   symbols: {
     pointer: "",
     bullet: "",
     checkboxOn: "",
     checkboxOff: "",
   },
-} as unknown as Theme;
+} as unknown as FabricTheme;
 
-describe("conversation through the real OMP TUI", () => {
+describe("conversation through the extension UI host", () => {
   it("routes child input and restores Main without interruption", async () => {
-    initThemeSync(undefined, false, "dark");
-    const terminal = new ProbeTerminal();
-    const tui = new TUI(terminal);
-    const main = new Editor({
-      borderColor: (text: string) => text,
-      symbols: getSymbolTheme(),
-      selectList: {
-        symbols: getSymbolTheme(),
-        selectedPrefix: (text: string) => text, selectedText: (text: string) => text,
-        description: (text: string) => text, scrollInfo: (text: string) => text, noMatch: (text: string) => text,
-      },
-    });
-    main.setText("untouched Main draft");
-    const mainSubmit = vi.fn();
-    main.onSubmit = mainSubmit;
-    tui.addChild(new Text("Main conversation keeps its history"));
-    tui.addChild(main);
-    tui.setFocus(main);
-    tui.start();
+    initTheme({ appearance: "dark" });
+    const tui = {
+      requestRender: vi.fn(),
+      size: () => ({ rows: 24, columns: 90 }),
+      suspend: <R>(run: () => Promise<R>) => run(),
+    } as unknown as ExtensionUiHost;
     let ownsInput = true;
-    let handle: OverlayHandle | undefined;
+    let mainDraft = "untouched Main draft";
+    const mainSubmit = vi.fn();
+    let listener: ((data: string) => undefined) | undefined;
     const halt = vi.fn(() => 1);
     const context = {
       mode: "tui",
       ui: {
         notify: vi.fn(),
-        onTerminalInput: (listener: (data: string) => undefined) => tui.addInputListener(listener),
+        onTerminalInput: (next: (data: string) => undefined) => {
+          listener = next;
+          return () => { listener = undefined; };
+        },
       },
     } as unknown as ExtensionContext;
     const unsubscribe = installFabricEscapeHalt(context, {
@@ -79,7 +53,14 @@ describe("conversation through the real OMP TUI", () => {
     const send = vi.fn().mockResolvedValue({ queued: true });
     const stop = vi.fn().mockResolvedValue(undefined);
     const state = new FabricConversationState();
-    const view = new FabricConversationView(tui, theme, {
+    let view: FabricConversationView;
+    const input = (data: string): void => {
+      listener?.(data);
+      if (ownsInput) view.handleInput(data);
+      else if (data === "\r") mainSubmit();
+      else mainDraft += data;
+    };
+    view = new FabricConversationView(tui, theme, {
       state, initialTargetId: "child-1",
       targets: () => [
         { id: "main", name: "Main", kind: "main", status: "running", canSteer: false, canFollowUp: false, canStop: false },
@@ -88,32 +69,31 @@ describe("conversation through the real OMP TUI", () => {
       transcript: () => nativeTranscript([userMessage("Implement the change"), assistantMessage("Working on **the requested change**.")]),
       loadOlder: () => false, loadNewer: () => false, loadLatest: () => false,
       send, stop,
-      close: () => { ownsInput = false; handle?.hide(); view.dispose(); },
+      close: () => { ownsInput = false; view.dispose(); },
     });
-    handle = tui.showOverlay(view, { width: "100%", maxHeight: "100%", anchor: "top-left", margin: 0 });
     try {
-      const lines = view.render(terminal.columns);
+      const { rows, columns } = tui.size();
+      const lines = view.render(columns);
       expect(lines.join("\n")).toContain("Implementer");
-      expect(lines.every((line) => visibleWidth(line) <= terminal.columns)).toBe(true);
-      expect(lines.length).toBeLessThanOrEqual(terminal.rows);
-      terminal.input("Please check the error path");
-      terminal.input("\r");
+      expect(lines.every((line) => visibleWidth(line) <= columns)).toBe(true);
+      expect(lines.length).toBeLessThanOrEqual(rows);
+      input("\x1b[200~Please check the error path\x1b[201~");
+      expect(view.render(columns).join("\n")).toContain("Please check the error path");
+      input("\r");
       await vi.waitFor(() => expect(send).toHaveBeenCalledWith("child-1", "Please check the error path", "steer"));
-      expect(main.getText()).toBe("untouched Main draft");
+      expect(mainDraft).toBe("untouched Main draft");
       expect(mainSubmit).not.toHaveBeenCalled();
-      terminal.input("\x1b");
+      input("\x1b");
       await new Promise((resolve) => setTimeout(resolve, 80));
       expect(halt).not.toHaveBeenCalled();
       expect(stop).not.toHaveBeenCalled();
-      expect(main.getText()).toBe("untouched Main draft");
-      terminal.input(" still here");
-      expect(main.getText()).toContain("still here");
+      expect(mainDraft).toBe("untouched Main draft");
+      input(" still here");
+      expect(mainDraft).toContain("still here");
       expect(mainSubmit).not.toHaveBeenCalled();
     } finally {
       unsubscribe();
-      handle!.hide();
       view.dispose();
-      tui.stop();
     }
   });
 });

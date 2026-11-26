@@ -2,7 +2,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { setAgentDir } from "@oh-my-pi/pi-utils";
-import type { ExtensionContext, Theme } from "@oh-my-pi/pi-coding-agent";
+import type { ExtensionContext } from "@oh-my-pi/pi-coding-agent";
+import type { FabricTheme } from "../src/ui/render-types.js";
 import { describe, expect, it, vi } from "vitest";
 import type { CapturedToolCatalog } from "../src/capture/catalog.js";
 import { DEFAULT_FABRIC_CONFIG, loadFabricConfig, normalizeFabricConfig } from "../src/config.js";
@@ -23,7 +24,8 @@ const theme = {
   fg: (_color: string, text: string) => text,
   bg: (_color: string, text: string) => text,
   bold: (text: string) => text,
-} as unknown as Theme;
+  style: (_tokens: string, text: string) => text,
+} as unknown as FabricTheme;
 
 const borderLine = (width: number): string => "─".repeat(width);
 

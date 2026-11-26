@@ -1,7 +1,9 @@
-import type { Theme } from "@oh-my-pi/pi-coding-agent";
-import { Container, type Focusable, getKeybindings, Spacer, Text } from "@oh-my-pi/pi-tui";
+import { getKeybindings, type Theme } from "@oh-my-pi/pi-coding-agent";
+import { truncate } from "@oh-my-pi/pi-tui/text/width";
 import { FABRIC_ACTOR_HOST_EVENTS } from "../actors/types.js";
 import type { FabricActorHostEvent } from "../actors/types.js";
+import { keyEvents } from "./keys.js";
+import type { FabricRows } from "./render-types.js";
 
 const COMMON_HOST_EVENTS: readonly FabricActorHostEvent[] = [
   "input",
@@ -67,63 +69,49 @@ export interface FabricHostEventSelectorOptions {
  * supported host events are shown with a [x]/[ ] checkbox; space toggles the
  * row under the cursor, Enter applies the selection, and Esc cancels.
  */
-export class FabricHostEventSelector extends Container implements Focusable {
+export class FabricHostEventSelector implements FabricRows {
   private readonly theme: Theme;
   private readonly onSelectCallback: (events: FabricActorHostEvent[]) => void;
   private readonly onCancelCallback: () => void;
-  private readonly listContainer = new Container();
+  private readonly headerText: string;
   private enabled: Set<FabricActorHostEvent>;
   private selectedIndex = 0;
   focused = false;
 
   constructor(options: FabricHostEventSelectorOptions) {
-    super();
     this.theme = options.theme;
     this.onSelectCallback = options.onSelect;
     this.onCancelCallback = options.onCancel;
+    this.headerText = options.headerText ?? "Toggle the host events this actor subscribes to.";
     this.enabled = new Set(options.currentValue);
-    this.addChild(
-      new Text(
-        this.theme.fg(
-          "muted",
-          options.headerText ?? "Toggle the host events this actor subscribes to.",
-        ),
-        0,
-        0,
-      ),
-    );
-    this.addChild(new Spacer(1));
-    this.addChild(this.listContainer);
-    this.addChild(new Spacer(1));
-    this.updateList();
   }
 
   handleInput(keyData: string): void {
     const kb = getKeybindings();
-    if (kb.matches(keyData, "tui.select.up")) {
-      this.selectedIndex =
-        this.selectedIndex === 0 ? HOST_EVENT_ORDER.length - 1 : this.selectedIndex - 1;
-      this.updateList();
-    } else if (kb.matches(keyData, "tui.select.down")) {
-      this.selectedIndex =
-        this.selectedIndex === HOST_EVENT_ORDER.length - 1 ? 0 : this.selectedIndex + 1;
-      this.updateList();
-    } else if (keyData === " ") {
-      const event = HOST_EVENT_ORDER[this.selectedIndex];
-      if (event) {
-        if (this.enabled.has(event)) this.enabled.delete(event);
-        else this.enabled.add(event);
-        this.updateList();
+    for (const event of keyEvents(keyData)) {
+      if (event.kind === "release") continue;
+      if (kb.matches(event, "tui.select.up")) {
+        this.selectedIndex =
+          this.selectedIndex === 0 ? HOST_EVENT_ORDER.length - 1 : this.selectedIndex - 1;
+      } else if (kb.matches(event, "tui.select.down")) {
+        this.selectedIndex =
+          this.selectedIndex === HOST_EVENT_ORDER.length - 1 ? 0 : this.selectedIndex + 1;
+      } else if (event.id === "space" || event.text === " ") {
+        const hostEvent = HOST_EVENT_ORDER[this.selectedIndex];
+        if (hostEvent) {
+          if (this.enabled.has(hostEvent)) this.enabled.delete(hostEvent);
+          else this.enabled.add(hostEvent);
+        }
+      } else if (kb.matches(event, "tui.select.confirm")) {
+        this.onSelectCallback(HOST_EVENT_ORDER.filter((hostEvent) => this.enabled.has(hostEvent)));
+      } else if (kb.matches(event, "tui.select.cancel")) {
+        this.onCancelCallback();
       }
-    } else if (kb.matches(keyData, "tui.select.confirm")) {
-      this.onSelectCallback(HOST_EVENT_ORDER.filter((event) => this.enabled.has(event)));
-    } else if (kb.matches(keyData, "tui.select.cancel")) {
-      this.onCancelCallback();
     }
   }
 
-  private updateList(): void {
-    this.listContainer.clear();
+  render(width: number): string[] {
+    const rows = [truncate(this.theme.fg("muted", this.headerText), width, ""), ""];
     const total = HOST_EVENT_ORDER.length;
     const startIndex = Math.max(
       0,
@@ -134,29 +122,28 @@ export class FabricHostEventSelector extends Container implements Focusable {
     );
     const endIndex = Math.min(startIndex + MAX_VISIBLE_HOST_EVENTS, total);
     if (startIndex > 0) {
-      this.listContainer.addChild(
-        new Text(this.theme.fg("dim", `  ↑ ${startIndex} earlier events`), 0, 0),
-      );
+      rows.push(truncate(this.theme.fg("dim", `  ↑ ${startIndex} earlier events`), width, ""));
     }
     for (let index = startIndex; index < endIndex; index++) {
-      const event = HOST_EVENT_ORDER[index]!;
+      const hostEvent = HOST_EVENT_ORDER[index]!;
       const selected = index === this.selectedIndex;
-      const checked = this.enabled.has(event);
+      const checked = this.enabled.has(hostEvent);
       const box = checked ? this.theme.fg("success", "[x]") : this.theme.fg("dim", "[ ]");
-      const label = `${box} ${event} · ${this.theme.fg("muted", EVENT_LABELS[event] ?? event)}`;
+      const label = `${box} ${hostEvent} · ${this.theme.fg("muted", EVENT_LABELS[hostEvent] ?? hostEvent)}`;
       const line = selected
         ? `${this.theme.fg("accent", "→ ")}${this.theme.fg("accent", label)}`
         : `  ${label}`;
-      this.listContainer.addChild(new Text(line, 0, 0));
+      rows.push(truncate(line, width, ""));
     }
     if (endIndex < total) {
-      this.listContainer.addChild(
-        new Text(this.theme.fg("dim", `  ↓ ${total - endIndex} later events`), 0, 0),
+      rows.push(
+        truncate(this.theme.fg("dim", `  ↓ ${total - endIndex} later events`), width, ""),
       );
     }
-    this.listContainer.addChild(new Spacer(1));
-    this.listContainer.addChild(
-      new Text(this.theme.fg("muted", "  space toggle · enter apply · esc cancel"), 0, 0),
+    rows.push("");
+    rows.push(
+      truncate(this.theme.fg("muted", "  space toggle · enter apply · esc cancel"), width, ""),
     );
+    return rows;
   }
 }

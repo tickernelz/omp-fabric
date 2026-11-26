@@ -1,5 +1,6 @@
-import type { Theme, ToolRenderResultOptions } from "@oh-my-pi/pi-coding-agent";
-import { visibleWidth } from "@oh-my-pi/pi-tui";
+import type { ExtensionRows, ExtensionTheme, ToolRenderResultOptions } from "@oh-my-pi/pi-coding-agent";
+import type { FabricTheme } from "../src/ui/render-types.js";
+import { visibleWidth } from "@oh-my-pi/pi-tui/text/width";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { FabricState } from "../src/fabric-state.js";
 import { createFabricPersistedExecutionDetails } from "../src/audit/index.js";
@@ -22,12 +23,14 @@ afterEach(() => {
 const plainTheme = {
   fg: (_color: string, text: string) => text,
   bold: (text: string) => text,
-} as unknown as Theme;
+  style: (_tokens: string, text: string) => text,
+} as unknown as FabricTheme;
 
 const semanticTheme = {
   fg: (color: string, text: string) => `<${color}>${text}</${color}>`,
   bold: (text: string) => `<bold>${text}</bold>`,
-} as unknown as Theme;
+  style: (_tokens: string, text: string) => `<bold>${text}</bold>`,
+} as unknown as FabricTheme;
 
 const stateFor = (
   toolDisplay: "full" | "compact",
@@ -76,8 +79,8 @@ const renderCall = (
   tool: ReturnType<typeof toolFor>,
   args: Record<string, unknown>,
   expanded = false,
-  theme: Theme = plainTheme,
-) => tool.renderCall!(args as never, { expanded, isPartial: false }, theme).render(120).join("\n");
+  theme: ExtensionTheme = plainTheme,
+) => (tool.renderCall!(args as never, { expanded, isPartial: false }, theme) as ExtensionRows).render(120).join("\n");
 
 type RenderContextualOptions = ToolRenderResultOptions & { renderContext?: Record<string, unknown> };
 
@@ -86,13 +89,13 @@ const renderResult = (
   args: Record<string, unknown>,
   details: Record<string, unknown>,
   output: string,
-  options: { expanded?: boolean; partial?: boolean; theme?: Theme; context?: Record<string, unknown>; width?: number } = {},
-) => tool.renderResult!(
+  options: { expanded?: boolean; partial?: boolean; theme?: ExtensionTheme; context?: Record<string, unknown>; width?: number } = {},
+) => (tool.renderResult!(
   { content: output ? [{ type: "text", text: output }] : [], details } as never,
   { expanded: options.expanded ?? false, isPartial: options.partial ?? false, ...(options.context ? { renderContext: options.context } : {}) } as RenderContextualOptions,
   options.theme ?? plainTheme,
   args as never,
-).render(options.width ?? 120).join("\n");
+) as ExtensionRows).render(options.width ?? 120).join("\n");
 
 const nestedRows = (rendered: string): string[] => rendered.split("\n").slice(1);
 
@@ -462,7 +465,7 @@ describe("registered fabric_exec compact transcript rendering", () => {
       display: { name: "Update README" },
     };
     const tool = toolFor(stateFor("compact"));
-    const preview = tool.renderCall!(args as never, { expanded: false, isPartial: true }, plainTheme).render(120).join("\n");
+    const preview = (tool.renderCall!(args as never, { expanded: false, isPartial: true }, plainTheme) as ExtensionRows).render(120).join("\n");
 
     expect(preview).toContain("Update README");
     expect(preview).toContain("README.md");
@@ -478,9 +481,9 @@ describe("registered fabric_exec compact transcript rendering", () => {
     };
     // OMP only marks live calls as executionStarted; resumed cards stay at its
     // false default but are always complete (isPartial false).
-    const resumedCompact = toolFor(stateFor("compact")).renderCall!(args as never, { expanded: false, isPartial: false }, plainTheme).render(120).join("\n");
-    const resumedFull = toolFor(stateFor("full")).renderCall!(args as never, { expanded: false, isPartial: false }, plainTheme).render(120).join("\n");
-    const streaming = toolFor(stateFor("compact")).renderCall!(args as never, { expanded: false, isPartial: true }, plainTheme).render(120).join("\n");
+    const resumedCompact = (toolFor(stateFor("compact")).renderCall!(args as never, { expanded: false, isPartial: false }, plainTheme) as ExtensionRows).render(120).join("\n");
+    const resumedFull = (toolFor(stateFor("full")).renderCall!(args as never, { expanded: false, isPartial: false }, plainTheme) as ExtensionRows).render(120).join("\n");
+    const streaming = (toolFor(stateFor("compact")).renderCall!(args as never, { expanded: false, isPartial: true }, plainTheme) as ExtensionRows).render(120).join("\n");
 
     expect(resumedCompact).toContain("Update README");
     expect(resumedCompact).not.toContain("Visible write preview");
@@ -740,20 +743,20 @@ describe("registered fabric_exec compact transcript rendering", () => {
       details: { success: true, audits: [], phases: [] },
     };
 
-    const full = tool.renderCall!(args as never, { expanded: false, isPartial: false, renderContext: context } as RenderContextualOptions, plainTheme).render(120).join("\n");
-    const fullResult = tool.renderResult!(
+    const full = (tool.renderCall!(args as never, { expanded: false, isPartial: false, renderContext: context } as RenderContextualOptions, plainTheme) as ExtensionRows).render(120).join("\n");
+    const fullResult = (tool.renderResult!(
       result as never,
       { expanded: false, isPartial: false, renderContext: resultContext } as RenderContextualOptions,
       plainTheme,
-    ).render(120).join("\n");
+    ) as ExtensionRows).render(120).join("\n");
     (state.config.ui as { toolDisplay: "full" | "compact" }).toolDisplay = "compact";
     display.refresh();
-    const compact = tool.renderCall!(args as never, { expanded: false, isPartial: false, renderContext: context } as RenderContextualOptions, plainTheme).render(120).join("\n");
-    const compactResult = tool.renderResult!(
+    const compact = (tool.renderCall!(args as never, { expanded: false, isPartial: false, renderContext: context } as RenderContextualOptions, plainTheme) as ExtensionRows).render(120).join("\n");
+    const compactResult = (tool.renderResult!(
       result as never,
       { expanded: false, isPartial: false, renderContext: resultContext } as RenderContextualOptions,
       plainTheme,
-    ).render(120).join("\n");
+    ) as ExtensionRows).render(120).join("\n");
 
     // refresh() drains asynchronously and invalidates once per card: both
     // kinds resolve to the same host component, whose invalidate() re-renders
@@ -771,12 +774,12 @@ describe("registered fabric_exec compact transcript rendering", () => {
     (state.config.ui as { toolDisplay: "full" | "compact" }).toolDisplay = "full";
     display.refresh();
     await flushDrainTurns(2);
-    const fullAgain = tool.renderCall!(args as never, { expanded: false, isPartial: false, renderContext: context } as RenderContextualOptions, plainTheme).render(120).join("\n");
-    const fullResultAgain = tool.renderResult!(
+    const fullAgain = (tool.renderCall!(args as never, { expanded: false, isPartial: false, renderContext: context } as RenderContextualOptions, plainTheme) as ExtensionRows).render(120).join("\n");
+    const fullResultAgain = (tool.renderResult!(
       result as never,
       { expanded: false, isPartial: false, renderContext: resultContext } as RenderContextualOptions,
       plainTheme,
-    ).render(120).join("\n");
+    ) as ExtensionRows).render(120).join("\n");
 
     expect(resultContext.invalidate).toHaveBeenCalledTimes(2);
     expect(context.invalidate).not.toHaveBeenCalled();
@@ -870,7 +873,7 @@ describe("compact single-call rows reach their end", () => {
     const description =
       "Persist the verified setting across every profile so the collapsed card still "
       + "carries the whole declared objective without dropping its ending silently.";
-    const rows = toolFor(stateFor("compact")).renderCall!(
+    const rows = (toolFor(stateFor("compact")).renderCall!(
       {
         code: "await omp.bash({ command: 'echo hi' });",
         display: {
@@ -880,7 +883,7 @@ describe("compact single-call rows reach their end", () => {
       } as never,
       { expanded: false, isPartial: false },
       plainTheme,
-    ).render(48);
+    ) as ExtensionRows).render(48);
 
     expect(rows.every((row) => visibleWidth(row) <= 48)).toBe(true);
     expect(rows[0]).toMatch(/ …\+\d+$/);

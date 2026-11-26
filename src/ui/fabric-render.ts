@@ -1,14 +1,9 @@
 import { createHash } from "node:crypto";
-import type { AppKeybinding, Theme } from "@oh-my-pi/pi-coding-agent";
+import { getKeybindings, type Keybinding, type Theme } from "@oh-my-pi/pi-coding-agent";
 import type { CodePreviewSettings } from "./code-preview.js";
 import { formatToolCallDuration } from "./tool-call-timing.js";
-import {
-  getKeybindings,
-  truncateToWidth,
-  visibleWidth,
-  wrapTextWithAnsi,
-  type Component,
-} from "@oh-my-pi/pi-tui";
+import { truncate, visibleWidth, wrap } from "@oh-my-pi/pi-tui/text/width";
+import type { FabricRows } from "./render-types.js";
 import { highlightCode, languageFromPath } from "./highlight.js";
 import { headlineArg } from "../core/call-preview.js";
 import { coreToolTitle, renderCoreToolBody } from "./core-tool-render.js";
@@ -51,7 +46,7 @@ const DIFF_WRAP_ROWS =
 
 const COMPACT_WRAP_ROWS = 3;
 
-const EXPAND_KEYBINDING = "app.tools.expand" as AppKeybinding;
+const EXPAND_KEYBINDING = "app.tools.expand" as Keybinding;
 const COLLAPSED_MULTICALL_LIMIT = 8;
 const EXPANDED_MULTICALL_LIMIT = 30;
 const AGENT_RESPONSE_LINE_CODE_POINTS = 240;
@@ -104,7 +99,7 @@ export const safeTerminalText = (value: string): string =>
   });
 
 const truncateBoundedLine = (line: string, width: number): string => {
-  const truncated = truncateToWidth(line, width, "");
+  const truncated = truncate(line, width, "");
   if (visibleWidth(line) <= width) return truncated;
   if (truncated.endsWith(FULL_SGR_RESET)) {
     return truncated.slice(0, -FULL_SGR_RESET.length) + TEXT_SGR_RESET;
@@ -125,7 +120,7 @@ const appendWrapDropMarker = (
   return head + (theme ? theme.fg("dim", marker) : marker);
 };
 
-class BoundedLineList implements Component {
+class BoundedLineList implements FabricRows {
   #cachedWidth: number | undefined;
   #cachedRows: string[] | undefined;
 
@@ -147,7 +142,7 @@ class BoundedLineList implements Component {
       const { kind, line } = parseMarkedDiffLine(rawLine);
       if (!kind) {
         const continuationIndent = width > 2 ? "  " : "";
-        const wrapped = wrapTextWithAnsi(
+        const wrapped = wrap(
           line,
           Math.max(1, width - visibleWidth(continuationIndent)),
         );
@@ -209,8 +204,8 @@ class BoundedLineList implements Component {
   }
 }
 
-class InheritedBackgroundComponent implements Component {
-  constructor(private readonly child: Component) {}
+class InheritedBackgroundComponent implements FabricRows {
+  constructor(private readonly child: FabricRows & { invalidate?(): void }) {}
 
   render(width: number): string[] {
     return this.child.render(width).map(inheritEnclosingBackground);
@@ -221,7 +216,7 @@ class InheritedBackgroundComponent implements Component {
   }
 }
 
-export const inheritComponentBackground = (component: Component): Component =>
+export const inheritComponentBackground = (component: FabricRows): FabricRows =>
   component instanceof BoundedLineList
     ? component.withInheritedBackground()
     : new InheritedBackgroundComponent(component);
@@ -231,7 +226,7 @@ export const renderBoundedLines = (
   theme?: Theme,
   diffIntensity: DiffBackgroundIntensity = "off",
   wrapRowLimit?: number,
-): Component => new BoundedLineList(lines, theme, diffIntensity, wrapRowLimit);
+): FabricRows => new BoundedLineList(lines, theme, diffIntensity, wrapRowLimit);
 
 export const wrapRowLimitFor = (expanded: boolean): number | undefined =>
   expanded ? undefined : COMPACT_WRAP_ROWS;
@@ -265,7 +260,7 @@ const visibleMulticallAudits = (
 export function expandHint(theme: Theme): string {
   let keys: string[] = [];
   try {
-    keys = getKeybindings().getKeys(EXPAND_KEYBINDING);
+    keys = getKeybindings().keysFor(EXPAND_KEYBINDING);
   } catch {
     keys = [];
   }
@@ -395,7 +390,7 @@ export const renderFabricWriteArgumentPreview = (
   input: FabricWriteArgumentPreviewInput,
   theme: Theme,
   invalidate?: () => void,
-): Component | null => {
+): FabricRows | null => {
   const available = input.bindings.map(
     (binding) => input.payloads?.[binding.stringKey],
   );
@@ -720,7 +715,7 @@ const nestedCallTitleText = (
   const provider = audit.provider ?? ref.split(".")[0] ?? ref;
   const tool = audit.tool ?? ref.split(".")[1] ?? ref;
   const toolLabel = provider === "judgment" && tool === "ask" ? "judgment.ask" : tool;
-  const title = theme.fg("toolTitle", theme.bold(toolLabel));
+  const title = theme.fg("toolTitle", theme.style("strong", toolLabel));
   const args = audit.args ?? {};
   const providerDetail = providerCallDetail(
     provider,
@@ -1020,7 +1015,7 @@ export const renderFabricMulticallPartial = (
   input: FabricMulticallPartialInput,
   theme: Theme,
   invalidate?: () => void,
-): Component => {
+): FabricRows => {
   const done = input.audits.filter((audit) => audit.success !== undefined).length;
   let header = theme.fg(
     "warning",

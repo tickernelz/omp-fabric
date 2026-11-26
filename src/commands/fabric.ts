@@ -1,5 +1,4 @@
-import { type ExtensionAPI, type ExtensionContext } from "@oh-my-pi/pi-coding-agent";
-import type { AutocompleteItem } from "@oh-my-pi/pi-tui";
+import type { ExtensionAPI, ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 import type { CapturedToolCatalog } from "../capture/catalog.js";
 import type { FabricActorHostEvent } from "../actors/types.js";
 import type { FabricState } from "../fabric-state.js";
@@ -53,6 +52,7 @@ import { setActiveCompiledSurface } from "../entropy/active.js";
 import fs from "node:fs";
 import path from "node:path";
 
+type AutocompleteItem = { value: string; label: string; description?: string };
 interface FabricCommandDeps {
   state: FabricState;
   fabricUi: FabricUiController;
