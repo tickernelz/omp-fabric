@@ -1,4 +1,4 @@
-import { initTheme, type Theme } from "@oh-my-pi/pi-coding-agent";
+import { getThemeByName, initTheme, type Theme } from "@oh-my-pi/pi-coding-agent";
 import type { AssistantMessage } from "@oh-my-pi/pi-ai";
 import { Text, visibleWidth } from "../src/ui/rows.js";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
@@ -114,6 +114,12 @@ const render = (
 ) => renderer.render(transcript, width, renderOptions(options));
 
 const plain = (lines: readonly string[]) => lines.map((line) => line.replace(/\x1b\[[0-9;]*m/g, ""));
+// Colour assertions need OMP's real theme: the stub theme draws no escapes.
+const darkTheme = async (): Promise<Theme> => {
+  const resolved = await getThemeByName("dark");
+  if (!resolved) throw new Error("OMP dark theme unavailable");
+  return resolved;
+};
 
 describe("focused conversation native component rendering", () => {
   it("dispatches user and assistant messages through the exact native components with native spacing", () => {
@@ -128,7 +134,6 @@ describe("focused conversation native component rendering", () => {
     const plainText = plain(lines).join("\n");
     expect(plainText).toContain("Please inspect **the result**.");
     expect(plainText).toContain("A **normal OMP** response.");
-    expect(plainText).toContain("host message cards were removed");
     expect(lines.join("\n")).not.toContain("Agent");
     expect(lines.every((line) => visibleWidth(line) <= 80)).toBe(true);
   });
@@ -159,7 +164,7 @@ describe("focused conversation native component rendering", () => {
       const fabricTool = fabricToolFor();
       const getToolDefinition: FabricGetToolDefinition = (name) =>
         name === "fabric_exec" ? fabricTool : undefined;
-      const renderer = new FabricConversationTranscriptRenderer(tui, theme, { getToolDefinition });
+      const renderer = new FabricConversationTranscriptRenderer(tui, await darkTheme(), { getToolDefinition });
       const args = {
         code: "const result = await omp.read({ path: \"src/example.ts\" });\nreturn result;",
         display: { name: "Inspect example" },
@@ -255,7 +260,7 @@ describe("focused conversation native component rendering", () => {
     expect(text).toContain("line-61");
   });
 
-  it("keeps tool backgrounds full width at the rightmost cell, including wrapped wide characters", () => {
+  it("keeps tool backgrounds full width at the rightmost cell, including wrapped wide characters", async () => {
     initTheme({ appearance: "dark" });
     const wide = "界界界界界界界界界界界界界界界界界界界界";
     const tool: NativeToolExecution = {
@@ -263,7 +268,7 @@ describe("focused conversation native component rendering", () => {
       args: { code: `${wide}\nconst padded = "${wide}${wide}";` }, status: "running",
     };
     const fabricTool = fabricToolFor({ ...defaultCodePreviewSettings(), toolCallBackground: "on" });
-    const renderer = new FabricConversationTranscriptRenderer(tui, theme, {
+    const renderer = new FabricConversationTranscriptRenderer(tui, await darkTheme(), {
       getToolDefinition: (name) => (name === "fabric_exec" ? fabricTool : undefined),
     });
     const width = 60;

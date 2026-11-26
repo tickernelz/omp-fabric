@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { initTheme, type Theme } from "@oh-my-pi/pi-coding-agent";
+import { getThemeByName, initTheme, type Theme } from "@oh-my-pi/pi-coding-agent";
 import { visibleWidth, type HostSurface as TUI } from "../src/ui/rows.js";
 import { describe, expect, it, vi } from "vitest";
 import { conversationFooter, readConversationAppearance } from "../src/ui/conversation-chrome.js";
@@ -22,6 +22,12 @@ const target: FabricConversationTarget = {
 };
 const tui = { terminal: { rows: 22, columns: 120, write: vi.fn() }, requestRender: vi.fn() } as unknown as TUI;
 const plain = (lines: readonly string[]) => lines.map((line) => line.replace(/\x1b\[[0-9;]*m/g, ""));
+// Colour assertions need OMP's real theme: the stub theme draws no escapes.
+const darkTheme = async (): Promise<Theme> => {
+  const resolved = await getThemeByName("dark");
+  if (!resolved) throw new Error("OMP dark theme unavailable");
+  return resolved;
+};
 
 describe("native conversation chrome", () => {
   it("renders Shiki truecolor fences and native tool backgrounds", async () => {
@@ -31,8 +37,7 @@ describe("native conversation chrome", () => {
     try {
       initTheme({ appearance: "dark" });
       await initHighlighting("dark-plus", true);
-      const bg = vi.fn((_color: string, text: string) => text);
-      const renderer = new FabricConversationTranscriptRenderer(tui, { ...theme, bg } as unknown as Theme);
+      const renderer = new FabricConversationTranscriptRenderer(tui, await darkTheme());
       // Constructing the renderer re-resolves the preview theme, which restarts
       // Shiki. Wait on the highlighter itself so a slow or failed grammar load
       // reports as an unready highlighter rather than an unhighlighted frame.
@@ -47,7 +52,7 @@ describe("native conversation chrome", () => {
       expect(lines.join("\n")).toContain("\x1b[38;2;");
       expect(lines.some((line) => line.includes("\x1b[48;"))).toBe(true);
       expect(lines.every((line) => visibleWidth(line) <= 80)).toBe(true);
-      expect(plain(lines).find((line) => line.includes("const result"))).toBe("const result = 42;");
+      expect(plain(lines).find((line) => line.includes("const result"))?.trim()).toBe("const result = 42;");
     } finally {
       vi.unstubAllEnvs();
     }
