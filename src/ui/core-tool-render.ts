@@ -1,5 +1,6 @@
 // Adapted from pi-code-previews for audited nested calls; see THIRD_PARTY_NOTICES.md.
 import { readFileSync, statSync } from "node:fs";
+import { emphasis as emphasize } from "./rows.js";
 import { homedir } from "node:os";
 import { basename, extname, isAbsolute, relative, resolve } from "node:path";
 import type { Theme } from "@oh-my-pi/pi-coding-agent";
@@ -909,7 +910,7 @@ const renderDiff = (
       const safe = escapeControlChars(raw);
       const trimmed = safe.trim();
       if (trimmed === "...") return theme.fg("muted", "      --- unchanged lines hidden ---");
-      if (trimmed.startsWith("@@")) return theme.fg("accent", theme.bold(safe));
+      if (trimmed.startsWith("@@")) return theme.fg("accent", emphasize(theme, safe));
       if (
         trimmed.startsWith("---") ||
         trimmed.startsWith("+++") ||
@@ -1587,7 +1588,7 @@ export const coreToolTitle = (
 ): string | null => {
   observeOmpTheme(theme);
   if (!coreToolRendererEnabled(audit, options.settings) || !audit.tool) return null;
-  const title = theme.fg("toolTitle", theme.bold(audit.tool));
+  const title = theme.fg("toolTitle", emphasize(theme, audit.tool));
   const timing = options.settings.toolCallTiming
     ? formatToolCallDuration(audit.startedAt, audit.endedAt)
     : undefined;

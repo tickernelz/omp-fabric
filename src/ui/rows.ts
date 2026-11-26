@@ -4,7 +4,7 @@ import { decodeInput } from "@oh-my-pi/pi-tui/driver/input/decoder";
 import type { KeyEvent } from "@oh-my-pi/pi-tui";
 import { truncate, visibleWidth, wrap } from "@oh-my-pi/pi-tui/text/width";
 export { truncate, visibleWidth, wrap };
-import { getKeybindings, type Keybinding, type Theme } from "@oh-my-pi/pi-coding-agent";
+import { getKeybindings, type Keybinding, type KeybindingsManager, type Theme } from "@oh-my-pi/pi-coding-agent";
 
 export interface RowsView {
   render(width: number): readonly string[];
@@ -58,12 +58,33 @@ export function hostMatches(data: string, action: Keybinding): boolean {
   return key ? getKeybindings().matches(key, action) : false;
 }
 
+/** The host's key bindings matched against raw input, for views injected with a manager. */
+export interface RawKeybindings {
+  matches(data: string, action: Keybinding): boolean;
+  getKeys(action: Keybinding): string[];
+}
+
+export function rawKeybindings(manager: KeybindingsManager): RawKeybindings {
+  return {
+    matches(data, action) {
+      const presses = keyPresses(data);
+      const key = presses.length === 1 ? presses[0] : undefined;
+      return key ? manager.matches(key, action) : false;
+    },
+    getKeys(action) {
+      return [...manager.keysFor(action)];
+    },
+  };
+}
+
 /** Zero-width marker so a rows editor can scroll the caret line into view. */
 export const EDITOR_CURSOR = "\u001b_omp-cursor\u0007";
 
 export class PromptEditor implements RowsView {
   focused = false;
   onChange?: (text: string) => void;
+  /** Enter submits when set; otherwise the owner handles Enter itself. */
+  onSubmit?: (text: string) => void;
 
   invalidate(): void { }
   #value = "";
@@ -98,7 +119,19 @@ export class PromptEditor implements RowsView {
         this.#cursor = Math.min(this.#value.length, this.#cursor + 1);
         continue;
       }
-      if (key.id === "enter" || key.id === "escape") continue;
+      if (key.id === "shift+enter") {
+        this.#value = this.#value.slice(0, this.#cursor) + "\n" + this.#value.slice(this.#cursor);
+        this.#cursor += 1;
+        changed = true;
+        continue;
+      }
+      if (key.id === "enter") {
+        if (changed) this.onChange?.(this.#value);
+        changed = false;
+        this.onSubmit?.(this.#value);
+        continue;
+      }
+      if (key.id === "escape") continue;
       const text = key.id === "space" ? " " : key.text;
       if (!text) continue;
       this.#value = this.#value.slice(0, this.#cursor) + text + this.#value.slice(this.#cursor);
@@ -109,8 +142,8 @@ export class PromptEditor implements RowsView {
   }
 
   render(width: number): readonly string[] {
-    const line = this.#value.slice(0, this.#cursor) + EDITOR_CURSOR + this.#value.slice(this.#cursor);
-    return [clip(line, Math.max(0, width), "")];
+    const text = this.#value.slice(0, this.#cursor) + EDITOR_CURSOR + this.#value.slice(this.#cursor);
+    return text.split("\n").map((line) => clip(line, Math.max(0, width), ""));
   }
 }
 

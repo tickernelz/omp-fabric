@@ -1,10 +1,28 @@
 // Adapted from pi-code-previews; see THIRD_PARTY_NOTICES.md.
-import type { Theme, ToolDefinition, ToolRenderResultOptions } from "@oh-my-pi/pi-coding-agent";
+import type {
+  ExtensionRender,
+  ExtensionTheme,
+  Theme,
+  ToolDefinition,
+  ToolRenderResultOptions,
+} from "@oh-my-pi/pi-coding-agent";
 import { clip, Container, emphasis, Text, visibleWidth, type Component } from "./rows.js";
 import { continueArcGroup } from "./arc-group.js";
 
 type ToolCallBackgroundMode = "on" | "border" | "off";
 type AnyTool = ToolDefinition;
+
+/**
+ * The rows form of what a wrapped renderer returned. Strings become text rows;
+ * pi-tui nodes have no rows form, so the shell falls back to its own rows.
+ */
+const asRows = (rendered: ExtensionRender | undefined): Component | undefined => {
+  if (typeof rendered === "string") return new Text(rendered, 0, 0);
+  if (typeof rendered === "object" && rendered !== null && "render" in rendered && typeof rendered.render === "function") {
+    return rendered;
+  }
+  return undefined;
+};
 
 export type FabricToolShellDecorator = <TTool extends AnyTool>(
   tool: TTool,
@@ -324,22 +342,23 @@ export const withCodePreviewShell: FabricToolShellDecorator = <TTool extends Any
   if ((options.preserveSelfShell ?? true) && (tool as AnyTool & { renderShell?: string }).renderShell === "self") return tool;
   const originalRenderCall = tool.renderCall;
   const originalRenderResult = tool.renderResult;
-  const renderCall = (args: unknown, options: ToolRenderResultOptions, theme: Theme, context: PreviewRenderContext): Component => {
+  const renderCall = (args: unknown, options: ToolRenderResultOptions, theme: ExtensionTheme, context: PreviewRenderContext): Component => {
     const renderOptions = { ...options, renderContext: context };
+    const title = (): Component => new Text(theme.fg("toolTitle", emphasis(theme, tool.label || tool.name)), 0, 0);
     return originalRenderCall
-      ? originalRenderCall.call(tool, args as never, renderOptions, theme)
-      : new Text(theme.fg("toolTitle", emphasis(theme, tool.label || tool.name)), 0, 0);
+      ? asRows(originalRenderCall.call(tool, args as never, renderOptions, theme)) ?? title()
+      : title();
   };
   const renderResult = (
     result: unknown,
     resultOptions: unknown,
-    theme: Theme,
+    theme: ExtensionTheme,
     context: PreviewRenderContext,
     args?: unknown,
   ): Component => {
     const renderOptions = { ...(resultOptions as ToolRenderResultOptions), renderContext: context };
     return originalRenderResult
-      ? originalRenderResult.call(tool, result as never, renderOptions, theme, args)
+      ? asRows(originalRenderResult.call(tool, result as never, renderOptions, theme, args)) ?? new Container()
       : new Container();
   };
 

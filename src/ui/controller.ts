@@ -1,6 +1,5 @@
 import path from "node:path";
 import type { ExtensionContext } from "@oh-my-pi/pi-coding-agent";
-import type { TUI } from "@oh-my-pi/pi-tui";
 import type { CodePreviewSettings } from "./code-preview.js";
 import type { FabricConversationState, FabricConversationView } from "./conversation.js";
 import type { NativeConversationReader, NativeConversationSource } from "./conversation-native-reader.js";
@@ -20,6 +19,7 @@ import { createDashboardSnapshot } from "./snapshot.js";
 import { safeText } from "./format.js";
 import { isActiveStatus, type FabricDashboardSnapshot, type FabricUiActor, type FabricUiAgent } from "./types.js";
 import { FabricWidget, shouldShowFabricWidget } from "./widget.js";
+import { rawKeybindings, type HostSurface } from "./rows.js";
 import { FABRIC_CONVERSATION_SHORTCUT } from "./conversation-shortcut.js";
 import { AgentTranscriptReader, type FabricTranscriptSource } from "./transcript.js";
 
@@ -64,8 +64,8 @@ export class FabricUiController {
   #actorUnsubscribe: (() => void) | undefined;
   #agentUnsubscribe: (() => void) | undefined;
   #scheduledRefresh: NodeJS.Timeout | undefined;
-  #widgetTui: TUI | undefined;
-  #dashboardTui: TUI | undefined;
+  #widgetTui: HostSurface | undefined;
+  #dashboardTui: HostSurface | undefined;
   #widgetMounted = false;
   #widget: FabricWidget | undefined;
   #lastRefreshErrorAt = 0;
@@ -74,7 +74,7 @@ export class FabricUiController {
   #conversationOpen = false;
   #conversationState: FabricConversationState | undefined;
   #conversationView: FabricConversationView | undefined;
-  #conversationTui: TUI | undefined;
+  #conversationTui: HostSurface | undefined;
   #closeConversation: (() => void) | undefined;
   #epoch = 0;
   #activityRevision: number | undefined;
@@ -235,7 +235,7 @@ export class FabricUiController {
           appearance,
           ...(initialTarget ? { initialTargetId: initialTarget.id } : {}),
           state: this.#conversationState!,
-          keybindings,
+          keybindings: rawKeybindings(keybindings),
           rendererOptions: this.conversationRenderers,
           queueEvents: this.state.omp?.events,
           ...(this.codePreviewSettings ? { codePreviewSettings: this.codePreviewSettings } : {}),
@@ -277,7 +277,7 @@ export class FabricUiController {
         return view;
       }, {
         overlay: true,
-        overlayOptions: { width: "100%", maxHeight: "100%", anchor: "top-left", margin: 0 },
+        fullscreen: true,
       });
     } catch (error) {
       if (epoch === this.#epoch) context.ui.notify(safeText(error instanceof Error ? error.message : String(error)), "error");
@@ -463,7 +463,7 @@ export class FabricUiController {
           this.#dashboardTui = tui;
           return new FabricDashboard(tui, theme, () => this.#snapshot, () => done(undefined), {
             modelSource,
-            keybindings,
+            keybindings: rawKeybindings(keybindings),
             ...(this.codePreviewSettings
               ? { codePreviewSettings: this.codePreviewSettings }
               : {}),
@@ -501,13 +501,6 @@ export class FabricUiController {
         },
         {
           overlay: true,
-          overlayOptions: {
-            width: "94%",
-            minWidth: 40,
-            maxHeight: "90%",
-            anchor: "center",
-            margin: 1,
-          },
         },
       );
     } finally {

@@ -1,5 +1,3 @@
-import type { SymbolTheme } from "@oh-my-pi/pi-tui";
-
 const box = {
   topLeft: "╭",
   topRight: "╮",
@@ -14,7 +12,7 @@ const box = {
   cross: "┼",
 };
 
-export const ompSymbolTheme: SymbolTheme = {
+export const ompSymbolTheme = {
   cursor: "›",
   inputCursor: "│",
   boxRound: box,
