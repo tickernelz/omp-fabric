@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import type { Theme } from "@oh-my-pi/pi-coding-agent";
+import { getThemeByName, type Theme } from "@oh-my-pi/pi-coding-agent";
 import type { HostSurface as TUI } from "../src/ui/rows.js";
 import type { CodePreviewSettings } from "../src/ui/code-preview.js";
 import { visibleWidth } from "../src/ui/rows.js";
@@ -29,10 +29,20 @@ const actorModelSource: ModelSource = {
   lastUsed: {},
 };
 
+// OMP 19.2's Markdown renderer draws rules and tables with the theme's symbol set.
+const ompTheme = await getThemeByName("dark");
+if (!ompTheme) throw new Error("OMP dark theme unavailable");
+const ompSymbols = ompTheme.symbols;
+
 const theme = {
   fg: (_color: string, text: string) => text,
   bg: (_color: string, text: string) => text,
   bold: (text: string) => text,
+  style: (_tokens: string | undefined, text: string) => text,
+  fgResolved: (_color: string, text: string) => text,
+  palette: (_slot: number, text: string) => text,
+  has: () => false,
+  symbols: ompSymbols,
 } as unknown as Theme;
 
 const codePreviewSettings: CodePreviewSettings = {
@@ -65,6 +75,11 @@ const ansiTheme = {
   fg: (_color: string, text: string) => `\x1b[36m${text}\x1b[39m`,
   bg: (_color: string, text: string) => `\x1b[44m${text}\x1b[49m`,
   bold: (text: string) => `\x1b[1m${text}\x1b[22m`,
+  style: (_tokens: string | undefined, text: string) => text,
+  fgResolved: (_color: string, text: string) => text,
+  palette: (_slot: number, text: string) => text,
+  has: () => false,
+  symbols: ompSymbols,
 } as unknown as Theme;
 
 const mainAgent = (now: number, status: "idle" | "running" = "running") => ({
