@@ -133,7 +133,7 @@ const SAVE_SCOPE_SHORTCUT = "ctrl+g";
 
 const unique = (values: readonly string[]): string[] => [...new Set(values)];
 
-export interface SelectItem {
+interface SelectItem {
   value: string;
   label: string;
   description?: string;

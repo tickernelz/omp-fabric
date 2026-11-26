@@ -1,5 +1,5 @@
 import type { ExtensionUiHost, Theme } from "@oh-my-pi/pi-coding-agent";
-import { getKeybindings } from "@oh-my-pi/pi-coding-agent";
+import { getKeybindings } from "@oh-my-pi/pi-coding-agent/config/keybindings/keybindings";
 import type { KeyEvent } from "@oh-my-pi/pi-tui";
 import { truncate, visibleWidth } from "@oh-my-pi/pi-tui/text/width";
 import { keyEvents } from "./keys.js";

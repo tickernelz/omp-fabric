@@ -1,4 +1,5 @@
-import { getKeybindings, type Theme } from "@oh-my-pi/pi-coding-agent";
+import type { Theme } from "@oh-my-pi/pi-coding-agent";
+import { getKeybindings } from "@oh-my-pi/pi-coding-agent/config/keybindings/keybindings";
 import { fuzzyFilter } from "@oh-my-pi/pi-coding-agent/utils/fuzzy";
 import { truncate } from "@oh-my-pi/pi-tui/text/width";
 import type { KeyEvent } from "@oh-my-pi/pi-tui";

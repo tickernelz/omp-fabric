@@ -1,4 +1,5 @@
-import { getKeybindings, type Theme } from "@oh-my-pi/pi-coding-agent";
+import type { Theme } from "@oh-my-pi/pi-coding-agent";
+import { getKeybindings } from "@oh-my-pi/pi-coding-agent/config/keybindings/keybindings";
 import { truncate } from "@oh-my-pi/pi-tui/text/width";
 import { keyEvents } from "./keys.js";
 import type { FabricRows } from "./render-types.js";

@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
-import { getKeybindings, type Keybinding, type Theme } from "@oh-my-pi/pi-coding-agent";
+import type { Keybinding, Theme } from "@oh-my-pi/pi-coding-agent";
+import { getKeybindings } from "@oh-my-pi/pi-coding-agent/config/keybindings/keybindings";
 import type { CodePreviewSettings } from "./code-preview.js";
 import { formatToolCallDuration } from "./tool-call-timing.js";
 import { truncate, visibleWidth, wrap } from "@oh-my-pi/pi-tui/text/width";

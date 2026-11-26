@@ -1,4 +1,5 @@
-import { getKeybindings, type Theme } from "@oh-my-pi/pi-coding-agent";
+import type { Theme } from "@oh-my-pi/pi-coding-agent";
+import { getKeybindings } from "@oh-my-pi/pi-coding-agent/config/keybindings/keybindings";
 import { truncate, visibleWidth } from "@oh-my-pi/pi-tui/text/width";
 import { INHERIT_VALUE } from "./model-picker.js";
 import { THINKING_LEVELS, thinkingLabel } from "../thinking.js";

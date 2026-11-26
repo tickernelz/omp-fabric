@@ -1,5 +1,5 @@
-import type { ExtensionUiHost, KeybindingsManager, Theme } from "@oh-my-pi/pi-coding-agent";
-import { getKeybindings, type KeyId, type Keybinding } from "@oh-my-pi/pi-coding-agent";
+import type { ExtensionUiHost, Keybinding, KeybindingsManager, KeyId, Theme } from "@oh-my-pi/pi-coding-agent";
+import { getKeybindings } from "@oh-my-pi/pi-coding-agent/config/keybindings/keybindings";
 import { truncate, visibleWidth } from "@oh-my-pi/pi-tui/text/width";
 import { fuzzyFilter } from "@oh-my-pi/pi-coding-agent/utils/fuzzy";
 import type { KeyEvent } from "@oh-my-pi/pi-tui";
