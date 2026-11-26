@@ -570,21 +570,28 @@ export interface SelectListLayoutOptions {
   maxPrimaryColumnWidth?: number;
 }
 
+/** First index of a `visible`-row window over `total` rows that keeps `selected` near its middle. */
+function scrollWindowStart(selected: number, total: number, visible: number): number {
+  return Math.max(0, Math.min(selected - Math.floor(visible / 2), total - visible));
+}
+
 export class SelectList implements RowsView {
   onSelect?: (item: SelectItem) => void;
   onCancel?: () => void;
   #items: readonly SelectItem[];
   #selected = 0;
   readonly #theme: SelectListTheme;
+  readonly #maxVisible: number;
 
   constructor(
     items: readonly SelectItem[],
-    _maxVisible: number,
+    maxVisible: number,
     theme: SelectListTheme,
     _layout?: SelectListLayoutOptions,
   ) {
     this.#items = items;
     this.#theme = theme;
+    this.#maxVisible = Math.max(1, Math.floor(maxVisible) || 1);
   }
 
   setSelectedIndex(index: number): void {
@@ -608,12 +615,18 @@ export class SelectList implements RowsView {
 
   render(width: number): readonly string[] {
     if (this.#items.length === 0) return [truncate(this.#theme.noMatch("No matches"), width, "")];
-    return this.#items.map((item, index) => {
-      const selected = index === this.#selected;
+    const visible = Math.min(this.#items.length, this.#maxVisible);
+    const start = scrollWindowStart(this.#selected, this.#items.length, visible);
+    const lines = this.#items.slice(start, start + visible).map((item, offset) => {
+      const selected = start + offset === this.#selected;
       const label = selected ? this.#theme.selectedText(item.label) : item.label;
       const prefix = selected ? this.#theme.selectedPrefix("→ ") : "  ";
       return truncate(prefix + label, Math.max(0, width), "");
     });
+    if (visible < this.#items.length) {
+      lines.push(truncate(this.#theme.scrollInfo(`  (${this.#selected + 1}/${this.#items.length})`), Math.max(0, width), ""));
+    }
+    return lines;
   }
 }
 
@@ -654,10 +667,11 @@ export class SettingsList implements RowsView {
   readonly #onChange: (id: string, newValue: string) => void;
   readonly #onCancel: () => void;
   readonly #typeToSearch: boolean;
+  readonly #maxVisible: number;
 
   constructor(
     items: SettingItem[],
-    _maxVisible: number,
+    maxVisible: number,
     theme: SettingsListTheme,
     onChange: (id: string, newValue: string) => void,
     onCancel: () => void,
@@ -668,6 +682,7 @@ export class SettingsList implements RowsView {
     this.#onChange = onChange;
     this.#onCancel = onCancel;
     this.#typeToSearch = options.typeToSearch !== false;
+    this.#maxVisible = Math.max(1, Math.floor(maxVisible) || 1);
     this.#refilter();
   }
 
@@ -676,7 +691,8 @@ export class SettingsList implements RowsView {
     if (index < 0) return false;
     this.#query = "";
     this.#refilter();
-    const filtered = this.#filtered.findIndex((item) => item.id === id);
+    // #selected counts selectable rows only, so headings must not shift it.
+    const filtered = this.#filtered.filter((item) => !item.heading).findIndex((item) => item.id === id);
     if (filtered < 0) return false;
     this.#selected = filtered;
     return true;
@@ -732,7 +748,10 @@ export class SettingsList implements RowsView {
     const lines: string[] = [];
     const selectable = this.#filtered.filter((item) => !item.heading);
     const selected = selectable[this.#selected];
-    for (const item of this.#filtered) {
+    // Headings take rows of the window too; it scrolls to keep the selection in view.
+    const visible = Math.min(this.#filtered.length, this.#maxVisible);
+    const start = scrollWindowStart(selected ? this.#filtered.indexOf(selected) : 0, this.#filtered.length, visible);
+    for (const item of this.#filtered.slice(start, start + visible)) {
       if (item.heading) {
         lines.push(truncate(this.#theme.label(item.label, false), Math.max(0, width), ""));
         continue;
@@ -742,6 +761,9 @@ export class SettingsList implements RowsView {
       const label = this.#theme.label(item.label, on);
       const value = item.currentValue ? this.#theme.value(item.currentValue, on) : "";
       lines.push(truncate(`${cursor}${label}${value ? `  ${value}` : ""}`, Math.max(0, width), ""));
+    }
+    if (visible < this.#filtered.length) {
+      lines.push(truncate(this.#theme.hint(`  (${this.#selected + 1}/${selectable.length})`), Math.max(0, width), ""));
     }
     if (selected?.description) lines.push(...wrap(this.#theme.description(selected.description), Math.max(1, width)));
     if (this.#typeToSearch) {
