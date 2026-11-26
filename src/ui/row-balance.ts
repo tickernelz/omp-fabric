@@ -1,4 +1,4 @@
-import { truncateToWidth, type Component } from "@oh-my-pi/pi-tui";
+import { clip, type Component } from "./rows.js";
 
 interface MeasuredPartialResult {
   component: Component;
@@ -54,7 +54,7 @@ export class HiddenRowBorrowingComponent implements Component {
     // never emit a row wider than the requested width (issue #84).
     this.#cachedWidth = width;
     this.#cachedDeficit = deficit;
-    this.#cachedRows = best.map((row) => truncateToWidth(row, Math.max(1, width)));
+    this.#cachedRows = best.map((row) => clip(row, Math.max(1, width)));
     return this.#cachedRows;
   }
 

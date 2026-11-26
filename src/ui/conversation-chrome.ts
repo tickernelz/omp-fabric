@@ -1,7 +1,7 @@
 import { homedir } from "node:os";
 import path from "node:path";
 import type { Theme } from "@oh-my-pi/pi-coding-agent";
-import { Ellipsis, truncateToWidth, visibleWidth } from "@oh-my-pi/pi-tui";
+import { clip, visibleWidth } from "./rows.js";
 import { formatTokens, safeText } from "./format.js";
 import type { FabricConversationTarget } from "./conversation.js";
 
@@ -60,11 +60,11 @@ export function conversationFooter(target: FabricConversationTarget | undefined,
   stats.push(target.contextWindow ? `?/${formatTokens(target.contextWindow)} ctx` : "ctx ?");
   const model = safeText(target.model ?? `${target.runner ?? ""} model unavailable`).trim();
   const thinking = target.thinking ? ` • ${safeText(target.thinking === "off" ? "thinking off" : target.thinking)}` : "";
-  const left = truncateToWidth(stats.join(" "), width, Ellipsis.Unicode);
-  const right = truncateToWidth(`${model}${thinking}`, Math.max(0, width - visibleWidth(left) - 2), "");
+  const left = clip(stats.join(" "), width, "…");
+  const right = clip(`${model}${thinking}`, Math.max(0, width - visibleWidth(left) - 2), "");
   const gap = " ".repeat(Math.max(0, width - visibleWidth(left) - visibleWidth(right)));
   return [
-    truncateToWidth(theme.fg("dim", pwd), width, Ellipsis.Unicode),
+    clip(theme.fg("dim", pwd), width, "…"),
     theme.fg("dim", `${left}${gap}${right}`),
   ];
 }

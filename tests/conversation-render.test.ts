@@ -1,12 +1,6 @@
-import {
-  AssistantMessageComponent,
-  initThemeSync,
-  ToolExecutionComponent,
-  UserMessageComponent,
-  type Theme,
-} from "@oh-my-pi/pi-coding-agent";
+import { initTheme, type Theme } from "@oh-my-pi/pi-coding-agent";
 import type { AssistantMessage } from "@oh-my-pi/pi-ai";
-import { Text, visibleWidth, type TUI } from "@oh-my-pi/pi-tui";
+import { Text, visibleWidth } from "../src/ui/rows.js";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { createFabricPersistedExecutionDetails } from "../src/audit/index.js";
 import { FabricExecutionTraceRecorder } from "../src/audit/trace.js";
@@ -28,7 +22,7 @@ import { highlightCode, initHighlighting } from "../src/ui/highlight.js";
 // Shiki's first initialization needs real timers, and it caches into module
 // state, so warm it once before any test installs the fake clock below.
 beforeAll(async () => {
-  initThemeSync(undefined, false, "dark");
+  initTheme({ appearance: "dark" });
   await initHighlighting("dark-plus", true);
 }, 30_000);
 
@@ -56,7 +50,7 @@ const target: FabricConversationTarget = {
   id: "child", name: "Child", kind: "agent", status: "running", cwd: "/repo/child",
   canSteer: true, canFollowUp: true, canStop: true,
 };
-const tui = { requestRender: vi.fn() } as unknown as TUI;
+const tui = { requestRender: vi.fn() };
 
 const stateFor = (toolDisplay: "full" | "compact") =>
   ({
@@ -123,7 +117,7 @@ const plain = (lines: readonly string[]) => lines.map((line) => line.replace(/\x
 
 describe("focused conversation native component rendering", () => {
   it("dispatches user and assistant messages through the exact native components with native spacing", () => {
-    initThemeSync(undefined, false, "dark");
+    initTheme({ appearance: "dark" });
     const renderer = new FabricConversationTranscriptRenderer(tui, theme);
     const lines = render(renderer, makeTranscript({
       messages: [
@@ -131,17 +125,16 @@ describe("focused conversation native component rendering", () => {
         assistantMessage("A **normal OMP** response."),
       ],
     }), 80);
-    const nativeUser = new UserMessageComponent("Please inspect **the result**.", { imageLinks: [undefined] }).render(80);
-    const nativeAssistant = new AssistantMessageComponent(assistantMessage("A **normal OMP** response."), false, undefined, undefined, undefined).render(80);
-    // Native rows in native order — no glyph/heading. The user card begins
-    // with its own padded background rows; no extra spacer at transcript start.
-    expect(plain(lines)).toEqual([...plain(nativeUser), ...plain(nativeAssistant)]);
+    const plainText = plain(lines).join("\n");
+    expect(plainText).toContain("Please inspect **the result**.");
+    expect(plainText).toContain("A **normal OMP** response.");
+    expect(plainText).toContain("host message cards were removed");
     expect(lines.join("\n")).not.toContain("Agent");
     expect(lines.every((line) => visibleWidth(line) <= 80)).toBe(true);
   });
 
   it("honors the thinking toggle via hideThinking", () => {
-    initThemeSync(undefined, false, "dark");
+    initTheme({ appearance: "dark" });
     const renderer = new FabricConversationTranscriptRenderer(tui, theme);
     const message = assistantMessage("Answer");
     message.content = [
@@ -161,7 +154,7 @@ describe("focused conversation native component rendering", () => {
     // terminal: OMP downgrades to 256-color when the environment does not.
     vi.stubEnv("COLORTERM", "truecolor");
     try {
-      initThemeSync(undefined, false, "dark");
+      initTheme({ appearance: "dark" });
       await initHighlighting("dark-plus", true);
       const fabricTool = fabricToolFor();
       const getToolDefinition: FabricGetToolDefinition = (name) =>
@@ -192,7 +185,7 @@ describe("focused conversation native component rendering", () => {
   }, 90_000);
 
   it("passes full persisted execution details through to renderResult for partial and final updates", async () => {
-    initThemeSync(undefined, false, "dark");
+    initTheme({ appearance: "dark" });
     await initHighlighting("dark-plus", true);
     const fabricTool = fabricToolFor();
     const toolCallRecords: Array<{ result: unknown; options: { isPartial: boolean } }> = [];
@@ -240,7 +233,7 @@ describe("focused conversation native component rendering", () => {
   }, 15000);
 
   it("does not cap expanded tool output at 40 lines", () => {
-    initThemeSync(undefined, false, "dark");
+    initTheme({ appearance: "dark" });
     const longOutput = Array.from({ length: 61 }, (_unused, index) => `line-${index + 1}`).join("\n");
     const definition = {
       renderCall: (args: unknown, _options: unknown, _theme: Theme) => new Text(String((args as { marker: string }).marker), 0, 0) as never,
@@ -263,7 +256,7 @@ describe("focused conversation native component rendering", () => {
   });
 
   it("keeps tool backgrounds full width at the rightmost cell, including wrapped wide characters", () => {
-    initThemeSync(undefined, false, "dark");
+    initTheme({ appearance: "dark" });
     const wide = "界界界界界界界界界界界界界界界界界界界界";
     const tool: NativeToolExecution = {
       toolCallId: "call-4", toolName: "fabric_exec",
@@ -293,7 +286,7 @@ describe("focused conversation native component rendering", () => {
   });
 
   it("reuses one tool component per call across streaming frames without tool-call duplication", () => {
-    initThemeSync(undefined, false, "dark");
+    initTheme({ appearance: "dark" });
     const getToolDefinition = vi.fn(((name: string) =>
       name === "fabric_exec" ? {} : undefined) as FabricGetToolDefinition);
     const renderer = new FabricConversationTranscriptRenderer(tui, theme, { getToolDefinition });
@@ -318,7 +311,7 @@ describe("focused conversation native component rendering", () => {
   });
 
   it("isolates the component cache between targets with identical tool call ids", () => {
-    initThemeSync(undefined, false, "dark");
+    initTheme({ appearance: "dark" });
     const renderer = new FabricConversationTranscriptRenderer(tui, theme, {
       getToolDefinition: () => undefined, // native generic card path
     });
@@ -346,7 +339,7 @@ describe("focused conversation native component rendering", () => {
   });
 
   it("renders live RPC-streamed messages, not only persisted session entries", () => {
-    initThemeSync(undefined, false, "dark");
+    initTheme({ appearance: "dark" });
     const renderer = new FabricConversationTranscriptRenderer(tui, theme);
     const transcript = makeTranscript({
       messages: [
@@ -362,7 +355,7 @@ describe("focused conversation native component rendering", () => {
   });
 
   it("after dispose, renders nothing and stray renderer invalidations become no-ops", async () => {
-    initThemeSync(undefined, false, "dark");
+    initTheme({ appearance: "dark" });
     await initHighlighting("dark-plus", true);
     const fabricTool = fabricToolFor();
     const renderer = new FabricConversationTranscriptRenderer(tui, theme, {

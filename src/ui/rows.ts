@@ -2,7 +2,8 @@
 // decoded with the reactive driver; drawing stays `render(width): string[]`
 import { decodeInput } from "@oh-my-pi/pi-tui/driver/input/decoder";
 import type { KeyEvent } from "@oh-my-pi/pi-tui";
-import { truncate, wrap } from "@oh-my-pi/pi-tui/text/width";
+import { truncate, visibleWidth, wrap } from "@oh-my-pi/pi-tui/text/width";
+export { truncate, visibleWidth, wrap };
 import { getKeybindings, type Keybinding, type Theme } from "@oh-my-pi/pi-coding-agent";
 
 export interface RowsView {
@@ -12,6 +13,17 @@ export interface RowsView {
 }
 
 export type Component = RowsView;
+
+
+export function clip(text: string, width: number, ellipsis = "…"): string {
+  return truncate(text, Math.max(0, width), ellipsis);
+}
+
+export interface HostSurface {
+  requestRender(): void;
+  terminal?: { rows?: number; columns?: number; write?(data: string): void };
+  imageBudget?: unknown;
+}
 
 export function emphasis(theme: Theme, text: string): string {
   if (typeof theme.style === "function") return theme.style("strong", text);
@@ -34,6 +46,10 @@ export function keyIs(data: string, id: string): boolean {
 
 export function actionIs(key: KeyEvent, action: Keybinding): boolean {
   return getKeybindings().matches(key, action);
+}
+
+export function keysFor(action: Keybinding): string[] {
+  return [...getKeybindings().keysFor(action)];
 }
 
 export class Text implements RowsView {

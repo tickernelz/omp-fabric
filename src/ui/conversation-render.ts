@@ -1,16 +1,11 @@
+import type { AgentToolResult } from "@oh-my-pi/pi-agent-core";
 import {
-  AssistantMessageComponent,
-  BashExecutionComponent,
-  BranchSummaryMessageComponent,
-  CompactionSummaryMessageComponent,
+  type ExtensionTheme,
   type MessageRenderer,
   type Theme,
-  ToolExecutionComponent,
   type ToolDefinition,
-  UserMessageComponent,
 } from "@oh-my-pi/pi-coding-agent";
-import type { Component, TUI } from "@oh-my-pi/pi-tui";
-import { wrapTextWithAnsi } from "@oh-my-pi/pi-tui";
+import { type HostSurface, wrap } from "./rows.js";
 import { terminalSafe } from "./transcript-sanitization.js";
 import type { FabricConversationTarget } from "./conversation.js";
 import { unwrapActorEnvelopeText } from "./conversation-transcript.js";
@@ -68,7 +63,7 @@ const textOf = (content: unknown): string => {
   return content
     .filter((part): part is { type: "text"; text: string } =>
       typeof part === "object" && part !== null && (part as { type?: unknown }).type === "text"
-        && typeof (part as { text?: unknown }).text === "string",
+      && typeof (part as { text?: unknown }).text === "string",
     )
     .map((part) => part.text)
     .join("\n");
@@ -84,21 +79,22 @@ const safeRender = (component: Renderable, width: number, fallback: () => string
 
 export class FabricConversationTranscriptRenderer {
   private disposed = false;
-  private readonly toolComponents = new Map<string, ToolExecutionComponent>();
-  private readonly assistantComponents = new Map<string, AssistantMessageComponent>();
-  private readonly messageComponents = new Map<string, Renderable>();
+  private noticed = false;
+  private readonly tui: HostSurface;
+  private readonly theme: Theme;
+  private readonly rendererOptions: FabricConversationTranscriptRendererOptions;
 
   constructor(
-    private readonly tui: TUI,
-    private readonly theme: Theme,
-    private readonly rendererOptions: FabricConversationTranscriptRendererOptions = {},
-  ) {}
+    tui: HostSurface,
+    theme: Theme,
+    rendererOptions: FabricConversationTranscriptRendererOptions = {},
+  ) {
+    this.tui = tui;
+    this.theme = theme;
+    this.rendererOptions = rendererOptions;
+  }
 
   invalidate(): void {
-    if (this.disposed) return;
-    this.toolComponents.clear();
-    this.assistantComponents.clear();
-    this.messageComponents.clear();
     this.tui.requestRender();
   }
 
@@ -110,19 +106,24 @@ export class FabricConversationTranscriptRenderer {
   render(transcript: NativeConversationTranscript, width: number, options: FabricConversationTranscriptRenderOptions): string[] {
     if (this.disposed || width <= 0) return [];
     const lines: string[] = [];
+    if (!this.noticed) {
+      this.noticed = true;
+      lines.push(this.theme.fg("dim", "Transcript rows — host message cards were removed in OMP 19.2."));
+    }
     if (transcript.messages.length === 0 && !transcript.streaming.partialAssistant && transcript.streaming.tools.length === 0) {
-      return [this.theme.fg("dim", "No retained transcript yet; new agent activity will appear here.")];
+      lines.push(this.theme.fg("dim", "No retained transcript yet; new agent activity will appear here."));
+      return lines;
     }
     if (transcript.hasMore) lines.push(this.theme.fg("dim", "↑ older activity available"));
     const renderedTools = new Set<string>();
     for (const message of transcript.messages) this.renderMessage(message, width, options, lines, renderedTools);
     if (transcript.streaming.partialAssistant) {
-      this.renderAssistant(transcript.streaming.partialAssistant, width, options, lines, renderedTools, true);
+      this.renderAssistant(transcript.streaming.partialAssistant, width, options, lines, renderedTools);
     }
     for (const tool of transcript.streaming.tools) {
       if (renderedTools.has(tool.toolCallId)) continue;
       renderedTools.add(tool.toolCallId);
-      this.renderTool(tool.toolCallId, tool.toolName, tool.args, tool.result, tool.partial, tool.isError, width, options, lines, true);
+      this.renderTool(tool.toolCallId, tool.toolName, tool.args, tool.result, tool.partial, tool.isError, width, options, lines);
     }
     if (transcript.hasNewer) lines.push(this.theme.fg("dim", "↓ newer activity available"));
     return lines;
@@ -132,108 +133,120 @@ export class FabricConversationTranscriptRenderer {
     switch (message.role) {
       case "user": {
         const text = unwrapActorEnvelopeText(textOf(message.content)) ?? textOf(message.content);
-        if (text) this.push(lines, safeRender(new UserMessageComponent(terminalSafe(text, false)), width, () => this.fallback(text, width)));
+        if (text) this.push(lines, this.fallback(text, width));
         return;
       }
       case "assistant":
-        this.renderAssistant(message, width, options, lines, renderedTools, false);
+        this.renderAssistant(message, width, options, lines, renderedTools);
         return;
       case "toolResult":
         if (typeof message.toolCallId === "string") {
-          this.renderTool(message.toolCallId, message.toolName ?? "tool", undefined, message, undefined, message.isError, width, options, lines, false);
+          this.renderTool(message.toolCallId, message.toolName ?? "tool", undefined, message, undefined, message.isError, width, options, lines);
         }
         return;
       case "bashExecution":
-        this.renderBash(message, width, options, lines);
+        this.push(lines, this.fallback(message.command, width));
+        if (message.output) this.push(lines, this.fallback(message.output, width));
         return;
       case "custom":
-        this.renderCustom(message, width, options, lines);
+        this.renderCustom(message, width, lines);
         return;
       case "compactionSummary":
-        this.renderSummary(message, width, options, lines, CompactionSummaryMessageComponent);
-        return;
       case "branchSummary":
-        this.renderSummary(message, width, options, lines, BranchSummaryMessageComponent);
+        this.push(lines, this.fallback(message.summary, width));
         return;
       default:
         return;
     }
   }
 
-  private renderAssistant(message: Extract<NativeAgentMessage, { role: "assistant" }>, width: number, options: FabricConversationTranscriptRenderOptions, lines: string[], renderedTools: Set<string>, transient: boolean): void {
-    const key = `${message.timestamp}:${options.target.id}:${options.hideThinking === true}`;
-    let component = this.assistantComponents.get(key);
-    if (!component) {
-      component = new AssistantMessageComponent(message, options.hideThinking ?? false);
-      this.assistantComponents.set(key, component);
-    } else {
-      component.updateContent(message, { transient });
-    }
-    this.push(lines, safeRender(component, width, () => this.fallback(textOf(message.content), width)));
+  private renderAssistant(message: Extract<NativeAgentMessage, { role: "assistant" }>, width: number, options: FabricConversationTranscriptRenderOptions, lines: string[], renderedTools: Set<string>): void {
+    const hideThinking = options.hideThinking === true;
     for (const block of message.content) {
+      if (block.type === "thinking") {
+        if (!hideThinking && block.thinking) this.push(lines, this.fallback(block.thinking, width));
+        continue;
+      }
+      if (block.type === "text" && block.text) this.push(lines, this.fallback(block.text, width));
       if (block.type !== "toolCall" || renderedTools.has(block.id)) continue;
       renderedTools.add(block.id);
-      this.renderTool(block.id, block.name, block.arguments, undefined, undefined, message.stopReason === "error", width, options, lines, transient);
+      this.renderTool(block.id, block.name, block.arguments, undefined, undefined, message.stopReason === "error", width, options, lines);
     }
   }
 
-  private renderTool(id: string, name: string, args: unknown, result: unknown, partial: unknown, isError: boolean | undefined, width: number, options: FabricConversationTranscriptRenderOptions, lines: string[], transient: boolean): void {
-    let component = this.toolComponents.get(`${options.target.id}:${id}`);
-    if (!component) {
-      const tool = this.rendererOptions.getToolDefinition?.(name);
-      // ToolDefinition and AgentTool are the same registration shape (OMP casts
-      // between them internally); the native component consumes AgentTool.
-      component = new ToolExecutionComponent(name, args, { showImages: options.showImages ?? true }, tool as import("@oh-my-pi/pi-agent-core").AgentTool | undefined, {
-        requestRender: () => this.tui.requestRender(),
-        requestComponentRender: () => this.tui.requestRender(),
-        resetDisplay: () => undefined,
-        imageBudget: this.tui.imageBudget,
-      }, options.target.cwd ?? process.cwd(), id);
-      this.toolComponents.set(`${options.target.id}:${id}`, component);
+  private renderTool(id: string, name: string, args: unknown, result: unknown, partial: unknown, isError: boolean | undefined, width: number, options: FabricConversationTranscriptRenderOptions, lines: string[]): void {
+    const tool = this.rendererOptions.getToolDefinition?.(name);
+    const expanded = options.toolsExpanded;
+    if (args !== undefined && tool?.renderCall) {
+      const view = tool.renderCall(args, { expanded, isPartial: false }, extensionTheme(this.theme));
+      const rows = paintRows(view, width);
+      if (rows) lines.push(...rows);
     }
-    component.setExpanded(options.toolsExpanded);
-    const normalizeResult = (raw: unknown): { content: Array<{ type: string; text?: string; data?: string; mimeType?: string }>; details?: unknown; isError?: boolean } => {
-      const record = (raw ?? {}) as { content?: unknown; details?: unknown; isError?: boolean };
-      return {
-        content: Array.isArray(record.content) ? record.content : [],
-        ...(record.details !== undefined ? { details: record.details } : {}),
-        ...(record.isError !== undefined ? { isError: record.isError } : {}),
-      };
-    };
-    if (args !== undefined) component.updateArgs(args, id);
-    if (result !== undefined) component.updateResult(normalizeResult(result), false, id);
-    else if (partial !== undefined) component.updateResult(normalizeResult(partial), true, id);
-    if (isError) component.seal();
-    lines.push(...safeRender(component, width, () => this.fallback(name, width)));
+    const raw = result !== undefined ? result : partial;
+    if (raw !== undefined && tool?.renderResult) {
+      const view = tool.renderResult(normalizeToolResult(raw), { expanded, isPartial: result === undefined }, extensionTheme(this.theme), args);
+      const rows = paintRows(view, width);
+      if (rows) lines.push(...rows);
+    } else if (!tool?.renderCall) {
+      lines.push(...this.fallback(name, width));
+    }
+    if (isError) lines.push(this.theme.fg("error", "failed"));
   }
 
-  private renderBash(message: BashExecutionAgentMessage, width: number, options: FabricConversationTranscriptRenderOptions, lines: string[]): void {
-    const component = new BashExecutionComponent(message.command, this.tui, message.excludeFromContext);
-    component.appendOutput(terminalSafe(message.output ?? "", false));
-    component.setComplete(message.exitCode, message.cancelled, { output: message.output ?? "" });
-    component.setExpanded(options.toolsExpanded);
-    this.push(lines, safeRender(component, width, () => this.fallback(message.command, width)));
-  }
-
-  private renderCustom(message: CustomAgentMessage, width: number, options: FabricConversationTranscriptRenderOptions, lines: string[]): void {
+  private renderCustom(message: CustomAgentMessage, width: number, lines: string[]): void {
     const text = textOf(message.content);
     if (!message.display || !text) return;
-    this.push(lines, safeRender(new UserMessageComponent(terminalSafe(text, false), { synthetic: true }), width, () => this.fallback(text, width)));
-  }
-
-  private renderSummary<M extends CompactionSummaryAgentMessage | BranchSummaryAgentMessage>(message: M, width: number, options: FabricConversationTranscriptRenderOptions, lines: string[], ComponentClass: new (message: M) => Component): void {
-    const component = new ComponentClass(message);
-    if ("setExpanded" in component && typeof component.setExpanded === "function") component.setExpanded(options.toolsExpanded);
-    this.push(lines, safeRender(component, width, () => this.fallback(message.summary, width)));
+    this.push(lines, this.fallback(text, width));
   }
 
   private push(lines: string[], block: string[]): void {
-    // Native transcript components stack directly (each carries its own
-    // internal top/bottom padding); extra separators break exact parity.
     lines.push(...block);
   }
 
   private fallback(text: string, width: number): string[] {
-    return terminalSafe(text, false).split("\n").flatMap((line) => wrapTextWithAnsi(line, Math.max(1, width)).map((item) => this.theme.fg("text", item)));
+    return terminalSafe(text, false).split("\n").flatMap((line) => wrap(line, Math.max(1, width)).map((item) => this.theme.fg("text", item)));
   }
+}
+
+function normalizeToolResult(raw: unknown): AgentToolResult {
+  const content: AgentToolResult["content"] = [];
+  if (raw && typeof raw === "object" && "content" in raw && Array.isArray(raw.content)) {
+    for (const part of raw.content) {
+      if (!part || typeof part !== "object" || !("type" in part)) continue;
+      if (part.type === "text" && "text" in part && typeof part.text === "string") {
+        content.push({ type: "text", text: part.text });
+      }
+    }
+  }
+  const details = raw && typeof raw === "object" && "details" in raw ? raw.details : undefined;
+  const isError = raw && typeof raw === "object" && "isError" in raw && typeof raw.isError === "boolean" ? raw.isError : undefined;
+  return {
+    content,
+    ...(details !== undefined ? { details } : {}),
+    ...(isError !== undefined ? { isError } : {}),
+  };
+}
+
+function extensionTheme(theme: Theme): ExtensionTheme {
+  const attribute = (name: string, fallback: string, value: string): string => {
+    if (name in theme) {
+      const fn = Reflect.get(theme, name);
+      if (typeof fn === "function") return String(fn.call(theme, value));
+    }
+    return typeof theme.style === "function" ? theme.style(fallback, value) : value;
+  };
+  return {
+    ...theme,
+    bold: (value) => attribute("bold", "strong", value),
+    italic: (value) => attribute("italic", "em", value),
+    underline: (value) => attribute("underline", "underline", value),
+    strikethrough: (value) => attribute("strikethrough", "strike", value),
+    inverse: (value) => attribute("inverse", "inverse", value),
+  };
+}
+
+function paintRows(view: unknown, width: number): string[] | undefined {
+  if (!view || typeof view !== "object" || !("render" in view) || typeof view.render !== "function") return undefined;
+  const rows = view.render(width);
+  return Array.isArray(rows) ? rows.map((row) => String(row)) : undefined;
 }

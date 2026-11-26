@@ -1,5 +1,5 @@
-import type { Component } from "@oh-my-pi/pi-tui";
-import { truncateToWidth, visibleWidth } from "@oh-my-pi/pi-tui";
+import type { Component } from "./rows.js";
+import { clip, visibleWidth } from "./rows.js";
 import type { Theme } from "@oh-my-pi/pi-coding-agent";
 import type { FabricUiWidgetMode } from "../config.js";
 import { spinnerFrame } from "./spinner.js";
@@ -75,9 +75,9 @@ const agentLines = (
   const activity =
     agent.currentTool ??
     (agent.error
-      ? `error: ${truncateToWidth(safeText(agent.error), 48)}`
+      ? `error: ${clip(safeText(agent.error), 48)}`
       : agent.text && !isActiveStatus(agent.status)
-        ? `result: ${truncateToWidth(safeText(agent.text), 48)}`
+        ? `result: ${clip(safeText(agent.text), 48)}`
         : agent.status === "running"
           ? "thinking"
           : agent.status);
@@ -255,9 +255,9 @@ export class FabricWidget implements Component {
     if (content.length > bounded.length && bounded.length > 0) {
       const marker = this.theme.fg("dim", `+${content.length - bounded.length}`);
       const available = Math.max(0, width - visibleWidth(marker) - 1);
-      const last = truncateToWidth(bounded[bounded.length - 1] ?? "", available, "");
+      const last = clip(bounded[bounded.length - 1] ?? "", available, "");
       bounded[bounded.length - 1] = `${last} ${marker}`;
     }
-    return bounded.map((line) => truncateToWidth(line, width));
+    return bounded.map((line) => clip(line, width));
   }
 }

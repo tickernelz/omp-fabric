@@ -2,13 +2,7 @@ import { createHash } from "node:crypto";
 import type { AppKeybinding, Theme } from "@oh-my-pi/pi-coding-agent";
 import type { CodePreviewSettings } from "./code-preview.js";
 import { formatToolCallDuration } from "./tool-call-timing.js";
-import {
-  getKeybindings,
-  truncateToWidth,
-  visibleWidth,
-  wrapTextWithAnsi,
-  type Component,
-} from "@oh-my-pi/pi-tui";
+import { clip, type Component, emphasis, keysFor, visibleWidth, wrap } from "./rows.js";
 import { highlightCode, languageFromPath } from "./highlight.js";
 import { headlineArg } from "../core/call-preview.js";
 import { coreToolTitle, renderCoreToolBody } from "./core-tool-render.js";
@@ -104,7 +98,7 @@ export const safeTerminalText = (value: string): string =>
   });
 
 const truncateBoundedLine = (line: string, width: number): string => {
-  const truncated = truncateToWidth(line, width, "");
+  const truncated = clip(line, width, "");
   if (visibleWidth(line) <= width) return truncated;
   if (truncated.endsWith(FULL_SGR_RESET)) {
     return truncated.slice(0, -FULL_SGR_RESET.length) + TEXT_SGR_RESET;
@@ -147,7 +141,7 @@ class BoundedLineList implements Component {
       const { kind, line } = parseMarkedDiffLine(rawLine);
       if (!kind) {
         const continuationIndent = width > 2 ? "  " : "";
-        const wrapped = wrapTextWithAnsi(
+        const wrapped = wrap(
           line,
           Math.max(1, width - visibleWidth(continuationIndent)),
         );
@@ -265,7 +259,7 @@ const visibleMulticallAudits = (
 export function expandHint(theme: Theme): string {
   let keys: string[] = [];
   try {
-    keys = getKeybindings().getKeys(EXPAND_KEYBINDING);
+    keys = keysFor(EXPAND_KEYBINDING);
   } catch {
     keys = [];
   }
@@ -720,7 +714,7 @@ const nestedCallTitleText = (
   const provider = audit.provider ?? ref.split(".")[0] ?? ref;
   const tool = audit.tool ?? ref.split(".")[1] ?? ref;
   const toolLabel = provider === "judgment" && tool === "ask" ? "judgment.ask" : tool;
-  const title = theme.fg("toolTitle", theme.bold(toolLabel));
+  const title = theme.fg("toolTitle", emphasis(theme, toolLabel));
   const args = audit.args ?? {};
   const providerDetail = providerCallDetail(
     provider,

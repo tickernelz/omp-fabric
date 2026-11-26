@@ -1,13 +1,6 @@
 // Adapted from pi-code-previews; see THIRD_PARTY_NOTICES.md.
 import type { Theme, ToolDefinition, ToolRenderResultOptions } from "@oh-my-pi/pi-coding-agent";
-import { Ellipsis } from "@oh-my-pi/pi-tui";
-import {
-  Container,
-  Text,
-  truncateToWidth,
-  visibleWidth,
-  type Component,
-} from "@oh-my-pi/pi-tui";
+import { clip, Container, emphasis, Text, visibleWidth, type Component } from "./rows.js";
 import { continueArcGroup } from "./arc-group.js";
 
 type ToolCallBackgroundMode = "on" | "border" | "off";
@@ -150,7 +143,7 @@ class TimingFooter implements Component {
   render(width: number): readonly string[] {
     return [
       ...continueArcGroup([...this.component.render(width)]),
-      truncateToWidth(this.footer, width, ""),
+      clip(this.footer, width, ""),
     ];
   }
   invalidate(): void {
@@ -304,7 +297,7 @@ class BorderedToolCall implements Component {
     innerWidth: number,
     border: (value: string) => string,
   ): string {
-    const text = truncateToWidth(line, innerWidth, "");
+    const text = clip(line, innerWidth, "");
     const padding = " ".repeat(Math.max(0, innerWidth - visibleWidth(text)));
     const hasDiffBackground = /^\x1b\[48;2;\d+;\d+;\d+m/.test(text);
     return hasDiffBackground
@@ -335,7 +328,7 @@ export const withCodePreviewShell: FabricToolShellDecorator = <TTool extends Any
     const renderOptions = { ...options, renderContext: context };
     return originalRenderCall
       ? originalRenderCall.call(tool, args as never, renderOptions, theme)
-      : new Text(theme.fg("toolTitle", theme.bold(tool.label || tool.name)), 0, 0);
+      : new Text(theme.fg("toolTitle", emphasis(theme, tool.label || tool.name)), 0, 0);
   };
   const renderResult = (
     result: unknown,
@@ -358,7 +351,7 @@ export const withCodePreviewShell: FabricToolShellDecorator = <TTool extends Any
       if (!renderOptions) {
         return originalRenderCall
           ? originalRenderCall.call(tool, args, { expanded: false, isPartial: false }, theme)
-          : new Text(theme.fg("toolTitle", theme.bold(tool.label || tool.name)), 0, 0);
+          : new Text(theme.fg("toolTitle", emphasis(theme, tool.label || tool.name)), 0, 0);
       }
       const supplied = renderOptions.renderContext && typeof renderOptions.renderContext === "object"
         ? renderOptions.renderContext

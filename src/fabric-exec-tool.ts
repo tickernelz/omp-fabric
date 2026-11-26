@@ -1,6 +1,6 @@
 import type { Theme, ToolDefinition, ToolRenderResultOptions } from "@oh-my-pi/pi-coding-agent";
 import type { TSchema } from "@oh-my-pi/pi-coding-agent/extensibility/legacy-typebox";
-import { Container, Text, type Component } from "@oh-my-pi/pi-tui";
+import { Container, Text, type Component, emphasis } from "./ui/rows.js";
 
 type FabricToolDefinition = ToolDefinition<any, any> & {
   promptGuidelines?: readonly string[];
@@ -332,7 +332,7 @@ export const createFabricExecTool = (
         const title = display?.name?.trim() || fabricExecTitleHintCached(code);
         const header = new Container();
         header.addChild(renderBoundedLines(
-          [theme.fg("toolTitle", theme.bold(safeTerminalText(title || "Fabric")))],
+          [theme.fg("toolTitle", emphasis(theme, safeTerminalText(title || "Fabric")))],
           theme,
           codePreviewSettings.diffIntensity,
           1,
@@ -356,7 +356,7 @@ export const createFabricExecTool = (
       const lines = safeTerminalText(code).split("\n");
       const runDisplay = normalizeRunDisplay(params.display);
       const displayName = runDisplay?.name ? safeTerminalText(runDisplay.name) : "";
-      const title = `${theme.fg("toolTitle", theme.bold("fabric"))}${
+      const title = `${theme.fg("toolTitle", emphasis(theme, "fabric"))}${
         displayName ? ` ${theme.fg("accent", displayName)}` : ""
       } ${theme.fg("dim", `TypeScript · ${countLabel(lines.length, "line")}`)}`;
       // Match the compact header: the declared objective sits between the
@@ -662,7 +662,7 @@ export const createFabricExecTool = (
         const shown = lines.slice(0, limit);
         const displayName = normalizeRunDisplay(params?.display)?.name;
         const title = displayName
-          ? theme.fg("toolTitle", theme.bold(safeTerminalText(displayName)))
+          ? theme.fg("toolTitle", emphasis(theme, safeTerminalText(displayName)))
           : compact
             ? theme.fg(failed ? "error" : "success", failed ? "✗ Failed" : "✓ Evaluated")
             : "";

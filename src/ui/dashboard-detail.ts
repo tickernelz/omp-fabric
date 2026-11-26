@@ -1,13 +1,11 @@
 import type { Theme } from "@oh-my-pi/pi-coding-agent";
-import { Ellipsis, Markdown, truncateToWidth, wrapTextWithAnsi, visibleWidth } from "@oh-my-pi/pi-tui";
-import type { MarkdownTheme, SymbolTheme, TUI } from "@oh-my-pi/pi-tui";
-import type { ThemeColor } from "@oh-my-pi/pi-tui/theme";
+import { renderMarkdown } from "@oh-my-pi/pi-tui/text/markdown/render";
+import { clip, emphasis, type HostSurface, visibleWidth, wrap } from "./rows.js";
 import type { FabricActivityCall } from "../activity/types.js";
 import { formatFabricEffectConflict } from "../core/effect-conflict.js";
 import type { CodePreviewSettings } from "./code-preview.js";
 import { coreToolTitle, renderCoreToolBody } from "./core-tool-render.js";
 import type { Entity } from "./dashboard-model.js";
-import { ompSymbolTheme } from "./symbol-theme.js";
 import { nestedEditDiff, renderBoundedLines } from "./fabric-render.js";
 import { colorStatus, statusGlyph } from "./dashboard-presentation.js";
 import {
@@ -25,37 +23,6 @@ import { loadStateFilePreview, renderStateFilePreview } from "./state-file-previ
 import type { FabricAgentTranscript, FabricTranscriptEntry } from "./transcript.js";
 import type { FabricDashboardSnapshot, FabricUiActor, FabricUiAgent } from "./types.js";
 import { isActiveStatus } from "./types.js";
-
-const isSymbolTheme = (value: unknown): value is SymbolTheme =>
-  value !== null && typeof value === "object";
-
-const transcriptMarkdownTheme = (theme: Theme, invalidate: () => void): MarkdownTheme => {
-  const rawSymbols = Reflect.get(theme, "symbols");
-  const symbols = isSymbolTheme(rawSymbols) ? rawSymbols : ompSymbolTheme;
-  const format = (color: ThemeColor, text: string): string => theme.fg(color, text);
-  const style = (name: "bold" | "italic" | "underline" | "strikethrough", text: string): string => {
-    const fn = Reflect.get(theme, name);
-    return typeof fn === "function" ? fn.call(theme, text) : text;
-  };
-  return {
-    symbols,
-    heading: (text) => format("mdHeading", text),
-    link: (text) => format("mdLink", text),
-    linkUrl: (text) => format("mdLinkUrl", text),
-    code: (text) => format("mdCode", text),
-    codeBlock: (text) => format("mdCodeBlock", text),
-    codeBlockBorder: (text) => format("mdCodeBlockBorder", text),
-    quote: (text) => format("mdQuote", text),
-    quoteBorder: (text) => format("mdQuoteBorder", text),
-    hr: (text) => format("mdHr", text),
-    listBullet: (text) => format("mdListBullet", text),
-    bold: (text) => style("bold", text),
-    italic: (text) => style("italic", text),
-    underline: (text) => style("underline", text),
-    strikethrough: (text) => style("strikethrough", text),
-    highlightCode: (code, lang) => highlightCode(code, lang ?? "", invalidate) ?? code.split("\n").map((line) => format("mdCodeBlock", line)),
-  };
-};
 
 const TRANSCRIPT_EXPANDED_TOOL_LINES = 40;
 const TRANSCRIPT_STRUCTURED_LINES = 40;
@@ -103,7 +70,7 @@ export class DashboardDetailRenderer {
   private transcriptToolsExpanded = false;
   private actionHint = "";
   private toolToggleHint = "";
-  private readonly transcriptMarkdown = new Map<string, { text: string; component: Markdown }>();
+  private readonly transcriptMarkdown = new Map<string, { text: string; lines: string[] }>();
   private readonly highlightInvalidate = (): void => this.tui.requestRender();
   private readonly agentTranscript:
     | ((agent: FabricUiAgent, followLatest: boolean) => FabricAgentTranscript)
@@ -115,7 +82,7 @@ export class DashboardDetailRenderer {
   private readonly actorDefaultTools: string[];
 
   constructor(
-    readonly tui: TUI,
+    readonly tui: HostSurface,
     readonly theme: Theme,
     readonly snapshot: () => FabricDashboardSnapshot,
     options: DashboardDetailRendererOptions,
@@ -241,7 +208,7 @@ export class DashboardDetailRenderer {
       lines.push(this.row(width, this.theme.fg("muted", `  ${actionLine}`)));
     }
     lines.push(this.bottomBorder(width));
-    return lines.map((line) => truncateToWidth(line, width, ""));
+    return lines.map((line) => clip(line, width, ""));
   }
 
   private transcriptLines(entity: Entity, width: number): string[] {
@@ -287,7 +254,7 @@ export class DashboardDetailRenderer {
                   statusGlyph(entry.status ?? "completed"),
                 );
       lines.push(
-        truncateToWidth(
+        clip(
           `${glyph} ${this.theme.fg(
             entry.kind === "assistant" ? "accent" : "muted",
             safeText(entry.label),
@@ -310,7 +277,7 @@ export class DashboardDetailRenderer {
       }
       for (const paragraph of entry.text.split("\n")) {
         const wrapped = wrapPlainText(paragraph, Math.max(1, width - 2), 10_000);
-        for (const line of wrapped) lines.push(truncateToWidth(`  ${line}`, width, ""));
+        for (const line of wrapped) lines.push(clip(`  ${line}`, width, ""));
       }
     }
     if (transcript.hasNewer) {
@@ -343,13 +310,13 @@ export class DashboardDetailRenderer {
         }
       : undefined;
     const title = context ? coreToolTitle(audit, this.theme, context) : null;
-    const headline = title ?? this.theme.fg("toolTitle", this.theme.bold(entry.toolName ?? entry.label));
+    const headline = title ?? this.theme.fg("toolTitle", emphasis(this.theme, entry.toolName ?? entry.label));
     const collapsedSummary =
       !this.transcriptToolsExpanded && entry.text
         ? ` · ${safeText(entry.text).replace(/\s+/g, " ").trim()}`
         : "";
     const lines = [
-      truncateToWidth(
+      clip(
         `${padding}${glyph} ${headline}${this.theme.fg("dim", `${status}${collapsedSummary}`)}`,
         width,
         "",
@@ -370,7 +337,7 @@ export class DashboardDetailRenderer {
         this.theme,
         this.codePreviewSettings?.diffIntensity ?? "off",
       ).render(Math.max(1, width - visibleWidth(bodyPadding)))) {
-        lines.push(truncateToWidth(`${bodyPadding}${row}`, width, ""));
+        lines.push(clip(`${bodyPadding}${row}`, width, ""));
       }
       if (rendered.hidden > 0) {
         lines.push(this.theme.fg("dim", `${bodyPadding}… ${rendered.hidden} more lines`));
@@ -385,7 +352,7 @@ export class DashboardDetailRenderer {
         Math.max(1, width - visibleWidth(bodyPadding)),
         10_000,
       )) {
-        lines.push(truncateToWidth(`${bodyPadding}${row}`, width, ""));
+        lines.push(clip(`${bodyPadding}${row}`, width, ""));
       }
     }
     if (entry.result !== undefined) {
@@ -443,11 +410,11 @@ export class DashboardDetailRenderer {
     const highlighted =
       highlightCode(shownYamlLines.join("\n"), "yaml", this.highlightInvalidate) ??
       shownYamlLines.map((line) => this.theme.fg("mdCodeBlock", line || " "));
-    const lines = [truncateToWidth(`${padding}${this.theme.fg("dim", `${label}:`)}`, width, "")];
+    const lines = [clip(`${padding}${this.theme.fg("dim", `${label}:`)}`, width, "")];
     const nestedPadding = `${padding}  `;
     for (const row of highlighted) {
-      for (const wrapped of wrapTextWithAnsi(row, Math.max(1, width - visibleWidth(nestedPadding)))) {
-        lines.push(truncateToWidth(`${nestedPadding}${wrapped}`, width, ""));
+      for (const wrapped of wrap(row, Math.max(1, width - visibleWidth(nestedPadding)))) {
+        lines.push(clip(`${nestedPadding}${wrapped}`, width, ""));
         if (lines.length > TRANSCRIPT_STRUCTURED_LINES) break;
       }
       if (lines.length > TRANSCRIPT_STRUCTURED_LINES) break;
@@ -471,19 +438,13 @@ export class DashboardDetailRenderer {
   private markdownLines(key: string, text: string, width: number, indent = 2): string[] {
     const markdown = safeMarkdownText(text);
     if (!markdown.trim()) return [];
+    const padding = " ".repeat(Math.max(0, indent));
+    const inner = Math.max(1, width - visibleWidth(padding));
     let cached = this.transcriptMarkdown.get(key);
     if (!cached || cached.text !== markdown) {
       cached = {
         text: markdown,
-        component: new Markdown(
-          markdown,
-          0,
-          0,
-          transcriptMarkdownTheme(this.theme, () => {
-            this.transcriptMarkdown.delete(key);
-            this.tui.requestRender();
-          }),
-        ),
+        lines: renderMarkdown(markdown, inner, { theme: this.theme }),
       };
       this.transcriptMarkdown.delete(key);
       this.transcriptMarkdown.set(key, cached);
@@ -493,10 +454,7 @@ export class DashboardDetailRenderer {
         this.transcriptMarkdown.delete(oldest);
       }
     }
-    const padding = " ".repeat(Math.max(0, indent));
-    return cached.component
-      .render(Math.max(1, width - visibleWidth(padding)))
-      .map((line) => truncateToWidth(`${padding}${line}`, width, ""));
+    return cached.lines.map((line) => clip(`${padding}${line}`, width, ""));
   }
 
   private detailLines(entity: Entity, width: number, now: number, cwd: string): string[] {
@@ -506,9 +464,9 @@ export class DashboardDetailRenderer {
       if (!text) return;
       const prefix = `${this.theme.fg("dim", `${label}:`)} `;
       const wrapped = wrapPlainText(text, Math.max(1, width - visibleWidth(prefix)), 12);
-      if (wrapped[0]) lines.push(truncateToWidth(prefix + wrapped[0], width));
+      if (wrapped[0]) lines.push(clip(prefix + wrapped[0], width));
       for (const continuation of wrapped.slice(1)) {
-        lines.push(truncateToWidth(" ".repeat(visibleWidth(prefix)) + continuation, width));
+        lines.push(clip(" ".repeat(visibleWidth(prefix)) + continuation, width));
       }
     };
     const markdownField = (label: string, value: string | undefined, key: string): void => {
@@ -528,8 +486,8 @@ export class DashboardDetailRenderer {
         highlightCode(yaml, "yaml", this.highlightInvalidate) ??
         yaml.split("\n").map((line) => this.theme.fg("mdCodeBlock", line || " "));
       for (const highlightedLine of highlighted) {
-        for (const wrapped of wrapTextWithAnsi(highlightedLine, Math.max(1, width - 2))) {
-          lines.push(truncateToWidth(`  ${wrapped}`, width, ""));
+        for (const wrapped of wrap(highlightedLine, Math.max(1, width - 2))) {
+          lines.push(clip(`  ${wrapped}`, width, ""));
         }
       }
     };
@@ -596,7 +554,7 @@ export class DashboardDetailRenderer {
         this.theme,
         settings.diffIntensity,
       ).render(Math.max(1, width - 2));
-      for (const row of body) lines.push(truncateToWidth(`  ${row}`, width, ""));
+      for (const row of body) lines.push(clip(`  ${row}`, width, ""));
       if (rendered.hidden > 0) {
         lines.push(this.theme.fg("muted", `  … ${rendered.hidden} more lines`));
       }
@@ -626,7 +584,7 @@ export class DashboardDetailRenderer {
           this.highlightInvalidate,
         );
         if (diff) {
-          for (const line of diff) lines.push(truncateToWidth(`  ${line}`, width, ""));
+          for (const line of diff) lines.push(clip(`  ${line}`, width, ""));
         } else {
           structuredField("Edits", edits);
         }
@@ -893,13 +851,13 @@ export class DashboardDetailRenderer {
       ? `${this.transcriptToolToggleHint()} · g page top · G follow:${this.transcriptFollowing ? "on" : "off"}/tail · t summary · esc`
       : `${this.hasTranscript(entity) ? "t transcript · " : ""}esc`;
     return [title, ...content.slice(this.detailScroll, this.detailScroll + maxBody), hint]
-      .map((line) => truncateToWidth(line, width, ""))
+      .map((line) => clip(line, width, ""))
       .filter((line) => visibleWidth(line) > 0);
   }
 
   private topBorder(width: number, title: string): string {
     const border = (value: string) => this.theme.fg("borderMuted", value);
-    const safeTitle = truncateToWidth(safeText(title), Math.max(0, width - 6));
+    const safeTitle = clip(safeText(title), Math.max(0, width - 6));
     const styledTitle = ` ${this.theme.fg("accent", safeTitle)} `;
     const remaining = Math.max(0, width - 2 - visibleWidth(styledTitle));
     const left = Math.floor(remaining / 2);
