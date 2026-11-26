@@ -142,7 +142,9 @@ export class PromptEditor implements RowsView {
   }
 
   render(width: number): readonly string[] {
-    const text = this.#value.slice(0, this.#cursor) + EDITOR_CURSOR + this.#value.slice(this.#cursor);
+    // Only the focused editor owns the caret; an unfocused one must not claim it.
+    const caret = this.focused ? EDITOR_CURSOR : "";
+    const text = this.#value.slice(0, this.#cursor) + caret + this.#value.slice(this.#cursor);
     return text.split("\n").map((line) => clip(line, Math.max(0, width), ""));
   }
 }

@@ -1,7 +1,7 @@
 import type { Theme } from "@oh-my-pi/pi-coding-agent";
 import type { RawKeybindings } from "../src/ui/rows.js";
 import type { HostSurface as TUI } from "../src/ui/rows.js";
-import { visibleWidth } from "../src/ui/rows.js";
+import { EDITOR_CURSOR, visibleWidth } from "../src/ui/rows.js";
 import { describe, expect, it, vi } from "vitest";
 import {
   FabricConversationState,
@@ -438,7 +438,7 @@ describe("FabricConversationView", () => {
 
   it("propagates focus to the editor (IME cursor marker) immediately", () => {
     const h = makeHarness({ initialTargetId: "a" });
-    const marker = "\x1b_pi:c\x07";
+    const marker = EDITOR_CURSOR;
     expect(renderText(h.view)).toContain(marker);
     h.view.focused = false;
     expect(renderText(h.view)).not.toContain(marker);
