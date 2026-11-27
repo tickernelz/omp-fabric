@@ -10,10 +10,7 @@ import type {
   NativeConversationTranscript,
 } from "./conversation-native-reader.js";
 
-export type {
-  NativeAgentMessage,
-  NativeConversationTranscript,
-} from "./conversation-native-reader.js";
+export type { NativeConversationTranscript } from "./conversation-native-reader.js";
 
 type FabricToolDefinitionLike = ToolDefinition<any, any> | undefined;
 export type FabricGetToolDefinition = (toolName: string) => FabricToolDefinitionLike;
