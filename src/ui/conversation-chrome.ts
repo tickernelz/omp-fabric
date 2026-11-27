@@ -1,35 +1,27 @@
 import { homedir } from "node:os";
 import path from "node:path";
-import type { Theme } from "@oh-my-pi/pi-coding-agent";
-import { Ellipsis, truncateToWidth, visibleWidth } from "@oh-my-pi/pi-tui";
+import type { Theme } from "@oh-my-pi/pi-tui/theme/contract";
+import { truncate, visibleWidth } from "@oh-my-pi/pi-tui/text/width";
 import { formatTokens, safeText } from "./format.js";
 import type { FabricConversationTarget } from "./conversation.js";
 
 export interface FabricConversationAppearance {
   editorPaddingX: number;
-  outputPad: 0 | 1;
-  codeBlockIndent?: string;
   hideThinkingBlock?: boolean;
-  showImages?: boolean;
-  imageWidthCells?: number;
 }
 
 /** Read OMP appearance settings; cwd and agentDir apply only to trusted project loading. */
 export async function readConversationAppearance(cwd: string, agentDir: string, projectTrusted: boolean): Promise<FabricConversationAppearance> {
-  const [{ Settings }, { cfgHideThinkingBlock }, { cfgTerminalShowImages }] = await Promise.all([
+  const [{ Settings }, { cfgHideThinkingBlock }] = await Promise.all([
     import("@oh-my-pi/pi-coding-agent/config/settings"),
     import("@oh-my-pi/pi-coding-agent/session/settings"),
-    import("@oh-my-pi/pi-coding-agent/modes/settings"),
   ]);
   const settings = projectTrusted
     ? await Settings.loadReadOnly({ cwd, agentDir })
     : Settings.isolated();
   return {
     editorPaddingX: 0,
-    outputPad: 0,
-    codeBlockIndent: "  ",
     hideThinkingBlock: cfgHideThinkingBlock.get(settings) === true,
-    showImages: cfgTerminalShowImages.get(settings) === true,
   };
 }
 
@@ -60,11 +52,11 @@ export function conversationFooter(target: FabricConversationTarget | undefined,
   stats.push(target.contextWindow ? `?/${formatTokens(target.contextWindow)} ctx` : "ctx ?");
   const model = safeText(target.model ?? `${target.runner ?? ""} model unavailable`).trim();
   const thinking = target.thinking ? ` • ${safeText(target.thinking === "off" ? "thinking off" : target.thinking)}` : "";
-  const left = truncateToWidth(stats.join(" "), width, Ellipsis.Unicode);
-  const right = truncateToWidth(`${model}${thinking}`, Math.max(0, width - visibleWidth(left) - 2), "");
+  const left = truncate(stats.join(" "), width);
+  const right = truncate(`${model}${thinking}`, Math.max(0, width - visibleWidth(left) - 2), "");
   const gap = " ".repeat(Math.max(0, width - visibleWidth(left) - visibleWidth(right)));
   return [
-    truncateToWidth(theme.fg("dim", pwd), width, Ellipsis.Unicode),
+    truncate(theme.fg("dim", pwd), width),
     theme.fg("dim", `${left}${gap}${right}`),
   ];
 }

@@ -57,14 +57,9 @@ describe("classifyOmpTheme", () => {
     expect(classifyOmpTheme({ name: "dark" })).toBe("dark");
   });
 
-  it("classifies custom themes from message background luminance", () => {
-    expect(
-      classifyOmpTheme({ name: "mine", getBgAnsi: () => "\x1b[48;2;240;240;235m" }),
-    ).toBe("light");
-    expect(
-      classifyOmpTheme({ name: "mine", getBgAnsi: () => "\x1b[48;2;30;30;34m" }),
-    ).toBe("dark");
-    expect(classifyOmpTheme({ name: "mine", getBgAnsi: () => "\x1b[48;5;255m" })).toBe("light");
+  it("classifies custom themes by their own variant", () => {
+    expect(classifyOmpTheme({ name: "mine", dark: false })).toBe("light");
+    expect(classifyOmpTheme({ name: "mine", dark: true })).toBe("dark");
   });
 
   it("falls back to COLORFGBG when the theme carries no hint", () => {
@@ -121,9 +116,9 @@ describe("effective shiki theme", () => {
     expect(effectiveShikiThemeIsLight()).toBe(false);
   });
 
-  it("classifies unnamed custom themes by luminance", () => {
+  it("classifies unnamed custom themes by their variant", () => {
     configureHighlighting("auto", true);
-    observeOmpTheme({ getBgAnsi: () => "\x1b[48;2;236;236;229m" });
+    observeOmpTheme({ dark: false });
     expect(observedThemeVariant()).toBe("light");
     expect(effectiveShikiTheme()).toBe("github-light");
   });

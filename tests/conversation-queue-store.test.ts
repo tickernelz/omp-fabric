@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
-import type { Theme } from "@oh-my-pi/pi-coding-agent";
+import type { Theme } from "@oh-my-pi/pi-tui/theme/contract";
+import { testTheme } from "./test-theme.js";
 import { ConversationQueueStore } from "../src/ui/conversation-queue-store.js";
 import { nativeTranscript, userMessage } from "./fixtures/native-conversation.js";
-const options = (id: string) => ({ targetId: id, ompEvents: { emit() {} }, theme: { fg: (_: string, text: string) => text } as unknown as Theme, send: async () => undefined });
+const options = (id: string) => ({ targetId: id, ompEvents: { emit() {} }, theme: testTheme({ fg: (_: string, text: string) => text }), send: async () => undefined });
 
 describe("session-owned conversation queues", () => {
   it("retains acknowledgements across detach/reopen and matches actor delivery ids", async () => {

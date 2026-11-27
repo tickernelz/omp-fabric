@@ -1,13 +1,14 @@
-import type { Theme } from "@oh-my-pi/pi-coding-agent";
+import type { Theme } from "@oh-my-pi/pi-tui/theme/contract";
+import { testTheme } from "./test-theme.js";
 import { describe, expect, it } from "vitest";
 import { FabricModelSelector } from "../src/ui/fabric-model-selector.js";
 import { INHERIT_VALUE, type ModelSource } from "../src/ui/model-picker.js";
 
-const theme = {
+const theme = testTheme({
   fg: (_color: string, text: string) => text,
   bg: (_color: string, text: string) => text,
   bold: (text: string) => text,
-} as unknown as Theme;
+});
 
 const source: ModelSource = {
   models: [

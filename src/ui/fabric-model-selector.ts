@@ -1,13 +1,10 @@
-import type { Theme } from "@oh-my-pi/pi-coding-agent";
-import {
-  Container,
-  type Focusable,
-  fuzzyFilter,
-  getKeybindings,
-  Input,
-  Spacer,
-  Text,
-} from "@oh-my-pi/pi-tui";
+import type { Theme } from "@oh-my-pi/pi-tui/theme/contract";
+import { widgetKeyMatches } from "@oh-my-pi/pi-tui/term/keymap";
+import { fuzzyFilter } from "@oh-my-pi/pi-coding-agent/utils/fuzzy";
+import { keyOf } from "./tui/input.js";
+import { BlankRows, Stack, TextBlock } from "./tui/rows.js";
+import { TextField } from "./tui/text-field.js";
+import type { FabricView } from "./tui/view.js";
 import { INHERIT_VALUE, modelKey, sortByLastUsed, type ModelLike, type ModelSource } from "./model-picker.js";
 
 /** A single pickable row in the Fabric model selector. */
@@ -55,7 +52,7 @@ export interface FabricModelSelectorOptions {
  * used first); search filters by fuzzy match and re-sorts by recency, matching
  * pi-model-sort's patched /model behavior.
  */
-export class FabricModelSelector extends Container implements Focusable {
+export class FabricModelSelector extends Stack implements FabricView {
   private readonly theme: Theme;
   private readonly allEntries: ModelEntry[];
   private filteredEntries: ModelEntry[];
@@ -63,14 +60,13 @@ export class FabricModelSelector extends Container implements Focusable {
   private readonly currentKey: string | null;
   private readonly currentValue: string;
   private selectedIndex = 0;
-  private readonly searchInput: Input;
-  private readonly listContainer = new Container();
+  private readonly searchInput: TextField;
+  private readonly listContainer = new Stack();
   private readonly onSelectCallback: (value: string) => void;
   private readonly onCancelCallback: () => void;
   private readonly headerText: string;
   private readonly inheritLabel: string;
   private readonly inheritName: string;
-  private _focused = false;
 
   constructor(options: FabricModelSelectorOptions) {
     super();
@@ -91,56 +87,40 @@ export class FabricModelSelector extends Container implements Focusable {
     const current = this.allEntries.findIndex((entry) => entry.value === this.currentValue);
     this.selectedIndex = current >= 0 ? current : 0;
 
-    this.addChild(
-      new Text(
-        this.theme.fg("muted", this.headerText),
-        0,
-        0,
-      ),
-    );
-    this.addChild(new Spacer(1));
-    this.searchInput = new Input();
-    this.searchInput.focused = true;
+    this.add(new TextBlock(this.theme.fg("muted", this.headerText)));
+    this.add(new BlankRows(1));
+    this.searchInput = new TextField();
     this.searchInput.onSubmit = () => {
       const entry = this.filteredEntries[this.selectedIndex];
       if (entry) this.handleSelect(entry);
     };
-    this.addChild(this.searchInput);
-    this.addChild(new Spacer(1));
-    this.addChild(this.listContainer);
-    this.addChild(new Spacer(1));
+    this.add(this.searchInput);
+    this.add(new BlankRows(1));
+    this.add(this.listContainer);
+    this.add(new BlankRows(1));
     this.updateList();
   }
 
-  get focused(): boolean {
-    return this._focused;
-  }
-
-  set focused(value: boolean) {
-    this._focused = value;
-    this.searchInput.focused = value;
-  }
-
   handleInput(keyData: string): void {
-    const kb = getKeybindings();
-    if (kb.matches(keyData, "tui.select.up")) {
+    const key = keyOf(keyData);
+    if (key && widgetKeyMatches(key, "select.up")) {
       if (this.filteredEntries.length === 0) return;
       this.selectedIndex =
         this.selectedIndex === 0 ? this.filteredEntries.length - 1 : this.selectedIndex - 1;
       this.updateList();
-    } else if (kb.matches(keyData, "tui.select.down")) {
+    } else if (key && widgetKeyMatches(key, "select.down")) {
       if (this.filteredEntries.length === 0) return;
       this.selectedIndex =
         this.selectedIndex === this.filteredEntries.length - 1 ? 0 : this.selectedIndex + 1;
       this.updateList();
-    } else if (kb.matches(keyData, "tui.select.confirm")) {
+    } else if (key && widgetKeyMatches(key, "select.confirm")) {
       const entry = this.filteredEntries[this.selectedIndex];
       if (entry) this.handleSelect(entry);
-    } else if (kb.matches(keyData, "tui.select.cancel")) {
+    } else if (key && widgetKeyMatches(key, "select.cancel")) {
       this.onCancelCallback();
     } else {
       this.searchInput.handleInput(keyData);
-      this.filterModels(this.searchInput.getValue());
+      this.filterModels(this.searchInput.getText());
     }
   }
 
@@ -233,24 +213,20 @@ export class FabricModelSelector extends Container implements Focusable {
       const line = isSelected
         ? `${this.theme.fg("accent", "\u2192 ")}${this.theme.fg("accent", entry.id)}${badge}${check}`
         : `  ${entry.id}${badge}${check}`;
-      this.listContainer.addChild(new Text(line, 0, 0));
+      this.listContainer.add(new TextBlock(line));
     }
     if (startIndex > 0 || endIndex < total) {
-      this.listContainer.addChild(
-        new Text(this.theme.fg("muted", `  (${this.selectedIndex + 1}/${total})`), 0, 0),
+      this.listContainer.add(
+        new TextBlock(this.theme.fg("muted", `  (${this.selectedIndex + 1}/${total})`)),
       );
     }
     if (total === 0) {
-      this.listContainer.addChild(new Text(this.theme.fg("muted", "  No matching models"), 0, 0));
+      this.listContainer.add(new TextBlock(this.theme.fg("muted", "  No matching models")));
     } else {
       const selected = this.filteredEntries[this.selectedIndex];
-      this.listContainer.addChild(new Spacer(1));
-      this.listContainer.addChild(
-        new Text(
-          this.theme.fg("muted", `  Model Name: ${selected ? selected.name : ""}`),
-          0,
-          0,
-        ),
+      this.listContainer.add(new BlankRows(1));
+      this.listContainer.add(
+        new TextBlock(this.theme.fg("muted", `  Model Name: ${selected ? selected.name : ""}`)),
       );
     }
   }

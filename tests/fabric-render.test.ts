@@ -1,7 +1,8 @@
 import { createHash } from "node:crypto";
-import type { Theme } from "@oh-my-pi/pi-coding-agent";
+import type { Theme } from "@oh-my-pi/pi-tui/theme/contract";
+import { testTheme } from "./test-theme.js";
 import type { CodePreviewSettings } from "../src/ui/code-preview.js";
-import { Box, visibleWidth } from "@oh-my-pi/pi-tui";
+import { visibleWidth } from "@oh-my-pi/pi-tui/text/width";
 import { describe, expect, it, vi } from "vitest";
 import { configureHighlighting, initHighlighting } from "../src/ui/highlight.js";
 import {
@@ -36,15 +37,15 @@ import {
   singleCallProgressLine,
 } from "../src/ui/fabric-render.js";
 
-const theme = {
+const theme = testTheme({
   fg: (color: string, text: string) => `\x1b[${color}]${text}\x1b[0m`,
   bold: (text: string) => `\x1b[1m${text}\x1b[22m`,
-} as unknown as Theme;
+});
 
-const plainTheme = {
+const plainTheme = testTheme({
   fg: (_color: string, text: string) => text,
   bold: (text: string) => text,
-} as unknown as Theme;
+});
 
 describe("TUI width bounds (#84)", () => {
   const adversarialLines = [
@@ -1245,10 +1246,11 @@ omp.write({ path: "nested.md", metadata: { content: payloads.wrong }, text: payl
       toolCallBackground: "off",
     } as CodePreviewSettings;
     const nestedSuccessBackground = "\x1b[48;2;1;2;3m";
-    const nestedTheme = {
+    const nestedTheme = testTheme({
       ...plainTheme,
-      getBgAnsi: () => nestedSuccessBackground,
-    } as unknown as Theme;
+      has: () => true,
+      hex: (color: string) => (color === "toolSuccessBg" ? "#010203" : "#000000"),
+    });
     const raw = renderFabricMulticallPartial(
       {
         audits: [{
@@ -1314,15 +1316,15 @@ omp.write({ path: "nested.md", metadata: { content: payloads.wrong }, text: payl
   it("preserves diff-specific backgrounds when nested tool backgrounds are disabled", () => {
     const successBackground = "\x1b[48;2;10;10;10m";
     const errorBackground = "\x1b[48;2;20;10;10m";
-    const diffTheme = {
+    const diffTheme = testTheme({
       ...plainTheme,
-      getFgAnsi: (color: string) => color === "toolDiffAdded"
-        ? "\x1b[38;2;80;200;120m"
-        : "\x1b[38;2;220;90;100m",
-      getBgAnsi: (color: string) => color === "toolErrorBg"
-        ? errorBackground
-        : successBackground,
-    } as unknown as Theme;
+      has: () => true,
+      hex: (color: string) =>
+        color === "toolDiffAdded" ? "#50c878"
+          : color === "toolDiffRemoved" ? "#dc5a64"
+          : color === "toolErrorBg" ? "#140a0a"
+          : "#0a0a0a",
+    });
     const settings = {
       tools: ["edit"],
       editDiffPreview: true,
@@ -1664,27 +1666,20 @@ b`, theme)).toBe("");
     expect(title).not.toContain("3");
   });
 
-  it("preserves the enclosing Box background across wrapped bounded rows", () => {
-    const box = new Box(1, 0, (text) => "\x1b[42m" + text + "\x1b[49m");
-    box.addChild(renderBoundedLines(["x".repeat(40)]));
+  it("keeps wrapped bounded rows free of resets that would cancel an enclosing background", () => {
+    const rows = renderBoundedLines(["x".repeat(40)]).render(18);
 
-    const lines = box.render(20);
-    expect(lines.every((line) => visibleWidth(line) === 20)).toBe(true);
-    expect(lines.every((line) => line.startsWith("\x1b[42m"))).toBe(true);
-    expect(lines.join("")).not.toContain("\x1b[0m");
-    expect(lines.join("").replace(/\x1b\[[0-9;]*m/g, "").replace(/\s+/g, ""))
-      .toBe("x".repeat(40));
+    expect(rows.every((line) => visibleWidth(line) <= 18)).toBe(true);
+    expect(rows.join("")).not.toMatch(/\x1b\[(?:0|49)?m/);
+    expect(rows.join("").replace(/\x1b\[[0-9;]*m/g, "").replace(/\s+/g, "")).toBe("x".repeat(40));
   });
 
-  it("keeps the enclosing Box background when a bounded row is truncated", () => {
-    const box = new Box(1, 0, (text) => "\x1b[42m" + text + "\x1b[49m");
-    box.addChild(renderBoundedLines(["x".repeat(40)], undefined, "off", 1));
+  it("keeps a truncated bounded row free of resets that would cancel an enclosing background", () => {
+    const [row] = renderBoundedLines(["x".repeat(40)], undefined, "off", 1).render(18);
 
-    const line = box.render(20)[0]!;
-    expect(line).toBe(
-      "\x1b[42m " + "x".repeat(14) + "\x1b[22;23;24;27;29;39m …+2 \x1b[49m",
-    );
-    expect(visibleWidth(line)).toBe(20);
+    expect(row).not.toMatch(/\x1b\[(?:0|49)?m/);
+    expect(visibleWidth(row!)).toBe(18);
+    expect(row!.replace(/\x1b\[[0-9;]*m/g, "")).toBe(`${"x".repeat(14)} …+2`);
   });
 
   it("reuses bounded row layout until its width or content is invalidated", () => {

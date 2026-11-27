@@ -1,18 +1,10 @@
-import type { Theme } from "@oh-my-pi/pi-coding-agent";
-import { Ellipsis } from "@oh-my-pi/pi-tui";
-import {
-  Container,
-  type Focusable,
-  SelectList,
-  type SelectItem,
-  type SelectListLayoutOptions,
-  type SelectListTheme,
-  Spacer,
-  Text,
-} from "@oh-my-pi/pi-tui";
+import type { Theme } from "@oh-my-pi/pi-tui/theme/contract";
 import type { FabricActorDeliveryPolicy } from "../actors/delivery-policy.js";
+import { BlankRows, Stack, TextBlock } from "./tui/rows.js";
+import { type SelectItem, type SelectListLayout, SelectList } from "./tui/select-list.js";
+import type { FabricView } from "./tui/view.js";
 
-const LAYOUT: SelectListLayoutOptions = {
+const LAYOUT: SelectListLayout = {
   minPrimaryColumnWidth: 18,
   maxPrimaryColumnWidth: 34,
 };
@@ -26,15 +18,6 @@ const POLICIES: Array<FabricActorDeliveryPolicy & { value: string; label: string
   { value: "next-turn", label: "Next user turn", description: "defer until the next user prompt", delivery: "nextTurn", triggerTurn: false },
 ];
 
-const selectListTheme = (theme: Theme): SelectListTheme => ({
-  symbols: (theme as Theme & { symbols: import("@oh-my-pi/pi-tui").SymbolTheme }).symbols,
-  selectedPrefix: (text) => theme.fg("accent", text),
-  selectedText: (text) => theme.fg("accent", text),
-  description: (text) => theme.fg("muted", text),
-  scrollInfo: (text) => theme.fg("muted", text),
-  noMatch: (text) => theme.fg("muted", text),
-});
-
 export interface FabricActorDeliverySelectorOptions {
   theme: Theme;
   currentValue: FabricActorDeliveryPolicy;
@@ -43,9 +26,8 @@ export interface FabricActorDeliverySelectorOptions {
   headerText?: string;
 }
 
-export class FabricActorDeliverySelector extends Container implements Focusable {
+export class FabricActorDeliverySelector extends Stack implements FabricView {
   private readonly selectList: SelectList;
-  focused = false;
 
   constructor(options: FabricActorDeliverySelectorOptions) {
     super();
@@ -59,18 +41,16 @@ export class FabricActorDeliverySelector extends Container implements Focusable 
       label: `${policy.label}${policy.value === current ? " ✓" : ""}`,
       description: policy.description,
     }));
-    this.addChild(
-      new Text(
+    this.add(
+      new TextBlock(
         options.theme.fg(
           "muted",
           options.headerText ?? "Choose how actor output enters Main and whether it starts a turn.",
         ),
-        0,
-        0,
       ),
     );
-    this.addChild(new Spacer(1));
-    this.selectList = new SelectList(items, items.length, selectListTheme(options.theme), LAYOUT);
+    this.add(new BlankRows(1));
+    this.selectList = new SelectList(items, items.length, options.theme, LAYOUT);
     const startIndex = items.findIndex((item) => item.value === current);
     if (startIndex >= 0) this.selectList.setSelectedIndex(startIndex);
     this.selectList.onSelect = (item) => {
@@ -78,8 +58,8 @@ export class FabricActorDeliverySelector extends Container implements Focusable 
       if (policy) options.onSelect({ delivery: policy.delivery, triggerTurn: policy.triggerTurn });
     };
     this.selectList.onCancel = options.onCancel;
-    this.addChild(this.selectList);
-    this.addChild(new Spacer(1));
+    this.add(this.selectList);
+    this.add(new BlankRows(1));
   }
 
   handleInput(data: string): void {

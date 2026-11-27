@@ -24,11 +24,12 @@ const fakeBus = () => {
   };
 };
 
-import type { Theme } from "@oh-my-pi/pi-coding-agent";
+import type { Theme } from "@oh-my-pi/pi-tui/theme/contract";
+import { testTheme } from "./test-theme.js";
 
-const theme = {
+const theme = testTheme({
   fg: (color: string, text: string) => `[${color}]${text}`,
-} as unknown as Theme;
+});
 
 const fakeEditor = () => {
   let text = "";
@@ -43,14 +44,18 @@ const fakeEditor = () => {
   };
 };
 
-const keybindings = () => ({
-  matches: (data: string, action: string) =>
-    (data === "UP" && action === "app.message.dequeue")
-    || (data === "ENTER" && action === "tui.input.submit")
-    || (data === "ESC" && action === "app.interrupt"),
-  getKeys: (action: string): string[] =>
+const DEQUEUE = "\x1b[1;3A";
+const SUBMIT = "\r";
+const INTERRUPT = "\x1b";
+
+const keybindings = (): NonNullable<ConversationQueueOptions["keybindings"]> => ({
+  matches: (key, action) =>
+    (key.id === "alt+up" && action === "app.message.dequeue")
+    || (key.id === "enter" && action === "tui.input.submit")
+    || (key.id === "escape" && action === "app.interrupt"),
+  keysFor: (action) =>
     action === "app.message.dequeue" ? ["alt+up"] : ["enter"],
-} as unknown as NonNullable<ConversationQueueOptions["keybindings"]>);
+});
 
 const baseOptions = (overrides: Partial<ConversationQueueOptions> = {}): ConversationQueueOptions => ({
   ompEvents: fakeBus(),
@@ -334,7 +339,7 @@ describe("conversation queue dispatch and restoration", () => {
     try {
       const queue = createConversationQueue(baseOptions({ ompEvents: bus }));
       queue.stage("editable", "steer");
-      expect(queue.handleInput("UP")).toBe(true);
+      expect(queue.handleInput(DEQUEUE)).toBe(true);
       expect(queue.editingActive).toBe(true);
       expect(await queue.submit("steer")).toBe(false);
     } finally {
@@ -458,10 +463,10 @@ describe("row editing", () => {
       editor.setText("composer draft");
       const queue = createConversationQueue(baseOptions({ ompEvents: bus, editor }));
       queue.stage("original", "steer");
-      expect(queue.handleInput("UP")).toBe(true);
+      expect(queue.handleInput(DEQUEUE)).toBe(true);
       expect(editor.getText()).toBe("original");
       editor.handleInput(" edited");
-      expect(queue.handleInput("ENTER")).toBe(true);
+      expect(queue.handleInput(SUBMIT)).toBe(true);
       expect(queue.editingActive).toBe(false);
       expect(editor.getText()).toBe("composer draft");
       expect(queue.rows()[0]?.text).toBe("original edited");
@@ -478,9 +483,9 @@ describe("row editing", () => {
       editor.setText("composer draft");
       const queue = createConversationQueue(baseOptions({ ompEvents: bus, editor }));
       queue.stage("original", "steer");
-      queue.handleInput("UP");
+      queue.handleInput(DEQUEUE);
       editor.handleInput(" drifted");
-      expect(queue.handleInput("ESC")).toBe(true);
+      expect(queue.handleInput(INTERRUPT)).toBe(true);
       expect(editor.getText()).toBe("composer draft");
       expect(queue.rows()[0]?.text).toBe("original");
     } finally {

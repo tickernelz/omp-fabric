@@ -1,5 +1,7 @@
-import type { ExtensionAPI, ExtensionContext, Theme } from "@oh-my-pi/pi-coding-agent";
-import type { TUI } from "@oh-my-pi/pi-tui";
+import type { ExtensionAPI, ExtensionContext } from "@oh-my-pi/pi-coding-agent";
+import type { Theme } from "@oh-my-pi/pi-tui/theme/contract";
+import { testTheme } from "./test-theme.js";
+import { mountedView } from "../src/ui/tui/view.js";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -17,13 +19,14 @@ import { userMessage, assistantMessage } from "./fixtures/native-conversation.js
 import type { NativeConversationTranscript } from "../src/ui/conversation-native-reader.js";
 
 vi.mock("../src/ui/conversation-chrome.js", () => ({
-  readConversationAppearance: vi.fn(() => ({ editorPaddingX: 2, outputPad: 1, codeBlockIndent: "  " })),
+  readConversationAppearance: vi.fn(() => ({ editorPaddingX: 2 })),
 }));
 
 // Capture the view boundary while exercising real command/controller/target
 // routing. Real TUI components and native appearance are tested separately.
 const captures = vi.hoisted(() => ({
   views: [] as Array<{
+    host: { requestRender(): void };
     options: Record<string, unknown>;
     selectTarget: ReturnType<typeof vi.fn>;
     dispose: ReturnType<typeof vi.fn>;
@@ -45,11 +48,12 @@ vi.mock("../src/ui/conversation.js", () => {
     invalidate = () => {};
     handleInput = () => {};
     constructor(
-      public tui: unknown,
+      public host: { requestRender(): void },
       public theme: unknown,
       public options: Record<string, unknown>,
     ) {
       captures.views.push({
+        host: this.host,
         options: this.options,
         selectTarget: this.selectTarget,
         dispose: this.dispose,
@@ -59,11 +63,11 @@ vi.mock("../src/ui/conversation.js", () => {
   return { FabricConversationState, FabricConversationView };
 });
 
-const theme = {
+const theme = testTheme({
   fg: (_c: string, t: string) => t,
   bg: (_c: string, t: string) => t,
   bold: (t: string) => t,
-} as unknown as Theme;
+});
 
 const stubActor: FabricActorInfo = {
   id: "actor-1",
@@ -194,7 +198,7 @@ const createHarness = (state: FabricState): Harness => {
   const controller = new FabricUiController(state);
   controllers.push(controller);
   const requestRender = vi.fn();
-  const tui = { requestRender } as unknown as TUI;
+  const tui = { requestRender, size: () => ({ columns: 120, rows: 28 }) };
   const notify = vi.fn();
   const overlayOptionRecords: Array<Record<string, unknown> | undefined> = [];
   let closeOverlay: (() => void) | undefined;
@@ -449,13 +453,10 @@ describe("FabricUiController.openConversation", () => {
     await waitForView(1);
 
     expect(harness.custom).toHaveBeenCalledTimes(1);
-    expect(harness.overlayOptions(0)).toMatchObject({
-      overlay: true,
-      overlayOptions: { width: "100%", maxHeight: "100%", anchor: "top-left", margin: 0 },
-    });
+    expect(harness.overlayOptions(0)).toEqual({ overlay: true, fullscreen: true });
     const options = lastOptions();
     expect(options.initialTargetId).toBeUndefined();
-    expect(options.appearance).toEqual({ editorPaddingX: 2, outputPad: 1, codeBlockIndent: "  " });
+    expect(options.appearance).toEqual({ editorPaddingX: 2 });
     expect(readConversationAppearance).toHaveBeenCalledWith("/tmp/project", expect.any(String), false);
     expect(options.state).toBe(captures.states[0]);
     const targets = (options.targets as () => Array<{ id: string; kind: string; parentId?: string }>)();
@@ -698,10 +699,10 @@ describe("FabricUiController.openConversation", () => {
       await flushMicrotasks();
       expect(captures.views).toHaveLength(1);
 
-      const before = harness.requestRender.mock.calls.length;
+      const requestRender = vi.spyOn(captures.views[0]!.host, "requestRender");
       onActivity();
       await vi.advanceTimersByTimeAsync(150);
-      expect(harness.requestRender.mock.calls.length).toBeGreaterThan(before);
+      expect(requestRender).toHaveBeenCalled();
     } finally {
       vi.useRealTimers();
     }
@@ -755,12 +756,12 @@ describe("FabricUiController.openDashboard Shift+C drill-in", () => {
     const state = stubState();
     const controller = new FabricUiController(state);
     controllers.push(controller);
-    const tui = { requestRender: vi.fn() } as unknown as TUI;
+    const tui = { requestRender: vi.fn(), size: () => ({ columns: 120, rows: 28 }) };
     let dashboard: { handleInput?: (data: string) => void; dispose?: () => void } | undefined;
     const custom = vi.fn((factory: (...args: unknown[]) => unknown) => {
       return new Promise<void>((resolve) => {
         const done = () => resolve();
-        dashboard = factory(tui, theme, {}, done) as typeof dashboard;
+        dashboard = mountedView(factory(tui, theme, {}, done)) as typeof dashboard;
       });
     });
     const context = {
