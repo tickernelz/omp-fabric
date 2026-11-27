@@ -4,6 +4,8 @@ import { testTheme } from "./test-theme.js";
 import { mountedView } from "../src/ui/tui/view.js";
 import { viewHost } from "./view-host.js";
 import { describe, expect, it, vi } from "vitest";
+import { createTestTerminal } from "@oh-my-pi/pi-tui/testing/terminal";
+import type { UiNode } from "@oh-my-pi/pi-tui";
 import type { FabricActivityRun } from "../src/activity/types.js";
 import type { FabricState } from "../src/fabric-state.js";
 import { FabricUiController } from "../src/ui/controller.js";
@@ -120,6 +122,76 @@ describe("FabricUiController dashboard wiring", () => {
       expect(detail).toContain("c clear");
     } finally {
       dashboard?.dispose();
+      controller.stop();
+    }
+  });
+
+  it("stops the dashboard's animation timers once the dashboard closes", async () => {
+    vi.useFakeTimers();
+    const controller = new FabricUiController(stubState());
+    let requestRender: ReturnType<typeof vi.fn> | undefined;
+    const context = {
+      mode: "tui",
+      modelRegistry: { getAvailable: () => [] },
+      ui: {
+        custom: vi.fn(async (factory: (...args: unknown[]) => unknown) => {
+          const dashboard = mountedView(factory(viewHost(), theme, {}, () => {})) as FabricDashboard;
+          requestRender = vi.spyOn(dashboard.host, "requestRender") as unknown as ReturnType<typeof vi.fn>;
+          dashboard.handleInput("2");
+          dashboard.render(120);
+          requestRender.mockClear();
+          vi.advanceTimersByTime(200);
+          expect(requestRender).toHaveBeenCalled();
+        }),
+        notify: vi.fn(),
+        setWidget: vi.fn(),
+      },
+    } as unknown as ExtensionContext;
+
+    try {
+      await controller.openDashboard(context);
+      requestRender!.mockClear();
+      vi.advanceTimersByTime(1_000);
+      expect(requestRender).not.toHaveBeenCalled();
+    } finally {
+      controller.stop();
+      vi.useRealTimers();
+    }
+  });
+
+  it("reports a dashboard render failure once and draws an error row instead of throwing", async () => {
+    const controller = new FabricUiController(stubState());
+    const notify = vi.fn();
+    let rows: string[] = [];
+    const context = {
+      mode: "tui",
+      modelRegistry: { getAvailable: () => [] },
+      ui: {
+        custom: vi.fn(async (factory: (...args: unknown[]) => unknown) => {
+          const node = factory(viewHost(), theme, {}, () => {}) as UiNode;
+          const dashboard = mountedView(node) as FabricDashboard;
+          vi.spyOn(dashboard, "render").mockImplementation(() => {
+            throw new Error("boom");
+          });
+          const term = createTestTerminal(() => ({ main: node }), { columns: 80, rows: 10 });
+          try {
+            term.focus(node);
+            term.press("j", { text: "j" });
+            rows = [...term.screen()];
+          } finally {
+            term.dispose();
+          }
+        }),
+        notify,
+        setWidget: vi.fn(),
+      },
+    } as unknown as ExtensionContext;
+
+    try {
+      await controller.openDashboard(context);
+      expect(rows.join("\n")).toContain("Fabric view failed to render: boom");
+      expect(notify.mock.calls.filter(([message]) => String(message).includes("boom"))).toHaveLength(1);
+    } finally {
       controller.stop();
     }
   });
