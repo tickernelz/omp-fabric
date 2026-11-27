@@ -13,11 +13,19 @@
 
 - `src/ui/tui/`: Fabric's own row primitives (`TextBlock`, `Stack`, `BlankRows`), a single and multi-line `TextField`, `SelectList` and `SettingsList`. Keys come from the pi-tui widget keymap that OMP keeps in sync with the user's keybindings (`select.*`, `editor.*`), and application actions (`app.tools.expand`, `app.message.followUp`, `tui.editor.pageUp`) from the host `KeybindingsManager`.
 - `mountView` mounts a Fabric view as a pi-tui `canvas` node with a role painter and role widget, so key and paste events reach the view, repaints follow a signal, and wheel events reach `handleWheel` through the node's hit region.
+- A Fabric view that throws while drawing shows one row, `⚠ Fabric view failed to render: <message>`, and reports the error once per failure streak; a throw while handling a key, paste or wheel event is reported the same way. The host only contains errors of the rows objects it mounts, and Fabric mounts its dashboard and conversation itself.
 
 ### Removed
 
 - `src/ui/symbol-theme.ts`, the copied pi-tui symbol table. Styling goes through the host theme (`theme.style("strong", …)` for bold), and diff backgrounds derive from `theme.hex` of `toolDiffAdded`, `toolDiffRemoved`, `toolSuccessBg` and `toolErrorBg`.
 - `tests/fabric-exec-transcript-block.test.ts`, which tested the host `ToolExecutionComponent` that 19.2 removed.
+
+### Notes
+
+- Live smoke on OMP 19.2.1 in tmux (160x45): the `/fabric` dashboard overview, topology and detail views, `/fabric settings` with section submenus and search, the approval dialog for `omp.bash` (Allow once ran the call), and `/fabric chat` on a spawned child agent (transcript, PageUp to older activity, the target picker, typing, Escape to close). Headless `omp -p` with 1.27.2 has no `fabric_exec`; this build runs it.
+- Frame cost, same workload, median ms per frame from main (19.1.1) to this release: widget 0.0089 to 0.0087, dashboard overview 0.1616 to 0.1665, dashboard detail 0.1268 to 0.1329, conversation of 60 messages cold 0.5507 to 0.5772 and warm 0.3488 to 0.0448. Warm conversation frames with 20 tool results of 80 KB and a 2 MB image fell from 7.6032 to under 0.05 after the transcript block cache moved to input identity with eviction.
+- Review: Agent Hendra asked in round 1 for the dashboard view to be disposed on close (its topology animation kept an 80 ms interval alive after closing), for view error containment, and for a cheaper transcript cache; round 2 approved 6a3e1801. Controller seam tests fail without the dispose (13 renders after close) and without the error containment.
+- CI: Test run 45935666376 at 6a3e1801 (#26) and main Test run 45936254716 at the code commit 9b885f78, green on ubuntu and windows.
 
 ## 1.27.2
 
