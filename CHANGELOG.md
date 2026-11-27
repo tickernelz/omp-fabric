@@ -1,5 +1,28 @@
 # Changelog
 
+## 1.28.1
+
+### Changed
+
+- OMP 19.2.1 is the minimum host. The peer floor of pi-coding-agent, pi-natives and pi-tui and `MINIMUM_OMP_HOST_VERSION` move from 19.2.0 to 19.2.1, the only host 1.28.0 ran on.
+- Captured tools that declare `loadMode: "essential"` stay in the model-facing set in full code mode (#25, reported by @blyzer). `capture.keepEssentialVisible: false` hides them again; Schema enforce mode still keeps `fabric_exec` as the only model-facing tool.
+- `fabric_exec` declares `loadMode: "essential"`, so the host never defers it out of the model-facing set (#21, by @UnderCooled).
+
+### Fixed
+
+- A pi-tui module or export missing from the host no longer stops omp-fabric from loading. `term/paint`, `term/widgets`, `term/render`, `term/keymap` and `driver/input/decoder` load through dynamic imports, and each export Fabric calls is checked. When one is missing, Fabric warns once at startup and its views degrade: no mouse wheel scrolling, the default widget keys, keys taken from the host key event, and one notice row in place of a host-drawn preview. 19.2.1 itself dropped an internal pi-tui export (`oneLine` in `term/painters/picker`).
+
+### Added
+
+- `bun run check:host-imports` (`scripts/check-host-imports.mjs`) lists every `@oh-my-pi/*` specifier and named import in `dist/` and imports each one from the host packages; `--binary <omp>` also checks the module map compiled into an OMP binary. CI shard 1 runs it after the build.
+
+### Notes
+
+- Prompt cost of the #25 change, `omp -p` on 19.2.1 with default full code mode: without an essential extension tool, 24 tools and 96,543 schema bytes before and after; one essential probe tool adds 1 tool and 324 schema bytes, and `capture.keepEssentialVisible: false` brings it back to 24.
+- `tests/host-term-fallback.test.ts` fails 3 of its 4 tests with the static imports restored. `omp -p` on 19.2.1 with this build loads without the fallback warning.
+- `check:host-imports` on 19.2.1: 83 files, 34 specifiers, 47 names in about 1.2 s, also clean with `--binary` against the installed omp 19.2.1.
+- CI: Test run 45939430272 at dfb15fa2 (#27) and run 45938061070 at bb9e8d9a (#21), green on ubuntu and windows.
+
 ## 1.28.0
 
 ### Changed (breaking)
