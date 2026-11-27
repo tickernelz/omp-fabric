@@ -1,7 +1,7 @@
 // Adapted from pi-code-previews; see THIRD_PARTY_NOTICES.md.
-import type { Theme } from "@oh-my-pi/pi-coding-agent";
-import { truncateToWidth, visibleWidth } from "@oh-my-pi/pi-tui";
-import { ansi256ToRgb, observedThemeVariant } from "./highlight.js";
+import type { Theme } from "@oh-my-pi/pi-tui/theme/contract";
+import { truncate, visibleWidth } from "@oh-my-pi/pi-tui/text/width";
+import { observedThemeVariant } from "./highlight.js";
 
 export type DiffBackgroundIntensity = "off" | "subtle" | "medium";
 export type DiffLineKind = "add" | "remove";
@@ -77,15 +77,11 @@ const deriveDiffBg = (
   theme: Theme | undefined,
   intensity: number,
 ): string | undefined => {
-  const themed = theme as
-    | (Theme & { getFgAnsi?: (key: string) => string; getBgAnsi?: (key: string) => string })
-    | undefined;
-  const fg = themed?.getFgAnsi?.(kind === "add" ? "toolDiffAdded" : "toolDiffRemoved");
-  const fgRgb = parseAnsiRgb(fg ?? "");
+  const fgRgb = themeRgb(theme, kind === "add" ? "toolDiffAdded" : "toolDiffRemoved");
   if (!fgRgb) return undefined;
   const base =
-    parseAnsiRgb(themed?.getBgAnsi?.(kind === "add" ? "toolSuccessBg" : "toolErrorBg") ?? "") ??
-    parseAnsiRgb(themed?.getBgAnsi?.("toolSuccessBg") ?? "") ??
+    themeRgb(theme, kind === "add" ? "toolSuccessBg" : "toolErrorBg") ??
+    themeRgb(theme, "toolSuccessBg") ??
     (observedThemeVariant() === "light" ? { r: 255, g: 255, b: 255 } : { r: 0, g: 0, b: 0 });
   return `\x1b[48;2;${Math.round(base.r + (fgRgb.r - base.r) * intensity)};${Math.round(base.g + (fgRgb.g - base.g) * intensity)};${Math.round(base.b + (fgRgb.b - base.b) * intensity)}m`;
 };
@@ -144,7 +140,7 @@ export const wrapDiffAnsiToWidth = (
           rowWidth = 0;
         }
         if (segmentWidth > width && rowWidth === 0) {
-          const clipped = truncateToWidth(segment, width, "");
+          const clipped = truncate(segment, width, "");
           if (clipped) {
             row += clipped;
             rowWidth += visibleWidth(clipped);
@@ -166,13 +162,13 @@ export const wrapDiffAnsiToWidth = (
 
 const truncateWrappedRow = (row: string, rowWidth: number, width: number): string => {
   if (rowWidth <= width && TRUNCATION_SAFE_RE.test(row)) return row;
-  return truncateToWidth(row, width, "");
+  return truncate(row, width, "");
 };
 
 const truncateLastRow = (rows: string[], width: number): string[] => {
   const last = rows.at(-1) ?? "";
   if (visibleWidth(last) >= width && width > 1) {
-    rows[rows.length - 1] = truncateToWidth(last, width - 1, "") + "›";
+    rows[rows.length - 1] = truncate(last, width - 1, "") + "›";
   }
   return rows;
 };
@@ -208,10 +204,10 @@ const updateAnsiState = (current: string, sequence: string): string => {
 const replaceAnsi = (current: string, pattern: RegExp, replacement: string): string =>
   current.replace(pattern, "") + replacement;
 
-const parseAnsiRgb = (ansi: string): { r: number; g: number; b: number } | undefined => {
-  const match = ansi.match(/\x1b\[(?:38|48);2;(\d+);(\d+);(\d+)m/);
-  if (match) return { r: Number(match[1]), g: Number(match[2]), b: Number(match[3]) };
-  const indexed = ansi.match(/\x1b\[(?:38|48);5;(\d+)m/);
-  if (indexed) return ansi256ToRgb(Number(indexed[1]));
-  return undefined;
+const themeRgb = (theme: Theme | undefined, key: string): { r: number; g: number; b: number } | undefined => {
+  if (!theme?.has(key)) return undefined;
+  const match = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(theme.hex(key));
+  return match
+    ? { r: Number.parseInt(match[1]!, 16), g: Number.parseInt(match[2]!, 16), b: Number.parseInt(match[3]!, 16) }
+    : undefined;
 };

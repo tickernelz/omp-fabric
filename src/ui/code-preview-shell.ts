@@ -1,13 +1,9 @@
 // Adapted from pi-code-previews; see THIRD_PARTY_NOTICES.md.
-import type { Theme, ToolDefinition, ToolRenderResultOptions } from "@oh-my-pi/pi-coding-agent";
-import { Ellipsis } from "@oh-my-pi/pi-tui";
-import {
-  Container,
-  Text,
-  truncateToWidth,
-  visibleWidth,
-  type Component,
-} from "@oh-my-pi/pi-tui";
+import type { ExtensionTheme, ToolDefinition, ToolRenderResultOptions } from "@oh-my-pi/pi-coding-agent";
+import type { Theme } from "@oh-my-pi/pi-tui/theme/contract";
+import { truncate, visibleWidth } from "@oh-my-pi/pi-tui/text/width";
+import { TextBlock } from "./tui/rows.js";
+import { asRows, isRows, type Rows } from "./tui/view.js";
 import { continueArcGroup } from "./arc-group.js";
 
 type ToolCallBackgroundMode = "on" | "border" | "off";
@@ -26,7 +22,7 @@ export type PreviewRenderContext = {
   args: unknown;
   toolCallId: string;
   invalidate: () => void;
-  lastComponent: Component | undefined;
+  lastComponent: Rows | undefined;
   state: Record<string, unknown>;
   cwd: string;
   executionStarted: boolean;
@@ -42,13 +38,13 @@ type TimingState = Record<string, unknown> & {
   codePreviewTimingEndedAt?: number;
   codePreviewTimingInterval?: ReturnType<typeof setInterval>;
   codePreviewTimingOnlyRenderToken?: number;
-  codePreviewTimingCallComponent?: Component;
-  codePreviewTimingResultComponent?: Component;
+  codePreviewTimingCallComponent?: Rows;
+  codePreviewTimingResultComponent?: Rows;
 };
 
 type BorderState = TimingState & {
-  codePreviewBorderCallComponent?: Component;
-  codePreviewBorderResultComponent?: Component;
+  codePreviewBorderCallComponent?: Rows;
+  codePreviewBorderResultComponent?: Rows;
   codePreviewBorderShell?: BorderedToolCall;
   codePreviewBorderTheme?: Theme;
   codePreviewBorderLastCallExecutionStarted?: boolean;
@@ -61,7 +57,7 @@ const timingState = (context: { state?: unknown } | undefined): TimingState | un
 const isTimingOnlyRender = (state: TimingState | undefined): boolean =>
   state?.codePreviewTimingOnlyRenderToken !== undefined;
 
-const unwrapTimingComponent = (component: Component | undefined): Component | undefined =>
+const unwrapTimingComponent = (component: Rows | undefined): Rows | undefined =>
   component instanceof TimingPreservedComponent ? component.component : component;
 
 const clearTimingInterval = (state: TimingState): void => {
@@ -131,8 +127,8 @@ const updateTiming = (
   return `${running ? "Elapsed" : "Took"} ${formatDuration(endedAt - startedAt)}`;
 };
 
-class TimingPreservedComponent implements Component {
-  constructor(readonly component: Component, private readonly state: TimingState) {}
+class TimingPreservedComponent implements Rows {
+  constructor(readonly component: Rows, private readonly state: TimingState) {}
   render(width: number): readonly string[] {
     return this.component.render(width);
   }
@@ -141,16 +137,16 @@ class TimingPreservedComponent implements Component {
   }
 }
 
-class TimingFooter implements Component {
+class TimingFooter implements Rows {
   constructor(
-    private readonly component: Component,
+    private readonly component: Rows,
     private readonly footer: string,
     private readonly state: TimingState,
   ) {}
   render(width: number): readonly string[] {
     return [
       ...continueArcGroup([...this.component.render(width)]),
-      truncateToWidth(this.footer, width, ""),
+      truncate(this.footer, width, ""),
     ];
   }
   invalidate(): void {
@@ -161,9 +157,9 @@ class TimingFooter implements Component {
 const renderTimedResult = (
   context: PreviewRenderContext,
   theme: Theme,
-  render: (context: PreviewRenderContext) => Component,
+  render: (context: PreviewRenderContext) => Rows,
   label: string | undefined,
-): Component => {
+): Rows => {
   const state = timingState(context);
   if (!state) return render(context);
   const reused = isTimingOnlyRender(state) ? state.codePreviewTimingResultComponent : undefined;
@@ -193,10 +189,6 @@ const shellStateFor = (key: unknown): BorderState => {
   return created;
 };
 
-const isRenderComponent = (value: unknown): value is Component =>
-  value !== null && typeof value === "object" &&
-  typeof Reflect.get(value, "render") === "function";
-
 const buildRenderContext = (
   args: unknown,
   options: ToolRenderResultOptions & { renderContext?: unknown },
@@ -218,7 +210,7 @@ const buildRenderContext = (
     invalidate: typeof supplied.invalidate === "function"
       ? supplied.invalidate as () => void
       : () => undefined,
-    lastComponent: isRenderComponent(supplied.lastComponent) ? supplied.lastComponent : undefined,
+    lastComponent: isRows(supplied.lastComponent) ? supplied.lastComponent : undefined,
     state,
     cwd: typeof supplied.cwd === "string" ? supplied.cwd : process.cwd(),
     executionStarted,
@@ -235,9 +227,9 @@ const borderColor = (context: PreviewRenderContext): "warning" | "success" | "er
   return context.isPartial ? "warning" : "success";
 };
 
-class BorderedToolCall implements Component {
-  private callComponent: Component | undefined;
-  private resultComponent: Component | undefined;
+class BorderedToolCall implements Rows {
+  private callComponent: Rows | undefined;
+  private resultComponent: Rows | undefined;
   private color: "borderMuted" | "warning" | "success" | "error" = "borderMuted";
   private timingLabel: string | undefined;
   private cachedWidth: number | undefined;
@@ -245,11 +237,11 @@ class BorderedToolCall implements Component {
 
   constructor(private readonly theme: Theme, private readonly state: TimingState) {}
 
-  setCall(component: Component | undefined): void {
+  setCall(component: Rows | undefined): void {
     this.callComponent = component;
     this.invalidateCache();
   }
-  setResult(component: Component | undefined): void {
+  setResult(component: Rows | undefined): void {
     this.resultComponent = component;
     this.invalidateCache();
   }
@@ -304,7 +296,7 @@ class BorderedToolCall implements Component {
     innerWidth: number,
     border: (value: string) => string,
   ): string {
-    const text = truncateToWidth(line, innerWidth, "");
+    const text = truncate(line, innerWidth, "");
     const padding = " ".repeat(Math.max(0, innerWidth - visibleWidth(text)));
     const hasDiffBackground = /^\x1b\[48;2;\d+;\d+;\d+m/.test(text);
     return hasDiffBackground
@@ -331,23 +323,24 @@ export const withCodePreviewShell: FabricToolShellDecorator = <TTool extends Any
   if ((options.preserveSelfShell ?? true) && (tool as AnyTool & { renderShell?: string }).renderShell === "self") return tool;
   const originalRenderCall = tool.renderCall;
   const originalRenderResult = tool.renderResult;
-  const renderCall = (args: unknown, options: ToolRenderResultOptions, theme: Theme, context: PreviewRenderContext): Component => {
+  const renderCall = (args: unknown, options: ToolRenderResultOptions, theme: ExtensionTheme, context: PreviewRenderContext): Rows => {
     const renderOptions = { ...options, renderContext: context };
     return originalRenderCall
-      ? originalRenderCall.call(tool, args as never, renderOptions, theme)
-      : new Text(theme.fg("toolTitle", theme.bold(tool.label || tool.name)), 0, 0);
+      ? asRows(originalRenderCall.call(tool, args as never, renderOptions, theme), theme)
+      : new TextBlock(theme.fg("toolTitle", theme.style("strong", tool.label || tool.name)));
   };
   const renderResult = (
     result: unknown,
     resultOptions: unknown,
-    theme: Theme,
+    theme: ExtensionTheme,
     context: PreviewRenderContext,
     args?: unknown,
-  ): Component => {
+  ): Rows => {
     const renderOptions = { ...(resultOptions as ToolRenderResultOptions), renderContext: context };
-    return originalRenderResult
-      ? originalRenderResult.call(tool, result as never, renderOptions, theme, args)
-      : new Container();
+    return asRows(
+      originalRenderResult?.call(tool, result as never, renderOptions, theme, args),
+      theme,
+    );
   };
 
   return {
@@ -358,7 +351,7 @@ export const withCodePreviewShell: FabricToolShellDecorator = <TTool extends Any
       if (!renderOptions) {
         return originalRenderCall
           ? originalRenderCall.call(tool, args, { expanded: false, isPartial: false }, theme)
-          : new Text(theme.fg("toolTitle", theme.bold(tool.label || tool.name)), 0, 0);
+          : new TextBlock(theme.fg("toolTitle", theme.style("strong", tool.label || tool.name)));
       }
       const supplied = renderOptions.renderContext && typeof renderOptions.renderContext === "object"
         ? renderOptions.renderContext

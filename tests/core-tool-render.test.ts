@@ -1,6 +1,7 @@
-import type { Theme } from "@oh-my-pi/pi-coding-agent";
+import type { Theme } from "@oh-my-pi/pi-tui/theme/contract";
+import { testTheme } from "./test-theme.js";
 import type { CodePreviewSettings } from "../src/ui/code-preview.js";
-import { visibleWidth } from "@oh-my-pi/pi-tui";
+import { visibleWidth } from "@oh-my-pi/pi-tui/text/width";
 import { TRUNCATION_MARKER } from "../src/core/truncation-marker.js";
 import { nestedCallTitle } from "../src/ui/fabric-render.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -49,13 +50,13 @@ const settings: CodePreviewSettings = {
   tools: ["bash", "read", "write", "edit", "grep", "find", "ls"],
 };
 
-const theme = {
+const theme = testTheme({
   fg: (_color: string, text: string) => text,
   bold: (text: string) => text,
-  getFgAnsi: (color: string) =>
-    color === "toolDiffAdded" ? "\x1b[38;2;80;200;120m" : "\x1b[38;2;220;90;100m",
-  getBgAnsi: () => "\x1b[48;2;0;0;0m",
-} as unknown as Theme;
+  has: () => true,
+  hex: (color: string) =>
+    color === "toolDiffAdded" ? "#50c878" : color === "toolDiffRemoved" ? "#dc5a64" : "#000000",
+});
 
 const options = (
   overrides: Partial<CoreToolRenderOptions> = {},
@@ -212,11 +213,11 @@ describe("Fabric core tool parity rendering", () => {
     "[Showing lines 51-100 of 100. Full output: /tmp/omp-bash.log]",
     "[Showing lines 5-6 of 6 (50.0KB limit). Full output: /tmp/omp-bash.log]",
   ])("renders bash truncation notices in write diffs as muted metadata", (notice) => {
-    const noticeTheme = {
+    const noticeTheme = testTheme({
       ...theme,
       fg: (color: string, text: string) =>
         color === "muted" ? `<muted>${text}</muted>` : text,
-    } as unknown as Theme;
+    });
     const rendered = renderCoreToolBody(
       audit("write", {
         args: { path: "result.json", content: `{"ok":true}\n\n${notice}` },

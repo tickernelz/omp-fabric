@@ -1,4 +1,5 @@
-import type { Theme } from "@oh-my-pi/pi-coding-agent";
+import type { Theme } from "@oh-my-pi/pi-tui/theme/contract";
+import { testTheme } from "./test-theme.js";
 import { describe, expect, it } from "vitest";
 import {
   DEFAULT_FABRIC_CONFIG,
@@ -18,11 +19,11 @@ import {
 
 type SettingItem = ReturnType<typeof buildFabricSettingsItems>[number];
 
-const theme = {
+const theme = testTheme({
   fg: (_color: string, text: string) => text,
   bg: (_color: string, text: string) => text,
   bold: (text: string) => text,
-} as unknown as Theme;
+});
 
 const ACTIVE_MODEL_KEY = "anthropic/claude-sonnet-4-5";
 

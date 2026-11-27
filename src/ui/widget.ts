@@ -1,6 +1,6 @@
-import type { Component } from "@oh-my-pi/pi-tui";
-import { truncateToWidth, visibleWidth } from "@oh-my-pi/pi-tui";
-import type { Theme } from "@oh-my-pi/pi-coding-agent";
+import { truncate, visibleWidth } from "@oh-my-pi/pi-tui/text/width";
+import type { Rows } from "./tui/view.js";
+import type { Theme } from "@oh-my-pi/pi-tui/theme/contract";
 import type { FabricUiWidgetMode } from "../config.js";
 import { spinnerFrame } from "./spinner.js";
 import { conversationHint, FABRIC_CONVERSATION_SHORTCUT } from "./conversation-shortcut.js";
@@ -75,9 +75,9 @@ const agentLines = (
   const activity =
     agent.currentTool ??
     (agent.error
-      ? `error: ${truncateToWidth(safeText(agent.error), 48)}`
+      ? `error: ${truncate(safeText(agent.error), 48)}`
       : agent.text && !isActiveStatus(agent.status)
-        ? `result: ${truncateToWidth(safeText(agent.text), 48)}`
+        ? `result: ${truncate(safeText(agent.text), 48)}`
         : agent.status === "running"
           ? "thinking"
           : agent.status);
@@ -111,7 +111,7 @@ export const shouldShowFabricWidget = (
   return finishedAt > (snapshot.widgetDismissedAt ?? 0);
 };
 
-export class FabricWidget implements Component {
+export class FabricWidget implements Rows {
   constructor(
     readonly theme: Theme,
     readonly snapshot: () => FabricDashboardSnapshot,
@@ -255,9 +255,9 @@ export class FabricWidget implements Component {
     if (content.length > bounded.length && bounded.length > 0) {
       const marker = this.theme.fg("dim", `+${content.length - bounded.length}`);
       const available = Math.max(0, width - visibleWidth(marker) - 1);
-      const last = truncateToWidth(bounded[bounded.length - 1] ?? "", available, "");
+      const last = truncate(bounded[bounded.length - 1] ?? "", available, "");
       bounded[bounded.length - 1] = `${last} ${marker}`;
     }
-    return bounded.map((line) => truncateToWidth(line, width));
+    return bounded.map((line) => truncate(line, width));
   }
 }

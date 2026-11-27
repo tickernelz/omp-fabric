@@ -1,6 +1,8 @@
-import type { Theme, ToolDefinition, ToolRenderResultOptions } from "@oh-my-pi/pi-coding-agent";
+import type { ToolDefinition, ToolRenderResultOptions } from "@oh-my-pi/pi-coding-agent";
 import type { TSchema } from "@oh-my-pi/pi-coding-agent/extensibility/legacy-typebox";
-import { Container, Text, type Component } from "@oh-my-pi/pi-tui";
+import type { Theme } from "@oh-my-pi/pi-tui/theme/contract";
+import { Stack, TextBlock } from "./ui/tui/rows.js";
+import { isRows, type Rows } from "./ui/tui/view.js";
 
 type FabricToolDefinition = ToolDefinition<any, any> & {
   promptGuidelines?: readonly string[];
@@ -172,9 +174,6 @@ const rendererStateFor = (key: unknown): FabricRendererState => {
   return created;
 };
 
-const isRenderComponent = (value: unknown): value is Component =>
-  value !== null && typeof value === "object" && typeof Reflect.get(value, "render") === "function";
-
 const previewContext = (
   options: ToolRenderResultOptions,
   state: FabricState,
@@ -193,7 +192,7 @@ const previewContext = (
     args,
     toolCallId: typeof supplied.toolCallId === "string" ? supplied.toolCallId : "fabric_exec",
     invalidate: typeof supplied.invalidate === "function" ? supplied.invalidate as () => void : () => undefined,
-    lastComponent: isRenderComponent(supplied.lastComponent) ? supplied.lastComponent : undefined,
+    lastComponent: isRows(supplied.lastComponent) ? supplied.lastComponent : undefined,
     state: supplied.state && typeof supplied.state === "object" ? supplied.state as FabricRendererState : rendererState,
     cwd: typeof supplied.cwd === "string" ? supplied.cwd : state.cwd ?? process.cwd(),
     executionStarted,
@@ -333,15 +332,15 @@ export const createFabricExecTool = (
         // Session-wide memo keyed by the program string: the same hint serves
         // the live card, the activity feed, and compaction intent.
         const title = display?.name?.trim() || fabricExecTitleHintCached(code);
-        const header = new Container();
-        header.addChild(renderBoundedLines(
-          [theme.fg("toolTitle", theme.bold(safeTerminalText(title || "Fabric")))],
+        const header = new Stack();
+        header.add(renderBoundedLines(
+          [theme.fg("toolTitle", theme.style("strong", safeTerminalText(title || "Fabric")))],
           theme,
           codePreviewSettings.diffIntensity,
           1,
         ));
         if (display?.description) {
-          header.addChild(renderBoundedLines(
+          header.add(renderBoundedLines(
             [theme.fg("dim", safeTerminalText(display.description))],
             theme,
             codePreviewSettings.diffIntensity,
@@ -349,17 +348,16 @@ export const createFabricExecTool = (
           ));
         }
         if (!writePreview) return header;
-        const composite = new Container();
-        composite.addChild(header);
-        composite.addChild(new Text("\n", 0, 0));
-        composite.addChild(writePreview);
+        const composite = new Stack();
+        composite.add(header);
+        composite.add(writePreview);
         return composite;
       }
 
       const lines = safeTerminalText(code).split("\n");
       const runDisplay = normalizeRunDisplay(params.display);
       const displayName = runDisplay?.name ? safeTerminalText(runDisplay.name) : "";
-      const title = `${theme.fg("toolTitle", theme.bold("fabric"))}${
+      const title = `${theme.fg("toolTitle", theme.style("strong", "fabric"))}${
         displayName ? ` ${theme.fg("accent", displayName)}` : ""
       } ${theme.fg("dim", `TypeScript · ${countLabel(lines.length, "line")}`)}`;
       // Match the compact header: the declared objective sits between the
@@ -385,11 +383,9 @@ export const createFabricExecTool = (
           hidden > 0
             ? `\n${theme.fg("dim", `… ${countLabel(hidden, "line")} hidden · `)}${expandHint(theme)}`
             : "";
-        return [...new Text(
+        return new TextBlock(
           `${title}${description ? `\n${description}` : ""}${preview ? `\n${preview}` : ""}${hiddenHint}`,
-          0,
-          0,
-        ).render(width)];
+        ).render(width);
       };
       const codePreview = new HiddenRowBorrowingComponent(
         baseLimit,
@@ -398,10 +394,9 @@ export const createFabricExecTool = (
         rowBalance,
       );
       if (!writePreview) return codePreview;
-      const composite = new Container();
-      composite.addChild(codePreview);
-      composite.addChild(new Text("\n", 0, 0));
-      composite.addChild(writePreview);
+      const composite = new Stack();
+      composite.add(codePreview);
+      composite.add(writePreview);
       return composite;
     },
     renderResult(result, options, theme, params?: FabricExecParams) {
@@ -422,7 +417,7 @@ export const createFabricExecTool = (
         context.invalidate,
       );
       const rowBalance = rendererState.fabricResultRowBalance ??= {};
-      const trackRows = (component: Component): Component =>
+      const trackRows = (component: Rows): Rows =>
         observeResultRows(
           inheritComponentBackground(component),
           rowBalance,
@@ -513,7 +508,7 @@ export const createFabricExecTool = (
         if (audits.length === 0) {
           const label = compact ? "Running…" : progress ?? "Running Fabric program…";
           return trackRows(
-            new Text(theme.fg("warning", `◆ ${safeTerminalText(label)}`), 0, 0),
+            new TextBlock(theme.fg("warning", `◆ ${safeTerminalText(label)}`)),
           );
         }
         if (audits.length === 1) {
@@ -644,20 +639,14 @@ export const createFabricExecTool = (
       if (audits.length === 0) {
         if (failed && details.error) {
           return trackRows(
-            new Text(
-              theme.fg("error", `✗ ${safeTerminalText(details.error)}`),
-              0,
-              0,
-            ),
+            new TextBlock(theme.fg("error", `✗ ${safeTerminalText(details.error)}`)),
           );
         }
         if (!output) {
-          return trackRows(new Text(
+          return trackRows(new TextBlock(
             compact
               ? theme.fg(failed ? "error" : "success", failed ? "✗ Failed" : "✓ Evaluated")
               : theme.fg("dim", "✓ Fabric"),
-            0,
-            0,
           ));
         }
         const lines = safeTerminalText(output).split(nl);
@@ -665,7 +654,7 @@ export const createFabricExecTool = (
         const shown = lines.slice(0, limit);
         const displayName = normalizeRunDisplay(params?.display)?.name;
         const title = displayName
-          ? theme.fg("toolTitle", theme.bold(safeTerminalText(displayName)))
+          ? theme.fg("toolTitle", theme.style("strong", safeTerminalText(displayName)))
           : compact
             ? theme.fg(failed ? "error" : "success", failed ? "✗ Failed" : "✓ Evaluated")
             : "";
@@ -705,7 +694,7 @@ export const createFabricExecTool = (
           if (audit.error) {
             text += nl + theme.fg("error", safeTerminalText(audit.error));
           }
-          return trackRows(new Text(text, 0, 0));
+          return trackRows(new TextBlock(text));
         }
         if (previewLines[0]) {
           text += ` ${previewLines[0]}`;

@@ -1,6 +1,11 @@
-import type { ExtensionContext, Theme } from "@oh-my-pi/pi-coding-agent";
-import type { TUI } from "@oh-my-pi/pi-tui";
+import type { ExtensionContext } from "@oh-my-pi/pi-coding-agent";
+import type { Theme } from "@oh-my-pi/pi-tui/theme/contract";
+import { testTheme } from "./test-theme.js";
+import { mountedView } from "../src/ui/tui/view.js";
+import { viewHost } from "./view-host.js";
 import { describe, expect, it, vi } from "vitest";
+import { createTestTerminal } from "@oh-my-pi/pi-tui/testing/terminal";
+import type { UiNode } from "@oh-my-pi/pi-tui";
 import type { FabricActivityRun } from "../src/activity/types.js";
 import type { FabricState } from "../src/fabric-state.js";
 import { FabricUiController } from "../src/ui/controller.js";
@@ -8,11 +13,11 @@ import type { FabricDashboard } from "../src/ui/dashboard.js";
 import "../src/ui/dashboard.js";
 import "../src/ui/model-picker.js";
 
-const theme = {
+const theme = testTheme({
   fg: (_c: string, t: string) => t,
   bg: (_c: string, t: string) => t,
   bold: (t: string) => t,
-} as unknown as Theme;
+});
 
 const stubActor = {
   id: "actor-1",
@@ -85,15 +90,14 @@ describe("FabricUiController dashboard wiring", () => {
   it("passes every actor callback to the dashboard so all pickers are available", async () => {
     const state = stubState();
     const controller = new FabricUiController(state);
-    const tui = { requestRender: vi.fn() } as unknown as TUI;
+    const tui = viewHost();
     let dashboard: FabricDashboard | undefined;
     const context = {
       mode: "tui",
       modelRegistry: { getAvailable: () => [] },
       ui: {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        custom: vi.fn(async (factory: any) => {
-          dashboard = factory(tui, theme, {}, () => {}) as FabricDashboard;
+        custom: vi.fn(async (factory: (...args: unknown[]) => unknown) => {
+          dashboard = mountedView(factory(tui, theme, {}, () => {})) as FabricDashboard;
         }),
         notify: vi.fn(),
         setWidget: vi.fn(),
@@ -122,22 +126,87 @@ describe("FabricUiController dashboard wiring", () => {
     }
   });
 
+  it("stops the dashboard's animation timers once the dashboard closes", async () => {
+    vi.useFakeTimers();
+    const controller = new FabricUiController(stubState());
+    let requestRender: ReturnType<typeof vi.fn> | undefined;
+    const context = {
+      mode: "tui",
+      modelRegistry: { getAvailable: () => [] },
+      ui: {
+        custom: vi.fn(async (factory: (...args: unknown[]) => unknown) => {
+          const dashboard = mountedView(factory(viewHost(), theme, {}, () => {})) as FabricDashboard;
+          requestRender = vi.spyOn(dashboard.host, "requestRender") as unknown as ReturnType<typeof vi.fn>;
+          dashboard.handleInput("2");
+          dashboard.render(120);
+          requestRender.mockClear();
+          vi.advanceTimersByTime(200);
+          expect(requestRender).toHaveBeenCalled();
+        }),
+        notify: vi.fn(),
+        setWidget: vi.fn(),
+      },
+    } as unknown as ExtensionContext;
+
+    try {
+      await controller.openDashboard(context);
+      requestRender!.mockClear();
+      vi.advanceTimersByTime(1_000);
+      expect(requestRender).not.toHaveBeenCalled();
+    } finally {
+      controller.stop();
+      vi.useRealTimers();
+    }
+  });
+
+  it("reports a dashboard render failure once and draws an error row instead of throwing", async () => {
+    const controller = new FabricUiController(stubState());
+    const notify = vi.fn();
+    let rows: string[] = [];
+    const context = {
+      mode: "tui",
+      modelRegistry: { getAvailable: () => [] },
+      ui: {
+        custom: vi.fn(async (factory: (...args: unknown[]) => unknown) => {
+          const node = factory(viewHost(), theme, {}, () => {}) as UiNode;
+          const dashboard = mountedView(node) as FabricDashboard;
+          vi.spyOn(dashboard, "render").mockImplementation(() => {
+            throw new Error("boom");
+          });
+          const term = createTestTerminal(() => ({ main: node }), { columns: 80, rows: 10 });
+          try {
+            term.focus(node);
+            term.press("j", { text: "j" });
+            rows = [...term.screen()];
+          } finally {
+            term.dispose();
+          }
+        }),
+        notify,
+        setWidget: vi.fn(),
+      },
+    } as unknown as ExtensionContext;
+
+    try {
+      await controller.openDashboard(context);
+      expect(rows.join("\n")).toContain("Fabric view failed to render: boom");
+      expect(notify.mock.calls.filter(([message]) => String(message).includes("boom"))).toHaveLength(1);
+    } finally {
+      controller.stop();
+    }
+  });
+
   it("routes Main dashboard messages through FabricState", async () => {
     const state = stubState();
     const controller = new FabricUiController(state);
-    const tui = { requestRender: vi.fn() } as unknown as TUI;
+    const tui = viewHost();
     let dashboard: FabricDashboard | undefined;
     const context = {
       mode: "tui",
       modelRegistry: { getAvailable: () => [] },
       ui: {
-        custom: vi.fn(async (factory: (
-          tui: TUI,
-          theme: Theme,
-          keybindings: unknown,
-          done: () => void,
-        ) => FabricDashboard) => {
-          dashboard = factory(tui, theme, {}, () => {});
+        custom: vi.fn(async (factory: (...args: unknown[]) => unknown) => {
+          dashboard = mountedView(factory(tui, theme, {}, () => {})) as FabricDashboard;
         }),
         notify: vi.fn(),
         setWidget: vi.fn(),
@@ -322,17 +391,12 @@ describe("FabricUiController dashboard wiring", () => {
       onActivity = listener;
       return () => {};
     });
-    const tui = { requestRender: vi.fn() } as unknown as TUI;
+    const tui = viewHost();
     const context = {
       mode: "tui",
       modelRegistry: { getAvailable: () => [] },
       ui: {
-        custom: vi.fn(async (factory: (
-          t: TUI,
-          theme: Theme,
-          keybindings: unknown,
-          done: () => void,
-        ) => FabricDashboard) => {
+        custom: vi.fn(async (factory: (...args: unknown[]) => unknown) => {
           factory(tui, theme, {}, () => {});
         }),
         notify: vi.fn(),

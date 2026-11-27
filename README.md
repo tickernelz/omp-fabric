@@ -62,7 +62,7 @@ Independent calls run in parallel, and the returned object enters the model cont
 
 ## Install
 
-Requires Node.js 24+ and OMP 18.4.4+. Fabric also checks a detectable OMP host version at startup and warns when an older host does not match the tool shapes Fabric types against.
+Requires Node.js 24+ and OMP 19.2.0+. OMP 19.2 replaced the pi-tui component library, so hosts from 18.4.4 to 19.1.x stay on omp-fabric 1.27.x. Fabric also checks a detectable OMP host version at startup and warns when an older host does not match the tool shapes Fabric types against.
 
 ```bash
 omp install npm:omp-fabric

@@ -1,27 +1,19 @@
-import type { KeybindingsManager, Theme } from "@oh-my-pi/pi-coding-agent";
-import type { Component, Focusable, KeyId, TUI, SgrMouseEvent } from "@oh-my-pi/pi-tui";
-import {
-  CURSOR_MARKER,
-  Editor,
-  fuzzyFilter,
-  getKeybindings,
-  Input,
-  Key,
-  matchesKey,
-  truncateToWidth,
-  visibleWidth,
-  type EditorTheme,
-} from "@oh-my-pi/pi-tui";
+import type { ExtensionTheme, KeybindingsManager } from "@oh-my-pi/pi-coding-agent";
+import { getKeybindings } from "@oh-my-pi/pi-coding-agent/config/keybindings/keybindings";
+import { fuzzyFilter } from "@oh-my-pi/pi-coding-agent/utils/fuzzy";
+import type { Theme } from "@oh-my-pi/pi-tui/theme/contract";
+import { truncate, visibleWidth } from "@oh-my-pi/pi-tui/text/width";
 import { FabricConversationTranscriptRenderer, type FabricConversationTranscriptRendererOptions } from "./conversation-render.js";
 import { conversationFooter, type FabricConversationAppearance } from "./conversation-chrome.js";
 import type { AgentUsage } from "../agents/types.js";
 import { safeText } from "./format.js";
-import type { CodePreviewSettings } from "./code-preview.js";
-import { ompSymbolTheme } from "./symbol-theme.js";
 import type { NativeConversationTranscript } from "./conversation-native-reader.js";
 import { defaultConversationTarget } from "./conversation-targets.js";
 import { ConversationQueueStore } from "./conversation-queue-store.js";
 import type { ConversationQueue } from "./conversation-queue.js";
+import { isKey, keyOf } from "./tui/input.js";
+import { TextField } from "./tui/text-field.js";
+import type { FabricView, FabricViewHost } from "./tui/view.js";
 import { isActiveStatus } from "./types.js";
 
 export type FabricConversationDelivery = "steer" | "followUp";
@@ -179,8 +171,7 @@ export interface FabricConversationOptions {
   send: (id: string, message: string, delivery: FabricConversationDelivery) => Promise<unknown>;
   stop: (id: string) => Promise<unknown>;
   close: () => void;
-  keybindings?: Pick<KeybindingsManager, "matches" | "getKeys">;
-  codePreviewSettings?: CodePreviewSettings;
+  keybindings?: Pick<KeybindingsManager, "matches" | "keysFor">;
   appearance?: FabricConversationAppearance;
   rendererOptions?: FabricConversationTranscriptRendererOptions | undefined;
   queueEvents?: { emit(channel: string, data: unknown): void } | undefined;
@@ -193,27 +184,13 @@ interface Feedback {
 }
 
 const FEEDBACK_TTL_MS = 8_000;
-const FOLLOW_UP_FALLBACK: KeyId[] = ["alt+enter", "ctrl+q"];
-const TOOLS_EXPAND_FALLBACK: KeyId[] = ["ctrl+o"];
+const FOLLOW_UP_FALLBACK = ["alt+enter", "ctrl+q"];
+const TOOLS_EXPAND_FALLBACK = ["ctrl+o"];
 
-const conversationEditorTheme = (theme: Theme, thinking: () => string | undefined): EditorTheme => ({
-  symbols: ompSymbolTheme,
-  borderColor: (value: string) => {
-    const level = thinking();
-    const color = level === "minimal" ? "thinkingMinimal" : level === "low" ? "thinkingLow"
-      : level === "medium" ? "thinkingMedium" : level === "high" ? "thinkingHigh"
-      : level === "xhigh" ? "thinkingXhigh" : level === "max" ? "thinkingMax" : "borderMuted";
-    return theme.fg(color, value);
-  },
-  selectList: {
-    selectedPrefix: (text: string) => theme.fg("accent", text),
-    selectedText: (text: string) => theme.fg("accent", text),
-    description: (text: string) => theme.fg("muted", text),
-    scrollInfo: (text: string) => theme.fg("muted", text),
-    noMatch: (text: string) => theme.fg("muted", text),
-    symbols: ompSymbolTheme,
-  },
-});
+const editorBorderColor = (thinking: string | undefined): string =>
+  thinking === "minimal" ? "thinkingMinimal" : thinking === "low" ? "thinkingLow"
+    : thinking === "medium" ? "thinkingMedium" : thinking === "high" ? "thinkingHigh"
+    : thinking === "xhigh" ? "thinkingXhigh" : thinking === "max" ? "thinkingMax" : "borderMuted";
 
 const errorText = (error: unknown): string => {
   if (error instanceof Error) return error.message;
@@ -228,15 +205,14 @@ interface PickerRow {
   depth: number;
 }
 
-export class FabricConversationView implements Component, Focusable {
-  private focusState = true;
-  private readonly tui: TUI;
-  private readonly theme: Theme;
+export class FabricConversationView implements FabricView {
+  private readonly host: FabricViewHost;
+  private readonly theme: ExtensionTheme;
   private readonly options: FabricConversationOptions;
   private readonly state: FabricConversationState;
   private readonly renderer: FabricConversationTranscriptRenderer;
-  private editor: Editor | undefined;
-  private pickerInput: Input | undefined;
+  private editor: TextField | undefined;
+  private pickerInput: TextField | undefined;
   private pickerRows: PickerRow[] = [];
   private pickerSelectedId: string | undefined;
   private mode: "conversation" | "picker" = "conversation";
@@ -245,27 +221,19 @@ export class FabricConversationView implements Component, Focusable {
   private stopConfirmId: string | undefined;
   private disposed = false;
   private lastBodyLength = 0;
-  private lastBody: string[] = [];
   private lastBodyBudget = 1;
-  private editorTop = 0;
-  private editorHeight = 0;
-  private ownsMouseMode = false;
 
   constructor(
-    tui: TUI,
-    theme: Theme,
+    host: FabricViewHost,
+    theme: ExtensionTheme,
     options: FabricConversationOptions,
   ) {
-    this.tui = tui;
+    this.host = host;
     this.theme = theme;
     this.options = options;
     this.state = options.state;
-    this.renderer = new FabricConversationTranscriptRenderer(tui, theme, {
-      ...options.rendererOptions,
-      imageWidthCells: options.appearance?.imageWidthCells,
-    });
-    this.editor = new Editor(conversationEditorTheme(theme, () => this.currentTarget()?.thinking));
-    this.editor.focused = true;
+    this.renderer = new FabricConversationTranscriptRenderer(host, theme, options.rendererOptions);
+    this.editor = new TextField({ multiline: true });
     this.editor.onChange = (text) => {
       if (this.currentId && !this.state.queues.get(this.currentId)?.editingActive) this.state.view(this.currentId).draft = text;
     };
@@ -282,26 +250,6 @@ export class FabricConversationView implements Component, Focusable {
         : nonMain[0]?.id;
     if (resolved) this.applySelection(resolved, false);
     if (!this.currentId) this.currentId = nonMain[0]?.id;
-    // Regular OMP leaves mouse input to terminal scrollback. This preview owns
-    // a separate viewport; capture its wheel input and restore on close.
-    if (true) {
-      tui.terminal.write("\x1b[?1000h\x1b[?1006h");
-      this.ownsMouseMode = true;
-    }
-  }
-
-  get focused(): boolean {
-    return this.focusState;
-  }
-
-  set focused(value: boolean) {
-    this.focusState = value;
-    if (this.mode === "picker") {
-      if (this.pickerInput) this.pickerInput.focused = value;
-      if (this.editor) this.editor.focused = false;
-      return;
-    }
-    if (this.editor) this.editor.focused = value;
   }
 
   /** Re-focus a target while the view is open; selecting Main closes to the native session. */
@@ -311,35 +259,24 @@ export class FabricConversationView implements Component, Focusable {
 
   handleInput(data: string): void {
     if (this.disposed) return;
-    // Fullscreen OMP dispatches normalized events; regular mode forwards SGR.
-    const mouse = /^\x1b\[<(\d+);(\d+);(\d+)([Mm])$/.exec(data);
-    if (mouse) {
-      const button = Number(mouse[1]);
-      if ((button & 64) !== 0 && mouse[4] === "M") {
-        this.handleMouse({ button, col: Number(mouse[2]) - 1, row: Number(mouse[3]) - 1, release: false, wheel: (button & 1) === 0 ? -1 : 1, motion: false, leftClick: false });
-      }
-      return;
-    }
     if (this.mode === "picker") {
       this.handlePickerInput(data);
-      this.tui.requestRender();
+      this.host.requestRender();
       return;
     }
     this.handleConversationInput(data);
-    this.tui.requestRender();
+    this.host.requestRender();
   }
 
-  handleMouse(event: SgrMouseEvent): void {
+  handleWheel(rows: number): void {
     if (this.disposed) return;
-    if (event.wheel !== null) {
-      if (this.mode === "picker") this.movePickerSelection(event.wheel);
-      else this.scrollBy(event.wheel * 3);
-      this.tui.requestRender();
-    }
+    if (this.mode === "picker") this.movePickerSelection(rows < 0 ? -1 : 1);
+    else this.scrollBy(rows);
   }
+
   render(width: number): string[] {
     if (this.disposed || width <= 0) return [];
-    const rows = Math.max(1, this.terminalRows());
+    const rows = Math.max(1, this.host.size().rows);
     this.markCurrentTargetSeen();
     this.reconcileEditor();
     const target = this.currentTarget();
@@ -351,7 +288,7 @@ export class FabricConversationView implements Component, Focusable {
     let editorLines = this.mode === "conversation" && !(queue?.editingActive && queue.mode === "extension") ? this.renderEditorLines(width) : [];
     const editorBudget = Math.min(editorLines.length, Math.max(1, rows - (rows >= 6 ? 3 : 0)));
     if (editorLines.length > editorBudget) {
-      const cursor = Math.max(0, editorLines.findIndex((line) => line.includes(CURSOR_MARKER)));
+      const cursor = (this.editor?.cursorRow ?? 0) + 1;
       const start = Math.max(0, Math.min(cursor - Math.floor(editorBudget / 2), editorLines.length - editorBudget));
       editorLines = editorLines.slice(start, start + editorBudget);
     }
@@ -377,27 +314,19 @@ export class FabricConversationView implements Component, Focusable {
     const hints = this.mode === "conversation" && remaining > 2 ? [this.hintsLine(width)] : [];
     remaining -= hints.length;
     const queueBudget = Math.max(0, remaining - 1);
-    if (queueLines.length > queueBudget) {
-      const cursor = queueLines.findIndex((line) => line.includes(CURSOR_MARKER));
-      const start = Math.max(0, Math.min(cursor < 0 ? 0 : cursor - Math.floor(queueBudget / 2), queueLines.length - queueBudget));
-      queueLines = queueLines.slice(start, start + queueBudget);
-    }
+    if (queueLines.length > queueBudget) queueLines = queueLines.slice(0, queueBudget);
     remaining -= queueLines.length;
-    this.editorTop = rows - editorLines.length - footer.length - hints.length;
-    this.editorHeight = editorLines.length;
     const body = remaining <= 0 ? [] : this.mode === "picker"
       ? this.pickerLines(width, remaining)
       : this.windowBody(transcriptLines, remaining);
     while (body.length < remaining) body.push("");
     return [...head, ...body.slice(0, remaining), ...queueLines, ...editorLines, ...footer, ...hints]
       .slice(0, rows)
-      .map((line) => visibleWidth(line) <= width ? line : truncateToWidth(line, width, ""));
+      .map((line) => visibleWidth(line) <= width ? line : truncate(line, width, ""));
   }
 
   invalidate(): void {
     this.renderer.invalidate();
-    this.editor?.invalidate();
-    this.pickerInput?.invalidate();
   }
 
   dispose(): void {
@@ -406,10 +335,6 @@ export class FabricConversationView implements Component, Focusable {
     this.editor = undefined;
     this.pickerInput = undefined;
     this.renderer.dispose();
-    if (this.ownsMouseMode) {
-      this.ownsMouseMode = false;
-      this.tui.terminal.write("\x1b[?1000l\x1b[?1006l");
-    }
   }
 
   /** Keep the editor in sync with the shared session draft (e.g. after an ack
@@ -431,7 +356,7 @@ export class FabricConversationView implements Component, Focusable {
         kind: "error",
         at: Date.now(),
       };
-      if (requestRender) this.tui.requestRender();
+      if (requestRender) this.host.requestRender();
       return;
     }
     if (isMainTarget(target)) {
@@ -446,7 +371,7 @@ export class FabricConversationView implements Component, Focusable {
     this.closePicker();
     this.feedback = undefined;
     this.editor?.setText(entry.draft);
-    if (requestRender) this.tui.requestRender();
+    if (requestRender) this.host.requestRender();
   }
 
   private markCurrentTargetSeen(): void {
@@ -477,10 +402,6 @@ export class FabricConversationView implements Component, Focusable {
     return this.currentTargets().find((target) => target.id === id);
   }
 
-  private terminalRows(): number {
-    return this.tui.terminal?.rows ?? process.stdout.rows ?? 28;
-  }
-
   /**
    * Respects a configured binding; when an injected manager reports no keys
    * the binding is unbound (never falls back), and only the default global
@@ -489,16 +410,13 @@ export class FabricConversationView implements Component, Focusable {
   private bindingMatches(
     data: string,
     binding: "app.message.followUp" | "app.tools.expand" | "app.thinking.toggle",
-    fallbackKeys: KeyId[],
+    fallbackKeys: readonly string[],
   ): boolean {
-    if (this.options.keybindings) {
-      const keys = this.options.keybindings.getKeys(binding);
-      return keys.length > 0 && this.options.keybindings.matches(data, binding);
-    }
-    const global = getKeybindings();
-    const keys = global.getKeys(binding);
-    if (keys.length > 0) return global.matches(data, binding);
-    return fallbackKeys.some((key) => matchesKey(data, key));
+    const key = keyOf(data);
+    if (!key) return false;
+    const manager = this.options.keybindings ?? getKeybindings();
+    if (manager.keysFor(binding).length > 0) return manager.matches(key, binding);
+    return !this.options.keybindings && fallbackKeys.includes(key.id);
   }
 
   private bindingHint(
@@ -506,7 +424,7 @@ export class FabricConversationView implements Component, Focusable {
     fallbackLabel: string,
   ): string {
     const manager = this.options.keybindings ?? getKeybindings();
-    const keys = manager.getKeys(binding);
+    const keys = manager.keysFor(binding);
     if (keys.length > 0) return keys.join("/");
     return this.options.keybindings ? "unbound" : fallbackLabel;
   }
@@ -518,13 +436,13 @@ export class FabricConversationView implements Component, Focusable {
     if (this.stopConfirmId === undefined && this.currentQueue()?.handleInput(data)) return;
 
     if (this.stopConfirmId !== undefined) {
-      if (matchesKey(data, Key.enter)) {
+      if (isKey(data, "enter")) {
         const target = this.targetById(this.stopConfirmId);
         this.stopConfirmId = undefined;
         if (target) this.dispatchStop(target);
         return;
       }
-      if (matchesKey(data, Key.escape)) {
+      if (isKey(data, "escape")) {
         this.stopConfirmId = undefined;
         this.feedback = { text: "Stop cancelled", kind: "info", at: Date.now() };
         return;
@@ -536,60 +454,61 @@ export class FabricConversationView implements Component, Focusable {
       this.submit("followUp");
       return;
     }
-    if (matchesKey(data, Key.enter)) {
+    if (isKey(data, "enter")) {
       this.submit("steer");
       return;
     }
-    if (matchesKey(data, Key.ctrl("c"))) {
+    if (isKey(data, "ctrl+c")) {
       if (editor.getText().length > 0) editor.setText("");
       return;
     }
-    if (matchesKey(data, Key.escape)) {
+    if (isKey(data, "escape")) {
       this.options.close();
       return;
     }
-    if (matchesKey(data, Key.ctrl("n"))) {
+    if (isKey(data, "ctrl+n")) {
       this.openPicker();
       return;
     }
-    if (matchesKey(data, "ctrl+tab")) {
+    if (isKey(data, "ctrl+tab")) {
       this.cycleTarget(1);
       return;
     }
-    if (matchesKey(data, "shift+ctrl+tab")) {
+    if (isKey(data, "ctrl+shift+tab")) {
       this.cycleTarget(-1);
       return;
     }
-    if (matchesKey(data, "ctrl+shift+left")) {
+    if (isKey(data, "ctrl+shift+left")) {
       this.navigateParent();
       return;
     }
-    if (matchesKey(data, "ctrl+shift+right")) {
+    if (isKey(data, "ctrl+shift+right")) {
       this.navigateFirstChild();
       return;
     }
-    if (matchesKey(data, "alt+left") && editor.getText().length === 0) {
+    if (isKey(data, "alt+left") && editor.getText().length === 0) {
       this.navigateParent();
       return;
     }
-    if (matchesKey(data, "alt+right") && editor.getText().length === 0) {
+    if (isKey(data, "alt+right") && editor.getText().length === 0) {
       this.navigateFirstChild();
       return;
     }
+    const key = keyOf(data);
     const injectedKeys = this.options.keybindings;
     const globalKeys = getKeybindings();
-    const matchesViewport = (data: string, action: import("@oh-my-pi/pi-tui").Keybinding): boolean =>
-      (injectedKeys ? injectedKeys.matches(data, action as never) : false) || globalKeys.matches(data, action);
-    if (matchesViewport(data, "tui.editor.jumpBackward")) { this.scrollPrompt(-1); return; }
-    if (matchesViewport(data, "tui.editor.jumpForward")) { this.scrollPrompt(1); return; }
-    if (matchesViewport(data, "tui.editor.cursorUp")) { this.scrollBy(-1); return; }
-    if (matchesViewport(data, "tui.editor.cursorDown")) { this.scrollBy(1); return; }
-    if (matchesViewport(data, "tui.editor.pageUp")) { this.scrollBy(-Math.max(1, this.lastBodyBudget - 2)); return; }
-    if (matchesViewport(data, "tui.editor.pageDown")) { this.scrollBy(Math.max(1, this.lastBodyBudget - 2)); return; }
-    if (matchesViewport(data, "tui.editor.cursorWordLeft")) { this.scrollBy(-Math.max(1, Math.floor(this.lastBodyBudget / 2))); return; }
-    if (matchesViewport(data, "tui.editor.cursorWordRight")) { this.scrollBy(Math.max(1, Math.floor(this.lastBodyBudget / 2))); return; }
-    if (matchesViewport(data, "tui.editor.cursorLineStart")) { this.scrollToTop(); return; }
-    if (matchesViewport(data, "tui.editor.cursorLineEnd")) { this.followLatest(); return; }
+    const matchesViewport = (action: Parameters<KeybindingsManager["matches"]>[1]): boolean =>
+      key !== undefined && ((injectedKeys?.matches(key, action) ?? false) || globalKeys.matches(key, action));
+    if (matchesViewport("tui.editor.jumpBackward")) { this.scrollPrompt(-1); return; }
+    if (matchesViewport("tui.editor.jumpForward")) { this.scrollPrompt(1); return; }
+    if (matchesViewport("tui.editor.cursorUp")) { this.scrollBy(-1); return; }
+    if (matchesViewport("tui.editor.cursorDown")) { this.scrollBy(1); return; }
+    if (matchesViewport("tui.editor.pageUp")) { this.scrollBy(-Math.max(1, this.lastBodyBudget - 2)); return; }
+    if (matchesViewport("tui.editor.pageDown")) { this.scrollBy(Math.max(1, this.lastBodyBudget - 2)); return; }
+    if (matchesViewport("tui.editor.cursorWordLeft")) { this.scrollBy(-Math.max(1, Math.floor(this.lastBodyBudget / 2))); return; }
+    if (matchesViewport("tui.editor.cursorWordRight")) { this.scrollBy(Math.max(1, Math.floor(this.lastBodyBudget / 2))); return; }
+    if (matchesViewport("tui.editor.cursorLineStart")) { this.scrollToTop(); return; }
+    if (matchesViewport("tui.editor.cursorLineEnd")) { this.followLatest(); return; }
     if (this.bindingMatches(data, "app.thinking.toggle", ["ctrl+t"])) {
       if (this.currentId) {
         const entry = this.state.view(this.currentId);
@@ -710,7 +629,7 @@ export class FabricConversationView implements Component, Focusable {
           kind: "info",
           at: Date.now(),
         };
-        this.tui.requestRender();
+        this.host.requestRender();
       })
       .catch((error: unknown) => {
         if (this.state.epoch !== epoch) return;
@@ -724,7 +643,7 @@ export class FabricConversationView implements Component, Focusable {
           kind: "error",
           at: Date.now(),
         };
-        this.tui.requestRender();
+        this.host.requestRender();
       });
   }
 
@@ -744,7 +663,7 @@ export class FabricConversationView implements Component, Focusable {
           kind: "info",
           at: Date.now(),
         };
-        this.tui.requestRender();
+        this.host.requestRender();
       })
       .catch((error: unknown) => {
         if (this.disposed || epoch !== this.state.epoch) return;
@@ -753,7 +672,7 @@ export class FabricConversationView implements Component, Focusable {
           kind: "error",
           at: Date.now(),
         };
-        this.tui.requestRender();
+        this.host.requestRender();
       });
   }
 
@@ -813,7 +732,7 @@ export class FabricConversationView implements Component, Focusable {
     if (!this.currentId) return;
     const entry = this.state.view(this.currentId);
     const position = entry.following ? Math.max(0, this.lastBodyLength - this.lastBodyBudget) : entry.scroll;
-    const prompts = this.lastBody.flatMap((line, index) => line.includes("\x1b]133;A") ? [index] : []);
+    const prompts = this.renderer.promptRows;
     const target = direction < 0 ? prompts.filter((row) => row < position).at(-1) : prompts.find((row) => row > position);
     this.scrollBy(target === undefined ? direction * Math.max(1, this.lastBodyBudget) : target - position);
   }
@@ -837,8 +756,7 @@ export class FabricConversationView implements Component, Focusable {
 
   private openPicker(): void {
     this.mode = "picker";
-    this.pickerInput = new Input();
-    this.pickerInput.focused = this.focusState;
+    this.pickerInput = new TextField();
     this.pickerInput.onSubmit = () => this.pickSelected();
     if (this.editor) this.editor.focused = false;
     this.pickerSelectedId = this.currentId ?? this.nonMainTargets()[0]?.id;
@@ -850,11 +768,11 @@ export class FabricConversationView implements Component, Focusable {
     this.pickerInput = undefined;
     this.pickerRows = [];
     this.pickerSelectedId = undefined;
-    if (this.editor) this.editor.focused = this.focusState;
+    if (this.editor) this.editor.focused = true;
   }
 
   private refreshPicker(): void {
-    const search = this.pickerInput?.getValue() ?? "";
+    const search = this.pickerInput?.getText() ?? "";
     const rows: PickerRow[] = [];
     const targets = this.currentTargets();
     const byId = new Map(targets.map((target) => [target.id, target]));
@@ -919,19 +837,19 @@ export class FabricConversationView implements Component, Focusable {
       this.closePicker();
       return;
     }
-    if (matchesKey(data, Key.escape)) {
+    if (isKey(data, "escape")) {
       this.closePicker();
       return;
     }
-    if (matchesKey(data, Key.up)) {
+    if (isKey(data, "up")) {
       this.movePickerSelection(-1);
       return;
     }
-    if (matchesKey(data, Key.down)) {
+    if (isKey(data, "down")) {
       this.movePickerSelection(1);
       return;
     }
-    if (matchesKey(data, Key.enter)) {
+    if (isKey(data, "enter")) {
       this.pickSelected();
       return;
     }
@@ -959,7 +877,7 @@ export class FabricConversationView implements Component, Focusable {
       const main = this.mainTarget();
       if (main) chain.push(main);
     }
-    if (chain.length === 0) return truncateToWidth(this.theme.fg("dim", "Fabric"), width, "");
+    if (chain.length === 0) return truncate(this.theme.fg("dim", "Fabric"), width, "");
     const last = chain[chain.length - 1];
     const parts = chain.map((target, index) => {
       const isCurrent = target.id === this.currentId;
@@ -971,7 +889,7 @@ export class FabricConversationView implements Component, Focusable {
         ? `${styled} ●`
         : styled;
     });
-    return truncateToWidth(parts.join(this.theme.fg("dim", " > ")), width, "");
+    return truncate(parts.join(this.theme.fg("dim", " > ")), width, "");
   }
 
   private statusLine(width: number): string {
@@ -987,7 +905,7 @@ export class FabricConversationView implements Component, Focusable {
     if (target.readOnlyReason) {
       parts.push(this.theme.fg("warning", safeText(`read-only: ${target.readOnlyReason}`)));
     }
-    return truncateToWidth(parts.join(this.theme.fg("dim", " · ")), width, "");
+    return truncate(parts.join(this.theme.fg("dim", " · ")), width, "");
   }
 
   private currentFeedbackLine(width: number): string | undefined {
@@ -995,7 +913,7 @@ export class FabricConversationView implements Component, Focusable {
     if (!this.feedback) return undefined;
     if (Date.now() - this.feedback.at > FEEDBACK_TTL_MS) return undefined;
     const color = this.feedback.kind === "error" ? "error" : "accent";
-    return truncateToWidth(this.theme.fg(color, this.feedback.text), width, "");
+    return truncate(this.theme.fg(color, this.feedback.text), width, "");
   }
 
   private hintsLine(width: number): string {
@@ -1016,13 +934,14 @@ export class FabricConversationView implements Component, Focusable {
           "close",
         ];
     const full = [...hints, this.theme.fg("dim", toolsKeys), "tools"].join(" ");
-    return truncateToWidth(full, width, "");
+    return truncate(full, width, "");
   }
 
   private renderEditorLines(innerWidth: number): string[] {
     const editor = this.editor;
     if (!editor) return [];
-    return [...editor.render(innerWidth)];
+    const rule = this.theme.fg(editorBorderColor(this.currentTarget()?.thinking), "─".repeat(Math.max(1, innerWidth)));
+    return [rule, ...editor.render(innerWidth), rule];
   }
 
   private currentQueue(): ConversationQueue | undefined {
@@ -1044,7 +963,7 @@ export class FabricConversationView implements Component, Focusable {
       onNotify: (text, kind) => {
         if (kind === "error" && !this.disposed && this.currentId === target.id) this.feedback = { text: safeText(text), kind, at: Date.now() };
       },
-      requestRender: () => { if (!this.disposed && this.currentId === target.id) this.tui.requestRender(); },
+      requestRender: () => { if (!this.disposed && this.currentId === target.id) this.host.requestRender(); },
     });
   }
 
@@ -1058,16 +977,11 @@ export class FabricConversationView implements Component, Focusable {
       target,
       toolsExpanded: entry.toolsExpanded,
       hideThinking: entry.hideThinking ?? this.options.appearance?.hideThinkingBlock ?? false,
-      showImages: this.options.appearance?.showImages ?? true,
-      outputPad: this.options.appearance?.outputPad ?? 1,
-      ...(this.options.appearance?.codeBlockIndent !== undefined ? { codeBlockIndent: this.options.appearance.codeBlockIndent } : {}),
-      codePreviewSettings: this.options.codePreviewSettings,
     });
   }
 
   private windowBody(body: string[], budget: number): string[] {
     this.lastBodyLength = body.length;
-    this.lastBody = body;
     this.lastBodyBudget = budget;
     const entry = this.currentId ? this.state.view(this.currentId) : undefined;
     if (!entry) return body.slice(0, Math.max(0, budget));
@@ -1114,11 +1028,7 @@ export class FabricConversationView implements Component, Focusable {
         ? "Main (native session)"
         : `${safeText(row.target.name)} ${this.theme.fg("muted", `(${row.target.kind} · ${row.target.status})`)}`;
       lines.push(
-        truncateToWidth(
-          `${indent}${marker}${selected ? this.theme.fg("accent", label) : label}${unread}`,
-          innerWidth,
-          "",
-        ),
+        truncate(`${indent}${marker}${selected ? this.theme.fg("accent", label) : label}${unread}`, innerWidth, ""),
       );
     }
     if (rows.length > listBudget) {

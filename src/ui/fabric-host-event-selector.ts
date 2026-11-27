@@ -1,5 +1,8 @@
-import type { Theme } from "@oh-my-pi/pi-coding-agent";
-import { Container, type Focusable, getKeybindings, Spacer, Text } from "@oh-my-pi/pi-tui";
+import type { Theme } from "@oh-my-pi/pi-tui/theme/contract";
+import { widgetKeyMatches } from "@oh-my-pi/pi-tui/term/keymap";
+import { keyOf } from "./tui/input.js";
+import { BlankRows, Stack, TextBlock } from "./tui/rows.js";
+import type { FabricView } from "./tui/view.js";
 import { FABRIC_ACTOR_HOST_EVENTS } from "../actors/types.js";
 import type { FabricActorHostEvent } from "../actors/types.js";
 
@@ -67,14 +70,13 @@ export interface FabricHostEventSelectorOptions {
  * supported host events are shown with a [x]/[ ] checkbox; space toggles the
  * row under the cursor, Enter applies the selection, and Esc cancels.
  */
-export class FabricHostEventSelector extends Container implements Focusable {
+export class FabricHostEventSelector extends Stack implements FabricView {
   private readonly theme: Theme;
   private readonly onSelectCallback: (events: FabricActorHostEvent[]) => void;
   private readonly onCancelCallback: () => void;
-  private readonly listContainer = new Container();
+  private readonly listContainer = new Stack();
   private enabled: Set<FabricActorHostEvent>;
   private selectedIndex = 0;
-  focused = false;
 
   constructor(options: FabricHostEventSelectorOptions) {
     super();
@@ -82,42 +84,41 @@ export class FabricHostEventSelector extends Container implements Focusable {
     this.onSelectCallback = options.onSelect;
     this.onCancelCallback = options.onCancel;
     this.enabled = new Set(options.currentValue);
-    this.addChild(
-      new Text(
+    this.add(
+      new TextBlock(
         this.theme.fg(
           "muted",
           options.headerText ?? "Toggle the host events this actor subscribes to.",
         ),
-        0,
-        0,
       ),
     );
-    this.addChild(new Spacer(1));
-    this.addChild(this.listContainer);
-    this.addChild(new Spacer(1));
+    this.add(new BlankRows(1));
+    this.add(this.listContainer);
+    this.add(new BlankRows(1));
     this.updateList();
   }
 
   handleInput(keyData: string): void {
-    const kb = getKeybindings();
-    if (kb.matches(keyData, "tui.select.up")) {
+    const key = keyOf(keyData);
+    if (!key) return;
+    if (widgetKeyMatches(key, "select.up")) {
       this.selectedIndex =
         this.selectedIndex === 0 ? HOST_EVENT_ORDER.length - 1 : this.selectedIndex - 1;
       this.updateList();
-    } else if (kb.matches(keyData, "tui.select.down")) {
+    } else if (widgetKeyMatches(key, "select.down")) {
       this.selectedIndex =
         this.selectedIndex === HOST_EVENT_ORDER.length - 1 ? 0 : this.selectedIndex + 1;
       this.updateList();
-    } else if (keyData === " ") {
+    } else if (key.id === "space") {
       const event = HOST_EVENT_ORDER[this.selectedIndex];
       if (event) {
         if (this.enabled.has(event)) this.enabled.delete(event);
         else this.enabled.add(event);
         this.updateList();
       }
-    } else if (kb.matches(keyData, "tui.select.confirm")) {
+    } else if (widgetKeyMatches(key, "select.confirm")) {
       this.onSelectCallback(HOST_EVENT_ORDER.filter((event) => this.enabled.has(event)));
-    } else if (kb.matches(keyData, "tui.select.cancel")) {
+    } else if (widgetKeyMatches(key, "select.cancel")) {
       this.onCancelCallback();
     }
   }
@@ -134,8 +135,8 @@ export class FabricHostEventSelector extends Container implements Focusable {
     );
     const endIndex = Math.min(startIndex + MAX_VISIBLE_HOST_EVENTS, total);
     if (startIndex > 0) {
-      this.listContainer.addChild(
-        new Text(this.theme.fg("dim", `  ↑ ${startIndex} earlier events`), 0, 0),
+      this.listContainer.add(
+        new TextBlock(this.theme.fg("dim", `  ↑ ${startIndex} earlier events`)),
       );
     }
     for (let index = startIndex; index < endIndex; index++) {
@@ -147,16 +148,16 @@ export class FabricHostEventSelector extends Container implements Focusable {
       const line = selected
         ? `${this.theme.fg("accent", "→ ")}${this.theme.fg("accent", label)}`
         : `  ${label}`;
-      this.listContainer.addChild(new Text(line, 0, 0));
+      this.listContainer.add(new TextBlock(line));
     }
     if (endIndex < total) {
-      this.listContainer.addChild(
-        new Text(this.theme.fg("dim", `  ↓ ${total - endIndex} later events`), 0, 0),
+      this.listContainer.add(
+        new TextBlock(this.theme.fg("dim", `  ↓ ${total - endIndex} later events`)),
       );
     }
-    this.listContainer.addChild(new Spacer(1));
-    this.listContainer.addChild(
-      new Text(this.theme.fg("muted", "  space toggle · enter apply · esc cancel"), 0, 0),
+    this.listContainer.add(new BlankRows(1));
+    this.listContainer.add(
+      new TextBlock(this.theme.fg("muted", "  space toggle · enter apply · esc cancel")),
     );
   }
 }

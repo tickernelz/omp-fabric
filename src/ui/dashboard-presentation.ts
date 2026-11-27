@@ -1,4 +1,4 @@
-import type { Theme } from "@oh-my-pi/pi-coding-agent";
+import type { Theme } from "@oh-my-pi/pi-tui/theme/contract";
 import { formatDuration, formatTokens, safeText } from "./format.js";
 import { spinnerFrame } from "./spinner.js";
 import type { Entity } from "./dashboard-model.js";

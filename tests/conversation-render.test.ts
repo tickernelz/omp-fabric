@@ -1,12 +1,5 @@
-import {
-  AssistantMessageComponent,
-  initThemeSync,
-  ToolExecutionComponent,
-  UserMessageComponent,
-  type Theme,
-} from "@oh-my-pi/pi-coding-agent";
 import type { AssistantMessage } from "@oh-my-pi/pi-ai";
-import { Text, visibleWidth, type TUI } from "@oh-my-pi/pi-tui";
+import { visibleWidth } from "@oh-my-pi/pi-tui/text/width";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { createFabricPersistedExecutionDetails } from "../src/audit/index.js";
 import { FabricExecutionTraceRecorder } from "../src/audit/trace.js";
@@ -23,12 +16,13 @@ import type {
   NativeToolExecution,
 } from "../src/ui/conversation-native-reader.js";
 import type { FabricConversationTarget } from "../src/ui/conversation.js";
-import { highlightCode, initHighlighting } from "../src/ui/highlight.js";
+import { initHighlighting } from "../src/ui/highlight.js";
+import { testTheme } from "./test-theme.js";
+import { viewHost } from "./view-host.js";
 
 // Shiki's first initialization needs real timers, and it caches into module
 // state, so warm it once before any test installs the fake clock below.
 beforeAll(async () => {
-  initThemeSync(undefined, false, "dark");
   await initHighlighting("dark-plus", true);
 }, 30_000);
 
@@ -43,20 +37,13 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-const theme = {
-  fg: (_color: string, text: string) => text,
-  bg: (_color: string, text: string) => text,
-  bold: (text: string) => text,
-  italic: (text: string) => text,
-  underline: (text: string) => text,
-  strikethrough: (text: string) => text,
-} as unknown as Theme;
+const theme = testTheme();
 
 const target: FabricConversationTarget = {
   id: "child", name: "Child", kind: "agent", status: "running", cwd: "/repo/child",
   canSteer: true, canFollowUp: true, canStop: true,
 };
-const tui = { requestRender: vi.fn() } as unknown as TUI;
+const tui = viewHost();
 
 const stateFor = (toolDisplay: "full" | "compact") =>
   ({
@@ -108,7 +95,6 @@ const renderOptions = (
 ): FabricConversationTranscriptRenderOptions => ({
   target,
   toolsExpanded: false,
-  outputPad: 1,
   ...overrides,
 });
 
@@ -122,26 +108,24 @@ const render = (
 const plain = (lines: readonly string[]) => lines.map((line) => line.replace(/\x1b\[[0-9;]*m/g, ""));
 
 describe("focused conversation native component rendering", () => {
-  it("dispatches user and assistant messages through the exact native components with native spacing", () => {
-    initThemeSync(undefined, false, "dark");
+  it("renders user prompts and assistant markdown in transcript order", () => {
     const renderer = new FabricConversationTranscriptRenderer(tui, theme);
-    const lines = render(renderer, makeTranscript({
+    const lines = plain(render(renderer, makeTranscript({
       messages: [
         { role: "user", content: "Please inspect **the result**.", timestamp: 1 },
         assistantMessage("A **normal OMP** response."),
       ],
-    }), 80);
-    const nativeUser = new UserMessageComponent("Please inspect **the result**.", { imageLinks: [undefined] }).render(80);
-    const nativeAssistant = new AssistantMessageComponent(assistantMessage("A **normal OMP** response."), false, undefined, undefined, undefined).render(80);
-    // Native rows in native order — no glyph/heading. The user card begins
-    // with its own padded background rows; no extra spacer at transcript start.
-    expect(plain(lines)).toEqual([...plain(nativeUser), ...plain(nativeAssistant)]);
+    }), 80));
+    const user = lines.findIndex((line) => line.includes("Please inspect **the result**."));
+    const assistant = lines.findIndex((line) => line.includes("A normal OMP response."));
+    expect(user).toBeGreaterThanOrEqual(0);
+    expect(assistant).toBeGreaterThan(user);
+    expect(renderer.promptRows).toEqual([user]);
     expect(lines.join("\n")).not.toContain("Agent");
     expect(lines.every((line) => visibleWidth(line) <= 80)).toBe(true);
   });
 
   it("honors the thinking toggle via hideThinking", () => {
-    initThemeSync(undefined, false, "dark");
     const renderer = new FabricConversationTranscriptRenderer(tui, theme);
     const message = assistantMessage("Answer");
     message.content = [
@@ -156,43 +140,26 @@ describe("focused conversation native component rendering", () => {
     expect(hidden).toContain("Answer");
   });
 
-  it("renders fabric_exec through the native OMP tool surface with Shiki truecolor", async () => {
-    // The assertion is about truecolor escapes, so advertise a truecolor
-    // terminal: OMP downgrades to 256-color when the environment does not.
-    vi.stubEnv("COLORTERM", "truecolor");
-    try {
-      initThemeSync(undefined, false, "dark");
-      await initHighlighting("dark-plus", true);
-      const fabricTool = fabricToolFor();
-      const getToolDefinition: FabricGetToolDefinition = (name) =>
-        name === "fabric_exec" ? fabricTool : undefined;
-      const renderer = new FabricConversationTranscriptRenderer(tui, theme, { getToolDefinition });
-      const args = {
-        code: "const result = await omp.read({ path: \"src/example.ts\" });\nreturn result;",
-        display: { name: "Inspect example" },
-      };
-      const tool: NativeToolExecution = {
-        toolCallId: "call-1", toolName: "fabric_exec", args, status: "completed",
-        result: { content: [{ type: "text", text: "done" }], details: {} }, isError: false,
-      };
-      // Constructing the tool re-resolves the preview theme, which restarts
-      // Shiki. Wait on the highlighter itself so a slow or failed grammar load
-      // reports as an unready highlighter rather than an unhighlighted frame.
-      await vi.waitFor(() => {
-        expect(highlightCode("const result = 42;\n", "typescript")).not.toBeNull();
-      }, { timeout: 60_000 });
-      const lines = render(renderer, makeTranscript({ tools: [tool] }), 80);
-      expect(lines.join("\n")).toContain("Inspect example");
-      expect(lines.join("\n")).toContain("\x1b[38;2;");
-      // Same rows as constructing the native component like interactive-mode does.
-      expect(plain(lines).join("\n")).toContain("done");
-    } finally {
-      vi.unstubAllEnvs();
-    }
-  }, 90_000);
+  it("renders fabric_exec through its own call and result renderers", () => {
+    const fabricTool = fabricToolFor();
+    const getToolDefinition: FabricGetToolDefinition = (name) =>
+      name === "fabric_exec" ? fabricTool : undefined;
+    const renderer = new FabricConversationTranscriptRenderer(tui, theme, { getToolDefinition });
+    const args = {
+      code: "const result = await omp.read({ path: \"src/example.ts\" });\nreturn result;",
+      display: { name: "Inspect example" },
+    };
+    const tool: NativeToolExecution = {
+      toolCallId: "call-1", toolName: "fabric_exec", args, status: "completed",
+      result: { content: [{ type: "text", text: "done" }], details: {} }, isError: false,
+    };
+    const text = plain(render(renderer, makeTranscript({ tools: [tool] }), 80)).join("\n");
+    expect(text).toContain("Inspect example");
+    expect(text).toContain("omp.read");
+    expect(text).toContain("done");
+  });
 
   it("passes full persisted execution details through to renderResult for partial and final updates", async () => {
-    initThemeSync(undefined, false, "dark");
     await initHighlighting("dark-plus", true);
     const fabricTool = fabricToolFor();
     const toolCallRecords: Array<{ result: unknown; options: { isPartial: boolean } }> = [];
@@ -240,14 +207,13 @@ describe("focused conversation native component rendering", () => {
   }, 15000);
 
   it("does not cap expanded tool output at 40 lines", () => {
-    initThemeSync(undefined, false, "dark");
     const longOutput = Array.from({ length: 61 }, (_unused, index) => `line-${index + 1}`).join("\n");
     const definition = {
-      renderCall: (args: unknown, _options: unknown, _theme: Theme) => new Text(String((args as { marker: string }).marker), 0, 0) as never,
-      renderResult: (result: unknown, options: { expanded: boolean }, _theme: Theme) => {
-        const text = (result as { content: Array<{ text?: string }> }).content.map((block) => block.text ?? "").join("\n");
+      renderCall: (args: { marker: string }) => ({ render: () => [args.marker] }),
+      renderResult: (result: { content: Array<{ text?: string }> }, options: { expanded: boolean }) => {
+        const text = result.content.map((block) => block.text ?? "").join("\n");
         const rows = options.expanded ? text.split("\n") : text.split("\n").slice(0, 10);
-        return new Text(rows.join("\n"), 0, 0) as never;
+        return { render: () => rows };
       },
     };
     const renderer = new FabricConversationTranscriptRenderer(tui, theme, { getToolDefinition: () => definition as never });
@@ -257,43 +223,13 @@ describe("focused conversation native component rendering", () => {
     };
     const lines = render(renderer, makeTranscript({ tools: [tool] }), 120, { toolsExpanded: true });
     const text = plain(lines).join("\n");
+    expect(text).toContain("verbose");
     expect(text).toContain("line-1");
     expect(text).toContain("line-40");
     expect(text).toContain("line-61");
   });
 
-  it("keeps tool backgrounds full width at the rightmost cell, including wrapped wide characters", () => {
-    initThemeSync(undefined, false, "dark");
-    const wide = "界界界界界界界界界界界界界界界界界界界界";
-    const tool: NativeToolExecution = {
-      toolCallId: "call-4", toolName: "fabric_exec",
-      args: { code: `${wide}\nconst padded = "${wide}${wide}";` }, status: "running",
-    };
-    const fabricTool = fabricToolFor({ ...defaultCodePreviewSettings(), toolCallBackground: "on" });
-    const renderer = new FabricConversationTranscriptRenderer(tui, theme, {
-      getToolDefinition: (name) => (name === "fabric_exec" ? fabricTool : undefined),
-    });
-    const width = 60;
-    const lines = render(renderer, makeTranscript({ tools: [tool] }), width);
-    expect(lines.length).toBeGreaterThan(0);
-    // Leading/trailing empty rows are the native card Spacer(1)/padding; every
-    // painted row must fill the full width with background to the last cell.
-    const paintedRows = lines.filter((row) => row.length > 0);
-    for (const row of paintedRows) {
-      // Every card row fills the terminal width exactly…
-      expect(visibleWidth(row)).toBe(width);
-      // …its background spans the whole painted line…
-      expect(row).toMatch(/\x1b\[48;5;\d+m|\x1b\[48;2;[\d;]+m/);
-      // …and the rightmost cell is a bg-styled padding space inside the
-      // background reset, never a blank unstyled cell (the far-right gap
-      // regression from the screenshot).
-      expect(row.endsWith(" \x1b[49m")).toBe(true);
-      expect(row.endsWith("\x1b[49m ")).toBe(false);
-    }
-  });
-
   it("reuses one tool component per call across streaming frames without tool-call duplication", () => {
-    initThemeSync(undefined, false, "dark");
     const getToolDefinition = vi.fn(((name: string) =>
       name === "fabric_exec" ? {} : undefined) as FabricGetToolDefinition);
     const renderer = new FabricConversationTranscriptRenderer(tui, theme, { getToolDefinition });
@@ -318,7 +254,6 @@ describe("focused conversation native component rendering", () => {
   });
 
   it("isolates the component cache between targets with identical tool call ids", () => {
-    initThemeSync(undefined, false, "dark");
     const renderer = new FabricConversationTranscriptRenderer(tui, theme, {
       getToolDefinition: () => undefined, // native generic card path
     });
@@ -335,7 +270,7 @@ describe("focused conversation native component rendering", () => {
     const otherTarget = { ...target, id: "other" };
     const second = plain(renderer.render(
       makeTranscript({ tools: [toolB] }), 100,
-      { target: otherTarget, toolsExpanded: false, outputPad: 1 },
+      { target: otherTarget, toolsExpanded: false },
     )).join("\n");
     expect(second).toContain("target-B");
     expect(second).not.toContain("target-A");
@@ -346,7 +281,6 @@ describe("focused conversation native component rendering", () => {
   });
 
   it("renders live RPC-streamed messages, not only persisted session entries", () => {
-    initThemeSync(undefined, false, "dark");
     const renderer = new FabricConversationTranscriptRenderer(tui, theme);
     const transcript = makeTranscript({
       messages: [
@@ -361,8 +295,27 @@ describe("focused conversation native component rendering", () => {
     expect(text).toContain("partial tail");
   });
 
+  it("redraws streamed text and tool output when the reader replaces them", () => {
+    const renderer = new FabricConversationTranscriptRenderer(tui, theme, { getToolDefinition: () => undefined });
+    const frame = (transcript: NativeConversationTranscript) => plain(render(renderer, transcript, 80)).join("\n");
+    const partial = assistantMessage("first words");
+    const running: NativeToolExecution = {
+      toolCallId: "call-7", toolName: "bash", args: { command: "make" }, status: "running",
+      partial: { content: [{ type: "text", text: "step one" }] },
+    };
+    const before = frame(makeTranscript({ partialAssistant: { ...partial, content: [...partial.content] }, tools: [{ ...running }] }));
+    expect(before).toContain("first words");
+    expect(before).toContain("step one");
+    const after = frame(makeTranscript({
+      partialAssistant: { ...partial, content: [{ type: "text", text: "first words and more" }] },
+      tools: [{ ...running, status: "completed", result: { content: [{ type: "text", text: "build done" }] }, isError: false }],
+    }));
+    expect(after).toContain("first words and more");
+    expect(after).toContain("build done");
+    expect(after).not.toContain("step one");
+  });
+
   it("after dispose, renders nothing and stray renderer invalidations become no-ops", async () => {
-    initThemeSync(undefined, false, "dark");
     await initHighlighting("dark-plus", true);
     const fabricTool = fabricToolFor();
     const renderer = new FabricConversationTranscriptRenderer(tui, theme, {

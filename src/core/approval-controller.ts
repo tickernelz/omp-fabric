@@ -1,28 +1,8 @@
 import type { ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 import { DynamicBorder } from "../ui/dynamic-border.js";
-import {
-  Container,
-  SelectList,
-  Spacer,
-  Text,
-  type SelectItem,
-} from "@oh-my-pi/pi-tui";
+import { BlankRows, Stack, TextBlock } from "../ui/tui/rows.js";
+import { type SelectItem, SelectList } from "../ui/tui/select-list.js";
 import { FabricTraceSafeError } from "../audit/trace.js";
-
-type ThemeColorApplicator = (name: string, text: string) => string;
-
-const selectListThemeFor = (theme: unknown) => {
-  const apply = (name: string, text: string): string =>
-    (theme as { fg: ThemeColorApplicator }).fg(name, text);
-  return {
-    symbols: (theme as { symbols: import("@oh-my-pi/pi-tui").SymbolTheme }).symbols,
-    selectedPrefix: (text: string) => apply("accent", text),
-    selectedText: (text: string) => apply("accent", text),
-    description: (text: string) => apply("muted", text),
-    scrollInfo: (text: string) => apply("muted", text),
-    noMatch: (text: string) => apply("muted", text),
-  };
-};
 import type { FabricApprovalConfig } from "../config.js";
 import type { FabricRisk } from "../protocol.js";
 import type { ResolvedFabricAction } from "./action-registry.js";
@@ -200,37 +180,37 @@ export class ApprovalController {
     action: ResolvedFabricAction,
     escalationReason?: string,
   ): Promise<ApprovalChoice> {
-    const choice = await this.context.ui.custom<ApprovalChoice>((tui, theme, _keybindings, done) => {
-      const container = new Container();
-      container.addChild(new DynamicBorder((text: string) => theme.fg("warning", text)));
-      container.addChild(new Spacer(1));
-      container.addChild(
-        new Text(theme.fg("warning", theme.bold("🛡  OMP Fabric permission request")), 1, 0),
+    const choice = await this.context.ui.custom<ApprovalChoice>((_ui, theme, _keybindings, done) => {
+      const container = new Stack();
+      container.add(new DynamicBorder((text: string) => theme.fg("warning", text)));
+      container.add(new BlankRows(1));
+      container.add(
+        new TextBlock(theme.fg("warning", theme.style("strong", "🛡  OMP Fabric permission request")), 1, 0),
       );
-      container.addChild(new Spacer(1));
-      container.addChild(
-        new Text(
+      container.add(new BlankRows(1));
+      container.add(
+        new TextBlock(
           theme.fg("text", `${action.ref} requests ${action.risk} access.`),
           1,
           0,
         ),
       );
-      container.addChild(new Text(theme.fg("muted", action.description), 1, 0));
+      container.add(new TextBlock(theme.fg("muted", action.description), 1, 0));
       if (escalationReason) {
-        container.addChild(new Spacer(1));
-        container.addChild(
-          new Text(theme.fg("warning", escalationReason), 1, 0),
+        container.add(new BlankRows(1));
+        container.add(
+          new TextBlock(theme.fg("warning", escalationReason), 1, 0),
         );
       }
-      container.addChild(new Spacer(1));
-      container.addChild(
-        new Text(
+      container.add(new BlankRows(1));
+      container.add(
+        new TextBlock(
           theme.fg("dim", "Choose whether to allow only this call or this risk class for the session."),
           1,
           0,
         ),
       );
-      container.addChild(new Spacer(1));
+      container.add(new BlankRows(1));
       const items: SelectItem[] = [
         {
           value: "allow-once",
@@ -248,23 +228,19 @@ export class ApprovalController {
           description: "Block the requested action",
         },
       ];
-      const list = new SelectList(items, items.length, selectListThemeFor(theme));
+      const list = new SelectList(items, items.length, theme);
       list.onSelect = (item) => done(item.value as ApprovalChoice);
       list.onCancel = () => done("deny");
-      container.addChild(list);
-      container.addChild(new Spacer(1));
-      container.addChild(
-        new Text(theme.fg("dim", "↑↓ navigate · enter select · esc deny"), 1, 0),
+      container.add(list);
+      container.add(new BlankRows(1));
+      container.add(
+        new TextBlock(theme.fg("dim", "↑↓ navigate · enter select · esc deny"), 1, 0),
       );
-      container.addChild(new Spacer(1));
-      container.addChild(new DynamicBorder((text: string) => theme.fg("warning", text)));
+      container.add(new BlankRows(1));
+      container.add(new DynamicBorder((text: string) => theme.fg("warning", text)));
       return {
         render: (width: number) => container.render(width),
-        invalidate: () => container.invalidate(),
-        handleInput: (data: string) => {
-          list.handleInput(data);
-          tui.requestRender();
-        },
+        handleInput: (data: string) => list.handleInput(data),
       };
     });
     return choice ?? "deny";
