@@ -54,15 +54,7 @@ export class SettingsList implements FabricView {
     if (item) item.currentValue = value;
   }
 
-  get submenuOpen(): boolean {
-    return this.submenu !== undefined;
-  }
-
   handleInput(data: string): void {
-    if (this.submenu) {
-      this.submenu.handleInput?.(data);
-      return;
-    }
     for (const event of decodeTerminalInput(data)) {
       if (this.submenu) {
         this.submenu.handleInput?.(event.type === "paste" ? `\x1b[200~${event.text}\x1b[201~` : event.key.raw);
