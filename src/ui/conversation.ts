@@ -402,10 +402,6 @@ export class FabricConversationView implements FabricView {
     return this.currentTargets().find((target) => target.id === id);
   }
 
-  private terminalRows(): number {
-    return this.tui.terminal?.rows ?? process.stdout.rows ?? 28;
-  }
-
   /**
    * Respects a configured binding; when an injected manager reports no keys
    * the binding is unbound (never falls back), and only the default global
