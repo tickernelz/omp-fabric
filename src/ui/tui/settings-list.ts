@@ -140,7 +140,8 @@ export class SettingsList implements FabricView {
     const query = this.query.trim();
     return query === ""
       ? this.items
-      : fuzzyFilter(this.items, query, (item) => `${item.label} ${item.id} ${item.description ?? ""}`);
+      : fuzzyFilter(this.items, query, (item) =>
+        `${item.label} ${item.id} ${item.currentValue} ${item.description ?? ""} ${(item.values ?? []).join(" ")}`);
   }
 
   private setQuery(query: string): void {

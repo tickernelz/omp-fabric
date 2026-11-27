@@ -144,9 +144,12 @@ describe("SettingsList", () => {
     expect(plain(list.render(60)).join("\n")).toContain("Mode     slow");
   });
 
-  it("filters while typing and escape clears the search before cancelling", () => {
+  it("filters by label, id and current value while typing; escape clears the search before cancelling", () => {
     const { list, cancel } = build();
     list.handleInput("mode");
+    expect(list.getSelectedItem()?.id).toBe("mode");
+    list.handleInput("\x1b");
+    list.handleInput("fast");
     expect(list.getSelectedItem()?.id).toBe("mode");
     list.handleInput("\x1b");
     expect(cancel).not.toHaveBeenCalled();
