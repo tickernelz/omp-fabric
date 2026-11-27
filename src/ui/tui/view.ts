@@ -1,9 +1,8 @@
 import { isUiNode, signal, type KeyEvent, type PasteEvent, UiNode, untrack } from "@oh-my-pi/pi-tui";
-import { defineRolePainter } from "@oh-my-pi/pi-tui/term/paint";
-import { renderBlock } from "@oh-my-pi/pi-tui/term/render";
-import { defineRoleWidget } from "@oh-my-pi/pi-tui/term/widgets";
 import type { Theme } from "@oh-my-pi/pi-tui/theme/contract";
 import { truncate } from "@oh-my-pi/pi-tui/text/width";
+import { hostTerm } from "./host-term.js";
+import { rememberHostKey } from "./input.js";
 
 export interface Rows {
   render(width: number): readonly string[];
@@ -26,14 +25,16 @@ const WHEEL_ROWS = 3;
 const mounted = new WeakMap<UiNode, { view: FabricView; paint: (width: number) => string[]; wheel: (rows: number) => void }>();
 let roleRegistered = false;
 
-const registerRole = (): void => {
-  if (roleRegistered) return;
+const registerRole = (): boolean => {
+  if (roleRegistered) return true;
+  const { paint, widgets } = hostTerm();
+  if (!paint || !widgets) return false;
   roleRegistered = true;
-  defineRolePainter("canvas", VIEW_ROLE, (node, cx) => {
+  paint.defineRolePainter("canvas", VIEW_ROLE, (node, cx) => {
     const rows = mounted.get(node)?.paint(cx.width) ?? [];
     return { rows, hits: rows.length > 0 ? [{ row: 0, col: 0, width: cx.width, height: rows.length, node }] : [] };
   });
-  defineRoleWidget("canvas", VIEW_ROLE, {
+  widgets.defineRoleWidget("canvas", VIEW_ROLE, {
     mouse(node, mouse) {
       const entry = mounted.get(node);
       if (!entry?.view.handleWheel || mouse.action !== "press") return false;
@@ -43,12 +44,14 @@ const registerRole = (): void => {
       return true;
     },
   });
+  return true;
 };
 
 export const mountedView = (node: unknown): FabricView | undefined =>
   isUiNode(node) ? mounted.get(node)?.view : undefined;
 
 const EMPTY_ROWS: Rows = { render: () => [] };
+const HOST_PREVIEW_UNAVAILABLE = "Preview unavailable: this OMP host does not provide pi-tui term/render.";
 
 export const isRows = (value: unknown): value is Rows =>
   typeof value === "object" &&
@@ -61,8 +64,10 @@ export const isRows = (value: unknown): value is Rows =>
 export const asRows = (output: unknown, theme: Theme): Rows => {
   if (output === undefined || output === null || output === false || output === "") return EMPTY_ROWS;
   if (isRows(output)) return output;
+  const render = hostTerm().render;
+  if (!render) return { render: (width) => [truncate(HOST_PREVIEW_UNAVAILABLE, width)] };
   const node = isUiNode(output) ? output : new UiNode("col", { children: output });
-  return { render: (width) => renderBlock(node, width, { theme }).rows };
+  return { render: (width) => render.renderBlock(node, width, { theme }).rows };
 };
 
 const errorText = (error: unknown): string => (error instanceof Error ? error.message : String(error));
@@ -72,7 +77,7 @@ export const mountView = <V extends FabricView>(
   build: (host: FabricViewHost) => V,
   onError?: (error: unknown) => void,
 ): { node: UiNode; view: V } => {
-  registerRole();
+  const role = registerRole();
   const revision = signal(0);
   const requestRender = (): void => revision.set(untrack(revision) + 1);
   const view = build({ requestRender, size });
@@ -101,8 +106,12 @@ export const mountView = <V extends FabricView>(
   };
   const node = new UiNode("canvas", {
     paint,
-    term: { role: VIEW_ROLE },
-    onKey: (key: KeyEvent) => key.kind !== "release" && deliver(key.raw),
+    ...(role ? { term: { role: VIEW_ROLE } } : {}),
+    onKey: (key: KeyEvent) => {
+      if (key.kind === "release") return false;
+      rememberHostKey(key);
+      return deliver(key.raw);
+    },
     onPaste: (paste: PasteEvent) => deliver(`\x1b[200~${paste.text}\x1b[201~`),
   });
   mounted.set(node, { view, paint, wheel: (rows) => contain(() => view.handleWheel?.(rows)) });

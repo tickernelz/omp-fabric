@@ -82,6 +82,19 @@ async invoke(actionName, args, context) {
 }
 ```
 
+## Host terminal internals
+
+The pi-tui root export covers nodes, signals, and events. Fabric also calls five pi-tui modules that OMP serves from its binary without a stability promise: `term/paint`, `term/widgets`, `term/render`, `term/keymap`, and `driver/input/decoder`. Fabric loads them with dynamic imports when its UI module loads and checks each export it calls. When a later OMP release drops one of these modules or exports, Fabric still loads, and its startup warning names what is missing:
+
+| Missing module | Fabric falls back to |
+| --- | --- |
+| `term/paint` or `term/widgets` | The view paints as a plain `canvas` node. Mouse wheel scrolling stops; the scroll keys keep working. |
+| `term/render` | A preview drawn by a host tool renderer shows one notice row. Fabric's own renderers keep drawing. |
+| `term/keymap` | The default pi-tui widget keys. Keys rebound in OMP settings do not apply to Fabric views. |
+| `driver/input/decoder` | Keys come from the host key event the view just received. Bracketed paste still works; other input that does not arrive as a host key event is ignored. |
+
+Text helpers (`text/width`, `text/markdown/render`, `theme/theme`) and other host modules stay static imports. `bun scripts/check-host-imports.mjs` lists every `@oh-my-pi/*` specifier and named import in `dist/` and imports each one from the installed host packages. A missing static import fails the check, and a missing dynamic import is reported as a fallback. Pass `--binary "$(command -v omp)"` to also check each specifier against the module map compiled into an OMP binary. CI runs the check after the build. Run it with `--binary` against a new OMP release before raising the host floor.
+
 ## Commands
 
 ```text

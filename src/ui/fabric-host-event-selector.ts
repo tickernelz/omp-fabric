@@ -1,6 +1,5 @@
 import type { Theme } from "@oh-my-pi/pi-tui/theme/contract";
-import { widgetKeyMatches } from "@oh-my-pi/pi-tui/term/keymap";
-import { keyOf } from "./tui/input.js";
+import { keyMatches, keyOf } from "./tui/input.js";
 import { BlankRows, Stack, TextBlock } from "./tui/rows.js";
 import type { FabricView } from "./tui/view.js";
 import { FABRIC_ACTOR_HOST_EVENTS } from "../actors/types.js";
@@ -101,11 +100,11 @@ export class FabricHostEventSelector extends Stack implements FabricView {
   handleInput(keyData: string): void {
     const key = keyOf(keyData);
     if (!key) return;
-    if (widgetKeyMatches(key, "select.up")) {
+    if (keyMatches(key, "select.up")) {
       this.selectedIndex =
         this.selectedIndex === 0 ? HOST_EVENT_ORDER.length - 1 : this.selectedIndex - 1;
       this.updateList();
-    } else if (widgetKeyMatches(key, "select.down")) {
+    } else if (keyMatches(key, "select.down")) {
       this.selectedIndex =
         this.selectedIndex === HOST_EVENT_ORDER.length - 1 ? 0 : this.selectedIndex + 1;
       this.updateList();
@@ -116,9 +115,9 @@ export class FabricHostEventSelector extends Stack implements FabricView {
         else this.enabled.add(event);
         this.updateList();
       }
-    } else if (widgetKeyMatches(key, "select.confirm")) {
+    } else if (keyMatches(key, "select.confirm")) {
       this.onSelectCallback(HOST_EVENT_ORDER.filter((event) => this.enabled.has(event)));
-    } else if (widgetKeyMatches(key, "select.cancel")) {
+    } else if (keyMatches(key, "select.cancel")) {
       this.onCancelCallback();
     }
   }
