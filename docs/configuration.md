@@ -73,6 +73,7 @@ where absent values do not participate. Orchestration programs (`agents.run` / `
   "capture": {
     "enabled": false,
     "hideFromModel": false,
+    "keepEssentialVisible": true,
     "keepVisible": ["fabric_exec"],
     "includeTools": [],
     "excludeTools": [],
@@ -362,6 +363,7 @@ Native calls keep OMP's original implementation, result shape, and renderer. Fab
 
 - Captured and directly registered tools default to the conservative `execute` risk because OMP tool definitions do not declare effects. Add exact tool-name overrides under `capture.risks`. Fovea's verified graph-navigation tools (`fovea_sketch`, `fovea_focus`, `fovea_dwell`, and `fovea_impact`) are read-only exceptions that default to `read`. `/fabric settings` → **Capture** renders one row per entry in `capture.risks`, so every shipped override is editable and a new one appears without a panel change.
 - Set `capture.hideFromModel` to `false` to index non-core extension tools without hiding them from the model's active set.
+- A captured tool whose definition declares `loadMode: "essential"` stays in the model-facing set in full code mode, because OMP sends an essential tool to the model on every turn. Set `capture.keepEssentialVisible` to `false` to hide such tools like other captured tools; they stay callable through `fabric_exec`. OMP core names stay Fabric-owned, and Schema enforce mode keeps `fabric_exec` as the only model-facing tool.
 - Names in `capture.keepVisible` stay in the model-facing active set of both Fabric and OMP. OMP core names are the exception: they remain Fabric-owned in full code mode.
 - Extension tool names appear in the prompt as a names-only roster; descriptions and schemas are resolved on demand via `tools.list` / `tools.search` / `tools.describe` before first use.
 - An `ask` policy emits a warning notification and opens an explicit **Allow once** / **Allow for this session** / **Deny** permission prompt. These options match Claude-style approval scopes. **Allow once** authorizes only the requested action. **Allow for this session** keeps that risk class authorized until the current OMP session ends. The TUI uses an inline wizard. RPC clients receive the equivalent `select` dialog.

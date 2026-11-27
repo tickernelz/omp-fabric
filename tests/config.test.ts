@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  capturedToolHiddenFromModel,
   DEFAULT_FABRIC_CONFIG,
   MAX_EXECUTOR_MEMORY_LIMIT_BYTES,
   MAX_EXECUTOR_TIMEOUT_MS,
@@ -564,6 +565,31 @@ describe("Fabric configuration", () => {
       },
     });
     expect(capture.keepVisible).toEqual(["fabric_exec", "custom"]);
+  });
+
+  it("keeps captured tools that declare loadMode essential visible in full code mode", () => {
+    const fullCode = effectiveToolCaptureConfig({ fullCodeMode: true, capture: DEFAULT_FABRIC_CONFIG.capture });
+    expect(capturedToolHiddenFromModel(fullCode, "show_artifact", "essential")).toBe(false);
+    expect(capturedToolHiddenFromModel(fullCode, "show_artifact", "discoverable")).toBe(true);
+    expect(capturedToolHiddenFromModel(fullCode, "show_artifact", undefined)).toBe(true);
+    expect(capturedToolHiddenFromModel(fullCode, "read", "essential")).toBe(true);
+  });
+
+  it("hides essential captured tools when keepEssentialVisible is off or Schema enforce owns the surface", () => {
+    const optedOut = effectiveToolCaptureConfig({
+      fullCodeMode: true,
+      capture: normalizeFabricConfig({ capture: { keepEssentialVisible: false } }).capture,
+    });
+    expect(capturedToolHiddenFromModel(optedOut, "show_artifact", "essential")).toBe(true);
+    expect(capturedToolHiddenFromModel({ ...optedOut, keepVisible: ["show_artifact"] }, "show_artifact", "essential"))
+      .toBe(false);
+    const enforced = effectiveToolCaptureConfig({
+      fullCodeMode: true,
+      schema: { ...DEFAULT_FABRIC_CONFIG.schema, mode: "enforce" },
+      capture: DEFAULT_FABRIC_CONFIG.capture,
+    });
+    expect(capturedToolHiddenFromModel(enforced, "show_artifact", "essential")).toBe(true);
+    expect(normalizeFabricConfig({ capture: { keepEssentialVisible: "no" } }).capture.keepEssentialVisible).toBe(true);
   });
 
   it("merges global and trusted project configuration", () => {

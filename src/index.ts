@@ -42,6 +42,7 @@ import type { PendingFabricHandoff } from "./prewalk/handoff.js";
 import { autoArmFabricPrewalk } from "./prewalk/arm.js";
 import { FabricSpeculationWarmup } from "./speculation/warmup.js";
 import {
+  capturedToolHiddenFromModel,
   DEFAULT_FABRIC_CONFIG,
   effectiveToolCaptureConfig,
   type FabricToolCaptureConfig,
@@ -198,11 +199,10 @@ export default async function ompFabric(omp: ExtensionAPI): Promise<void> {
     state.config.fullCodeMode || state.config.schema.mode === "enforce";
   const hiddenCapturedToolNames = (): Set<string> => {
     const policy = capturePolicy();
-    const keep = new Set([...policy.keepVisible, ...policy.includeTools]);
     return new Set(
       capturedTools.list()
-        .map((entry) => entry.name)
-        .filter((name) => policy.hideFromModel && !keep.has(name) && !policy.excludeTools.includes(name)),
+        .filter((entry) => capturedToolHiddenFromModel(policy, entry.name, entry.definition.loadMode))
+        .map((entry) => entry.name),
     );
   };
   const ownershipPolicy = () => {

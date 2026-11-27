@@ -1985,6 +1985,10 @@ export const buildFabricSettingsItems = (
             description: "Hide captured tools from the parent model's tool schema.",
             values: BOOLEANS,
           }),
+          setting("capture.keepEssentialVisible", "Keep essential visible", config.capture.keepEssentialVisible ? "true" : "false", {
+            description: "Keep captured tools that declare loadMode \"essential\" in the parent model's tool schema.",
+            values: BOOLEANS,
+          }),
           setting("capture.defaultRisk", "Default risk", config.capture.defaultRisk, {
             description: "Approval risk level applied to registered tools without an explicit override.",
             values: RISKS,
