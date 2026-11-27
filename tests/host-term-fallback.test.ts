@@ -39,7 +39,7 @@ describe("Fabric UI on a host without pi-tui internals", () => {
     const { mountView, isAction, keyOf, hostTermDiagnostic } = await loadUi();
     const seen: string[] = [];
     const cancelled: boolean[] = [];
-    const { node, view } = mountView(() => ({ columns: 40, rows: 6 }), () => ({
+    const { node } = mountView(() => ({ columns: 40, rows: 6 }), () => ({
       render: () => ["fallback rows"],
       handleInput: (data: string) => {
         seen.push(keyOf(data)?.id ?? "?");
@@ -59,7 +59,6 @@ describe("Fabric UI on a host without pi-tui internals", () => {
       for (const id of TERM_MODULES) expect(diagnostic).toContain(id);
       expect(diagnostic).toContain("mouse wheel scrolling");
     } finally {
-      view.dispose?.();
       term.dispose();
     }
   });
