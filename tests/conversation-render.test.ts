@@ -295,6 +295,26 @@ describe("focused conversation native component rendering", () => {
     expect(text).toContain("partial tail");
   });
 
+  it("redraws streamed text and tool output when the reader replaces them", () => {
+    const renderer = new FabricConversationTranscriptRenderer(tui, theme, { getToolDefinition: () => undefined });
+    const frame = (transcript: NativeConversationTranscript) => plain(render(renderer, transcript, 80)).join("\n");
+    const partial = assistantMessage("first words");
+    const running: NativeToolExecution = {
+      toolCallId: "call-7", toolName: "bash", args: { command: "make" }, status: "running",
+      partial: { content: [{ type: "text", text: "step one" }] },
+    };
+    const before = frame(makeTranscript({ partialAssistant: { ...partial, content: [...partial.content] }, tools: [{ ...running }] }));
+    expect(before).toContain("first words");
+    expect(before).toContain("step one");
+    const after = frame(makeTranscript({
+      partialAssistant: { ...partial, content: [{ type: "text", text: "first words and more" }] },
+      tools: [{ ...running, status: "completed", result: { content: [{ type: "text", text: "build done" }] }, isError: false }],
+    }));
+    expect(after).toContain("first words and more");
+    expect(after).toContain("build done");
+    expect(after).not.toContain("step one");
+  });
+
   it("after dispose, renders nothing and stray renderer invalidations become no-ops", async () => {
     await initHighlighting("dark-plus", true);
     const fabricTool = fabricToolFor();

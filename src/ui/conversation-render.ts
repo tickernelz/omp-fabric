@@ -73,7 +73,8 @@ const normalizeResult = (raw: unknown): { content: unknown[]; details?: unknown;
 export class FabricConversationTranscriptRenderer {
   private disposed = false;
   private prompts: number[] = [];
-  private readonly cache = new Map<string, { signature: string; width: number; rows: string[] }>();
+  private readonly cache = new Map<string, { inputs: readonly unknown[]; width: number; rows: string[] }>();
+  private seen = new Set<string>();
 
   constructor(
     private readonly host: FabricViewHost,
@@ -99,10 +100,12 @@ export class FabricConversationTranscriptRenderer {
   render(transcript: NativeConversationTranscript, width: number, options: FabricConversationTranscriptRenderOptions): string[] {
     if (this.disposed || width <= 0) return [];
     if (transcript.messages.length === 0 && !transcript.streaming.partialAssistant && transcript.streaming.tools.length === 0) {
+      this.cache.clear();
       return [this.theme.fg("dim", "No retained transcript yet; new agent activity will appear here.")];
     }
     const lines: string[] = [];
     this.prompts = [];
+    this.seen = new Set();
     if (transcript.hasMore) lines.push(this.theme.fg("dim", "↑ older activity available"));
     const renderedTools = new Set<string>();
     const results = new Map<string, Extract<NativeAgentMessage, { role: "toolResult" }>>();
@@ -113,11 +116,11 @@ export class FabricConversationTranscriptRenderer {
     const pushTool = (input: ToolRenderInput): void => {
       if (renderedTools.has(input.id)) return;
       renderedTools.add(input.id);
-      this.block(lines, `tool:${options.target.id}:${input.id}`, [input, options.toolsExpanded], width, () =>
+      this.block(lines, `tool:${options.target.id}:${input.id}`, [input.name, input.args, input.result, input.partial, input.isError, options.toolsExpanded], width, () =>
         this.toolRows(input, width, options.toolsExpanded));
     };
     const pushAssistant = (message: AssistantAgentMessage): void => {
-      this.block(lines, `assistant:${options.target.id}:${message.timestamp}`, [message.content, message.stopReason, options.hideThinking === true], width, () =>
+      this.block(lines, `assistant:${options.target.id}:${message.timestamp}`, [...message.content, message.stopReason, message.errorMessage, options.hideThinking === true], width, () =>
         this.assistantRows(message, width, options.hideThinking === true));
       for (const block of message.content) {
         if (block.type !== "toolCall") continue;
@@ -186,18 +189,21 @@ export class FabricConversationTranscriptRenderer {
       });
     }
     if (transcript.hasNewer) lines.push(this.theme.fg("dim", "↓ newer activity available"));
+    for (const key of this.cache.keys()) {
+      if (!this.seen.has(key)) this.cache.delete(key);
+    }
     return lines;
   }
 
-  private block(lines: string[], key: string, inputs: unknown, width: number, build: () => string[]): void {
-    let signature: string;
-    try {
-      signature = JSON.stringify(inputs) ?? "";
-    } catch {
-      signature = String(Date.now());
-    }
+  private block(lines: string[], key: string, inputs: readonly unknown[], width: number, build: () => string[]): void {
+    this.seen.add(key);
     const cached = this.cache.get(key);
-    if (cached && cached.signature === signature && cached.width === width) {
+    if (
+      cached &&
+      cached.width === width &&
+      cached.inputs.length === inputs.length &&
+      cached.inputs.every((value, index) => Object.is(value, inputs[index]))
+    ) {
       lines.push(...cached.rows);
       return;
     }
@@ -207,7 +213,7 @@ export class FabricConversationTranscriptRenderer {
     } catch (error) {
       rows = [this.theme.fg("error", truncate(`render failed: ${error instanceof Error ? error.message : String(error)}`, width))];
     }
-    this.cache.set(key, { signature, width, rows });
+    this.cache.set(key, { inputs, width, rows });
     lines.push(...rows);
   }
 
