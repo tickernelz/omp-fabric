@@ -1,7 +1,9 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import type { ExtensionAPI, ExtensionContext, Theme } from "@oh-my-pi/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@oh-my-pi/pi-coding-agent";
+import type { Theme } from "@oh-my-pi/pi-tui/theme/contract";
+import { testTheme } from "./test-theme.js";
 import { describe, expect, it, vi } from "vitest";
 import ompFabric from "../src/index.js";
 
@@ -54,10 +56,10 @@ const flushDisplayRefresh = async (rounds = 3): Promise<void> => {
   }
 };
 
-const plainTheme = {
+const plainTheme = testTheme({
   fg: (_color: string, text: string) => text,
   bold: (text: string) => text,
-} as unknown as Theme;
+});
 
 interface FabricExecTool {
   renderCall?: (

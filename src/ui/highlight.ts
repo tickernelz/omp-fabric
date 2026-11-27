@@ -200,7 +200,7 @@ const ANSI_16_RGB: readonly Rgb[] = [
   { r: 255, g: 255, b: 255 },
 ];
 
-export const ansi256ToRgb = (index: number): Rgb => {
+const ansi256ToRgb = (index: number): Rgb => {
   if (index < 16) return ANSI_16_RGB[Math.max(0, index)] ?? { r: 0, g: 0, b: 0 };
   if (index < 232) {
     const cube = index - 16;
@@ -215,30 +215,16 @@ export const ansi256ToRgb = (index: number): Rgb => {
   return { r: gray, g: gray, b: gray };
 };
 
-const parseAnsiBgColor = (sequence: string): Rgb | undefined => {
-  const truecolor = sequence.match(/\x1b\[4?8;2;(\d+);(\d+);(\d+)m/);
-  if (truecolor) {
-    return { r: Number(truecolor[1]), g: Number(truecolor[2]), b: Number(truecolor[3]) };
-  }
-  const indexed = sequence.match(/\x1b\[4?8;5;(\d+)m/);
-  if (indexed) return ansi256ToRgb(Number(indexed[1]));
-  return undefined;
-};
-
 const relativeLuminance = ({ r, g, b }: Rgb): number =>
   (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
 
 /** Minimal structural view of OMP's active theme, as handed to renderers. */
 export interface OmpThemeLike {
   name?: string;
-  getBgAnsi?(color: "userMessageBg"): string;
+  dark?: boolean;
 }
 
-/**
- * Classify OMP's active theme as a light or dark variant. Named built-ins are
- * matched directly, custom themes fall back to the luminance of OMP's message
- * background color, and as a last resort COLORFGBG provides a terminal hint.
- */
+/** Classify OMP's active theme as a light or dark variant. */
 export const classifyOmpTheme = (
   theme: OmpThemeLike | undefined,
   env: NodeJS.ProcessEnv = process.env,
@@ -246,10 +232,7 @@ export const classifyOmpTheme = (
   const name = theme?.name?.trim().toLowerCase();
   if (name === "light") return "light";
   if (name === "dark") return "dark";
-  const background = theme?.getBgAnsi
-    ? parseAnsiBgColor(theme.getBgAnsi("userMessageBg"))
-    : undefined;
-  if (background) return relativeLuminance(background) >= 0.5 ? "light" : "dark";
+  if (theme?.dark !== undefined) return theme.dark ? "dark" : "light";
   const colorFgBg = env.COLORFGBG;
   if (colorFgBg) {
     const index = colorFgBg

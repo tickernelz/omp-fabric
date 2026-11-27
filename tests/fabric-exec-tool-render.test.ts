@@ -1,5 +1,7 @@
-import type { Theme, ToolRenderResultOptions } from "@oh-my-pi/pi-coding-agent";
-import { visibleWidth } from "@oh-my-pi/pi-tui";
+import type { ToolRenderResultOptions } from "@oh-my-pi/pi-coding-agent";
+import type { Theme } from "@oh-my-pi/pi-tui/theme/contract";
+import { testTheme } from "./test-theme.js";
+import { visibleWidth } from "@oh-my-pi/pi-tui/text/width";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { FabricState } from "../src/fabric-state.js";
 import { createFabricPersistedExecutionDetails } from "../src/audit/index.js";
@@ -19,15 +21,15 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-const plainTheme = {
+const plainTheme = testTheme({
   fg: (_color: string, text: string) => text,
   bold: (text: string) => text,
-} as unknown as Theme;
+});
 
-const semanticTheme = {
+const semanticTheme = testTheme({
   fg: (color: string, text: string) => `<${color}>${text}</${color}>`,
   bold: (text: string) => `<bold>${text}</bold>`,
-} as unknown as Theme;
+});
 
 const stateFor = (
   toolDisplay: "full" | "compact",

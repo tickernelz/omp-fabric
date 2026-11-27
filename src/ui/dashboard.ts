@@ -1,17 +1,10 @@
-import type { Theme } from "@oh-my-pi/pi-coding-agent";
-import { ompSymbolTheme } from "./symbol-theme.js";
-import { Ellipsis } from "@oh-my-pi/pi-tui";
+import type { KeyEvent } from "@oh-my-pi/pi-tui";
+import type { Theme } from "@oh-my-pi/pi-tui/theme/contract";
+import { truncate, visibleWidth } from "@oh-my-pi/pi-tui/text/width";
 import type { CodePreviewSettings } from "./code-preview.js";
-import type { Component, Focusable, TUI } from "@oh-my-pi/pi-tui";
-import {
-  Editor,
-  getKeybindings,
-  Key,
-  matchesKey,
-  truncateToWidth,
-  type EditorTheme,
-  visibleWidth,
-} from "@oh-my-pi/pi-tui";
+import { isAction, isKey, keyOf } from "./tui/input.js";
+import { TextField } from "./tui/text-field.js";
+import type { FabricView, FabricViewHost } from "./tui/view.js";
 import type { FabricActivityRun } from "../activity/types.js";
 import type { MeshEvent } from "../mesh/store.js";
 import type { FabricAgentMessageDelivery } from "../main-agent.js";
@@ -68,31 +61,6 @@ import type { FabricAgentTranscript } from "./transcript.js";
 import type { FabricDashboardSnapshot, FabricUiActor, FabricUiAgent } from "./types.js";
 import { isActiveStatus } from "./types.js";
 
-const editorTheme = (theme: Theme): EditorTheme => ({
-  symbols: ompSymbolTheme,
-  borderColor: (value: string) => theme.fg("borderMuted", value),
-  selectList: {
-      symbols: ompSymbolTheme,
-    selectedPrefix: (text: string) => theme.fg("accent", text),
-    selectedText: (text: string) => theme.fg("accent", text),
-    description: (text: string) => theme.fg("muted", text),
-    scrollInfo: (text: string) => theme.fg("muted", text),
-    noMatch: (text: string) => theme.fg("muted", text),
-  },
-});
-
-const DASHBOARD_OVERLAY_HEIGHT_PERCENT = 90;
-const DASHBOARD_OVERLAY_VERTICAL_MARGIN = 1;
-
-const dashboardOverlayRows = (terminalRows: number): number =>
-  Math.max(
-    1,
-    Math.min(
-      Math.floor((terminalRows * DASHBOARD_OVERLAY_HEIGHT_PERCENT) / 100),
-      terminalRows - DASHBOARD_OVERLAY_VERTICAL_MARGIN * 2,
-    ),
-  );
-
 export interface FabricDashboardMessageTarget {
   id: string;
   name: string;
@@ -100,12 +68,11 @@ export interface FabricDashboardMessageTarget {
 }
 
 interface FabricDashboardKeybindings {
-  matches(data: string, keybinding: "app.tools.expand"): boolean;
-  getKeys(keybinding: "app.tools.expand"): string[];
+  matches(event: KeyEvent, keybinding: "app.tools.expand"): boolean;
+  keysFor(keybinding: "app.tools.expand"): string[];
 }
 
-export class FabricDashboard implements Component, Focusable {
-  focused = false;
+export class FabricDashboard implements FabricView {
   private pane: Pane = "phases";
   private overviewView: OverviewView = "activity";
   private graphPositions = new Map<string, FabricGraphPoint>();
@@ -144,7 +111,7 @@ export class FabricDashboard implements Component, Focusable {
   private detailView: "summary" | "transcript" = "summary";
   private transcriptFollowing = true;
   private readonly detailRenderer: DashboardDetailRenderer;
-  private readonly highlightInvalidate = (): void => this.tui.requestRender();
+  private readonly highlightInvalidate = (): void => this.host.requestRender();
   private mode:
     | "overview"
     | "detail"
@@ -163,7 +130,7 @@ export class FabricDashboard implements Component, Focusable {
     | FabricHostEventSelector
     | FabricActorToolSelector
     | undefined;
-  private editor: Editor | undefined;
+  private editor: TextField | undefined;
   private editorActorName: string | undefined;
   private agentMessageTarget:
     | (FabricDashboardMessageTarget & { delivery: FabricAgentMessageDelivery })
@@ -231,7 +198,7 @@ export class FabricDashboard implements Component, Focusable {
   private pickerActorName: string | undefined;
 
   constructor(
-    readonly tui: TUI,
+    readonly host: FabricViewHost,
     readonly theme: Theme,
     readonly snapshot: () => FabricDashboardSnapshot,
     readonly done: () => void,
@@ -291,7 +258,6 @@ export class FabricDashboard implements Component, Focusable {
       onRemoveGlobalActor?: (globalActorId: string) => void;
     } = {},
   ) {
-    this.focused = true;
     this.modelSource = options.modelSource;
     this.codePreviewSettings = options.codePreviewSettings;
     this.keybindings = options.keybindings;
@@ -319,7 +285,7 @@ export class FabricDashboard implements Component, Focusable {
     this.onImportActor = options.onImportActor;
     this.onExportActor = options.onExportActor;
     this.onRemoveGlobalActor = options.onRemoveGlobalActor;
-    this.detailRenderer = new DashboardDetailRenderer(tui, theme, snapshot, {
+    this.detailRenderer = new DashboardDetailRenderer(host, theme, snapshot, {
       agentTranscript: this.agentTranscript,
       actorTranscript: this.actorTranscript,
       codePreviewSettings: this.codePreviewSettings,
@@ -331,30 +297,30 @@ export class FabricDashboard implements Component, Focusable {
     if (this.mode === "help") {
       if (
         data === "?" ||
-        matchesKey(data, Key.escape) ||
-        matchesKey(data, Key.ctrl("c"))
+        isKey(data, "escape") ||
+        isKey(data, "ctrl+c")
       ) {
         this.mode = this.detailId ? "detail" : "overview";
       }
-      this.tui.requestRender();
+      this.host.requestRender();
       return;
     }
     if (this.mode === "agentMessageEditor" && this.editor) {
-      if (getKeybindings().matches(data, "tui.select.cancel")) {
+      if (isAction(data, "select.cancel")) {
         this.closeAgentMessageEditor();
       } else {
         this.editor.handleInput(data);
       }
-      this.tui.requestRender();
+      this.host.requestRender();
       return;
     }
     if (this.mode === "instructionsEditor" && this.editor) {
-      if (getKeybindings().matches(data, "tui.select.cancel")) {
+      if (isAction(data, "select.cancel")) {
         this.closeInstructionsEditor();
       } else {
         this.editor.handleInput(data);
       }
-      this.tui.requestRender();
+      this.host.requestRender();
       return;
     }
     if (
@@ -366,7 +332,7 @@ export class FabricDashboard implements Component, Focusable {
       this.picker
     ) {
       this.picker.handleInput(data);
-      this.tui.requestRender();
+      this.host.requestRender();
       return;
     }
 
@@ -399,15 +365,15 @@ export class FabricDashboard implements Component, Focusable {
 
     if (data === "?") {
       this.mode = "help";
-      this.tui.requestRender();
+      this.host.requestRender();
       return;
     }
 
     if (this.detailId) {
       if (
-        matchesKey(data, Key.escape) ||
-        matchesKey(data, Key.ctrl("c")) ||
-        matchesKey(data, Key.left) ||
+        isKey(data, "escape") ||
+        isKey(data, "ctrl+c") ||
+        isKey(data, "left") ||
         data === "h"
       ) {
         this.closeDetail();
@@ -424,7 +390,7 @@ export class FabricDashboard implements Component, Focusable {
         this.matchesTranscriptToolToggle(data)
       ) {
         this.transcriptToolsExpanded = !this.transcriptToolsExpanded;
-      } else if (matchesKey(data, Key.up) || data === "k") {
+      } else if (isKey(data, "up") || data === "k") {
         if (this.detailScroll > 0) {
           if (this.detailView === "transcript") this.transcriptFollowing = false;
           this.detailScroll--;
@@ -436,7 +402,7 @@ export class FabricDashboard implements Component, Focusable {
             this.transcriptFollowing = false;
           }
         }
-      } else if (matchesKey(data, Key.down) || data === "j") {
+      } else if (isKey(data, "down") || data === "j") {
         if (this.detailScroll < this.detailMaxScroll) {
           if (this.detailView === "transcript") this.transcriptFollowing = false;
           this.detailScroll++;
@@ -455,7 +421,7 @@ export class FabricDashboard implements Component, Focusable {
         this.transcriptPageAnchor = undefined;
         this.transcriptFollowing = true;
         this.detailScroll = this.detailMaxScroll;
-      } else if (matchesKey(data, Key.home) || data === "g") {
+      } else if (isKey(data, "home") || data === "g") {
         if (this.detailView === "transcript") {
           this.transcriptPageAnchor = undefined;
           this.transcriptFollowing = false;
@@ -559,7 +525,7 @@ export class FabricDashboard implements Component, Focusable {
           this.onRemoveGlobalActor(detail.value.id);
         }
       }
-      this.tui.requestRender();
+      this.host.requestRender();
       return;
     }
 
@@ -576,11 +542,11 @@ export class FabricDashboard implements Component, Focusable {
         this.selectedEntityId = undefined;
         this.pendingStop = undefined;
       }
-      this.tui.requestRender();
+      this.host.requestRender();
       return;
     }
 
-    if (matchesKey(data, Key.escape) || matchesKey(data, Key.ctrl("c"))) {
+    if (isKey(data, "escape") || isKey(data, "ctrl+c")) {
       if (this.overviewView === "activity" && this.pane === "entities") {
         this.pane = "phases";
       } else {
@@ -590,7 +556,7 @@ export class FabricDashboard implements Component, Focusable {
     } else if (this.overviewView === "topology" && data === "r") {
       this.toggleGraphReplay(snapshot, projectMesh);
       this.startGraphEffectsAnimation();
-      this.tui.requestRender();
+      this.host.requestRender();
       return;
     } else if (
       this.overviewView === "topology" &&
@@ -600,15 +566,15 @@ export class FabricDashboard implements Component, Focusable {
       this.graphReplayPlaying = !this.graphReplayPlaying;
       this.graphReplayAdvancedAt = Date.now();
       this.startGraphEffectsAnimation();
-      this.tui.requestRender();
+      this.host.requestRender();
       return;
     } else if (
       this.overviewView === "topology" &&
       this.graphReplayIndex !== undefined &&
-      (matchesKey(data, Key.left) || matchesKey(data, Key.right))
+      (isKey(data, "left") || isKey(data, "right"))
     ) {
-      this.stepGraphReplay(matchesKey(data, Key.left) ? -1 : 1);
-      this.tui.requestRender();
+      this.stepGraphReplay(isKey(data, "left") ? -1 : 1);
+      this.host.requestRender();
       return;
     } else if (this.overviewView === "topology" && (data === "+" || data === "=" || data === "-")) {
       const speeds = [0.5, 1, 2, 4];
@@ -616,11 +582,11 @@ export class FabricDashboard implements Component, Focusable {
       const direction = data === "-" ? -1 : 1;
       this.graphReplaySpeed = speeds[Math.max(0, Math.min(speeds.length - 1, current + direction))] ?? 1;
       this.graphReplayAdvancedAt = Date.now();
-      this.tui.requestRender();
+      this.host.requestRender();
       return;
     } else if (this.overviewView === "topology" && data === "H") {
       this.graphShowHistory = !this.graphShowHistory;
-      this.tui.requestRender();
+      this.host.requestRender();
       return;
     } else if (this.overviewView === "topology" && data === "M") {
       const selected = this.pane === "entities" ? entities[this.entityIndex] : undefined;
@@ -636,19 +602,19 @@ export class FabricDashboard implements Component, Focusable {
       } else {
         this.graphReducedMotion = !this.graphReducedMotion;
       }
-      this.tui.requestRender();
+      this.host.requestRender();
       return;
     } else if (
       this.overviewView === "topology" &&
-      (matchesKey(data, Key.left) || matchesKey(data, Key.right) ||
-        matchesKey(data, Key.up) || matchesKey(data, Key.down) || data === "h" || data === "l")
+      (isKey(data, "left") || isKey(data, "right") ||
+        isKey(data, "up") || isKey(data, "down") || data === "h" || data === "l")
     ) {
       const direction =
-        matchesKey(data, Key.left) || data === "h"
+        isKey(data, "left") || data === "h"
           ? "left"
-          : matchesKey(data, Key.right) || data === "l"
+          : isKey(data, "right") || data === "l"
             ? "right"
-            : matchesKey(data, Key.up)
+            : isKey(data, "up")
               ? "up"
               : "down";
       const target = directionalGraphTarget(this.graphPositions, this.selectedEntityId, direction);
@@ -658,27 +624,27 @@ export class FabricDashboard implements Component, Focusable {
         this.selectedEntityId = target;
         this.pendingStop = undefined;
       }
-      this.tui.requestRender();
+      this.host.requestRender();
       return;
-    } else if (matchesKey(data, Key.tab) && this.overviewView === "topology") {
+    } else if (isKey(data, "tab") && this.overviewView === "topology") {
       this.entityIndex = entities.length > 0 ? (this.entityIndex + 1) % entities.length : 0;
       this.selectedEntityId = entities[this.entityIndex]?.id;
       this.pendingStop = undefined;
-      this.tui.requestRender();
+      this.host.requestRender();
       return;
-    } else if (matchesKey(data, Key.tab) && this.overviewView === "activity") {
+    } else if (isKey(data, "tab") && this.overviewView === "activity") {
       this.pane = this.pane === "phases" ? "entities" : "phases";
     } else if (
       this.overviewView === "activity" &&
-      (matchesKey(data, Key.left) || data === "h")
+      (isKey(data, "left") || data === "h")
     ) {
       this.pane = "phases";
     } else if (
       this.overviewView === "activity" &&
-      (matchesKey(data, Key.right) || data === "l")
+      (isKey(data, "right") || data === "l")
     ) {
       this.pane = "entities";
-    } else if (matchesKey(data, Key.up) || data === "k") {
+    } else if (isKey(data, "up") || data === "k") {
       if (this.overviewView === "activity" && this.pane === "phases") {
         this.phaseIndex = Math.max(0, this.phaseIndex - 1);
         this.phaseSelectionTouched = true;
@@ -687,7 +653,7 @@ export class FabricDashboard implements Component, Focusable {
       } else {
         this.entityIndex = Math.max(0, this.entityIndex - 1);
       }
-    } else if (matchesKey(data, Key.down) || data === "j") {
+    } else if (isKey(data, "down") || data === "j") {
       if (this.overviewView === "activity" && this.pane === "phases") {
         this.phaseIndex = Math.min(Math.max(0, panels.length - 1), this.phaseIndex + 1);
         this.phaseSelectionTouched = true;
@@ -788,7 +754,7 @@ export class FabricDashboard implements Component, Focusable {
         this.transcriptPageAnchor = undefined;
         this.transcriptFollowing = true;
       }
-    } else if (matchesKey(data, Key.enter)) {
+    } else if (isKey(data, "enter")) {
       if (this.overviewView === "activity" && this.pane === "phases") {
         this.pane = "entities";
       } else {
@@ -805,21 +771,21 @@ export class FabricDashboard implements Component, Focusable {
       this.filter = filters[next] ?? "all";
       this.entityIndex = 0;
       this.selectedEntityId = undefined;
-      this.tui.requestRender();
+      this.host.requestRender();
       return;
     } else if (data === "[") {
       this.runIndex = Math.min(Math.max(0, snapshot.runs.length - 1), this.runIndex + 1);
       this.selectedRunId = snapshot.runs[this.runIndex]?.id;
       this.runSelectionTouched = true;
       this.resetSelection();
-      this.tui.requestRender();
+      this.host.requestRender();
       return;
     } else if (data === "]") {
       this.runIndex = Math.max(0, this.runIndex - 1);
       this.selectedRunId = snapshot.runs[this.runIndex]?.id;
       this.runSelectionTouched = true;
       this.resetSelection();
-      this.tui.requestRender();
+      this.host.requestRender();
       return;
     } else if (data === "G") {
       if (this.overviewView === "activity" && this.pane === "phases") {
@@ -847,7 +813,7 @@ export class FabricDashboard implements Component, Focusable {
     if (this.pane === "entities") {
       this.selectedEntityId = entities[this.entityIndex]?.id;
     }
-    this.tui.requestRender();
+    this.host.requestRender();
   }
 
   render(width: number): readonly string[] {
@@ -929,17 +895,14 @@ export class FabricDashboard implements Component, Focusable {
   }
 
   private matchesTranscriptToolToggle(data: string): boolean {
-    if (this.keybindings) return this.keybindings.matches(data, "app.tools.expand");
-    const keybindings = getKeybindings();
-    const keys = keybindings.getKeys("app.tools.expand");
-    return keys.length > 0
-      ? keybindings.matches(data, "app.tools.expand")
-      : matchesKey(data, Key.ctrl("o"));
+    const key = keyOf(data);
+    if (!key) return false;
+    return this.keybindings ? this.keybindings.matches(key, "app.tools.expand") : key.id === "ctrl+o";
   }
 
   private transcriptToolToggleHint(): string {
-    const keys = (this.keybindings ?? getKeybindings()).getKeys("app.tools.expand");
-    const key = keys.length > 0 ? keys.join("/") : this.keybindings ? "unbound" : "ctrl+o";
+    const keys = this.keybindings?.keysFor("app.tools.expand") ?? ["ctrl+o"];
+    const key = keys.length > 0 ? keys.join("/") : "unbound";
     return `${key} ${this.transcriptToolsExpanded ? "collapse" : "expand"} tools`;
   }
 
@@ -996,8 +959,7 @@ export class FabricDashboard implements Component, Focusable {
   ): void {
     const target = this.messageTarget(entity);
     if (!target || !this.canMessage(entity, delivery)) return;
-    const editor = new Editor(editorTheme(this.theme));
-    editor.focused = true;
+    const editor = new TextField({ multiline: true });
     editor.onSubmit = (text) => {
       const message = text.trim();
       if (!message) return;
@@ -1078,7 +1040,7 @@ export class FabricDashboard implements Component, Focusable {
       ),
     );
     lines.push(this.bottomBorder(width));
-    return lines.map((line) => truncateToWidth(line, width, ""));
+    return lines.map((line) => truncate(line, width, ""));
   }
 
   private renderHelp(width: number): string[] {
@@ -1141,7 +1103,7 @@ export class FabricDashboard implements Component, Focusable {
     lines.push(this.middleBorder(width));
     lines.push(this.row(width, this.theme.fg("dim", "  ? or esc close")));
     lines.push(this.bottomBorder(width));
-    return lines.map((line) => truncateToWidth(line, width, ""));
+    return lines.map((line) => truncate(line, width, ""));
   }
 
   private modelSourceForActor(actor: FabricUiActor): ModelSource | undefined {
@@ -1182,7 +1144,6 @@ export class FabricDashboard implements Component, Focusable {
       },
       onCancel: () => this.closeModelPicker(),
     });
-    this.picker.focused = true;
     this.mode = "modelPicker";
   }
 
@@ -1217,7 +1178,6 @@ export class FabricDashboard implements Component, Focusable {
       },
       onCancel: () => this.closeModelPicker(),
     });
-    this.picker.focused = true;
     this.mode = "thinkingPicker";
   }
 
@@ -1242,7 +1202,6 @@ export class FabricDashboard implements Component, Focusable {
       },
       onCancel: () => this.closeModelPicker(),
     });
-    this.picker.focused = true;
     this.mode = "deliveryPicker";
   }
 
@@ -1260,7 +1219,6 @@ export class FabricDashboard implements Component, Focusable {
       },
       onCancel: () => this.closeModelPicker(),
     });
-    this.picker.focused = true;
     this.mode = "eventsPicker";
   }
 
@@ -1278,7 +1236,6 @@ export class FabricDashboard implements Component, Focusable {
       },
       onCancel: () => this.closeModelPicker(),
     });
-    this.picker.focused = true;
     this.mode = "toolsPicker";
   }
 
@@ -1319,8 +1276,7 @@ export class FabricDashboard implements Component, Focusable {
     } else {
       return;
     }
-    const editor = new Editor(editorTheme(this.theme));
-    editor.focused = true;
+    const editor = new TextField({ multiline: true });
     editor.setText(instructions);
     editor.onSubmit = (text) => {
       if (kind === "actor") this.onActorInstructions?.(id, text);
@@ -1371,7 +1327,7 @@ export class FabricDashboard implements Component, Focusable {
       ),
     );
     lines.push(this.bottomBorder(width));
-    return lines.map((line) => truncateToWidth(line, width, ""));
+    return lines.map((line) => truncate(line, width, ""));
   }
 
   private renderInstructionsEditor(width: number): string[] {
@@ -1390,7 +1346,7 @@ export class FabricDashboard implements Component, Focusable {
       ),
     );
     lines.push(this.bottomBorder(width));
-    return lines.map((line) => truncateToWidth(line, width, ""));
+    return lines.map((line) => truncate(line, width, ""));
   }
 
   private projectMesh(snapshot: FabricDashboardSnapshot): FabricProjectMeshModel | undefined {
@@ -1439,7 +1395,7 @@ export class FabricDashboard implements Component, Focusable {
           this.graphReplayPlaying = false;
         }
       }
-      this.tui.requestRender();
+      this.host.requestRender();
     }, 80);
     this.graphEffectsAnimation.unref?.();
   }
@@ -1531,7 +1487,7 @@ export class FabricDashboard implements Component, Focusable {
       if (this.graphAnimation) clearInterval(this.graphAnimation);
       this.graphAnimation = undefined;
     }
-    this.tui.requestRender();
+    this.host.requestRender();
   }
 
   private renderOverview(
@@ -1544,14 +1500,10 @@ export class FabricDashboard implements Component, Focusable {
     meshModel?: FabricProjectMeshModel,
   ): string[] {
     if (width < 24) {
-      return [truncateToWidth("too narrow · need 24 cols", width)];
+      return [truncate("too narrow · need 24 cols", width)];
     }
     const innerWidth = width - 2;
-    const terminalRows = Math.max(
-      1,
-      this.tui.terminal?.rows ?? process.stdout.rows ?? 28,
-    );
-    const overlayRows = dashboardOverlayRows(terminalRows);
+    const overlayRows = Math.max(1, this.host.size().rows);
     const lines: string[] = [];
     const title =
       this.overviewView === "activity"
@@ -1625,7 +1577,7 @@ export class FabricDashboard implements Component, Focusable {
         this.theme.fg("dim", "1 activity · 2 topology · arrows move · esc close"),
       ]
         .slice(0, overlayRows)
-        .map((line) => truncateToWidth(line, width, ""));
+        .map((line) => truncate(line, width, ""));
     }
     lines.push(this.row(width, headerLine || this.theme.fg("muted", "No Fabric activity yet")));
     lines.push(this.middleBorder(width));
@@ -1779,7 +1731,7 @@ export class FabricDashboard implements Component, Focusable {
         : "";
     lines.push(this.row(width, actionHint));
     lines.push(this.bottomBorder(width));
-    return lines.map((line) => truncateToWidth(line, width, ""));
+    return lines.map((line) => truncate(line, width, ""));
   }
 
   private overviewActionHint(entity: Entity): string {
@@ -1864,13 +1816,10 @@ export class FabricDashboard implements Component, Focusable {
 
   private renderPhasePanel(panels: PhasePanel[], width: number, height: number): string[] {
     const lines = [
-      truncateToWidth(
-        `${this.pane === "phases" ? this.theme.fg("accent", "▸ ") : "  "}${this.theme.fg(
-          "accent",
-          "Activity",
-        )}`,
-        width,
-      ),
+      truncate(`${this.pane === "phases" ? this.theme.fg("accent", "▸ ") : "  "}${this.theme.fg(
+        "accent",
+        "Activity",
+      )}`, width),
     ];
     const available = Math.max(0, height - 1);
     const start = Math.max(
@@ -1892,7 +1841,7 @@ export class FabricDashboard implements Component, Focusable {
       if (selected && this.pane === "phases") {
         line = this.theme.bg("selectedBg", padToWidth(line, width));
       }
-      lines.push(truncateToWidth(line, width, ""));
+      lines.push(truncate(line, width, ""));
     }
     while (lines.length < height) lines.push("");
     return lines.slice(0, height);
@@ -1942,14 +1891,10 @@ export class FabricDashboard implements Component, Focusable {
       }
       if (row.type === "group") {
         lines.push(
-          truncateToWidth(
-            this.theme.fg(
-              "muted",
-              `  ${this.theme.bold(row.group.label)} (${row.group.entries.length})`,
-            ),
-            width,
-            "",
-          ),
+          truncate(this.theme.fg(
+            "muted",
+            `  ${this.theme.style("strong", row.group.label)} (${row.group.entries.length})`,
+          ), width, ""),
         );
         continue;
       }
@@ -1964,7 +1909,7 @@ export class FabricDashboard implements Component, Focusable {
       if (selected && this.pane === "entities") {
         line = this.theme.bg("selectedBg", padToWidth(line, width));
       }
-      lines.push(truncateToWidth(line, width, ""));
+      lines.push(truncate(line, width, ""));
     }
     if (entities.length === 0 && available > 0) {
       const label = this.filter === "all" ? "activity" : `${this.filter} activity`;
@@ -2230,13 +2175,13 @@ export class FabricDashboard implements Component, Focusable {
 
   private renderNarrowFallback(width: number, label: string, hint: string): string[] {
     return [safeText(label), hint]
-      .map((line) => truncateToWidth(line, width, ""))
+      .map((line) => truncate(line, width, ""))
       .filter((line) => visibleWidth(line) > 0);
   }
 
   private topBorder(width: number, title: string): string {
     const border = (value: string) => this.theme.fg("borderMuted", value);
-    const safeTitle = truncateToWidth(safeText(title), Math.max(0, width - 6));
+    const safeTitle = truncate(safeText(title), Math.max(0, width - 6));
     const styledTitle = ` ${this.theme.fg("accent", safeTitle)} `;
     const remaining = Math.max(0, width - 2 - visibleWidth(styledTitle));
     const left = Math.floor(remaining / 2);

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { Theme } from "@oh-my-pi/pi-coding-agent";
+import type { Theme } from "@oh-my-pi/pi-tui/theme/contract";
+import { testTheme } from "./test-theme.js";
 import {
   arcItem,
   arcItemStyled,
@@ -7,9 +8,9 @@ import {
   pushArcItem,
 } from "../src/ui/arc-group.js";
 
-const theme = {
+const theme = testTheme({
   fg: (_color: string, text: string) => text,
-} as unknown as Theme;
+});
 
 describe("pushArcItem", () => {
   it("keeps a lone arc as the closing corner", () => {

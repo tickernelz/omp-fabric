@@ -1,10 +1,12 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import type { Theme } from "@oh-my-pi/pi-coding-agent";
-import type { TUI } from "@oh-my-pi/pi-tui";
+import type { Theme } from "@oh-my-pi/pi-tui/theme/contract";
+import { testTheme } from "./test-theme.js";
+import { PLAIN_THEME } from "@oh-my-pi/pi-tui/theme/plain";
 import type { CodePreviewSettings } from "../src/ui/code-preview.js";
-import { visibleWidth } from "@oh-my-pi/pi-tui";
+import { visibleWidth } from "@oh-my-pi/pi-tui/text/width";
+import { viewHost } from "./view-host.js";
 import { describe, expect, it, vi } from "vitest";
 import { FabricDashboard } from "../src/ui/dashboard.js";
 import { entitiesForOverview } from "../src/ui/dashboard-model.js";
@@ -29,11 +31,7 @@ const actorModelSource: ModelSource = {
   lastUsed: {},
 };
 
-const theme = {
-  fg: (_color: string, text: string) => text,
-  bg: (_color: string, text: string) => text,
-  bold: (text: string) => text,
-} as unknown as Theme;
+const theme: Theme = PLAIN_THEME;
 
 const codePreviewSettings: CodePreviewSettings = {
   shikiTheme: "dark-plus",
@@ -61,11 +59,12 @@ const codePreviewSettings: CodePreviewSettings = {
   tools: ["bash", "read", "write", "edit", "grep", "find", "ls"],
 };
 
-const ansiTheme = {
+const ansiTheme: Theme = {
+  ...PLAIN_THEME,
   fg: (_color: string, text: string) => `\x1b[36m${text}\x1b[39m`,
   bg: (_color: string, text: string) => `\x1b[44m${text}\x1b[49m`,
-  bold: (text: string) => `\x1b[1m${text}\x1b[22m`,
-} as unknown as Theme;
+  style: (tokens: string | undefined, text: string) => (tokens === "strong" ? `\x1b[1m${text}\x1b[22m` : text),
+};
 
 const mainAgent = (now: number, status: "idle" | "running" = "running") => ({
   id: "session:main",
@@ -331,11 +330,11 @@ describe("Fabric dynamic UI", () => {
   });
 
   it("renders the widget header title and agent names in muted grey, matching OMP core status lines", () => {
-    const recordingTheme = {
+    const recordingTheme = testTheme({
       fg: (color: string, text: string) => `<${color}>${text}</>`,
       bg: (_color: string, text: string) => text,
       bold: (text: string) => `<bold>${text}</>`,
-    } as unknown as Theme;
+    });
     const current = snapshot();
     const lines = new FabricWidget(recordingTheme, () => current, 8).render(120);
     const header = lines.find((line) => line.includes("Repository migration")) ?? "";
@@ -445,7 +444,7 @@ describe("Fabric dynamic UI", () => {
 
   it("does not redraw an unchanged dashboard on its own", async () => {
     vi.useFakeTimers();
-    const tui = { requestRender: vi.fn() } as unknown as TUI;
+    const tui = viewHost();
     const dashboard = new FabricDashboard(tui, theme, snapshot, vi.fn());
     try {
       await vi.advanceTimersByTimeAsync(2_000);
@@ -474,7 +473,7 @@ describe("Fabric dynamic UI", () => {
     expect(widgetText.indexOf("second-created")).toBeLessThan(widgetText.indexOf("third-created"));
 
     const dashboard = new FabricDashboard(
-      { requestRender: vi.fn() } as unknown as TUI,
+      viewHost(),
       theme,
       () => current,
       vi.fn(),
@@ -652,7 +651,7 @@ describe("Fabric dynamic UI", () => {
   it("reuses cached rows for unrelated TUI redraws", () => {
     let current = snapshot();
     const fg = vi.fn((_color: string, text: string) => text);
-    const cachedTheme = { ...theme, fg } as unknown as Theme;
+    const cachedTheme = testTheme({ ...theme, fg });
     const widget = new FabricWidget(cachedTheme, () => current, 8);
 
     const first = widget.render(72);
@@ -706,7 +705,7 @@ describe("Fabric dynamic UI", () => {
       entityKind: "custom",
     });
     const dashboard = new FabricDashboard(
-      { requestRender: vi.fn(), terminal: { rows: 40 } } as unknown as TUI,
+      viewHost(40),
       theme,
       () => current,
       vi.fn(),
@@ -744,7 +743,7 @@ describe("Fabric dynamic UI", () => {
   });
   it("moves the cursor through type groups in each sidebar phase", () => {
     const dashboard = new FabricDashboard(
-      { requestRender: vi.fn(), terminal: { rows: 40 } } as unknown as TUI,
+      viewHost(40),
       theme,
       snapshot,
       vi.fn(),
@@ -782,7 +781,7 @@ describe("Fabric dynamic UI", () => {
   });
   it("keeps the overview height stable when the entity action hint appears", () => {
     const dashboard = new FabricDashboard(
-      { requestRender: vi.fn(), terminal: { rows: 40 } } as unknown as TUI,
+      viewHost(40),
       theme,
       snapshot,
       vi.fn(),
@@ -804,7 +803,7 @@ describe("Fabric dynamic UI", () => {
   });
 
   it("renders a responsive sidebar with a heading-free grouped activity pane", () => {
-    const tui = { requestRender: vi.fn() } as unknown as TUI;
+    const tui = viewHost();
     const dashboard = new FabricDashboard(tui, theme, snapshot, vi.fn());
     try {
       const overview = dashboard.render(120);
@@ -914,7 +913,7 @@ describe("Fabric dynamic UI", () => {
     for (const call of current.runs[0]!.calls) call.phaseId = "audit";
 
     const dashboard = new FabricDashboard(
-      { requestRender: vi.fn(), terminal: { rows: 60 } } as unknown as TUI,
+      viewHost(60),
       theme,
       () => current,
       vi.fn(),
@@ -1023,7 +1022,7 @@ describe("Fabric dynamic UI", () => {
     ];
     const requestRender = vi.fn();
     const dashboard = new FabricDashboard(
-      { requestRender, terminal: { rows: 60 } } as unknown as TUI,
+      { requestRender, size: () => ({ columns: 120, rows: 60 }) },
       theme,
       () => current,
       vi.fn(),
@@ -1062,7 +1061,7 @@ describe("Fabric dynamic UI", () => {
     };
     const requestRender = vi.fn();
     const dashboard = new FabricDashboard(
-      { requestRender, terminal: { rows: 60 } } as unknown as TUI,
+      { requestRender, size: () => ({ columns: 120, rows: 60 }) },
       theme,
       () => current,
       vi.fn(),
@@ -1142,7 +1141,7 @@ describe("Fabric dynamic UI", () => {
       },
     ];
     const dashboard = new FabricDashboard(
-      { requestRender: vi.fn(), terminal: { rows: 40 } } as unknown as TUI,
+      viewHost(40),
       theme,
       () => current,
       vi.fn(),
@@ -1162,7 +1161,7 @@ describe("Fabric dynamic UI", () => {
 
 
   it("offers a per-actor model picker from the actor detail view", () => {
-    const tui = { requestRender: vi.fn() } as unknown as TUI;
+    const tui = viewHost();
     const onActorModel = vi.fn();
     const dashboard = new FabricDashboard(tui, theme, snapshot, vi.fn(), {
       modelSource: actorModelSource,
@@ -1212,7 +1211,7 @@ describe("Fabric dynamic UI", () => {
     };
     const onActorModel = vi.fn();
     const dashboard = new FabricDashboard(
-      { requestRender: vi.fn() } as unknown as TUI,
+      viewHost(),
       theme,
       () => current,
       vi.fn(),
@@ -1239,7 +1238,7 @@ describe("Fabric dynamic UI", () => {
   });
 
   it("picking Inherit clears the actor model override", () => {
-    const tui = { requestRender: vi.fn() } as unknown as TUI;
+    const tui = viewHost();
     const onActorModel = vi.fn();
     const dashboard = new FabricDashboard(tui, theme, snapshot, vi.fn(), {
       modelSource: actorModelSource,
@@ -1262,7 +1261,7 @@ describe("Fabric dynamic UI", () => {
     const onActorModel = vi.fn();
     const onActorThinking = vi.fn();
     const dashboard = new FabricDashboard(
-      { requestRender: vi.fn() } as unknown as TUI,
+      viewHost(),
       theme,
       snapshot,
       vi.fn(),
@@ -1299,7 +1298,7 @@ describe("Fabric dynamic UI", () => {
     const onActorModel = vi.fn();
     const onActorThinking = vi.fn();
     const dashboard = new FabricDashboard(
-      { requestRender: vi.fn() } as unknown as TUI,
+      viewHost(),
       theme,
       () => current,
       vi.fn(),
@@ -1342,7 +1341,7 @@ describe("Fabric dynamic UI", () => {
   });
 
   it("canceling the picker returns to the detail without changing the model", () => {
-    const tui = { requestRender: vi.fn() } as unknown as TUI;
+    const tui = viewHost();
     const onActorModel = vi.fn();
     const dashboard = new FabricDashboard(tui, theme, snapshot, vi.fn(), {
       modelSource: actorModelSource,
@@ -1362,7 +1361,7 @@ describe("Fabric dynamic UI", () => {
   });
 
   it("offers a per-actor thinking picker from the actor detail view", () => {
-    const tui = { requestRender: vi.fn() } as unknown as TUI;
+    const tui = viewHost();
     const onActorThinking = vi.fn<(
       id: string,
       thinking: FabricThinking | undefined,
@@ -1405,7 +1404,7 @@ describe("Fabric dynamic UI", () => {
   });
 
   it("picking Inherit clears the actor thinking override", () => {
-    const tui = { requestRender: vi.fn() } as unknown as TUI;
+    const tui = viewHost();
     const onActorThinking = vi.fn();
     const dashboard = new FabricDashboard(tui, theme, snapshot, vi.fn(), {
       modelSource: actorModelSource,
@@ -1425,7 +1424,7 @@ describe("Fabric dynamic UI", () => {
   });
 
   it("canceling the thinking picker returns to the detail without changing thinking", () => {
-    const tui = { requestRender: vi.fn() } as unknown as TUI;
+    const tui = viewHost();
     const onActorThinking = vi.fn();
     const dashboard = new FabricDashboard(tui, theme, snapshot, vi.fn(), {
       modelSource: actorModelSource,
@@ -1445,7 +1444,7 @@ describe("Fabric dynamic UI", () => {
   });
 
   it("does not offer the thinking picker when no onActorThinking is wired", () => {
-    const tui = { requestRender: vi.fn() } as unknown as TUI;
+    const tui = viewHost();
     const dashboard = new FabricDashboard(tui, theme, snapshot, vi.fn());
     try {
       openActorDetail(dashboard);
@@ -1461,7 +1460,7 @@ describe("Fabric dynamic UI", () => {
   });
 
   it("does not offer the picker when no model source is wired", () => {
-    const tui = { requestRender: vi.fn() } as unknown as TUI;
+    const tui = viewHost();
     const dashboard = new FabricDashboard(tui, theme, snapshot, vi.fn());
     try {
       openActorDetail(dashboard);
@@ -1477,7 +1476,7 @@ describe("Fabric dynamic UI", () => {
   });
 
   it("edits a live actor delivery policy with an explicit resume choice", () => {
-    const tui = { requestRender: vi.fn() } as unknown as TUI;
+    const tui = viewHost();
     const onActorDeliveryPolicy = vi.fn();
     const dashboard = new FabricDashboard(tui, theme, snapshot, vi.fn(), {
       onActorDeliveryPolicy,
@@ -1502,7 +1501,7 @@ describe("Fabric dynamic UI", () => {
   });
 
   it("offers a per-actor host-event picker from the actor detail view", () => {
-    const tui = { requestRender: vi.fn() } as unknown as TUI;
+    const tui = viewHost();
     const onActorEvents = vi.fn();
     const dashboard = new FabricDashboard(tui, theme, snapshot, vi.fn(), {
       modelSource: actorModelSource,
@@ -1540,7 +1539,7 @@ describe("Fabric dynamic UI", () => {
   });
 
   it("scrolls the expanded host-event catalog around the current selection", () => {
-    const tui = { requestRender: vi.fn() } as unknown as TUI;
+    const tui = viewHost();
     const dashboard = new FabricDashboard(tui, theme, snapshot, vi.fn(), {
       modelSource: actorModelSource,
       onActorEvents: vi.fn(),
@@ -1561,7 +1560,7 @@ describe("Fabric dynamic UI", () => {
   });
 
   it("canceling the events picker returns to the detail without changing events", () => {
-    const tui = { requestRender: vi.fn() } as unknown as TUI;
+    const tui = viewHost();
     const onActorEvents = vi.fn();
     const dashboard = new FabricDashboard(tui, theme, snapshot, vi.fn(), {
       modelSource: actorModelSource,
@@ -1581,7 +1580,7 @@ describe("Fabric dynamic UI", () => {
   });
 
   it("clearing the mailbox invokes onClearMessages without leaving the detail", () => {
-    const tui = { requestRender: vi.fn() } as unknown as TUI;
+    const tui = viewHost();
     const onClearMessages = vi.fn();
     const dashboard = new FabricDashboard(tui, theme, snapshot, vi.fn(), {
       modelSource: actorModelSource,
@@ -1603,7 +1602,7 @@ describe("Fabric dynamic UI", () => {
   });
 
   it("does not offer the events or clear actions when not wired", () => {
-    const tui = { requestRender: vi.fn() } as unknown as TUI;
+    const tui = viewHost();
     const dashboard = new FabricDashboard(tui, theme, snapshot, vi.fn(), {
       modelSource: actorModelSource,
     });
@@ -1675,7 +1674,7 @@ describe("Fabric dynamic UI", () => {
     ];
 
     const dashboard = new FabricDashboard(
-      { requestRender: vi.fn() } as unknown as TUI,
+      viewHost(),
       theme,
       () => current,
       vi.fn(),
@@ -1760,7 +1759,7 @@ describe("Fabric dynamic UI", () => {
     };
 
     const dashboard = new FabricDashboard(
-      { requestRender: vi.fn() } as unknown as TUI,
+      viewHost(),
       theme,
       () => current,
       vi.fn(),
@@ -1793,7 +1792,7 @@ describe("Fabric dynamic UI", () => {
     older.updatedAt -= 10_000;
     current.runs = [newest, older];
     const dashboard = new FabricDashboard(
-      { requestRender: vi.fn() } as unknown as TUI,
+      viewHost(),
       theme,
       () => current,
       vi.fn(),
@@ -1818,7 +1817,7 @@ describe("Fabric dynamic UI", () => {
   it("keeps an open detail visible when its status leaves the current filter", () => {
     const current = snapshot();
     const dashboard = new FabricDashboard(
-      { requestRender: vi.fn() } as unknown as TUI,
+      viewHost(),
       theme,
       () => current,
       vi.fn(),
@@ -1874,7 +1873,7 @@ describe("Fabric dynamic UI", () => {
     const onTargetMessage = vi.fn();
     const onAgentStop = vi.fn();
     const dashboard = new FabricDashboard(
-      { requestRender: vi.fn(), terminal: { rows: 40 } } as unknown as TUI,
+      viewHost(40),
       theme,
       () => current,
       vi.fn(),
@@ -1955,7 +1954,7 @@ describe("Fabric dynamic UI", () => {
     const onAgentFollowUp = vi.fn();
     const onAgentStop = vi.fn();
     const dashboard = new FabricDashboard(
-      { requestRender: vi.fn(), terminal: { rows: 40 } } as unknown as TUI,
+      viewHost(40),
       theme,
       () => current,
       vi.fn(),
@@ -1992,7 +1991,7 @@ describe("Fabric dynamic UI", () => {
 
   it("opens contextual keyboard help", () => {
     const dashboard = new FabricDashboard(
-      { requestRender: vi.fn() } as unknown as TUI,
+      viewHost(),
       theme,
       snapshot,
       vi.fn(),
@@ -2016,7 +2015,7 @@ describe("Fabric dynamic UI", () => {
     current.agents[0]!.finishedAt = current.now;
     current.agents[0]!.text = "Found two concrete authentication gaps.";
     const dashboard = new FabricDashboard(
-      { requestRender: vi.fn() } as unknown as TUI,
+      viewHost(),
       theme,
       () => current,
       vi.fn(),
@@ -2035,7 +2034,7 @@ describe("Fabric dynamic UI", () => {
   it("advertises and opens actor controls directly from the overview", () => {
     const current = snapshot();
     const dashboard = new FabricDashboard(
-      { requestRender: vi.fn() } as unknown as TUI,
+      viewHost(),
       theme,
       () => current,
       vi.fn(),
@@ -2062,7 +2061,7 @@ describe("Fabric dynamic UI", () => {
     current.actors[0]!.tools = ["read", "grep"];
     const onActorTools = vi.fn();
     const dashboard = new FabricDashboard(
-      { requestRender: vi.fn() } as unknown as TUI,
+      viewHost(),
       theme,
       () => current,
       vi.fn(),
@@ -2087,15 +2086,15 @@ describe("Fabric dynamic UI", () => {
   it("lazy-loads actor transcript pages and toggles tool details with the native binding", () => {
     const nestedSuccessBackground = "\x1b[48;2;10;10;10m";
     const nestedErrorBackground = "\x1b[48;2;20;10;10m";
-    const dashboardTheme = {
+    const dashboardTheme = testTheme({
       ...theme,
-      getFgAnsi: (color: string) => color === "toolDiffAdded"
-        ? "\x1b[38;2;80;200;120m"
-        : "\x1b[38;2;220;90;100m",
-      getBgAnsi: (color: string) => color === "toolErrorBg"
-        ? nestedErrorBackground
-        : nestedSuccessBackground,
-    } as unknown as Theme;
+      has: () => true,
+      hex: (color: string) =>
+        color === "toolDiffAdded" ? "#50c878"
+          : color === "toolDiffRemoved" ? "#dc5a64"
+          : color === "toolErrorBg" ? "#140a0a"
+          : "#0a0a0a",
+    });
     const actorTranscript = vi.fn(() => ({
       truncated: true,
       hasMore: true,
@@ -2130,7 +2129,7 @@ describe("Fabric dynamic UI", () => {
     const loadNewerTranscript = vi.fn(() => true);
     const loadLatestTranscript = vi.fn(() => true);
     const dashboard = new FabricDashboard(
-      { requestRender: vi.fn(), terminal: { rows: 24 } } as unknown as TUI,
+      viewHost(24),
       dashboardTheme,
       snapshot,
       vi.fn(),
@@ -2203,7 +2202,7 @@ describe("Fabric dynamic UI", () => {
     configureHighlighting("dark-plus", true);
     const requestRender = vi.fn();
     const dashboard = new FabricDashboard(
-      { requestRender, terminal: { rows: 28 } } as unknown as TUI,
+      { requestRender, size: () => ({ columns: 120, rows: 28 }) },
       theme,
       snapshot,
       vi.fn(),
@@ -2241,7 +2240,7 @@ describe("Fabric dynamic UI", () => {
 
   it("opens a live transcript preview and toggles back to summary", () => {
     const dashboard = new FabricDashboard(
-      { requestRender: vi.fn(), terminal: { rows: 28 } } as unknown as TUI,
+      viewHost(28),
       theme,
       snapshot,
       vi.fn(),
@@ -2292,7 +2291,7 @@ describe("Fabric dynamic UI", () => {
       status: "completed" as const,
     }));
     const dashboard = new FabricDashboard(
-      { requestRender: vi.fn(), terminal: { rows: 12 } } as unknown as TUI,
+      viewHost(12),
       theme,
       snapshot,
       vi.fn(),
@@ -2323,7 +2322,7 @@ describe("Fabric dynamic UI", () => {
     const current = snapshot();
     current.agents[0]!.status = "error";
     const dashboard = new FabricDashboard(
-      { requestRender: vi.fn() } as unknown as TUI,
+      viewHost(),
       theme,
       () => current,
       vi.fn(),
@@ -2343,7 +2342,7 @@ describe("Fabric dynamic UI", () => {
     const current = snapshot();
     const inspectedRun = current.runs[0]!;
     const dashboard = new FabricDashboard(
-      { requestRender: vi.fn() } as unknown as TUI,
+      viewHost(),
       theme,
       () => current,
       vi.fn(),
@@ -2379,7 +2378,7 @@ describe("Fabric dynamic UI", () => {
 
   it("keeps narrow detail and editor modes operable", () => {
     const dashboard = new FabricDashboard(
-      { requestRender: vi.fn() } as unknown as TUI,
+      viewHost(),
       theme,
       snapshot,
       vi.fn(),
@@ -2409,15 +2408,15 @@ describe("Fabric dynamic UI", () => {
     }
   });
 
-  it("bounds dashboard height to the effective overlay and keeps its footer", () => {
+  it("bounds dashboard height to the fullscreen overlay and keeps its footer", () => {
     for (const rows of [5, 7, 8, 9, 10, 12, 43]) {
       const dashboard = new FabricDashboard(
-        { requestRender: vi.fn(), terminal: { rows } } as unknown as TUI,
+        viewHost(rows),
         theme,
         snapshot,
         vi.fn(),
       );
-      const overlayRows = Math.max(1, Math.min(Math.floor(rows * 0.9), rows - 2));
+      const overlayRows = rows;
       try {
         expect(dashboard.render(100).length).toBeLessThanOrEqual(overlayRows);
         dashboard.handleInput("2");
@@ -2474,7 +2473,7 @@ describe("Fabric dynamic UI", () => {
     current.events = [];
     current.main.status = "idle";
     const dashboard = new FabricDashboard(
-      { requestRender: vi.fn(), terminal: { rows: 24 } } as unknown as TUI,
+      viewHost(24),
       theme,
       () => current,
       vi.fn(),
@@ -2527,7 +2526,7 @@ describe("Fabric dynamic UI", () => {
     };
     current.agents = [parent, child];
     const dashboard = new FabricDashboard(
-      { requestRender: vi.fn(), terminal: { rows: 40 } } as unknown as TUI,
+      viewHost(40),
       theme,
       () => current,
       vi.fn(),
@@ -2604,7 +2603,7 @@ describe("Fabric dynamic UI", () => {
       },
     );
     const dashboard = new FabricDashboard(
-      { requestRender: vi.fn(), terminal: { rows: 40 } } as unknown as TUI,
+      viewHost(40),
       theme,
       () => current,
       vi.fn(),
@@ -2728,7 +2727,7 @@ describe("Fabric dynamic UI", () => {
       updatedAt: current.now,
     }];
     const dashboard = new FabricDashboard(
-      { requestRender: vi.fn(), terminal: { rows: 40 } } as unknown as TUI,
+      viewHost(40),
       theme,
       () => current,
       vi.fn(),
@@ -2764,7 +2763,7 @@ describe("Fabric dynamic UI", () => {
       finishedAt: current.now - 1_000,
     };
     const dashboard = new FabricDashboard(
-      { requestRender: vi.fn(), terminal: { rows: 14 } } as unknown as TUI,
+      viewHost(14),
       theme,
       () => current,
       vi.fn(),
@@ -2803,7 +2802,7 @@ describe("Fabric dynamic UI", () => {
       ...(index === 56 ? {} : { finishedAt: current.now - 1_000 }),
     }));
     const dashboard = new FabricDashboard(
-      { requestRender: vi.fn(), terminal: { rows: 24 } } as unknown as TUI,
+      viewHost(24),
       theme,
       () => current,
       vi.fn(),
@@ -2846,7 +2845,7 @@ describe("Fabric dynamic UI", () => {
       ...(index > 0 ? { parentId: `deep-node-${index - 1}` } : {}),
     }));
     const dashboard = new FabricDashboard(
-      { requestRender: vi.fn(), terminal: { rows: 24 } } as unknown as TUI,
+      viewHost(24),
       theme,
       () => current,
       vi.fn(),
@@ -2884,7 +2883,7 @@ describe("Fabric dynamic UI", () => {
     current.agents = [root, leaf];
     const requestRender = vi.fn();
     const dashboard = new FabricDashboard(
-      { requestRender, terminal: { rows: 24 } } as unknown as TUI,
+      { requestRender, size: () => ({ columns: 120, rows: 24 }) },
       theme,
       () => current,
       vi.fn(),
@@ -2934,7 +2933,7 @@ describe("Fabric dynamic UI", () => {
       },
     );
     const dashboard = new FabricDashboard(
-      { requestRender: vi.fn(), terminal: { rows: 40 } } as unknown as TUI,
+      viewHost(40),
       theme,
       () => current,
       vi.fn(),
@@ -3032,7 +3031,7 @@ describe("Fabric dashboard global actors and instructions editor", () => {
   };
 
   it("edits a global template delivery policy", () => {
-    const tui = { requestRender: vi.fn(), terminal: { rows: 40 } } as unknown as TUI;
+    const tui = viewHost(40);
     const onGlobalDeliveryPolicy = vi.fn();
     const dashboard = new FabricDashboard(tui, theme, baseSnapshot, vi.fn(), {
       onGlobalDeliveryPolicy,
@@ -3051,7 +3050,7 @@ describe("Fabric dashboard global actors and instructions editor", () => {
   });
 
   it("lists global templates and offers import/instructions/delete in their detail", () => {
-    const tui = { requestRender: vi.fn(), terminal: { rows: 40 } } as unknown as TUI;
+    const tui = viewHost(40);
     const onImportActor = vi.fn();
     const onGlobalInstructions = vi.fn();
     const onRemoveGlobalActor = vi.fn();
@@ -3091,7 +3090,7 @@ describe("Fabric dashboard global actors and instructions editor", () => {
   });
 
   it("exports a project actor and edits its instructions in the embedded editor", () => {
-    const tui = { requestRender: vi.fn(), terminal: { rows: 40 } } as unknown as TUI;
+    const tui = viewHost(40);
     const onActorInstructions = vi.fn();
     const onExportActor = vi.fn();
     const dashboard = new FabricDashboard(tui, theme, baseSnapshot, vi.fn(), {

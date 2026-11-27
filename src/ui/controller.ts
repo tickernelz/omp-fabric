@@ -1,6 +1,6 @@
 import path from "node:path";
-import type { ExtensionContext } from "@oh-my-pi/pi-coding-agent";
-import type { TUI } from "@oh-my-pi/pi-tui";
+import type { ExtensionContext, ExtensionUiHost } from "@oh-my-pi/pi-coding-agent";
+import { mountView, type FabricViewHost } from "./tui/view.js";
 import type { CodePreviewSettings } from "./code-preview.js";
 import type { FabricConversationState, FabricConversationView } from "./conversation.js";
 import type { NativeConversationReader, NativeConversationSource } from "./conversation-native-reader.js";
@@ -64,8 +64,8 @@ export class FabricUiController {
   #actorUnsubscribe: (() => void) | undefined;
   #agentUnsubscribe: (() => void) | undefined;
   #scheduledRefresh: NodeJS.Timeout | undefined;
-  #widgetTui: TUI | undefined;
-  #dashboardTui: TUI | undefined;
+  #widgetUi: ExtensionUiHost | undefined;
+  #dashboardHost: FabricViewHost | undefined;
   #widgetMounted = false;
   #widget: FabricWidget | undefined;
   #lastRefreshErrorAt = 0;
@@ -74,7 +74,7 @@ export class FabricUiController {
   #conversationOpen = false;
   #conversationState: FabricConversationState | undefined;
   #conversationView: FabricConversationView | undefined;
-  #conversationTui: TUI | undefined;
+  #conversationHost: FabricViewHost | undefined;
   #closeConversation: (() => void) | undefined;
   #epoch = 0;
   #activityRevision: number | undefined;
@@ -115,7 +115,7 @@ export class FabricUiController {
     this.#closeConversation = undefined;
     this.#conversationView?.dispose();
     this.#conversationView = undefined;
-    this.#conversationTui = undefined;
+    this.#conversationHost = undefined;
     this.#conversationOpen = false;
     this.#conversationState?.clear();
     this.#conversationState = undefined;
@@ -134,8 +134,8 @@ export class FabricUiController {
       this.#context.ui.setWidget(WIDGET_ID, undefined);
     }
     this.#context = undefined;
-    this.#widgetTui = undefined;
-    this.#dashboardTui = undefined;
+    this.#widgetUi = undefined;
+    this.#dashboardHost = undefined;
     this.#widgetMounted = false;
     this.#events = [];
     this.#meshOffset = 0;
@@ -218,66 +218,67 @@ export class FabricUiController {
       const { getAgentDir } = await import("@oh-my-pi/pi-utils");
       const appearance = await readConversationAppearance(context.cwd, getAgentDir(), context.isProjectTrusted?.() ?? false);
       this.#schedulePoll(true);
-      await context.ui.custom<void>((tui, theme, keybindings, done) => {
+      await context.ui.custom<void>((ui, theme, keybindings, done) => {
         if (epoch !== this.#epoch) {
           done(undefined);
-          return { render: () => [], invalidate: () => {} };
+          return { render: () => [] };
         }
-        this.#conversationTui = tui;
         this.#closeConversation = () => done(undefined);
-        const view = new FabricConversationView(tui, theme, {
-          targets: () => conversationTargets(this.#snapshot).map((target) => {
-            const split = target.model?.indexOf("/") ?? -1;
-            if (split < 1 || !target.model) return target;
-            const model = context.modelRegistry?.find?.(target.model.slice(0, split), target.model.slice(split + 1));
-            return model && typeof model.contextWindow === "number" ? { ...target, contextWindow: model.contextWindow } : target;
-          }),
-          appearance,
-          ...(initialTarget ? { initialTargetId: initialTarget.id } : {}),
-          state: this.#conversationState!,
-          keybindings,
-          rendererOptions: this.conversationRenderers,
-          queueEvents: this.state.omp?.events,
-          ...(this.codePreviewSettings ? { codePreviewSettings: this.codePreviewSettings } : {}),
-          transcript: (id, followLatest) => readerFor(id).read(source(id), followLatest),
-          loadOlder: (id) => {
-            const reader = readerFor(id);
-            const before = reader.read(source(id), false);
-            if (!before.hasMore) return false;
-            const next = reader.loadOlder();
-            return !!next && (next.revision !== before.revision || !next.hasMore);
-          },
-          loadNewer: (id) => {
-            const reader = readerFor(id);
-            const before = reader.read(source(id), false);
-            const next = reader.loadNewer();
-            return !!next && next.revision !== before.revision;
-          },
-          loadLatest: (id) => {
-            const reader = readerFor(id);
-            const before = reader.read(source(id), false);
-            const next = reader.loadLatest();
-            return !!next && next.revision !== before.revision;
-          },
-          send: async (id, message, delivery) => {
-            requireTarget(id, delivery);
-            const result = await this.state.queueUserMessage(id, message, delivery);
-            if (epoch === this.#epoch) this.#refresh();
-            return result;
-          },
-          stop: async (id) => {
-            requireTarget(id, "stop");
-            const result = await this.state.stopParticipant(id);
-            if (epoch === this.#epoch) this.#refresh();
-            return result;
-          },
-          close: () => done(undefined),
+        const { node, view } = mountView(() => ui.size(), (host) => {
+          this.#conversationHost = host;
+          return new FabricConversationView(host, theme, {
+            targets: () => conversationTargets(this.#snapshot).map((target) => {
+              const split = target.model?.indexOf("/") ?? -1;
+              if (split < 1 || !target.model) return target;
+              const model = context.modelRegistry?.find?.(target.model.slice(0, split), target.model.slice(split + 1));
+              return model && typeof model.contextWindow === "number" ? { ...target, contextWindow: model.contextWindow } : target;
+            }),
+            appearance,
+            ...(initialTarget ? { initialTargetId: initialTarget.id } : {}),
+            state: this.#conversationState!,
+            keybindings,
+            rendererOptions: this.conversationRenderers,
+            queueEvents: this.state.omp?.events,
+            transcript: (id, followLatest) => readerFor(id).read(source(id), followLatest),
+            loadOlder: (id) => {
+              const reader = readerFor(id);
+              const before = reader.read(source(id), false);
+              if (!before.hasMore) return false;
+              const next = reader.loadOlder();
+              return !!next && (next.revision !== before.revision || !next.hasMore);
+            },
+            loadNewer: (id) => {
+              const reader = readerFor(id);
+              const before = reader.read(source(id), false);
+              const next = reader.loadNewer();
+              return !!next && next.revision !== before.revision;
+            },
+            loadLatest: (id) => {
+              const reader = readerFor(id);
+              const before = reader.read(source(id), false);
+              const next = reader.loadLatest();
+              return !!next && next.revision !== before.revision;
+            },
+            send: async (id, message, delivery) => {
+              requireTarget(id, delivery);
+              const result = await this.state.queueUserMessage(id, message, delivery);
+              if (epoch === this.#epoch) this.#refresh();
+              return result;
+            },
+            stop: async (id) => {
+              requireTarget(id, "stop");
+              const result = await this.state.stopParticipant(id);
+              if (epoch === this.#epoch) this.#refresh();
+              return result;
+            },
+            close: () => done(undefined),
+          });
         });
         this.#conversationView = view;
-        return view;
+        return node;
       }, {
         overlay: true,
-        overlayOptions: { width: "100%", maxHeight: "100%", anchor: "top-left", margin: 0 },
+        fullscreen: true,
       });
     } catch (error) {
       if (epoch === this.#epoch) context.ui.notify(safeText(error instanceof Error ? error.message : String(error)), "error");
@@ -285,7 +286,7 @@ export class FabricUiController {
       if (!alreadyOpen && epoch === this.#epoch) {
         this.#conversationView?.dispose();
         this.#conversationView = undefined;
-        this.#conversationTui = undefined;
+        this.#conversationHost = undefined;
         this.#closeConversation = undefined;
         this.#conversationOpen = false;
         this.#schedulePoll(true);
@@ -459,61 +460,56 @@ export class FabricUiController {
     const epoch = this.#epoch;
     try {
       await context.ui.custom<void>(
-        (tui, theme, keybindings, done) => {
-          this.#dashboardTui = tui;
-          return new FabricDashboard(tui, theme, () => this.#snapshot, () => done(undefined), {
-            modelSource,
-            keybindings,
-            ...(this.codePreviewSettings
-              ? { codePreviewSettings: this.codePreviewSettings }
-              : {}),
-            ...(claudeModelSource ? { claudeModelSource } : {}),
-            onTargetMessage,
-            onAgentStop,
-            onConversation: (id) => {
-              conversationTarget = id;
-              done(undefined);
-            },
-            agentTranscript: (agent, followLatest) =>
-              this.#transcripts.read(this.#agentTranscriptSource(agent), followLatest),
-            actorTranscript: (actor, followLatest) =>
-              this.#transcripts.read(this.#actorTranscriptSource(actor), followLatest),
-            loadOlderTranscript: (target) =>
-              this.#transcripts.loadOlder(this.#transcriptSource(target)),
-            loadNewerTranscript: (target) =>
-              this.#transcripts.loadNewer(this.#transcriptSource(target)),
-            loadLatestTranscript: (target) =>
-              this.#transcripts.loadLatest(this.#transcriptSource(target)),
-            onActorModel,
-            onActorThinking,
-            onActorEvents,
-            onActorDeliveryPolicy,
-            onGlobalDeliveryPolicy,
-            onActorTools,
-            actorDefaultTools: this.state.config.agents?.defaultTools ?? [],
-            onClearMessages,
-            onActorInstructions,
-            onGlobalInstructions,
-            onImportActor,
-            onExportActor,
-            onRemoveGlobalActor,
-          });
-        },
+        (ui, theme, keybindings, done) =>
+          mountView(() => ui.size(), (host) => {
+            this.#dashboardHost = host;
+            return new FabricDashboard(host, theme, () => this.#snapshot, () => done(undefined), {
+              modelSource,
+              keybindings,
+              ...(this.codePreviewSettings
+                ? { codePreviewSettings: this.codePreviewSettings }
+                : {}),
+              ...(claudeModelSource ? { claudeModelSource } : {}),
+              onTargetMessage,
+              onAgentStop,
+              onConversation: (id) => {
+                conversationTarget = id;
+                done(undefined);
+              },
+              agentTranscript: (agent, followLatest) =>
+                this.#transcripts.read(this.#agentTranscriptSource(agent), followLatest),
+              actorTranscript: (actor, followLatest) =>
+                this.#transcripts.read(this.#actorTranscriptSource(actor), followLatest),
+              loadOlderTranscript: (target) =>
+                this.#transcripts.loadOlder(this.#transcriptSource(target)),
+              loadNewerTranscript: (target) =>
+                this.#transcripts.loadNewer(this.#transcriptSource(target)),
+              loadLatestTranscript: (target) =>
+                this.#transcripts.loadLatest(this.#transcriptSource(target)),
+              onActorModel,
+              onActorThinking,
+              onActorEvents,
+              onActorDeliveryPolicy,
+              onGlobalDeliveryPolicy,
+              onActorTools,
+              actorDefaultTools: this.state.config.agents?.defaultTools ?? [],
+              onClearMessages,
+              onActorInstructions,
+              onGlobalInstructions,
+              onImportActor,
+              onExportActor,
+              onRemoveGlobalActor,
+            });
+          }).node,
         {
           overlay: true,
-          overlayOptions: {
-            width: "94%",
-            minWidth: 40,
-            maxHeight: "90%",
-            anchor: "center",
-            margin: 1,
-          },
+          fullscreen: true,
         },
       );
     } finally {
       if (epoch === this.#epoch) {
         this.#dashboardOpen = false;
-        this.#dashboardTui = undefined;
+        this.#dashboardHost = undefined;
         this.#refresh();
         this.#schedulePoll(true);
       }
@@ -624,9 +620,9 @@ export class FabricUiController {
         this.#activityRuns,
       );
       this.#renderWidget(context);
-      if (this.#conversationTui) this.#conversationTui.requestRender();
-      if (this.#dashboardTui) this.#dashboardTui.requestRender();
-      else if (this.#widgetTui && this.#widget?.hasChanged()) this.#widgetTui.requestRender();
+      if (this.#conversationHost) this.#conversationHost.requestRender();
+      if (this.#dashboardHost) this.#dashboardHost.requestRender();
+      else if (this.#widgetUi && this.#widget?.hasChanged()) this.#widgetUi.requestRender();
     } catch (error) {
       const now = Date.now();
       if (now - this.#lastRefreshErrorAt >= 10_000) {
@@ -657,8 +653,8 @@ export class FabricUiController {
       this.#widgetMounted = true;
       context.ui.setWidget(
         WIDGET_ID,
-        (tui, theme) => {
-          this.#widgetTui = tui;
+        (ui, theme) => {
+          this.#widgetUi = ui;
           this.#widget = new FabricWidget(theme, () => this.#snapshot, config.maxRows, this.conversationShortcut);
           return this.#widget;
         },
@@ -669,7 +665,7 @@ export class FabricUiController {
     if (!this.#widgetMounted) return;
     context.ui.setWidget(WIDGET_ID, undefined);
     this.#widgetMounted = false;
-    this.#widgetTui = undefined;
+    this.#widgetUi = undefined;
     this.#widget = undefined;
   }
 }

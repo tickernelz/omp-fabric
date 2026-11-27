@@ -1,22 +1,12 @@
-import type { ExtensionContext, Theme } from "@oh-my-pi/pi-coding-agent";
+import type { ExtensionContext } from "@oh-my-pi/pi-coding-agent";
+import type { Theme } from "@oh-my-pi/pi-tui/theme/contract";
 import { DynamicBorder } from "./dynamic-border.js";
-import {
-  Container,
-  type Component,
-  Input,
-  Key,
-  matchesKey,
-  SelectList,
-  type SelectItem,
-  type SelectListLayoutOptions,
-  type SelectListTheme,
-  SettingsList,
-  type SettingItem,
-  type SettingsListTheme,
-  Spacer,
-  Text,
-} from "@oh-my-pi/pi-tui";
-import { ompSymbolTheme } from "./symbol-theme.js";
+import { isAction, isKey } from "./tui/input.js";
+import { BlankRows, Stack, TextBlock } from "./tui/rows.js";
+import { type SelectItem, type SelectListLayout, SelectList } from "./tui/select-list.js";
+import { type SettingItem, SettingsList, type SettingsSubmenu } from "./tui/settings-list.js";
+import { TextField } from "./tui/text-field.js";
+import type { FabricView } from "./tui/view.js";
 import { FabricModelSelector } from "./fabric-model-selector.js";
 import {
   buildClaudeModelSource,
@@ -46,7 +36,7 @@ import type { CapturedToolCatalog } from "../capture/catalog.js";
 import type { FabricState } from "../fabric-state.js";
 import { resolveAgentDir } from "../core/agent-dir.js";
 
-const SUBMENU_LAYOUT: SelectListLayoutOptions = {
+const SUBMENU_LAYOUT: SelectListLayout = {
   minPrimaryColumnWidth: 12,
   maxPrimaryColumnWidth: 32,
 };
@@ -141,28 +131,9 @@ export const ALIASED_CONFIG_KEYS: Readonly<Record<string, string>> = {
   "compaction.tokenThresholds": COMPACTION_THRESHOLD_SETTING_ID,
   "image.models": "image.models.1",
 };
-const SAVE_SCOPE_SHORTCUT = Key.ctrl("g");
+const SAVE_SCOPE_SHORTCUT = "ctrl+g";
 
 const unique = (values: readonly string[]): string[] => [...new Set(values)];
-
-type SettingsSubmenu = (currentValue: string, done: (selectedValue?: string) => void) => Component;
-
-const settingsListTheme = (theme: Theme): SettingsListTheme => ({
-  label: (text, selected) => (selected ? theme.fg("accent", text) : text),
-  value: (text, selected) => (selected ? theme.fg("accent", text) : theme.fg("muted", text)),
-  description: (text) => theme.fg("dim", text),
-  cursor: theme.fg("accent", "→ "),
-  hint: (text) => theme.fg("dim", text),
-});
-
-const selectListTheme = (theme: Theme): SelectListTheme => ({
-  selectedPrefix: (text) => theme.fg("accent", text),
-  selectedText: (text) => theme.fg("accent", text),
-  description: (text) => theme.fg("muted", text),
-  scrollInfo: (text) => theme.fg("muted", text),
-  noMatch: (text) => theme.fg("muted", text),
-  symbols: ompSymbolTheme,
-});
 
 const formatDebounce = (ms: number): string =>
   ms === 0 ? "Off" : ms < 1_000 ? `${ms}ms` : `${ms / 1_000}s`;
@@ -657,9 +628,9 @@ const sectionSubmenu = (
     rebuild === undefined ? undefined : () => markDrillIn(rebuild()),
   );
 
-class IntegerInputSubmenu extends Container {
-  readonly input: Input;
-  private readonly validationText: Text;
+class IntegerInputSubmenu extends Stack implements FabricView {
+  readonly input: TextField;
+  private readonly validationText: TextBlock;
 
   constructor(
     theme: Theme,
@@ -667,18 +638,17 @@ class IntegerInputSubmenu extends Container {
     description: string,
     currentValue: string,
     onSelect: (value: string) => void,
-    onCancel: () => void,
+    private readonly onCancel: () => void,
   ) {
     super();
-    this.addChild(new Text(theme.bold(theme.fg("accent", title)), 0, 0));
-    this.addChild(new Spacer(1));
-    this.addChild(new Text(theme.fg("muted", description), 0, 0));
-    this.addChild(new Spacer(1));
+    this.add(new TextBlock(theme.style("strong", theme.fg("accent", title))));
+    this.add(new BlankRows(1));
+    this.add(new TextBlock(theme.fg("muted", description)));
+    this.add(new BlankRows(1));
 
-    this.input = new Input();
-    this.input.handleInput(currentValue);
-    this.input.focused = true;
-    this.validationText = new Text("", 0, 0);
+    this.input = new TextField();
+    this.input.setText(currentValue);
+    this.validationText = new TextBlock();
     this.input.onSubmit = (value) => {
       const normalized = value.trim();
       const parsed = /^\d+$/.test(normalized) ? Number(normalized) : Number.NaN;
@@ -690,32 +660,30 @@ class IntegerInputSubmenu extends Container {
       }
       onSelect(String(parsed));
     };
-    this.input.onEscape = onCancel;
-    this.addChild(this.input);
-    this.addChild(this.validationText);
-    this.addChild(new Spacer(1));
-    this.addChild(new Text(theme.fg("dim", "  Enter to save · Esc to go back"), 0, 0));
+    this.add(this.input);
+    this.add(this.validationText);
+    this.add(new BlankRows(1));
+    this.add(new TextBlock(theme.fg("dim", "  Enter to save · Esc to go back")));
   }
 
   handleInput(data: string): void {
     this.validationText.setText("");
+    if (isAction(data, "select.cancel")) {
+      this.onCancel();
+      return;
+    }
     this.input.handleInput(data);
   }
 
-  render(width: number): readonly string[] {
-    this.input.focused = true;
-    return super.render(width);
-  }
-
   submitRpc(value: string): void {
-    this.input.setValue(value);
-    this.input.handleInput("\r");
+    this.input.setText(value);
+    this.input.onSubmit?.(this.input.getText());
   }
 }
 
-class StringInputSubmenu extends Container {
-  readonly input: Input;
-  private readonly validationText: Text;
+class StringInputSubmenu extends Stack implements FabricView {
+  readonly input: TextField;
+  private readonly validationText: TextBlock;
   private readonly validate: ((value: string) => string | undefined) | undefined;
 
   constructor(
@@ -724,20 +692,19 @@ class StringInputSubmenu extends Container {
     description: string,
     currentValue: string,
     onSelect: (value: string) => void,
-    onCancel: () => void,
+    private readonly onCancel: () => void,
     validate?: (value: string) => string | undefined,
   ) {
     super();
     this.validate = validate;
-    this.addChild(new Text(theme.bold(theme.fg("accent", title)), 0, 0));
-    this.addChild(new Spacer(1));
-    this.addChild(new Text(theme.fg("muted", description), 0, 0));
-    this.addChild(new Spacer(1));
+    this.add(new TextBlock(theme.style("strong", theme.fg("accent", title))));
+    this.add(new BlankRows(1));
+    this.add(new TextBlock(theme.fg("muted", description)));
+    this.add(new BlankRows(1));
 
-    this.input = new Input();
-    this.input.handleInput(currentValue);
-    this.input.focused = true;
-    this.validationText = new Text("", 0, 0);
+    this.input = new TextField();
+    this.input.setText(currentValue);
+    this.validationText = new TextBlock();
     this.input.onSubmit = (value) => {
       const normalized = value.trim();
       const error = this.validationError(normalized);
@@ -747,11 +714,10 @@ class StringInputSubmenu extends Container {
       }
       onSelect(normalized);
     };
-    this.input.onEscape = onCancel;
-    this.addChild(this.input);
-    this.addChild(this.validationText);
-    this.addChild(new Spacer(1));
-    this.addChild(new Text(theme.fg("dim", "  Enter to save · Esc to go back"), 0, 0));
+    this.add(this.input);
+    this.add(this.validationText);
+    this.add(new BlankRows(1));
+    this.add(new TextBlock(theme.fg("dim", "  Enter to save · Esc to go back")));
   }
 
   validationError(value: string): string | undefined {
@@ -760,21 +726,20 @@ class StringInputSubmenu extends Container {
 
   handleInput(data: string): void {
     this.validationText.setText("");
+    if (isAction(data, "select.cancel")) {
+      this.onCancel();
+      return;
+    }
     this.input.handleInput(data);
   }
 
-  render(width: number): readonly string[] {
-    this.input.focused = true;
-    return super.render(width);
-  }
-
   submitRpc(value: string): void {
-    this.input.setValue(value);
-    this.input.handleInput("\r");
+    this.input.setText(value);
+    this.input.onSubmit?.(this.input.getText());
   }
 }
 
-class SelectSubmenu extends Container {
+class SelectSubmenu extends Stack implements FabricView {
   readonly selectList: SelectList;
   readonly options: SelectItem[];
 
@@ -789,25 +754,25 @@ class SelectSubmenu extends Container {
   ) {
     super();
     this.options = options;
-    this.addChild(new Text(theme.bold(theme.fg("accent", title)), 0, 0));
+    this.add(new TextBlock(theme.style("strong", theme.fg("accent", title))));
     if (description) {
-      this.addChild(new Spacer(1));
-      this.addChild(new Text(theme.fg("muted", description), 0, 0));
+      this.add(new BlankRows(1));
+      this.add(new TextBlock(theme.fg("muted", description)));
     }
-    this.addChild(new Spacer(1));
+    this.add(new BlankRows(1));
     this.selectList = new SelectList(
       options,
       Math.min(options.length, 10),
-      selectListTheme(theme),
+      theme,
       SUBMENU_LAYOUT,
     );
     const index = options.findIndex((option) => option.value === currentValue);
     if (index !== -1) this.selectList.setSelectedIndex(index);
     this.selectList.onSelect = (item) => onSelect(item.value);
     this.selectList.onCancel = onCancel;
-    this.addChild(this.selectList);
-    this.addChild(new Spacer(1));
-    this.addChild(new Text(theme.fg("dim", "  Enter to select · Esc to go back"), 0, 0));
+    this.add(this.selectList);
+    this.add(new BlankRows(1));
+    this.add(new TextBlock(theme.fg("dim", "  Enter to select · Esc to go back")));
   }
 
   handleInput(data: string): void {
@@ -825,10 +790,10 @@ class SelectSubmenu extends Container {
 // Three-phase threshold picker: the root select offers OMP default plus
 // custom percent / token drill-ins; each drill-in swaps in an integer input
 // and Esc returns to the root select instead of closing the submenu.
-class CompactionThresholdSubmenu extends Container {
+class CompactionThresholdSubmenu extends Stack implements FabricView {
   selectList: SelectList | undefined;
-  input: Input | undefined;
-  private active!: Container & { handleInput(data: string): void };
+  input: TextField | undefined;
+  private active!: FabricView;
 
   constructor(
     private readonly theme: Theme,
@@ -839,9 +804,9 @@ class CompactionThresholdSubmenu extends Container {
     this.showSelect();
   }
 
-  private swap(next: Container & { handleInput(data: string): void }): void {
+  private swap(next: FabricView): void {
     this.clear();
-    this.addChild(next);
+    this.add(next);
     this.active = next;
   }
 
@@ -903,7 +868,7 @@ class CompactionThresholdSubmenu extends Container {
   }
 
   handleInput(data: string): void {
-    this.active.handleInput(data);
+    this.active.handleInput?.(data);
   }
 
   completeRpc(selectedValue: string): void {
@@ -974,11 +939,11 @@ const modelPickerSubmenu = (
   });
 };
 
-class SectionSubmenu extends Container {
+class SectionSubmenu extends Stack implements FabricView {
   settingsList: SettingsList;
   items: SettingItem[];
   readonly applyChange: (id: string, newValue: string) => void;
-  private readonly listContainer: Container;
+  private readonly listContainer: Stack;
   private readonly rebuild: (() => SettingItem[]) | undefined;
 
   constructor(
@@ -1002,19 +967,19 @@ class SectionSubmenu extends Container {
         this.items = rebuild();
         this.listContainer.clear();
         this.settingsList = this.createList(theme, this.items, onChange, onCancel, enableSearch);
-        this.listContainer.addChild(this.settingsList);
+        this.listContainer.add(this.settingsList);
       });
     };
-    this.addChild(new Text(theme.bold(theme.fg("accent", title)), 0, 0));
+    this.add(new TextBlock(theme.style("strong", theme.fg("accent", title))));
     if (description) {
-      this.addChild(new Spacer(1));
-      this.addChild(new Text(theme.fg("muted", description), 0, 0));
+      this.add(new BlankRows(1));
+      this.add(new TextBlock(theme.fg("muted", description)));
     }
-    this.addChild(new Spacer(1));
-    this.listContainer = new Container();
+    this.add(new BlankRows(1));
+    this.listContainer = new Stack();
     this.settingsList = this.createList(theme, items, onChange, onCancel, enableSearch);
-    this.listContainer.addChild(this.settingsList);
-    this.addChild(this.listContainer);
+    this.listContainer.add(this.settingsList);
+    this.add(this.listContainer);
   }
 
   private createList(
@@ -1027,7 +992,7 @@ class SectionSubmenu extends Container {
     return new SettingsList(
       items,
       Math.min(items.length, 16),
-      settingsListTheme(theme),
+      theme,
       (id, newValue) => this.applyChange(id, newValue),
       onCancel,
       { typeToSearch: enableSearch },
@@ -1046,11 +1011,11 @@ export interface FabricSettingsComponentOptions {
   itemsForSaveScope?: (scope: FabricConfigScope) => SettingItem[];
 }
 
-export class FabricSettingsComponent extends Container {
+export class FabricSettingsComponent extends Stack implements FabricView {
   settingsList: SettingsList;
   private readonly theme: Theme;
-  private readonly saveScopeText: Text;
-  private readonly settingsListContainer: Container;
+  private readonly saveScopeText: TextBlock;
+  private readonly settingsListContainer: Stack;
   private readonly projectScopeAvailable: boolean;
   private readonly onChange: (id: string, newValue: string) => void;
   private readonly onCancel: () => void;
@@ -1075,20 +1040,20 @@ export class FabricSettingsComponent extends Container {
     this.onCancel = onCancel;
     this.onSaveScopeChange = options.onSaveScopeChange ?? (() => {});
     this.itemsForSaveScope = options.itemsForSaveScope;
-    this.addChild(new DynamicBorder((text) => theme.fg("border", text)));
-    this.saveScopeText = new Text("", 1, 0);
+    this.add(new DynamicBorder((text) => theme.fg("border", text)));
+    this.saveScopeText = new TextBlock("", 1, 0);
     this.updateSaveScopeText();
-    this.addChild(this.saveScopeText);
-    this.addChild(new Spacer(1));
-    this.settingsListContainer = new Container();
+    this.add(this.saveScopeText);
+    this.add(new BlankRows(1));
+    this.settingsListContainer = new Stack();
     this.settingsList = this.createSettingsList(items);
-    this.settingsListContainer.addChild(this.settingsList);
-    this.addChild(this.settingsListContainer);
-    this.addChild(new DynamicBorder((text) => theme.fg("border", text)));
+    this.settingsListContainer.add(this.settingsList);
+    this.add(this.settingsListContainer);
+    this.add(new DynamicBorder((text) => theme.fg("border", text)));
   }
 
   handleInput(data: string): void {
-    if (matchesKey(data, SAVE_SCOPE_SHORTCUT)) {
+    if (isKey(data, SAVE_SCOPE_SHORTCUT)) {
       if (!this.projectScopeAvailable) return;
       this.saveScope = this.saveScope === "project" ? "global" : "project";
       this.updateSaveScopeText();
@@ -1097,7 +1062,7 @@ export class FabricSettingsComponent extends Container {
       if (nextItems) {
         this.settingsListContainer.clear();
         this.settingsList = this.createSettingsList(nextItems);
-        this.settingsListContainer.addChild(this.settingsList);
+        this.settingsListContainer.add(this.settingsList);
       }
       return;
     }
@@ -1108,7 +1073,7 @@ export class FabricSettingsComponent extends Container {
     return new SettingsList(
       items,
       10,
-      settingsListTheme(this.theme),
+      this.theme,
       this.onChange,
       this.onCancel,
       { typeToSearch: true },
@@ -2994,7 +2959,7 @@ const editRpcSetting = async (
     if (selected === undefined || !component.selectRpc(selected)) return;
   } else if (component instanceof IntegerInputSubmenu) {
     while (!completed) {
-      const value = await context.ui.input(rpcTitle(path, item.description), component.input.getValue());
+      const value = await context.ui.input(rpcTitle(path, item.description), component.input.getText());
       if (value === undefined) return;
       if (!/^\d+$/.test(value.trim()) || !Number.isSafeInteger(Number(value.trim()))) {
         context.ui.notify("Enter a non-negative safe integer.", "warning");
@@ -3004,7 +2969,7 @@ const editRpcSetting = async (
     }
   } else if (component instanceof StringInputSubmenu) {
     while (!completed) {
-      const value = await context.ui.input(rpcTitle(path, item.description), component.input.getValue());
+      const value = await context.ui.input(rpcTitle(path, item.description), component.input.getText());
       if (value === undefined) return;
       const error = component.validationError(value);
       if (error !== undefined) {
@@ -3205,7 +3170,7 @@ export async function openFabricSettings(
     return;
   } else {
     await context.ui.custom<void>(
-      (tui, theme, _keybindings, done) => {
+      (ui, theme, _keybindings, done) => {
         const component = new FabricSettingsComponent(
           theme,
           itemsForScope(saveScope, theme),
@@ -3216,7 +3181,7 @@ export async function openFabricSettings(
             projectScopeAvailable: projectTrusted,
             onSaveScopeChange: (scope) => {
               saveScope = scope;
-              tui.requestRender();
+              ui.requestRender();
             },
             itemsForSaveScope: (scope) => itemsForScope(scope, theme),
           },
