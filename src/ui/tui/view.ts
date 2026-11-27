@@ -23,7 +23,7 @@ export interface FabricViewHost {
 
 const VIEW_ROLE = "fabric.view";
 const WHEEL_ROWS = 3;
-const mounted = new WeakMap<UiNode, { view: FabricView; paint: (width: number) => string[]; requestRender: () => void }>();
+const mounted = new WeakMap<UiNode, { view: FabricView; paint: (width: number) => string[]; wheel: (rows: number) => void }>();
 let roleRegistered = false;
 
 const registerRole = (): void => {
@@ -37,10 +37,9 @@ const registerRole = (): void => {
     mouse(node, mouse) {
       const entry = mounted.get(node);
       if (!entry?.view.handleWheel || mouse.action !== "press") return false;
-      if (mouse.button === "wheel-up") entry.view.handleWheel(-WHEEL_ROWS);
-      else if (mouse.button === "wheel-down") entry.view.handleWheel(WHEEL_ROWS);
+      if (mouse.button === "wheel-up") entry.wheel(-WHEEL_ROWS);
+      else if (mouse.button === "wheel-down") entry.wheel(WHEEL_ROWS);
       else return false;
-      entry.requestRender();
       return true;
     },
   });
@@ -66,22 +65,39 @@ export const asRows = (output: unknown, theme: Theme): Rows => {
   return { render: (width) => renderBlock(node, width, { theme }).rows };
 };
 
+const errorText = (error: unknown): string => (error instanceof Error ? error.message : String(error));
+
 export const mountView = <V extends FabricView>(
   size: FabricViewHost["size"],
   build: (host: FabricViewHost) => V,
+  onError?: (error: unknown) => void,
 ): { node: UiNode; view: V } => {
   registerRole();
   const revision = signal(0);
   const requestRender = (): void => revision.set(untrack(revision) + 1);
   const view = build({ requestRender, size });
-  const deliver = (data: string): boolean => {
-    view.handleInput?.(data);
+  let paintFailed = false;
+  const contain = (action: () => void): true => {
+    try {
+      action();
+    } catch (error) {
+      onError?.(error);
+    }
     requestRender();
     return true;
   };
+  const deliver = (data: string): boolean => contain(() => view.handleInput?.(data));
   const paint = (width: number): string[] => {
     revision();
-    return view.render(width).map((row) => truncate(row, width, ""));
+    try {
+      const rows = view.render(width).map((row) => truncate(row, width, ""));
+      paintFailed = false;
+      return rows;
+    } catch (error) {
+      if (!paintFailed) onError?.(error);
+      paintFailed = true;
+      return [truncate(`⚠ Fabric view failed to render: ${errorText(error)}`, width)];
+    }
   };
   const node = new UiNode("canvas", {
     paint,
@@ -89,6 +105,6 @@ export const mountView = <V extends FabricView>(
     onKey: (key: KeyEvent) => key.kind !== "release" && deliver(key.raw),
     onPaste: (paste: PasteEvent) => deliver(`\x1b[200~${paste.text}\x1b[201~`),
   });
-  mounted.set(node, { view, paint, requestRender });
+  mounted.set(node, { view, paint, wheel: (rows) => contain(() => view.handleWheel?.(rows)) });
   return { node, view };
 };

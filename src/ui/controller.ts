@@ -1,6 +1,6 @@
 import path from "node:path";
 import type { ExtensionContext, ExtensionUiHost } from "@oh-my-pi/pi-coding-agent";
-import { mountView, type FabricViewHost } from "./tui/view.js";
+import { mountView, type FabricView, type FabricViewHost } from "./tui/view.js";
 import type { CodePreviewSettings } from "./code-preview.js";
 import type { FabricConversationState, FabricConversationView } from "./conversation.js";
 import type { NativeConversationReader, NativeConversationSource } from "./conversation-native-reader.js";
@@ -66,6 +66,7 @@ export class FabricUiController {
   #scheduledRefresh: NodeJS.Timeout | undefined;
   #widgetUi: ExtensionUiHost | undefined;
   #dashboardHost: FabricViewHost | undefined;
+  #dashboardView: FabricView | undefined;
   #widgetMounted = false;
   #widget: FabricWidget | undefined;
   #lastRefreshErrorAt = 0;
@@ -136,6 +137,8 @@ export class FabricUiController {
     this.#context = undefined;
     this.#widgetUi = undefined;
     this.#dashboardHost = undefined;
+    this.#dashboardView?.dispose?.();
+    this.#dashboardView = undefined;
     this.#widgetMounted = false;
     this.#events = [];
     this.#meshOffset = 0;
@@ -273,7 +276,7 @@ export class FabricUiController {
             },
             close: () => done(undefined),
           });
-        });
+        }, this.#viewErrorReporter(context, epoch));
         this.#conversationView = view;
         return node;
       }, {
@@ -292,6 +295,13 @@ export class FabricUiController {
         this.#schedulePoll(true);
       }
     }
+  }
+
+  #viewErrorReporter(context: ExtensionContext, epoch: number): (error: unknown) => void {
+    return (error) => {
+      if (epoch !== this.#epoch) return;
+      context.ui.notify(safeText(`Fabric view error: ${error instanceof Error ? error.message : String(error)}`), "error");
+    };
   }
 
   async openDashboard(context: ExtensionContext): Promise<void> {
@@ -457,11 +467,12 @@ export class FabricUiController {
     };
     this.#schedulePoll(true);
     let conversationTarget: string | undefined;
+    let dashboard: FabricView | undefined;
     const epoch = this.#epoch;
     try {
       await context.ui.custom<void>(
-        (ui, theme, keybindings, done) =>
-          mountView(() => ui.size(), (host) => {
+        (ui, theme, keybindings, done) => {
+          const mounted = mountView(() => ui.size(), (host) => {
             this.#dashboardHost = host;
             return new FabricDashboard(host, theme, () => this.#snapshot, () => done(undefined), {
               modelSource,
@@ -500,13 +511,19 @@ export class FabricUiController {
               onExportActor,
               onRemoveGlobalActor,
             });
-          }).node,
+          }, this.#viewErrorReporter(context, epoch));
+          dashboard = mounted.view;
+          this.#dashboardView = mounted.view;
+          return mounted.node;
+        },
         {
           overlay: true,
           fullscreen: true,
         },
       );
     } finally {
+      dashboard?.dispose?.();
+      if (this.#dashboardView === dashboard) this.#dashboardView = undefined;
       if (epoch === this.#epoch) {
         this.#dashboardOpen = false;
         this.#dashboardHost = undefined;
