@@ -1,8 +1,8 @@
 import type { KeyEvent } from "@oh-my-pi/pi-tui";
-import { widgetActionOf, type WidgetAction } from "@oh-my-pi/pi-tui/term/keymap";
+import type { WidgetAction } from "@oh-my-pi/pi-tui/term/keymap";
 import { inverse } from "@oh-my-pi/pi-tui/theme/theme";
 import { visibleWidth } from "@oh-my-pi/pi-tui/text/width";
-import { decodeTerminalInput, typedText } from "./input.js";
+import { actionOf, decodeTerminalInput, typedText } from "./input.js";
 import type { Rows } from "./view.js";
 
 interface TextFieldOptions {
@@ -87,7 +87,7 @@ export class TextField implements Rows {
       this.onSubmit?.(this.text);
       return true;
     }
-    const action = widgetActionOf(key.id, EDIT_ACTIONS);
+    const action = actionOf(key.id, EDIT_ACTIONS);
     if (action) return this.apply(action);
     const typed = typedText(key);
     if (typed === undefined) return false;

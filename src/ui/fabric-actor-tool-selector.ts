@@ -1,6 +1,5 @@
 import type { Theme } from "@oh-my-pi/pi-tui/theme/contract";
-import { widgetKeyMatches } from "@oh-my-pi/pi-tui/term/keymap";
-import { decodeTerminalInput } from "./tui/input.js";
+import { decodeTerminalInput, keyMatches } from "./tui/input.js";
 import { TextBlock } from "./tui/rows.js";
 import type { FabricView } from "./tui/view.js";
 
@@ -46,10 +45,10 @@ export class FabricActorToolSelector implements FabricView {
     for (const event of decodeTerminalInput(keyData)) {
       if (event.type !== "key") continue;
       const key = event.key;
-      if (widgetKeyMatches(key, "select.up")) {
+      if (keyMatches(key, "select.up")) {
         this.selectedIndex =
           this.selectedIndex === 0 ? ACTOR_TOOL_ORDER.length - 1 : this.selectedIndex - 1;
-      } else if (widgetKeyMatches(key, "select.down")) {
+      } else if (keyMatches(key, "select.down")) {
         this.selectedIndex =
           this.selectedIndex === ACTOR_TOOL_ORDER.length - 1 ? 0 : this.selectedIndex + 1;
       } else if (key.id === "space") {
@@ -58,13 +57,13 @@ export class FabricActorToolSelector implements FabricView {
           if (this.enabled.has(tool)) this.enabled.delete(tool);
           else this.enabled.add(tool);
         }
-      } else if (widgetKeyMatches(key, "select.confirm")) {
+      } else if (keyMatches(key, "select.confirm")) {
         const selected = ACTOR_TOOL_ORDER.filter((tool) => this.enabled.has(tool));
         const custom = [...this.enabled].filter(
           (tool) => !ACTOR_TOOL_ORDER.includes(tool as (typeof ACTOR_TOOL_ORDER)[number]),
         );
         this.onSelectCallback([...selected, ...custom]);
-      } else if (widgetKeyMatches(key, "select.cancel")) {
+      } else if (keyMatches(key, "select.cancel")) {
         this.onCancelCallback();
       }
     }

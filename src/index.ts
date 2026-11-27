@@ -93,6 +93,7 @@ import { FabricState } from "./fabric-state.js";
 import { classifyToolResult } from "./repairs/classify.js";
 import { getActiveRepairCompiler } from "./repairs/active.js";
 import { ompHostCompatibilityWarning, resolveHostVersion } from "./host-compatibility.js";
+import { hostTermDiagnostic } from "./ui/tui/host-term.js";
 import { scheduleFabricUpdateCheck } from "./update/check.js";
 import {
   FABRIC_COMPONENT_REGISTER_EVENT,
@@ -531,8 +532,9 @@ export default async function ompFabric(omp: ExtensionAPI): Promise<void> {
     refreshProxyLedger(context);
     if (!compatibilityWarningShown) {
       compatibilityWarningShown = true;
-      const warning = ompHostCompatibilityWarning(await resolveHostVersion());
-      if (warning) {
+      const warnings = [ompHostCompatibilityWarning(await resolveHostVersion()), hostTermDiagnostic()];
+      for (const warning of warnings) {
+        if (!warning) continue;
         console.warn(`[omp-fabric] ${warning}`);
         if (context.hasUI) context.ui.notify(warning, "warning");
       }

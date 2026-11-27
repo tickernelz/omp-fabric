@@ -1,7 +1,6 @@
 import type { Theme } from "@oh-my-pi/pi-tui/theme/contract";
-import { widgetKeyMatches } from "@oh-my-pi/pi-tui/term/keymap";
 import { padTo, truncate, visibleWidth } from "@oh-my-pi/pi-tui/text/width";
-import { decodeTerminalInput } from "./input.js";
+import { decodeTerminalInput, keyMatches } from "./input.js";
 import type { Rows } from "./view.js";
 
 export interface SelectItem {
@@ -42,13 +41,13 @@ export class SelectList implements Rows {
       if (event.type !== "key") continue;
       const key = event.key;
       const count = this.items.length;
-      if (widgetKeyMatches(key, "select.cancel")) this.onCancel?.();
+      if (keyMatches(key, "select.cancel")) this.onCancel?.();
       else if (count === 0) continue;
-      else if (widgetKeyMatches(key, "select.up")) this.selectedIndex = (this.selectedIndex - 1 + count) % count;
-      else if (widgetKeyMatches(key, "select.down")) this.selectedIndex = (this.selectedIndex + 1) % count;
-      else if (widgetKeyMatches(key, "select.pageUp")) this.setSelectedIndex(this.selectedIndex - this.pageSize());
-      else if (widgetKeyMatches(key, "select.pageDown")) this.setSelectedIndex(this.selectedIndex + this.pageSize());
-      else if (widgetKeyMatches(key, "select.confirm")) {
+      else if (keyMatches(key, "select.up")) this.selectedIndex = (this.selectedIndex - 1 + count) % count;
+      else if (keyMatches(key, "select.down")) this.selectedIndex = (this.selectedIndex + 1) % count;
+      else if (keyMatches(key, "select.pageUp")) this.setSelectedIndex(this.selectedIndex - this.pageSize());
+      else if (keyMatches(key, "select.pageDown")) this.setSelectedIndex(this.selectedIndex + this.pageSize());
+      else if (keyMatches(key, "select.confirm")) {
         const item = this.items[this.selectedIndex];
         if (item) this.onSelect?.(item);
       }

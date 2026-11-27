@@ -1,7 +1,6 @@
 import type { Theme } from "@oh-my-pi/pi-tui/theme/contract";
-import { widgetKeyMatches } from "@oh-my-pi/pi-tui/term/keymap";
 import { fuzzyFilter } from "@oh-my-pi/pi-coding-agent/utils/fuzzy";
-import { keyOf } from "./tui/input.js";
+import { keyMatches, keyOf } from "./tui/input.js";
 import { BlankRows, Stack, TextBlock } from "./tui/rows.js";
 import { TextField } from "./tui/text-field.js";
 import type { FabricView } from "./tui/view.js";
@@ -103,20 +102,20 @@ export class FabricModelSelector extends Stack implements FabricView {
 
   handleInput(keyData: string): void {
     const key = keyOf(keyData);
-    if (key && widgetKeyMatches(key, "select.up")) {
+    if (key && keyMatches(key, "select.up")) {
       if (this.filteredEntries.length === 0) return;
       this.selectedIndex =
         this.selectedIndex === 0 ? this.filteredEntries.length - 1 : this.selectedIndex - 1;
       this.updateList();
-    } else if (key && widgetKeyMatches(key, "select.down")) {
+    } else if (key && keyMatches(key, "select.down")) {
       if (this.filteredEntries.length === 0) return;
       this.selectedIndex =
         this.selectedIndex === this.filteredEntries.length - 1 ? 0 : this.selectedIndex + 1;
       this.updateList();
-    } else if (key && widgetKeyMatches(key, "select.confirm")) {
+    } else if (key && keyMatches(key, "select.confirm")) {
       const entry = this.filteredEntries[this.selectedIndex];
       if (entry) this.handleSelect(entry);
-    } else if (key && widgetKeyMatches(key, "select.cancel")) {
+    } else if (key && keyMatches(key, "select.cancel")) {
       this.onCancelCallback();
     } else {
       this.searchInput.handleInput(keyData);

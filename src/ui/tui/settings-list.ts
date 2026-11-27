@@ -1,8 +1,7 @@
 import type { Theme } from "@oh-my-pi/pi-tui/theme/contract";
-import { widgetKeyMatches } from "@oh-my-pi/pi-tui/term/keymap";
 import { padTo, truncate, visibleWidth, wrap } from "@oh-my-pi/pi-tui/text/width";
 import { fuzzyFilter } from "@oh-my-pi/pi-coding-agent/utils/fuzzy";
-import { decodeTerminalInput, typedText } from "./input.js";
+import { decodeTerminalInput, keyMatches, typedText } from "./input.js";
 import type { FabricView } from "./view.js";
 
 export type SettingsSubmenu = (currentValue: string, done: (selectedValue?: string) => void) => FabricView;
@@ -66,20 +65,20 @@ export class SettingsList implements FabricView {
       }
       const key = event.key;
       const count = this.visibleItems().length;
-      if (widgetKeyMatches(key, "select.cancel")) {
+      if (keyMatches(key, "select.cancel")) {
         if (this.query !== "") this.setQuery("");
         else this.onCancel();
-      } else if (widgetKeyMatches(key, "select.up")) {
+      } else if (keyMatches(key, "select.up")) {
         if (count > 0) this.selectedIndex = (this.selectedIndex - 1 + count) % count;
-      } else if (widgetKeyMatches(key, "select.down")) {
+      } else if (keyMatches(key, "select.down")) {
         if (count > 0) this.selectedIndex = (this.selectedIndex + 1) % count;
-      } else if (widgetKeyMatches(key, "select.pageUp")) {
+      } else if (keyMatches(key, "select.pageUp")) {
         this.selectedIndex = Math.max(0, this.selectedIndex - this.pageSize());
-      } else if (widgetKeyMatches(key, "select.pageDown")) {
+      } else if (keyMatches(key, "select.pageDown")) {
         this.selectedIndex = Math.max(0, Math.min(count - 1, this.selectedIndex + this.pageSize()));
-      } else if (widgetKeyMatches(key, "select.confirm") || (key.id === "space" && this.query === "")) {
+      } else if (keyMatches(key, "select.confirm") || (key.id === "space" && this.query === "")) {
         this.activate();
-      } else if (this.options.typeToSearch && widgetKeyMatches(key, "editor.deleteCharBackward")) {
+      } else if (this.options.typeToSearch && keyMatches(key, "editor.deleteCharBackward")) {
         if (this.query !== "") this.setQuery(Array.from(this.query).slice(0, -1).join(""));
       } else if (this.options.typeToSearch) {
         const typed = typedText(key);
