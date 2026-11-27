@@ -11,6 +11,7 @@
 ### Fixed
 
 - A pi-tui module or export missing from the host no longer stops omp-fabric from loading. `term/paint`, `term/widgets`, `term/render`, `term/keymap` and `driver/input/decoder` load through dynamic imports, and each export Fabric calls is checked. When one is missing, Fabric warns once at startup and its views degrade: no mouse wheel scrolling, the default widget keys, keys taken from the host key event, and one notice row in place of a host-drawn preview. 19.2.1 itself dropped an internal pi-tui export (`oneLine` in `term/painters/picker`).
+- `ParticipantDirectory.refresh()` no longer hands a caller the refresh that was already running. A caller that had just changed the mesh received a result read before its change; the heartbeat tick raced `tests/participant-directory.test.ts` this way on ubuntu (run 45939865443). A caller now waits for the running refresh and runs one more; the heartbeat still joins the running one.
 
 ### Added
 
@@ -21,7 +22,7 @@
 - Prompt cost of the #25 change, `omp -p` on 19.2.1 with default full code mode: without an essential extension tool, 24 tools and 96,543 schema bytes before and after; one essential probe tool adds 1 tool and 324 schema bytes, and `capture.keepEssentialVisible: false` brings it back to 24.
 - `tests/host-term-fallback.test.ts` fails 3 of its 4 tests with the static imports restored. `omp -p` on 19.2.1 with this build loads without the fallback warning.
 - `check:host-imports` on 19.2.1: 83 files, 34 specifiers, 47 names in about 1.2 s, also clean with `--binary` against the installed omp 19.2.1.
-- CI: Test run 45939430272 at dfb15fa2 (#27) and run 45938061070 at bb9e8d9a (#21), green on ubuntu and windows.
+- CI: Test run 45940500961 at the code commit ee4e5991 (#27) and run 45938061070 at bb9e8d9a (#21), green on ubuntu and windows.
 
 ## 1.28.0
 
