@@ -216,8 +216,6 @@ export const createFabricExecTool = (
     label: "Fabric",
     readsSkillUris: true,
     mergeCallAndResult: true,
-    // Stay top-level: the default "discoverable" lets the host defer fabric_exec out of
-    // the model-facing set, and the bash/eval fallbacks it forces are both broken shapes.
     loadMode: "essential",
     description:
       "Execute type-checked TypeScript through Fabric's configured executor for OMP tools, MCP, Fabric providers, discovery, and extensions. QuickJS is isolated by default; the optional Node/Bun process is an unsafe trusted-code escape hatch. In full code mode, and always in Schema enforce mode, this is the exclusive model tool path. The callable `omp` core surface is exactly `read`, `bash`, `edit`, `write`, `grep`, `find`, `ls`, and `wait`; `lsp`, `ast_grep`, `ast_edit`, `github`, and `debug` are not reachable from guest code, so use `grep`/`find` plus `bash` for structure-shaped work. MCP servers are reachable as `mcp.<server>.<tool>`; `mcp__<server>_<tool>` names are routed there too.",
