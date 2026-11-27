@@ -246,6 +246,69 @@ describe("ParticipantDirectory", () => {
     });
   });
 
+  it("reads mesh changes made while an earlier refresh is still running", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-topology-"));
+    roots.push(root);
+    const meshRoot = path.join(root, "mesh");
+    const mesh = new MeshStore(meshRoot, 64 * 1024, 1_000);
+    const oldIdentity: MeshIdentity = { id: "session:old", name: "main", kind: "main", sessionId: "old-session" };
+    const session = await mesh.put({
+      key: "sessions/old-session",
+      value: {
+        id: oldIdentity.id,
+        name: "Peer old-sess",
+        kind: "peer",
+        status: "idle",
+        runner: "omp",
+        transport: "host",
+        cwd: "/tmp/project",
+        sessionId: "old-session",
+        startedAt: 1,
+        updatedAt: Date.now(),
+        pendingMessages: false,
+        local: false,
+      },
+      identity: oldIdentity,
+    });
+    await mesh.put({
+      key: "actors/old-session/actor:legacy",
+      value: { id: "actor:legacy", name: "legacy actor", status: "idle", runner: "omp", createdAt: 1 },
+      identity: oldIdentity,
+    });
+    const identity: MeshIdentity = { id: "session:new", name: "main", kind: "main", sessionId: "new-session" };
+    let tick = 0;
+    const directory = createDirectory(meshRoot, identity, identity.id, () => [
+      rootRecord(identity.id, identity.id, "new-session"),
+      { ...agentRecord("agent:tick", identity.id, identity.id, identity.id), name: `tick ${tick++}` },
+      { ...agentRecord("actor:legacy", identity.id, identity.id, identity.id), kind: "actor", transport: "host" },
+    ]);
+    await directory.start();
+
+    const put = directory.mesh.put.bind(directory.mesh);
+    let armed = true;
+    let reached!: () => void;
+    let release!: () => void;
+    const blocked = new Promise<void>((resolve) => { reached = resolve; });
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    vi.spyOn(directory.mesh, "put").mockImplementation(async (input) => {
+      if (armed && (input.value as { id?: unknown } | undefined)?.id === "agent:tick") {
+        armed = false;
+        reached();
+        await gate;
+      }
+      return put(input);
+    });
+
+    const earlier = directory.refresh();
+    await blocked;
+    await mesh.delete({ key: session.key, ifVersion: session.version });
+    const later = directory.refresh();
+    release();
+    await later;
+    await earlier;
+    expect(directory.get("actor:legacy")).toMatchObject({ ownerHostId: identity.id, controlProtocol: "v1" });
+  });
+
   it("never shares agent prompts, results, or errors in participant state", async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-topology-"));
     roots.push(root);
