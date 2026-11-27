@@ -161,6 +161,7 @@ export interface FabricAgentConfig {
 export interface FabricToolCaptureConfig {
   enabled: boolean;
   hideFromModel: boolean;
+  keepEssentialVisible: boolean;
   keepVisible: string[];
   includeTools: string[];
   excludeTools: string[];
@@ -505,6 +506,7 @@ export const DEFAULT_FABRIC_CONFIG: FabricConfig = {
   capture: {
     enabled: true,
     hideFromModel: true,
+    keepEssentialVisible: true,
     keepVisible: ["fabric_exec"],
     includeTools: [],
     excludeTools: [],
@@ -1146,6 +1148,10 @@ export const normalizeFabricConfig = (input: Record<string, unknown>): FabricCon
         capture.hideFromModel,
         DEFAULT_FABRIC_CONFIG.capture.hideFromModel,
       ),
+      keepEssentialVisible: booleanValue(
+        capture.keepEssentialVisible,
+        DEFAULT_FABRIC_CONFIG.capture.keepEssentialVisible,
+      ),
       keepVisible: [...new Set(configuredVisible)],
       includeTools: [...new Set(configuredIncluded)],
       excludeTools: [...new Set(configuredExcluded)],
@@ -1499,6 +1505,7 @@ export const effectiveToolCaptureConfig = (
         ...config.capture,
         enabled: true,
         hideFromModel: true,
+        keepEssentialVisible: false,
         keepVisible: ["fabric_exec"],
         risks: { ...config.capture.risks },
       }
@@ -1517,6 +1524,17 @@ export const effectiveToolCaptureConfig = (
           keepVisible: [...config.capture.keepVisible],
           risks: { ...config.capture.risks },
         };
+
+export const capturedToolHiddenFromModel = (
+  policy: FabricToolCaptureConfig,
+  name: string,
+  loadMode: unknown,
+): boolean =>
+  policy.hideFromModel &&
+  !policy.keepVisible.includes(name) &&
+  !policy.includeTools.includes(name) &&
+  !policy.excludeTools.includes(name) &&
+  !(policy.keepEssentialVisible && loadMode === "essential" && !OMP_CORE_TOOL_NAME_SET.has(name));
 
 interface FabricConfigFilePlan {
   path: string;

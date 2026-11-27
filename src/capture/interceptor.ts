@@ -47,6 +47,7 @@ const definitionDelegatesTo = (
 const clonePolicy = (config: FabricToolCaptureConfig): FabricToolCaptureConfig => ({
   enabled: config.enabled,
   hideFromModel: config.hideFromModel,
+  keepEssentialVisible: config.keepEssentialVisible,
   keepVisible: [...config.keepVisible],
   includeTools: [...config.includeTools],
   excludeTools: [...config.excludeTools],
