@@ -47,6 +47,9 @@ jobs:
       - name: Build
         if: matrix.shard == 1
         run: bun run build
+      - name: Check host imports
+        if: matrix.shard == 1
+        run: bun run check:host-imports
       - name: Lint (dead code)
         if: matrix.shard == 1
         run: bun run lint:dead
