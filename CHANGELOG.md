@@ -1,5 +1,24 @@
 # Changelog
 
+## 1.28.0
+
+### Changed (breaking)
+
+- OMP 19.2.0 is the minimum host. OMP 19.2 replaced `@oh-my-pi/pi-tui` with a node-based TUI library and stopped re-exporting the old components from the `@oh-my-pi/pi-coding-agent` root, so 1.27.x fails to load there (`Export named 'truncateToWidth' not found`). The peer floor of pi-coding-agent, pi-natives and pi-tui moves from `>=18.4.4` to `>=19.2.0`, `MINIMUM_OMP_HOST_VERSION` from 18.4.4 to 19.2.0, and the host pins from 19.1.1 to 19.2.1. Hosts from 18.4.4 to 19.1.x stay on 1.27.x.
+- The dashboard (`/fabric`) and the focused conversation (`/fabric chat`) open as full-screen overlays (`{ overlay: true, fullscreen: true }`). The old pi-tui positioning options (94% by 90% centered for the dashboard) no longer exist on the host.
+- The conversation transcript is drawn by Fabric: the host no longer exposes its message, tool and summary components to extensions (none of the 1881 module ids in the 19.2.1 binary is under `pi-coding-agent/ui`). User prompts sit on the user message background, assistant text and thinking go through pi-tui Markdown, a tool with its own `renderCall` or `renderResult` (such as `fabric_exec`) draws itself, and other tools show a compact card with arguments and a result that the tool-expand key unfolds. Images inside tool results are no longer shown there, and `terminal.showImages` is no longer read.
+- Mouse wheel scrolling in the conversation reaches Fabric through the host when OMP mouse reporting (`tui.mouse`) is on. Fabric no longer switches the terminal into mouse mode itself; with `tui.mouse` off, a terminal that turns the wheel into arrow keys on the alternate screen scrolls through the line keys.
+
+### Added
+
+- `src/ui/tui/`: Fabric's own row primitives (`TextBlock`, `Stack`, `BlankRows`), a single and multi-line `TextField`, `SelectList` and `SettingsList`. Keys come from the pi-tui widget keymap that OMP keeps in sync with the user's keybindings (`select.*`, `editor.*`), and application actions (`app.tools.expand`, `app.message.followUp`, `tui.editor.pageUp`) from the host `KeybindingsManager`.
+- `mountView` mounts a Fabric view as a pi-tui `canvas` node with a role painter and role widget, so key and paste events reach the view, repaints follow a signal, and wheel events reach `handleWheel` through the node's hit region.
+
+### Removed
+
+- `src/ui/symbol-theme.ts`, the copied pi-tui symbol table. Styling goes through the host theme (`theme.style("strong", …)` for bold), and diff backgrounds derive from `theme.hex` of `toolDiffAdded`, `toolDiffRemoved`, `toolSuccessBg` and `toolErrorBg`.
+- `tests/fabric-exec-transcript-block.test.ts`, which tested the host `ToolExecutionComponent` that 19.2 removed.
+
 ## 1.27.2
 
 ### Fixed
