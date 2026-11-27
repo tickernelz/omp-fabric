@@ -297,7 +297,7 @@ export class ParticipantDirectory implements FabricParticipantSource {
       // publish fails (for example a contended mesh lock at startup), keep
       // retrying so this host joins the mesh once the lock clears instead of
       // staying invisible until the next restart.
-      this.#timer = setInterval(() => void this.refresh().catch(() => undefined), this.#heartbeatMs);
+      this.#timer = setInterval(() => void (this.#refreshing ?? this.refresh()).catch(() => undefined), this.#heartbeatMs);
       this.#timer.unref();
     }
     if (initialError) throw initialError;
@@ -319,7 +319,12 @@ export class ParticipantDirectory implements FabricParticipantSource {
 
   async refresh(): Promise<void> {
     if (this.#closed) return;
-    if (this.#refreshing) return this.#refreshing;
+    const inFlight = this.#refreshing;
+    if (inFlight) {
+      await inFlight.catch(() => undefined);
+      if (this.#closed) return;
+      if (this.#refreshing && this.#refreshing !== inFlight) return this.#refreshing;
+    }
     const operation = this.#refresh();
     this.#refreshing = operation;
     try {
