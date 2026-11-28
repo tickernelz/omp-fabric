@@ -14,7 +14,7 @@ export default function (omp: ExtensionAPI): void {
       return;
     }
     controller = new AbortController();
-    host = runResidentHostFromConfigPath(configPath, controller.signal)
+    host = runResidentHostFromConfigPath(configPath, controller.signal, ctx.models?.resolve)
       .catch(() => undefined)
       .finally(() => ctx.shutdown());
   });

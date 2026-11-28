@@ -60,6 +60,8 @@ interface FabricAgentRequest {
   runner?: FabricAgentRunner;
   transport?: FabricTransport;
   model?: string;
+  /** OMP agent definition name or an agents.roles override. */
+  role?: string;
   persona?: string;
   thinking?: FabricThinking;
   tools?: string[];

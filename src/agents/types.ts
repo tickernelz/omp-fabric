@@ -39,6 +39,8 @@ export interface AgentRunRequest {
   runner?: FabricAgentRunner;
   transport?: FabricAgentTransport;
   model?: string;
+  /** OMP agent definition name or an agents.roles override. */
+  role?: string;
   /** Veda persona name; only used when runner is "veda". */
   persona?: string;
   thinking?: FabricThinking;

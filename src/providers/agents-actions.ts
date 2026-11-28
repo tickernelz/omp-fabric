@@ -17,7 +17,12 @@ const runProperties = {
   model: {
     type: "string",
     description:
-      "OMP provider/id, a configured models.aliases name, or a search term resolved to the closest authenticated model (recency from pi-model-sort breaks ties); Claude runtime value or Veda backend model/alias are forwarded verbatim.",
+      "OMP provider/id, a Fabric model alias, a host model role such as @smol, or a search term for an authenticated model; Claude and Veda values are forwarded verbatim.",
+  },
+  role: {
+    type: "string",
+    description:
+      "An OMP agent definition name or an agents.roles override. Supplies instructions and model, thinking, and tool defaults.",
   },
   persona: {
     type: "string",

@@ -289,6 +289,15 @@ const unavailableOmpModelError = (
   );
 };
 
+const requireVisibleHostModel = (
+  query: string,
+  model: FabricModelCandidate | undefined,
+  available: readonly FabricModelCandidate[],
+): FabricModelCandidate => {
+  if (model && available.some((candidate) => sameModel(candidate, model))) return model;
+  throw unavailableOmpModelError(query);
+};
+
 /**
  * Resolve an OMP participant selector strictly within the execution owner's
  * visible registry. Exact provider/id keys never fall back to fuzzy matching;
@@ -299,13 +308,18 @@ export const resolveAvailableOmpModel = (
   options: {
     aliases: Record<string, string[]>;
     available: readonly FabricModelCandidate[];
+    resolveHostAlias?: ((alias: string) => FabricModelCandidate | undefined) | undefined;
     lastUsed?: FabricModelUsage;
   },
-): FabricModelCandidate => {
+): FabricModelCandidate & { hostAlias?: string } => {
   const query = selector.trim();
   const alias = Object.keys(options.aliases).some(
     (name) => name.toLowerCase() === query.toLowerCase(),
   );
+  if (!alias && query.startsWith("@")) {
+    const model = requireVisibleHostModel(query, options.resolveHostAlias?.(query), options.available);
+    return { ...model, hostAlias: query };
+  }
   if (PROVIDER_MODEL_RE.test(query) && !alias) {
     const exact = options.available.find(
       (model) => modelKey(model).toLowerCase() === query.toLowerCase(),

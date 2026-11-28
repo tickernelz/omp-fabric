@@ -157,6 +157,136 @@ describe("AgentManager", async () => {
     expect(manager.status(result.id).status).toBe("completed");
   });
 
+  it("applies a configured role as system prompt, model, thinking and tool defaults", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-manager-"));
+    roots.push(root);
+    const manager = new AgentManager(
+      process.cwd(),
+      {
+        ...DEFAULT_FABRIC_CONFIG.agents,
+        roles: {
+          reviewer: {
+            instructions: "Review only; do not edit.",
+            model: "anthropic/executor",
+            thinking: "high",
+            tools: ["read", "grep"],
+          },
+        },
+      },
+      { workerPath: path.resolve("tests/fixtures/fake-worker.mjs"), runRoot: root },
+    );
+    managers.push(manager);
+
+    const result = await manager.run({
+      task: "Review the change",
+      role: "reviewer",
+      transport: "process",
+    });
+    const surface = result as AgentRunResult & {
+      systemPrompt?: string;
+      model?: string;
+      thinking?: string;
+      tools?: string[];
+    };
+    expect(surface.systemPrompt).toBe("Review only; do not edit.");
+    expect(surface.model).toBe("anthropic/executor");
+    expect(surface.thinking).toBe("high");
+    expect(surface.tools).toEqual(["read", "grep", "fabric_exec"]);
+  });
+
+  it("lets explicit run settings override role defaults", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-manager-"));
+    roots.push(root);
+    const manager = new AgentManager(
+      process.cwd(),
+      {
+        ...DEFAULT_FABRIC_CONFIG.agents,
+        roles: {
+          reviewer: {
+            instructions: "Review only; do not edit.",
+            model: "anthropic/executor",
+            thinking: "high",
+            tools: ["read", "grep"],
+          },
+        },
+      },
+      { workerPath: path.resolve("tests/fixtures/fake-worker.mjs"), runRoot: root },
+    );
+    managers.push(manager);
+
+    const result = await manager.run({
+      task: "Review the change",
+      role: "reviewer",
+      model: "anthropic/frontier",
+      thinking: "low",
+      tools: ["read"],
+      transport: "process",
+    });
+    const surface = result as AgentRunResult & {
+      systemPrompt?: string;
+      model?: string;
+      thinking?: string;
+      tools?: string[];
+    };
+    expect(surface.systemPrompt).toBe("Review only; do not edit.");
+    expect(surface.model).toBe("anthropic/frontier");
+    expect(surface.thinking).toBe("low");
+    expect(surface.tools).toEqual(["read", "fabric_exec"]);
+  });
+
+  it.each(["exhausted", "canceled"] as const)(
+    "rejects without spawning when role model preparation is %s",
+    async (outcome) => {
+      const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-manager-"));
+      roots.push(root);
+      const agentsDir = path.join(root, ".omp", "agents");
+      fs.mkdirSync(agentsDir, { recursive: true });
+      const models = outcome === "canceled" ? ["test/missing", "test/available"] : ["test/missing"];
+      fs.writeFileSync(path.join(agentsDir, "role-model-failure.md"), [
+        "---",
+        "name: role-model-failure",
+        "description: Test role-model preparation failures.",
+        `model: ${JSON.stringify(models)}`,
+        "---",
+        "Test role model preparation.",
+      ].join("\n"));
+      const controller = new AbortController();
+      const unavailable = new Error("test/missing is unavailable");
+      const manager = new AgentManager(root, DEFAULT_FABRIC_CONFIG.agents, {
+        workerPath: path.resolve("tests/fixtures/fake-worker.mjs"),
+        runRoot: path.join(root, "runs"),
+        prepareOmpModel: async (model) => {
+          if (model !== "test/missing") return "test/available";
+          if (outcome === "canceled") controller.abort();
+          throw unavailable;
+        },
+      });
+      managers.push(manager);
+
+      await expect(manager.spawn({
+        task: "Prepare the role model",
+        role: "role-model-failure",
+        transport: "process",
+      }, controller.signal)).rejects.toBe(unavailable);
+      expect(manager.list()).toEqual([]);
+    },
+  );
+
+  it("rejects an unknown role before spawning", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-manager-"));
+    roots.push(root);
+    const manager = new AgentManager(process.cwd(), DEFAULT_FABRIC_CONFIG.agents, {
+      workerPath: path.resolve("tests/fixtures/fake-worker.mjs"),
+      runRoot: root,
+    });
+    managers.push(manager);
+
+    await expect(
+      manager.run({ task: "Anything", role: "missing-role", transport: "process" }),
+    ).rejects.toThrow(/Unknown Fabric agent role/);
+    expect(manager.list()).toHaveLength(0);
+  });
+
   it("adds component guidance to direct participants without duplicating recursive guidance", async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-manager-"));
     roots.push(root);
