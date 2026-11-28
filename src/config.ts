@@ -134,6 +134,15 @@ export interface FabricCodemapConfig {
   cascadeLimit: number;
 }
 
+/** Role defaults resolved by name in agents.spawn/run; explicit run settings win. */
+interface FabricAgentRoleConfig {
+  instructions: string;
+  /** OMP provider/id, a models.aliases name, or a host model-role alias such as @smol. */
+  model?: string;
+  thinking?: FabricThinking;
+  tools?: string[];
+}
+
 export interface FabricAgentConfig {
   enabled: boolean;
   runner: FabricAgentRunner;
@@ -148,6 +157,8 @@ export interface FabricAgentConfig {
   timeoutMs: number;
   extensions: boolean;
   defaultTools: string[];
+  /** Named role defaults applied when a run selects one by name. */
+  roles: Record<string, FabricAgentRoleConfig>;
   retainRuns: boolean;
   notifyOnComplete: boolean;
   budgetUsd: number;
@@ -501,6 +512,7 @@ export const DEFAULT_FABRIC_CONFIG: FabricConfig = {
     maxTokensPerChild: 0,
     sessionExport: true,
     sessionExportDir: "",
+    roles: {},
   },
   components: [],
   capture: {
@@ -723,6 +735,30 @@ const transportValue = (
 
 const thinkingValue = (value: unknown, fallback: FabricThinking): FabricThinking =>
   isFabricThinking(value) ? value : fallback;
+
+const agentRoleToolsValue = (value: unknown): string[] | undefined =>
+  Array.isArray(value)
+    ? [...new Set(value.filter((tool): tool is string => typeof tool === "string" && Boolean(tool)))]
+    : undefined;
+
+const agentRolesValue = (value: unknown): Record<string, FabricAgentRoleConfig> => {
+  const roles: Record<string, FabricAgentRoleConfig> = {};
+  for (const [rawName, rawRole] of Object.entries(objectValue(value))) {
+    const name = rawName.trim();
+    const role = objectValue(rawRole);
+    const instructions = typeof role.instructions === "string" ? role.instructions.trim() : "";
+    if (!name || !instructions) continue;
+    const model = stringValue(role.model);
+    const tools = agentRoleToolsValue(role.tools);
+    roles[name] = {
+      instructions,
+      ...(model ? { model } : {}),
+      ...(isFabricThinking(role.thinking) ? { thinking: role.thinking } : {}),
+      ...(tools?.length ? { tools } : {}),
+    };
+  }
+  return roles;
+};
 
 const objectValue = (value: unknown): Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value)
@@ -1089,6 +1125,7 @@ export const normalizeFabricConfig = (input: Record<string, unknown>): FabricCon
         persona: vedaPersona ?? DEFAULT_FABRIC_CONFIG.agents.veda.persona,
       },
       thinking: agentThinking,
+      roles: agentRolesValue(agents.roles),
       maxConcurrent: boundedInteger(
         agents.maxConcurrent,
         DEFAULT_FABRIC_CONFIG.agents.maxConcurrent,

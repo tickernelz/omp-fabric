@@ -1,5 +1,14 @@
 # Changelog
 
+
+## Unreleased
+
+### Added
+
+- `agents.run()` and `agents.spawn()` can use existing OMP Markdown agent definitions by name, without copying them into `fabric.json`. Optional `agents.roles` entries override the OMP definitions.
+- Role models, including host aliases such as `@smol`, take precedence over the current OMP model unless the call explicitly supplies a model.
+- Fabric passes host model role aliases through to OMP workers so OMP can use the selected role’s retry chain.
+
 ## 1.28.1
 
 ### Changed

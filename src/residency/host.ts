@@ -38,6 +38,7 @@ import {
 } from "./protocol.js";
 
 const REQUEST_POLL_MS = 50;
+type ResolveHostAlias = (alias: string) => FabricModelCandidate | undefined;
 const IDLE_EXIT_MS = 30_000;
 const COMPLETION_MAX_CHARS = 8_000;
 
@@ -144,6 +145,7 @@ class ResidentHost {
   constructor(
     readonly config: ResidentHostConfig,
     readonly onIdle: () => void = () => {},
+    resolveHostAlias?: ResolveHostAlias,
   ) {
     this.hostId = residentHostId(config.rootId);
     this.identity = { id: this.hostId, name: "Fabric resident host", kind: "agent" };
@@ -182,7 +184,7 @@ class ResidentHost {
       readJson<Partial<ResidentHostConfig>>(guidanceConfigPath) ?? config;
     const currentModelGuidance = () =>
       parseFabricOwnedModelGuidance(currentConfig().modelGuidance ?? config.modelGuidance);
-    const resolveResidentOmpModel = (selector?: string): string => {
+    const resolveResidentOmpModel = (selector?: string) => {
       const state = currentConfig().models ?? config.models;
       const available: FabricModelCandidate[] = Array.isArray(state?.available)
         ? state.available.flatMap((candidate) =>
@@ -199,9 +201,10 @@ class ResidentHost {
       const resolved = resolveAvailableOmpModel(query, {
         aliases: normalizeModelAliases(state?.aliases),
         available,
+        resolveHostAlias,
         lastUsed: loadModelUsage(),
       });
-      return `${resolved.provider}/${resolved.id}`;
+      return { key: `${resolved.provider}/${resolved.id}`, hostAlias: resolved.hostAlias };
     };
     this.agents = new AgentManager(config.cwd, config.agents, {
       workerPath: config.workerPath,
@@ -218,7 +221,10 @@ class ResidentHost {
       hostId: this.hostId,
       identityId: this.identity.id,
       retention: config.retention,
-      prepareOmpModel: async (model) => resolveResidentOmpModel(model),
+      prepareOmpModel: async (model) => {
+        const resolved = resolveResidentOmpModel(model);
+        return resolved.hostAlias ? { model: resolved.key, hostAlias: resolved.hostAlias } : resolved.key;
+      },
       resolveParticipantGuidance: ({ model }) => {
         if (!model) return undefined;
         return resolveFabricModelGuidance(currentModelGuidance(), {
@@ -278,7 +284,7 @@ class ResidentHost {
         rootId: config.rootId,
         meshCursorPath: path.join(config.residencyRoot, "actor-mesh-cursor.json"),
         retention: config.retention,
-        resolveOmpModel: resolveResidentOmpModel,
+        resolveOmpModel: (model) => resolveResidentOmpModel(model).key,
       },
     ], actorRoots, config.mesh.actorScope);
     this.lifecycle = new LifecycleBroker(
@@ -735,12 +741,13 @@ class ResidentHost {
 const runResidentHost = async (
   config: ResidentHostConfig,
   signal?: AbortSignal,
+  resolveHostAlias?: ResolveHostAlias,
 ): Promise<void> => {
   let finishIdle: (() => void) | undefined;
   const idle = new Promise<void>((resolve) => {
     finishIdle = resolve;
   });
-  const host = new ResidentHost(config, () => finishIdle?.());
+  const host = new ResidentHost(config, () => finishIdle?.(), resolveHostAlias);
   await host.start();
   if (signal?.aborted) {
     await host.close();
@@ -761,11 +768,12 @@ const runResidentHost = async (
 export const runResidentHostFromConfigPath = async (
   configPath: string,
   signal?: AbortSignal,
+  resolveHostAlias?: ResolveHostAlias,
 ): Promise<void> => {
   let config: ResidentHostConfig | undefined;
   try {
     config = validateResidentHostConfig(readJson<unknown>(configPath), configPath);
-    await runResidentHost(config, signal);
+    await runResidentHost(config, signal, resolveHostAlias);
   } catch (error) {
     if (error instanceof ResidentHostAlreadyRunning) return;
     const residencyRoot = config?.residencyRoot ?? path.dirname(configPath);

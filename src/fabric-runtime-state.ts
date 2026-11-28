@@ -742,9 +742,11 @@ export class FabricRuntimeState {
       const models = visibleOmpModels();
       const state = ompModelState(models);
       const query = selector?.trim() || state.defaultModel || "";
+
       const resolved = resolveAvailableOmpModel(query, {
         aliases: state.aliases,
         available: state.available,
+        resolveHostAlias: context.models?.resolve,
         lastUsed: loadModelUsage(),
       });
       const model = models.find(
@@ -758,7 +760,7 @@ export class FabricRuntimeState {
             'Use agents.models({ runner: "omp" }) to list the models visible to this session.',
         );
       }
-      return { key: `${resolved.provider}/${resolved.id}`, model };
+      return { key: `${resolved.provider}/${resolved.id}`, model, hostAlias: resolved.hostAlias };
     };
     this.#agents = new AgentManager(context.cwd, agentConfig, {
       ...(this.#judgment ? { judgment: this.#judgment } : {}),
@@ -792,7 +794,7 @@ export class FabricRuntimeState {
         const resolved = resolveParticipantOmpModel(modelKey);
         const auth = await context.modelRegistry.getApiKeyAndHeaders(resolved.model);
         if (!auth.ok) throw new Error(auth.error);
-        return resolved.key;
+        return resolved.hostAlias ? { model: resolved.key, hostAlias: resolved.hostAlias } : resolved.key;
       },
       onLifecycle: (event) => {
         const lifecycle = this.#lifecycle;

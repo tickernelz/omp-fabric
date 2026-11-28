@@ -62,6 +62,27 @@ describe("normalizeModelAliases", () => {
   });
 });
 
+describe("OMP host model-role aliases", () => {
+  it("rejects a host alias when no host resolver is available", () => {
+    expect(() => resolveAvailableOmpModel("@smol", { aliases: {}, available: AVAILABLE }))
+      .toThrow('Model "@smol" is not available to this OMP session.');
+  });
+
+  it("uses the host alias only when Fabric has no alias and rejects unavailable targets", () => {
+    const small = { provider: "openai", id: "gpt-5-mini", name: "smol" };
+    const resolveHostAlias = (spec: string) => spec === "@smol" ? small : undefined;
+    const options = { aliases: {}, available: [...AVAILABLE, small], resolveHostAlias };
+    expect(resolveAvailableOmpModel("@smol", options)).toEqual({ ...small, hostAlias: "@smol" });
+    expect(resolveAvailableOmpModel("@smol", {
+      ...options,
+      aliases: { "@SMOL": ["google/gemini-2.5-flash"] },
+    })).toMatchObject({ provider: "google", id: "gemini-2.5-flash" });
+    expect(() => resolveAvailableOmpModel("@missing", options)).toThrow(/not available/);
+    expect(() => resolveAvailableOmpModel("@smol", { ...options, available: [] }))
+      .toThrow(/not available/);
+  });
+});
+
 describe("resolveAvailableOmpModel", () => {
   it("accepts visible exact, fuzzy, and alias selectors", () => {
     const aliases = normalizeModelAliases({ fast: "google/gemini-2.5-flash" });

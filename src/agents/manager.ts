@@ -13,6 +13,7 @@ import {
   type FabricAgentTransport,
   type FabricRetentionConfig,
 } from "../config.js";
+import { isFabricThinking } from "../thinking.js";
 import {
   discoverClaudeModels,
   mapClaudeTools,
@@ -186,6 +187,7 @@ interface ManagedAgent {
   abortSignal: AbortSignal | undefined;
   abortHandler: (() => void) | undefined;
   model?: string;
+  hostModelAlias?: string;
   thinking?: AgentRunRequest["thinking"];
   actorId?: string;
   actorName?: string;
@@ -382,6 +384,49 @@ const failedRecord = (
   };
 };
 
+interface AgentRoleDefaults {
+  instructions: string;
+  models: readonly string[] | undefined;
+  thinking: AgentRunRequest["thinking"];
+  tools: AgentRunRequest["tools"];
+}
+
+const applyRoleDefaults = (
+  request: AgentRunRequest,
+  role: AgentRoleDefaults,
+): readonly string[] | undefined => {
+  const models = request.model ? undefined : role.models;
+  const model = models?.[0];
+  if (model) request.model = model;
+  if (role.thinking) request.thinking ??= role.thinking;
+  if (role.tools) request.tools ??= role.tools;
+  if (role.instructions) {
+    request.systemPrompt = request.systemPrompt
+      ? `${request.systemPrompt}\n\n${role.instructions}`
+      : role.instructions;
+  }
+  return models;
+};
+
+type PreparedOmpModel = string | { model: string; hostAlias: string };
+
+const prepareRoleModel = async (
+  prepare: (model: string | undefined) => Promise<PreparedOmpModel | undefined>,
+  model: string | undefined,
+  roleModels: readonly string[] | undefined,
+  signal: AbortSignal | undefined,
+): Promise<PreparedOmpModel | undefined> => {
+  for (let next = 1; ; next++) {
+    try {
+      return await prepare(model);
+    } catch (error) {
+      const fallback = roleModels?.[next];
+      if (!fallback || signal?.aborted) throw error;
+      model = fallback;
+    }
+  }
+};
+
 export class AgentManager {
   readonly #runs = new Map<string, ManagedAgent>();
   readonly #semaphore: Semaphore;
@@ -408,10 +453,10 @@ export class AgentManager {
   readonly #onBackgroundComplete: ((result: AgentRunResult) => void) | undefined;
   readonly #onLifecycle: ((event: FabricLifecyclePublishRequest) => void) | undefined;
   readonly #prepareOmpModel:
-    | ((model: string | undefined) => Promise<string | void>)
+    | ((model: string | undefined) => Promise<PreparedOmpModel | void>)
     | undefined;
   readonly #resolveParticipantGuidance: AgentParticipantGuidanceResolver | undefined;
-  readonly #ompModelPreparations = new Map<string, Promise<string | undefined>>();
+  readonly #ompModelPreparations = new Map<string, Promise<PreparedOmpModel | undefined>>();
   readonly #budget: BudgetLedgerState | undefined;
   readonly #budgetOwned: boolean;
   readonly #uiListeners = new Set<() => void>();
@@ -445,7 +490,7 @@ export class AgentManager {
       retention?: FabricRetentionConfig;
       onBackgroundComplete?: (result: AgentRunResult) => void;
       onLifecycle?: (event: FabricLifecyclePublishRequest) => void;
-      prepareOmpModel?: (model: string | undefined) => Promise<string | void>;
+      prepareOmpModel?: (model: string | undefined) => Promise<PreparedOmpModel | void>;
       resolveParticipantGuidance?: AgentParticipantGuidanceResolver;
       judgment?: FabricJudgmentLane;
       judgmentGates?: () => FabricJudgmentGatesConfig;
@@ -510,13 +555,13 @@ export class AgentManager {
     }
   }
 
-  async #prepareModel(model: string | undefined): Promise<string | undefined> {
+  readonly #prepareModel = async (model: string | undefined): Promise<PreparedOmpModel | undefined> => {
     if (!this.#prepareOmpModel) return model;
     const key = model?.trim() || "<session-default>";
     const existing = this.#ompModelPreparations.get(key);
     if (existing) return existing;
     const preparation = this.#prepareOmpModel(model).then((prepared) => {
-      if (typeof prepared !== "string") return model;
+      if (typeof prepared !== "string") return prepared ?? model;
       return prepared.trim() || model;
     });
     this.#ompModelPreparations.set(key, preparation);
@@ -527,7 +572,7 @@ export class AgentManager {
         this.#ompModelPreparations.delete(key);
       }
     }
-  }
+  };
 
   subscribeUi(listener: () => void): () => void {
     this.#uiListeners.add(listener);
@@ -581,6 +626,13 @@ export class AgentManager {
     if (request.sessionSeed && request.sessionFile) {
       throw new Error("A agent request cannot combine sessionSeed with sessionFile");
     }
+    const roleName = request.role?.trim();
+    let roleModels: readonly string[] | undefined;
+    if (roleName) {
+      const role = await this.#resolveRole(roleName, requestedRunner);
+      request = { ...request };
+      roleModels = applyRoleDefaults(request, role);
+    }
     let tools = this.#childTools(request, requestedRunner);
     if (requestedRunner === "claude") mapClaudeTools(tools);
     if (requestedRunner === "veda") mapVedaTools(tools);
@@ -605,9 +657,14 @@ export class AgentManager {
       if (runner === "claude" && model) normalizeClaudeModel(model);
       if (runner === "veda" && model) normalizeVedaModel(model);
     }
+    let hostModelAlias: string | undefined;
     const release = await this.#semaphore.acquire(signal);
     try {
-      if (runner === "omp") model = await this.#prepareModel(model);
+      if (runner === "omp") {
+        const prepared = await prepareRoleModel(this.#prepareModel, model, roleModels, signal);
+        model = typeof prepared === "string" ? prepared : prepared?.model;
+        hostModelAlias = typeof prepared === "object" ? prepared.hostAlias : undefined;
+      }
     } catch (error) {
       release();
       throw error;
@@ -688,6 +745,7 @@ export class AgentManager {
       const sessionExportFile = sessionExportDir
         ? sessionExportFileFor(sessionExportDir, agentCwd, id, new Date())
         : undefined;
+      const launchModel = hostModelAlias ?? model;
       const workerArguments = [
         "--id",
         id,
@@ -738,7 +796,7 @@ export class AgentManager {
         ...(recursive || inheritedFullCodeMode
           ? ["--fabric-extension", this.#fabricExtensionPath]
           : []),
-        ...(model ? ["--model", model] : []),
+        ...(launchModel ? ["--model", launchModel] : []),
         ...(thinking ? ["--thinking", thinking] : []),
         ...(systemPrompt ? ["--system-prompt", systemPrompt] : []),
         ...(sessionFile ? ["--session-file", sessionFile] : []),
@@ -810,6 +868,7 @@ export class AgentManager {
         abortSignal: signal,
         abortHandler: undefined,
         ...(model ? { model } : {}),
+        ...(hostModelAlias ? { hostModelAlias } : {}),
         ...(thinking ? { thinking } : {}),
         ...(request.actorId ? { actorId: request.actorId } : {}),
         ...(request.actorName ? { actorName: request.actorName } : {}),
@@ -1153,12 +1212,13 @@ export class AgentManager {
     managed.startupAttempts++;
     try {
       if (managed.runner === "omp") {
-        const model = await this.#prepareModel(managed.model);
+        const prepared = await this.#prepareModel(managed.hostModelAlias ?? managed.model);
+        const launchModel = typeof prepared === "string" ? prepared : prepared?.hostAlias;
         const modelIndex = managed.launch.workerArguments.indexOf("--model");
-        if (model) {
-          if (modelIndex >= 0) managed.launch.workerArguments[modelIndex + 1] = model;
-          else managed.launch.workerArguments.push("--model", model);
-          managed.model = model;
+        if (launchModel) {
+          if (modelIndex >= 0) managed.launch.workerArguments[modelIndex + 1] = launchModel;
+          else managed.launch.workerArguments.push("--model", launchModel);
+          managed.model = typeof prepared === "object" ? prepared.model : launchModel;
         } else if (modelIndex >= 0) {
           managed.launch.workerArguments.splice(modelIndex, 2);
           delete managed.model;
@@ -1470,6 +1530,28 @@ export class AgentManager {
     if (runner === "claude") return this.config.claude.model;
     if (runner === "veda") return this.config.veda.model;
     return this.config.model;
+  }
+
+  async #resolveRole(name: string, runner: FabricAgentRunner): Promise<AgentRoleDefaults> {
+    const configured = Object.hasOwn(this.config.roles ?? {}, name) ? this.config.roles[name] : undefined;
+    if (configured) {
+      const { instructions, model, thinking, tools } = configured;
+      return { instructions, models: model ? [model] : undefined, thinking, tools };
+    }
+    if (runner === "omp") {
+      const { discoverAgents, getAgent } = await import("@oh-my-pi/pi-coding-agent/task/discovery");
+      const { agents } = await discoverAgents(this.cwd);
+      const agent = getAgent(agents, name);
+      if (agent) {
+        return {
+          instructions: agent.systemPrompt,
+          models: agent.model,
+          thinking: isFabricThinking(agent.thinkingLevel) ? agent.thinkingLevel : undefined,
+          tools: agent.tools,
+        };
+      }
+    }
+    throw new Error(`Unknown Fabric agent role: ${name}`);
   }
 
   #delegationCandidates(

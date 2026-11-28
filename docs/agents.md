@@ -53,6 +53,32 @@ Extension-enabled OMP children inherit the parent’s full-code mode, including 
 
 OMP children are launched with host tool names. Fabric passes `find` as `glob` and leaves out `ls`, which the host has no built-in for, so a child started with `tools: ["find"]` runs with `--tools glob`. The nested allowlist reads `glob` as `find`, so `omp.find` stays available to that child.
 
+### Agent roles
+
+`agents.run()` and `agents.spawn()` accept `role: <name>`. For the OMP runner, use the name from an existing OMP agent definition. Fabric uses OMP's discovery for project `.omp/agents/`, the active OMP agent directory's `agents/`, and other OMP agent sources. You do not need to copy definitions into `fabric.json`. Fabric uses the Markdown body as instructions and applies the definition's model list, thinking, and tools as defaults for both session and durable runs. Settings specific to the OMP `task` tool do not apply.
+
+```ts
+const review = await agents.spawn({
+  role: "reviewer",
+  task: "Review the pending change for correctness.",
+});
+```
+
+For example, save this as `.omp/agents/reviewer.md` or in the active OMP agent directory's `agents/` folder:
+
+```markdown
+---
+name: reviewer
+description: Review changes for correctness.
+model: "@smol"
+thinking: high
+tools: [read, grep, find]
+---
+Review only; do not edit.
+```
+
+An optional `agents.roles` entry in `fabric.json` overrides an OMP definition with the same name. For models, the order is explicit `model`, role model, Fabric runner default, then the current OMP model. Fabric tries a Markdown role's model list in order. An unresolved role model does not silently fall back to the session model. A `models.aliases` entry of the same name as a host model role such as `@smol` takes precedence.
+
 ### Durable participant residency
 
 `agents.spawn()` and `agents.create()` accept `residency: "session" | "durable"`. The default is `session`. It keeps the usual lifecycle: the current OMP host owns the participant and stops or suspends it when the host shuts down. The model chooses `durable` during execution. Users do not configure it as a setting.

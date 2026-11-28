@@ -427,6 +427,7 @@ Other agent settings:
 - `notifyOnComplete`: send a follow-up completion message for a detached `agents.spawn()`.
 - `sessionExport`: export each agent run's usage as an attributed OMP-format session file (on by default).
 - `sessionExportDir`: override the export store root (default `~/.omp-fabric/agent`, with `OMP_FABRIC_AGENT_DIR` taking precedence).
+- `roles`: optional Fabric role definitions for `agents.run({ role })` and `agents.spawn({ role })`. You do not need this setting to use an OMP Markdown agent. An entry takes precedence over an OMP definition with the same name. It has required `instructions` and optional `model`, `thinking`, and `tools`. See [agent roles](agents.md#agent-roles).
 
 ### Usage tracking with external tools
 
