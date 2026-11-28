@@ -118,6 +118,8 @@ export const ROOT_ITEM_IDS = [
 const RELOAD_SECTIONS = new Set(["mesh", "agents", "mcp", "retention", "memory"]);
 
 export const FILE_ONLY_CONFIG_KEYS: Readonly<Record<string, string>> = {
+  "agents.roles":
+    "Each role is a named instruction, model, thinking and tool bundle resolved at spawn time, so a fixed panel row cannot validate or edit the map.",
   components:
     "Every entry is a supervised instance record whose config field carries definition-specific JSON that no fixed row can validate.",
   "image.dialects":
@@ -2685,6 +2687,15 @@ export const buildFabricSettingsItems = (
             config.judgment.gates.delegation ? "true" : "false",
             {
               description: "Judge which agent kind and effort a delegated run should take.",
+              values: BOOLEANS,
+            },
+          ),
+          setting(
+            "judgment.gates.modelTier",
+            "Gate: model tier",
+            config.judgment.gates.modelTier ? "true" : "false",
+            {
+              description: "Suggest a model role for new OMP delegations without a fixed model.",
               values: BOOLEANS,
             },
           ),

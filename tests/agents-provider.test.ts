@@ -47,6 +47,7 @@ const usage = {
 const visibleOmpModels = [
   { provider: "anthropic", id: "executor", name: "Executor" },
   { provider: "anthropic", id: "frontier", name: "Frontier" },
+  { provider: "baipiao", id: "minimax-m3.1-flash", name: "smol" },
   { provider: "provider", id: "project" },
   { provider: "provider", id: "project-default" },
   { provider: "provider", id: "one-off" },
@@ -66,7 +67,15 @@ const context: FabricInvocationContext = {
   signal: undefined,
   parentToolCallId: "test",
   nestedToolCallId: "nested",
-  extensionContext: { modelRegistry: visibleModelRegistry } as unknown as ExtensionContext,
+  extensionContext: {
+    modelRegistry: visibleModelRegistry,
+    models: {
+      resolve: (spec: string) =>
+        spec === "@smol"
+          ? { provider: "baipiao", id: "minimax-m3.1-flash", name: "smol" }
+          : undefined,
+    },
+  } as unknown as ExtensionContext,
   update() {},
   activity() {},
 };
@@ -944,6 +953,28 @@ describe("AgentsProvider runner support", async () => {
     expect(properties(spawn)).toHaveProperty("cwd");
     expect(properties(handoff)).not.toHaveProperty("cwd");
     expect(properties(create)).toHaveProperty("cwd");
+  });
+
+  it("exposes the role selector on run and spawn schemas", async () => {
+    const { provider } = setup();
+    const run = await provider.describe("run", context);
+    const spawn = await provider.describe("spawn", context);
+    const properties = (descriptor: typeof run) =>
+      (descriptor?.inputSchema as { properties: Record<string, unknown> }).properties;
+
+    expect(properties(run)).toHaveProperty("role");
+    expect(properties(spawn)).toHaveProperty("role");
+  });
+
+  it("resolves a host model-role alias such as @smol through the extension model query", async () => {
+    const { provider } = setup();
+    const result = (await provider.invoke(
+      "run",
+      { task: "report the model", model: "@smol", transport: "process" },
+      context,
+    )) as { model?: string };
+
+    expect(result.model).toBe("baipiao/minimax-m3.1-flash");
   });
 
   it("rejects durable recursive cwd before the provider can transfer ownership", async () => {

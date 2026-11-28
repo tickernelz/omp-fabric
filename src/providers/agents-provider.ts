@@ -185,7 +185,6 @@ const boundedTimeoutOverride = (
 
 const runRequest = (
   args: Record<string, unknown>,
-  context: FabricInvocationContext,
   manager: AgentManager,
   options: { allowCwd?: boolean } = {},
 ): AgentRunRequest => {
@@ -207,21 +206,16 @@ const runRequest = (
     args.runner === "omp" || args.runner === "claude" || args.runner === "veda"
       ? args.runner
       : manager.config.runner;
-  const inheritedModel =
-    runner === "omp" && !manager.config.model && context.extensionContext.model
-      ? `${context.extensionContext.model.provider}/${context.extensionContext.model.id}`
-      : undefined;
   return {
     task: String(args.task),
     runner,
     ...(images ? { images } : {}),
     ...(typeof args.name === "string" ? { name: args.name } : {}),
+    ...(typeof args.role === "string" && args.role.trim()
+      ? { role: args.role.trim() }
+      : {}),
     ...(transport ? { transport } : {}),
-    ...(typeof args.model === "string"
-      ? { model: args.model }
-      : inheritedModel
-        ? { model: inheritedModel }
-        : {}),
+    ...(typeof args.model === "string" && args.model.trim() ? { model: args.model.trim() } : {}),
     ...(typeof args.persona === "string" && args.persona.trim()
       ? { persona: args.persona.trim() }
       : {}),
@@ -711,6 +705,7 @@ export class AgentsProvider implements FabricProvider {
     const resolved = resolveAvailableOmpModel(model, {
       aliases: this.modelsConfig().aliases,
       available,
+      resolveHostAlias: context.extensionContext.models?.resolve,
       lastUsed: loadModelUsage(),
     });
     return `${resolved.provider}/${resolved.id}`;
@@ -808,7 +803,6 @@ export class AgentsProvider implements FabricProvider {
         },
         context,
       ),
-      context,
       this.manager,
       { allowCwd: false },
     );
@@ -853,7 +847,7 @@ export class AgentsProvider implements FabricProvider {
     switch (actionName) {
       case "run": {
         const handle = await this.manager.spawn(
-          runRequest(this.#resolveOmpModelArgs(args, context), context, this.manager),
+          runRequest(this.#resolveOmpModelArgs(args, context), this.manager),
           context.signal,
         );
         this.participants.scheduleRefresh();
@@ -875,7 +869,7 @@ export class AgentsProvider implements FabricProvider {
       case "handoff":
         return this.handoff(args, context);
       case "spawn": {
-        const request = runRequest(this.#resolveOmpModelArgs(args, context), context, this.manager);
+        const request = runRequest(this.#resolveOmpModelArgs(args, context), this.manager);
         validateAgentCwdRequest(request);
         const durableRequest = request.residency === "durable" && request.cwd !== undefined
           ? { ...request, cwd: this.manager.resolveCwd(request.cwd) }

@@ -53,6 +53,37 @@ describe("Fabric configuration", () => {
       budget: ["openai/gpt-5-mini", "google/gemini-2.5-flash"],
     });
   });
+  it("normalizes agents.roles into instruction defaults", () => {
+    expect(DEFAULT_FABRIC_CONFIG.agents.roles).toEqual({});
+    expect(normalizeFabricConfig({}).agents.roles).toEqual({});
+    expect(
+      normalizeFabricConfig({
+        agents: {
+          roles: {
+            reviewer: {
+              instructions: "Review only; do not edit.",
+              model: "baipiao/minimax-m3.1-flash",
+              thinking: "high",
+              tools: ["read", "grep", ""],
+            },
+            explicit: { instructions: "Do the thing", model: "anthropic/executor" },
+            noInstructions: { model: "anthropic/executor" },
+            "": { instructions: "nameless" },
+            badThinking: { instructions: "x", thinking: "ultra" },
+          },
+        },
+      }).agents.roles,
+    ).toEqual({
+      reviewer: {
+        instructions: "Review only; do not edit.",
+        model: "baipiao/minimax-m3.1-flash",
+        thinking: "high",
+        tools: ["read", "grep"],
+      },
+      explicit: { instructions: "Do the thing", model: "anthropic/executor" },
+      badThinking: { instructions: "x" },
+    });
+  });
 
   it("normalizes declarative component entries", () => {
     expect(DEFAULT_FABRIC_CONFIG.components).toEqual([]);

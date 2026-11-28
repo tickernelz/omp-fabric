@@ -191,6 +191,101 @@ describe("Fabric runtime provider components", () => {
     }
   });
 
+  it("uses role models before the host default and discovers OMP Markdown roles", async () => {
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-role-"));
+    const agentsDir = path.join(cwd, ".omp", "agents");
+    fs.mkdirSync(agentsDir, { recursive: true });
+    fs.writeFileSync(path.join(agentsDir, "mechanic.md"), [
+      "---",
+      "name: mechanic",
+      "description: Fix the reported defect.",
+      'model: ["@missing", "@smol"]',
+      "thinking: low",
+      "tools: [read, grep]",
+      "---",
+      "Fix only the reported defect.",
+    ].join("\n"));
+    vi.stubEnv("OMP_FABRIC_AGENT_DIR", path.join(cwd, "agent"));
+    vi.stubEnv("OMP_FABRIC_PROJECT_ROOT", cwd);
+    const fallback = { provider: "host", id: "default" };
+    const small = { provider: "host", id: "small" };
+    const context = {
+      cwd,
+      hasUI: false,
+      isProjectTrusted: () => true,
+      model: fallback,
+      models: { resolve: (spec: string) => spec === "@smol" ? small : undefined },
+      modelRegistry: {
+        getAvailable: () => [fallback, small],
+        getApiKeyAndHeaders: async () => ({ ok: true }),
+      },
+      sessionManager: {
+        getSessionId: () => "role-regression",
+        getSessionFile: () => undefined,
+        getBranch: () => [],
+        getLeafId: () => undefined,
+      },
+      ui: { setStatus() {}, notify() {} },
+    } as unknown as ExtensionContext;
+    const runtime = new FabricRuntimeState({
+      events: { emit() {} },
+      getThinkingLevel: () => "off",
+      sendMessage() {},
+    } as unknown as ExtensionAPI, new CapturedToolCatalog(), {
+      paths: {
+        extension: path.join(cwd, "unused.mjs"),
+        worker: path.resolve("tests/fixtures/fake-worker.mjs"),
+        residentHost: path.join(cwd, "unused.mjs"),
+        skills: cwd,
+      },
+    });
+    const invoke = (ref: string, args: Record<string, unknown>) => runtime.registry.invoke(ref, args, {
+      cwd,
+      extensionContext: context,
+      signal: undefined,
+      parentToolCallId: "role-test",
+      nestedToolCallId: "role-test-child",
+      update() {},
+      async approve() {},
+      audits: [],
+      maxResultChars: 10_000,
+    });
+
+    try {
+      await runtime.initialize(context, normalizeFabricConfig({
+        agents: {
+          enabled: true,
+          sessionExport: false,
+          roles: { configured: { instructions: "Use the configured role.", model: "@smol" } },
+        },
+        mcp: { enabled: false, cache: { enabled: false } },
+        memory: { enabled: false },
+        residency: { enabled: false },
+        prewalk: { enabled: false, alwaysRearm: false },
+      }));
+      const args = { task: "Report the selected model", transport: "process" };
+      const configured = await invoke("agents.run", { ...args, role: "configured" }) as { logFile: string };
+      expect(configured).toMatchObject({ model: "host/small", status: "completed" });
+      // The fake worker records its launch selector; public status shows the resolved model.
+      const workerStatus = path.join(path.dirname(configured.logFile), "status.json");
+      expect(JSON.parse(fs.readFileSync(workerStatus, "utf8"))).toMatchObject({ model: "@smol" });
+
+      const child = await invoke("agents.spawn", { ...args, role: "mechanic" }) as { id: string };
+      expect(child).toMatchObject({ model: "host/small", thinking: "low" });
+      expect(await invoke("agents.wait", { id: child.id })).toMatchObject({
+        model: "host/small",
+        systemPrompt: "Fix only the reported defect.",
+        status: "completed",
+      });
+      expect(await invoke("agents.run", { ...args, role: "mechanic", model: "host/default" }))
+        .toMatchObject({ model: "host/default", status: "completed" });
+    } finally {
+      await runtime.shutdown();
+      vi.unstubAllEnvs();
+      fs.rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
   it("freezes repair surfaces across capture suspension and reload", async () => {
     const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-runtime-repairs-"));
     fs.mkdirSync(path.join(cwd, ".omp"), { recursive: true });
