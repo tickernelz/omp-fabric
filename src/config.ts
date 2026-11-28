@@ -321,6 +321,7 @@ export interface FabricJudgmentGatesConfig {
   toolOutput: boolean;
   /** Judge which agent kind and effort a delegated run should take. */
   delegation: boolean;
+  modelTier?: boolean;
   /** Rank the skill roster for the turn before the model reads it. */
   skills: boolean;
 }
@@ -635,6 +636,7 @@ export const DEFAULT_FABRIC_CONFIG: FabricConfig = {
       toolExec: false,
       toolOutput: false,
       delegation: false,
+      modelTier: false,
       skills: false,
     },
   },
@@ -1523,6 +1525,7 @@ export const normalizeFabricConfig = (input: Record<string, unknown>): FabricCon
           judgmentGates.toolOutput,
           DEFAULT_FABRIC_CONFIG.judgment.gates.toolOutput,
         ),
+        modelTier: booleanValue(judgmentGates.modelTier, false),
         delegation: booleanValue(
           judgmentGates.delegation,
           DEFAULT_FABRIC_CONFIG.judgment.gates.delegation,

@@ -2690,6 +2690,15 @@ export const buildFabricSettingsItems = (
               values: BOOLEANS,
             },
           ),
+          setting(
+            "judgment.gates.modelTier",
+            "Gate: model tier",
+            config.judgment.gates.modelTier ? "true" : "false",
+            {
+              description: "Suggest a model role for new OMP delegations without a fixed model.",
+              values: BOOLEANS,
+            },
+          ),
           setting("judgment.gates.skills", "Gate: skills", config.judgment.gates.skills ? "true" : "false", {
             description: "Rank the skill roster for the turn before the model reads it.",
             values: BOOLEANS,

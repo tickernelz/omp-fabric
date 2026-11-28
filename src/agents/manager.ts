@@ -661,7 +661,8 @@ export class AgentManager {
     const release = await this.#semaphore.acquire(signal);
     try {
       if (runner === "omp") {
-        const prepared = await prepareRoleModel(this.#prepareModel, model, roleModels, signal);
+        const suggested = judged?.model && !signal?.aborted ? await this.#prepareModel(judged.model).catch(() => undefined) : undefined;
+        const prepared = suggested ?? await prepareRoleModel(this.#prepareModel, model, roleModels, signal);
         model = typeof prepared === "string" ? prepared : prepared?.model;
         hostModelAlias = typeof prepared === "object" ? prepared.hostAlias : undefined;
       }
@@ -1582,17 +1583,19 @@ export class AgentManager {
     signal?: AbortSignal,
   ): Promise<DelegationGateDecision | undefined> {
     const lane = this.#judgment;
-    if (!lane || this.#judgmentGates?.().delegation !== true) return undefined;
-    const needRunner = request.runner === undefined && request.model === undefined;
-    const needThinking = request.thinking === undefined;
-    if (!needRunner && !needThinking) return undefined;
+    const gates = this.#judgmentGates?.();
+    if (!lane || !gates) return undefined;
+    const needRunner = gates.delegation && request.runner === undefined && request.model === undefined;
+    const needThinking = gates.delegation && request.thinking === undefined;
+    const needModelTier = gates.modelTier === true && requestedRunner === "omp" && !request.model && !this.config.model && !request.actorId && !request.sessionFile && !request.sessionSeed && request.residency !== "durable";
+    if (!needRunner && !needThinking && !needModelTier) return undefined;
     const candidates = needRunner
       ? this.#delegationCandidates(request, eligibleRunners(request))
       : [{ kind: requestedRunner, tools: this.#childTools(request, requestedRunner) }];
     try {
       return await judgeDelegation(
         lane,
-        { task: request.task, cwd, candidates, needRunner, needThinking },
+        { task: request.task, cwd, candidates, needRunner, needThinking, needModelTier },
         signal,
       );
     } catch {

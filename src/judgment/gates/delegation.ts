@@ -13,11 +13,13 @@ export interface DelegationGateInput {
   candidates: readonly DelegationGateCandidate[];
   needRunner: boolean;
   needThinking: boolean;
+  needModelTier?: boolean;
 }
 
 export interface DelegationGateDecision {
   runner?: FabricAgentRunner;
   thinking?: FabricThinking;
+  model?: string;
 }
 
 /** Minimum answer confidence before the gate replaces a configured default. */
@@ -86,12 +88,17 @@ export const judgeDelegation = async (
   signal?: AbortSignal,
 ): Promise<DelegationGateDecision | undefined> => {
   const askKind = input.needRunner && input.candidates.length >= 2;
-  if (!askKind && !input.needThinking) return undefined;
+  if (!askKind && !input.needThinking && !input.needModelTier) return undefined;
   const criteria: Record<string, string | null> = {};
   for (const candidate of input.candidates) {
     criteria[candidate.kind] = DELEGATION_RUNNER_CRITERIA[candidate.kind];
   }
   const questions: Record<string, unknown> = {};
+  if (input.needModelTier) questions.modelTier = {
+    type: "choice",
+    instructions: "Classify the requested work, ignoring urgency and work explicitly excluded.",
+    criteria: { quick: "Lookup or mechanical work", medium: "Routine single-area work", heavy: "Cross-layer design or difficult diagnosis" },
+  };
   if (askKind) {
     questions.agentKind = {
       type: "choice",
@@ -121,6 +128,12 @@ export const judgeDelegation = async (
   if (!outcome.ok) return undefined;
   const answers = outcome.answers as Record<string, unknown>;
   const decision: DelegationGateDecision = {};
+  const tier = answers.modelTier as { choice?: string; confidence?: number } | undefined;
+  if (input.needModelTier && (tier?.confidence ?? 0) >= 0.7) {
+    if (tier?.choice === "quick") decision.model = "@smol";
+    if (tier?.choice === "medium") decision.model = "@default";
+    if (tier?.choice === "heavy") decision.model = "@slow";
+  }
   const kind = answers.agentKind as { choice?: unknown; confidence?: unknown } | undefined;
   if (
     askKind &&
@@ -144,5 +157,5 @@ export const judgeDelegation = async (
     const level = thinkingFromProbabilities(effort.probabilities);
     if (level) decision.thinking = level;
   }
-  return decision.runner === undefined && decision.thinking === undefined ? undefined : decision;
+  return decision.runner || decision.thinking || decision.model ? decision : undefined;
 };

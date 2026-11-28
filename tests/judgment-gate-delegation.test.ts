@@ -97,25 +97,35 @@ const explodingLane = (): ExplodingLane => {
   };
 };
 
-const gates = (delegation: boolean) => () => ({
+const gates = (delegation: boolean, modelTier?: boolean) => () => ({
   ...DEFAULT_FABRIC_CONFIG.judgment.gates,
   delegation,
+  ...(modelTier === undefined ? {} : { modelTier }),
 });
 
 const manager = (options: {
   judgment?: FabricJudgmentLane;
   judgmentGates?: () => typeof DEFAULT_FABRIC_CONFIG.judgment.gates;
   budgetUsd?: number;
+  model?: string;
+  roles?: typeof DEFAULT_FABRIC_CONFIG.agents.roles;
+  prepareOmpModel?: (model: string | undefined) => Promise<string | undefined>;
 }): AgentManager => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-fabric-delegation-"));
   roots.push(root);
-  const { budgetUsd, ...rest } = options;
+  const { budgetUsd, model, roles, prepareOmpModel, ...rest } = options;
   const created = new AgentManager(
     process.cwd(),
-    { ...DEFAULT_FABRIC_CONFIG.agents, ...(budgetUsd === undefined ? {} : { budgetUsd }) },
+    {
+      ...DEFAULT_FABRIC_CONFIG.agents,
+      ...(budgetUsd === undefined ? {} : { budgetUsd }),
+      ...(model === undefined ? {} : { model }),
+      ...(roles === undefined ? {} : { roles }),
+    },
     {
       workerPath: path.resolve("tests/fixtures/fake-worker.mjs"),
       runRoot: root,
+      ...(prepareOmpModel === undefined ? {} : { prepareOmpModel }),
       ...rest,
     },
   );
@@ -360,5 +370,101 @@ describe("delegation gate", async () => {
       agents.spawn({ task: "Over budget", transport: "process" }),
     ).rejects.toThrow(/budget exceeded/i);
     expect(inert.touches()).toBe(0);
+  });
+});
+
+describe("model tier gate", async () => {
+  it("does not judge an unpinned run while the gate defaults off", async () => {
+    const inert = explodingLane();
+    const agents = manager({
+      prepareOmpModel: async () => "omp/session-default",
+      judgment: inert.lane,
+      judgmentGates: () => DEFAULT_FABRIC_CONFIG.judgment.gates,
+    });
+    const result = await agents.run({ task: "Legacy model", transport: "process" });
+    expect(inert.touches()).toBe(0);
+    expect(result.status).toBe("completed");
+    expect(result.model).toBe("omp/session-default");
+  });
+
+  interface PreservedModelCase {
+    label: string;
+    model?: string;
+    roles?: typeof DEFAULT_FABRIC_CONFIG.agents.roles;
+    request: { model?: string; role?: string };
+    expected: string;
+  }
+
+  const preservedModelCases: PreservedModelCase[] = [
+    {
+      label: "explicit model",
+      request: { model: "openai/gpt-5" },
+      expected: "openai/gpt-5",
+    },
+    {
+      label: "role model",
+      roles: { reviewer: { instructions: "Review only.", model: "anthropic/executor" } },
+      request: { role: "reviewer" },
+      expected: "anthropic/executor",
+    },
+    {
+      label: "configured agents.model",
+      model: "omp/configured",
+      request: {},
+      expected: "omp/configured",
+    },
+  ];
+
+  it.each(preservedModelCases)(
+    "preserves the $label without a tier judgment",
+    async (testCase) => {
+      const inert = explodingLane();
+      const agents = manager({
+        ...(testCase.model === undefined ? {} : { model: testCase.model }),
+        ...(testCase.roles === undefined ? {} : { roles: testCase.roles }),
+        judgment: inert.lane,
+        judgmentGates: gates(false, true),
+      });
+      const handle = await agents.spawn({
+        task: "Preserved model",
+        transport: "process",
+        ...testCase.request,
+      });
+      expect(inert.touches()).toBe(0);
+      expect(handle.model).toBe(testCase.expected);
+    },
+  );
+
+  it("falls back to the original model when the suggested tier model is unavailable", async () => {
+    const prepared: Array<string | undefined> = [];
+    const agents = manager({
+      judgment: stubLane({ choice: "heavy" }),
+      judgmentGates: gates(false, true),
+      prepareOmpModel: async (model) => {
+        prepared.push(model);
+        if (model === "@slow") throw new Error("@slow is unavailable");
+        return "omp/session-default";
+      },
+    });
+    const result = await agents.run({ task: "Unavailable tier model", transport: "process" });
+    expect(prepared).toEqual(["@slow", undefined]);
+    expect(result.status).toBe("completed");
+    expect(result.model).toBe("omp/session-default");
+  });
+
+  it("shares one backend request between the tier and delegation decisions", async () => {
+    const seen: JudgmentRequest[] = [];
+    const agents = manager({
+      judgment: stubLane({ choice: "heavy", effort: { "6": 1 } }, seen),
+      judgmentGates: gates(true, true),
+    });
+    const result = await agents.run({ task: "Tiered delegation", transport: "process" });
+    expect(seen).toHaveLength(1);
+    expect(askedIds(seen[0]!).map((id) => id.replace(/^q\d+_/, "")).sort()).toEqual([
+      "agentKind", "effort", "modelTier",
+    ]);
+    expect(result.status).toBe("completed");
+    expect(result.model).toBe("@slow");
+    expect(result.thinking).toBe("max");
   });
 });

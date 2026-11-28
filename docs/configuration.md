@@ -542,6 +542,7 @@ Mesh topics, shared state, and the participant directory remain project-scoped. 
 - `judgment.gates.toolExec` (default `false`) judges a core or captured tool call before it runs.
 - `judgment.gates.toolOutput` (default `false`) judges fetched text before it enters the model's context.
 - `judgment.gates.delegation` (default `false`) judges which agent kind and effort a delegated run takes.
+- `judgment.gates.modelTier` (default `false`) lets Judge suggest `@smol`, `@default`, or `@slow` for a new session-owned OMP delegation. An explicit model, agent role model, or `agents.model` takes precedence. Low-confidence judgments or unavailable models keep ordinary routing.
 - `judgment.gates.skills` (default `false`) ranks the skill roster for the turn and names at most one skill on the message channel. Measured on a 765-skill roster it adds 1.1 seconds at the median and 1.9 at the worst; see [Judgment](judgment.md).
 - `judgment.maxStateBytes` (1 KiB-512 KiB, default 64 KiB) bounds the judged state. A larger state is refused, never truncated, because silently cutting the evidence changes the answer while reporting nothing.
 
